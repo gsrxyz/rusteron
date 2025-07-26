@@ -41,30 +41,30 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y uuid-dev
 
-#      - name: Cache cargo-release binary
-#        uses: actions/cache@v4
-#        with:
-#          path: ~/.cargo/bin/cargo-release
-#          key: cargo-release-${{ runner.os }}
+      - name: Cache cargo-release binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-release
+          key: cargo-release-${{ runner.os }}
 
-#      - name: Cache Gradle dependencies
-#        uses: actions/cache@v4
-#        with:
-#          path: |
-#            ~/.gradle/caches
-#            ~/.gradle/wrapper
-#          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle/wrapper/gradle-wrapper.properties') }}
-#          restore-keys: |
-#            ${{ runner.os }}-gradle-
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
-#      - name: Test with artifacts
-#        run: |
-#          cargo test --features static --workspace -- --nocapture
-#          git reset --hard HEAD
-#          git clean -fdx -e artifacts
+      - name: Test with artifacts
+        run: |
+          cargo test --features static --workspace -- --nocapture
+          git reset --hard HEAD
+          git clean -fdx -e artifacts
 
-#      - name: Install cargo-release
-#        run: cargo install cargo-release || true
+      - name: Install cargo-release
+        run: cargo install cargo-release || true
 
       - name: Run cargo-release for specified version
         env:
@@ -73,15 +73,15 @@ jobs:
         run: |
           git config --global user.email "mohammed.imran@gsr.io"
           git config --global user.name "Mo Imran"
-#          release_type="${{ github.event.inputs.release_type }}"
-#          cargo release "$release_type" --workspace --execute --no-confirm --verbose --no-verify
+          release_type="${{ github.event.inputs.release_type }}"
+          cargo release "$release_type" --workspace --execute --no-confirm --verbose --no-verify
 
-#      - name: Push new version and tag to GitHub
-#        uses: ad-m/github-push-action@v0.8.0
-#        with:
-#          github_token: ${{ secrets.GITHUB_TOKEN }}
-#          branch: main
-#          tags: false
+      - name: Push new version and tag to GitHub
+        uses: ad-m/github-push-action@v0.8.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: main
+          tags: false
 
       - name: Determine latest CI run ID
         id: find_ci
@@ -112,8 +112,7 @@ jobs:
           CI_RUN: ${{ steps.find_ci.outputs.ci_run_id }}
         run: |
           # define your list here:
-#          artifacts=(artifacts-macos-latest-static artifacts-macos-13-static artifacts-windows-latest-static artifacts-ubuntu-latest-static)
-          artifacts=(artifacts-macos-latest-static artifacts-ubuntu-latest-static)
+          artifacts=(artifacts-macos-latest-static artifacts-ubuntu-latest-static artifacts-windows-latest-static)
 
           for art in "${artifacts[@]}"; do
             echo "⏬ Downloading $art into artifacts/$art"
@@ -142,25 +141,25 @@ jobs:
           version=$(grep '"rusteron-code-gen", version = ' Cargo.toml | sed -E 's/.*version = "=([^"]+)".*/\1/g')
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "found $version"
-#      - uses: actions/create-release@v1
-#        id: create_release
-#        with:
-#          tag_name: v${{ steps.extract_version.outputs.version }}
-#          release_name: v${{ steps.extract_version.outputs.version }}
-#          draft: false
-#          prerelease: false
-#        env:
-#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/create-release@v1
+        id: create_release
+        with:
+          tag_name: v${{ steps.extract_version.outputs.version }}
+          release_name: v${{ steps.extract_version.outputs.version }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-#      - name: Upload Release Assets
-#        env:
-#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#        run: |
-#          shopt -s nullglob
-#          for f in artifacts/*.tar.gz; do
-#            echo "⏫ Uploading $f"
-#            gh release upload "v${{ steps.extract_version.outputs.version }}" "$f"
-#          done
+      - name: Upload Release Assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          for f in artifacts/*.tar.gz; do
+            echo "⏫ Uploading $f"
+            gh release upload "v${{ steps.extract_version.outputs.version }}" "$f"
+          done
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
