@@ -45,8 +45,7 @@ impl LinkType {
 
 pub fn main() {
     // Skip build script when building on docs.rs
-    let docs_rs = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("docs-rs");
+    let docs_rs = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("docs-rs");
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     if std::env::var("DOCS_RS").is_ok() {
         println!("cargo:warning=docs.rs build detected, skipping build script");
@@ -328,8 +327,7 @@ pub fn main() {
     }
 
     // copy source code so docs-rs does not need to compile it
-    let docs_rs = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("docs-rs");
+    let docs_rs = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("docs-rs");
     let _ = std::fs::create_dir_all(&docs_rs);
 
     for rs in [&aeron, &aeron_custom, &out] {

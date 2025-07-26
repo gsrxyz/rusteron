@@ -20244,6 +20244,7 @@ impl AeronDriver {
         }
     }
     #[inline]
+    #[docs = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
     pub fn uri_get_offset_info(offset: i32) -> &'static str {
         unsafe {
             let result = aeron_driver_uri_get_offset_info(offset.into());
@@ -20255,6 +20256,7 @@ impl AeronDriver {
         }
     }
     #[inline]
+    #[docs = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
     pub fn threading_mode_to_string(mode: aeron_threading_mode_t) -> &'static str {
         unsafe {
             let result = aeron_driver_threading_mode_to_string(mode.into());
@@ -22012,6 +22014,7 @@ impl AeronError {
         self.error_length.into()
     }
     #[inline]
+    #[docs = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
     pub fn code_str(errcode: ::std::os::raw::c_int) -> &'static str {
         unsafe {
             let result = aeron_error_code_str(errcode.into());
@@ -46319,6 +46322,7 @@ impl Aeron {
     #[doc = "Return full version and build string."]
     #[doc = ""]
     #[doc = " \n# Return\n full version and build string."]
+    #[docs = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
     pub fn version_full() -> &'static str {
         unsafe {
             let result = aeron_version_full();
@@ -46333,6 +46337,7 @@ impl Aeron {
     #[doc = "Return version text."]
     #[doc = ""]
     #[doc = " \n# Return\n version text."]
+    #[docs = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
     pub fn version_text() -> &'static str {
         unsafe {
             let result = aeron_version_text();
@@ -46389,6 +46394,7 @@ impl Aeron {
     #[doc = "Return the git sha for the current build."]
     #[doc = ""]
     #[doc = " \n# Return\n git version"]
+    #[docs = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
     pub fn version_gitsha() -> &'static str {
         unsafe {
             let result = aeron_version_gitsha();
@@ -46520,6 +46526,7 @@ impl Aeron {
     #[doc = "Return the current aeron error message for calling thread."]
     #[doc = ""]
     #[doc = " \n# Return\n aeron error message for calling thread."]
+    #[docs = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
     pub fn errmsg() -> &'static str {
         unsafe {
             let result = aeron_errmsg();
@@ -50598,6 +50605,7 @@ impl AeronUriParams {
         self.array.into()
     }
     #[inline]
+    #[docs = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
     pub fn aeron_uri_find_param_value(
         uri_params: *const aeron_uri_params_t,
         key: &std::ffi::CStr,

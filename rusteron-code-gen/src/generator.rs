@@ -610,17 +610,19 @@ impl CWrapper {
 
                 let converter = return_type_helper.handle_c_to_rs_return(quote! { result }, true, false);
 
+                let mut method_docs: Vec<TokenStream> = get_docs(&method.docs, wrappers, Some(&fn_arguments) );
+
                 let possible_self = if uses_self  {
                     quote! { &self, }
                 } else {
                     if return_type.to_string().eq("& str") {
                         return_type = quote! { &'static str  };
+                        method_docs.push(quote! {#[docs = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]});
                     }
                     quote! {}
                 };
 
 
-                let method_docs: Vec<TokenStream> = get_docs(&method.docs, wrappers, Some(&fn_arguments) );
 
                 let mut additional_methods = vec![];
 
