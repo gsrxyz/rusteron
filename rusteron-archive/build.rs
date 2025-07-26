@@ -350,9 +350,8 @@ pub fn main() {
 
     #[cfg(feature = "static")]
     if publish_binaries {
-        let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
         let cmake_lib_dir = cmake_output;
-        publish_artifacts(&out_path, &cmake_lib_dir).expect("Failed to publish artifacts");
+        publish_artifacts(&cmake_lib_dir).expect("Failed to publish artifacts");
     }
 
     // copy source code so docs-rs does not need to compile it
@@ -435,7 +434,7 @@ fn copy_binds(out: PathBuf) {
 }
 
 #[allow(dead_code)]
-fn publish_artifacts(out_path: &Path, cmake_build_path: &Path) -> std::io::Result<()> {
+fn publish_artifacts(cmake_build_path: &Path) -> std::io::Result<()> {
     let publish_dir = get_artifact_path();
 
     let lib_extensions = ["a", "so", "dylib", "lib"];

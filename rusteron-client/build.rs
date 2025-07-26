@@ -46,8 +46,8 @@ impl LinkType {
 pub fn main() {
     // Skip build script when building on docs.rs
     let docs_rs = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("docs-rs");
-    let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     if std::env::var("DOCS_RS").is_ok() {
+        let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
         println!("cargo:warning=docs.rs build detected, skipping build script");
         for entry in WalkDir::new(&docs_rs) {
             let entry = entry.unwrap();
@@ -312,9 +312,8 @@ pub fn main() {
 
     #[cfg(feature = "static")]
     if publish_binaries {
-        let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
         let cmake_lib_dir = cmake_output;
-        publish_artifacts(&out_path, &cmake_lib_dir).expect("Failed to publish artifacts");
+        publish_artifacts(&cmake_lib_dir).expect("Failed to publish artifacts");
     }
 
     // copy source code so docs-rs does not need to compile it
@@ -365,19 +364,8 @@ fn get_artifact_path() -> PathBuf {
 }
 
 #[allow(dead_code)]
-fn publish_artifacts(out_path: &Path, cmake_build_path: &Path) -> std::io::Result<()> {
+fn publish_artifacts(cmake_build_path: &Path) -> std::io::Result<()> {
     let publish_dir = get_artifact_path();
-
-    // Copy all generated Rust files (*.rs) from OUT_DIR.
-    for entry in WalkDir::new(out_path) {
-        let entry = entry.unwrap();
-        if entry.file_type().is_file()
-            && entry.path().extension().map(|s| s == "rs").unwrap_or(false)
-        {
-            let file_name = entry.path().file_name().unwrap();
-            fs::copy(entry.path(), publish_dir.join(file_name))?;
-        }
-    }
 
     let lib_extensions = ["a", "so", "dylib", "lib"];
 

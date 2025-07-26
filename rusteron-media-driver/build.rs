@@ -321,9 +321,8 @@ pub fn main() {
     #[cfg(feature = "static")]
     // media driver libs are too big there is 10meg limit so only do mac os
     if publish_binaries {
-        let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
         let cmake_lib_dir = cmake_output;
-        publish_artifacts(&out_path, &cmake_lib_dir).expect("Failed to publish artifacts");
+        publish_artifacts(&cmake_lib_dir).expect("Failed to publish artifacts");
     }
 
     // copy source code so docs-rs does not need to compile it
@@ -374,20 +373,8 @@ fn get_artifact_path() -> PathBuf {
 }
 
 #[allow(dead_code)]
-fn publish_artifacts(out_path: &Path, cmake_build_path: &Path) -> std::io::Result<()> {
+fn publish_artifacts(cmake_build_path: &Path) -> std::io::Result<()> {
     let publish_dir = get_artifact_path();
-
-    // Copy all generated Rust files (*.rs) from OUT_DIR.
-    for entry in WalkDir::new(out_path) {
-        let entry = entry.unwrap();
-        if entry.file_type().is_file()
-            && entry.path().extension().map(|s| s == "rs").unwrap_or(false)
-        {
-            let file_name = entry.path().file_name().unwrap();
-            fs::copy(entry.path(), publish_dir.join(file_name))?;
-        }
-    }
-
     let lib_extensions = ["a", "so", "dylib", "lib"];
 
     let mut libs_copied = 0;

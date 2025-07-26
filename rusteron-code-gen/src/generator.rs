@@ -617,7 +617,7 @@ impl CWrapper {
                 } else {
                     if return_type.to_string().eq("& str") {
                         return_type = quote! { &'static str  };
-                        method_docs.push(quote! {#[docs = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]});
+                        method_docs.push(quote! {#[doc = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]});
                     }
                     quote! {}
                 };
