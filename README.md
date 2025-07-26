@@ -185,6 +185,6 @@ Licensed under either [MIT License](https://opensource.org/licenses/MIT) or [Apa
 
 Special thanks to:
 
-* [@mmimran1980](https://github.com/mimran1980), a core low-latency developer at GSR and the original creator of Rusteron - your work made this possible!
+* [@mimran1980](https://github.com/mimran1980), a core low-latency developer at GSR and the original creator of Rusteron - your work made this possible!
 * [@bspeice](https://github.com/bspeice) for the original [`libaeron-sys`](https://github.com/bspeice/libaeron-sys)
 * The [Aeron](https://github.com/real-logic/aeron) community for open protocol excellence
