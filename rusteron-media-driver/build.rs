@@ -44,6 +44,26 @@ impl LinkType {
 }
 
 pub fn main() {
+    // Skip build script when building on docs.rs
+    let docs_rs = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("docs-rs");
+    let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
+    if std::env::var("DOCS_RS").is_ok() {
+        println!("cargo:warning=docs.rs build detected, skipping build script");
+        for entry in WalkDir::new(&docs_rs) {
+            let entry = entry.unwrap();
+            if entry.file_type().is_file()
+                && entry.path().extension().map(|s| s == "rs").unwrap_or(false)
+            {
+                let file_name = entry.path().file_name().unwrap();
+                let dest = out_path.join(file_name);
+                fs::copy(entry.path(), dest)
+                    .expect("Failed to copy generated Rust file from artifacts");
+            }
+        }
+        return;
+    }
+
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=bindings.h");
     // Determine the artifacts folder based on feature, OS, and architecture.
@@ -107,7 +127,7 @@ pub fn main() {
         }
 
         // Copy generated Rust files (*.rs) from the artifacts folder into OUT_DIR.
-        for entry in WalkDir::new(&artifacts_dir) {
+        for entry in WalkDir::new(&docs_rs) {
             let entry = entry.unwrap();
             if entry.file_type().is_file()
                 && entry.path().extension().map(|s| s == "rs").unwrap_or(false)
@@ -296,7 +316,7 @@ pub fn main() {
     )
     .unwrap();
     if std::env::var("COPY_BINDINGS").is_ok() {
-        copy_binds(out);
+        copy_binds(out.clone());
     }
 
     #[cfg(feature = "static")]
@@ -305,6 +325,16 @@ pub fn main() {
         let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
         let cmake_lib_dir = cmake_output;
         publish_artifacts(&out_path, &cmake_lib_dir).expect("Failed to publish artifacts");
+    }
+
+    // copy source code so docs-rs does not need to compile it
+    let docs_rs = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("docs-rs");
+    let _ = std::fs::create_dir_all(&docs_rs);
+
+    for rs in [&aeron, &aeron_custom, &out] {
+        fs::copy(rs, docs_rs.join(rs.file_name().unwrap()))
+            .expect("Failed to copy source code for docs-rs");
     }
 }
 
