@@ -99,7 +99,7 @@ pub fn archive_connect() -> Result<(AeronArchive, Aeron), io::Error> {
                         Ok(_) => {
                             info!(
                             "Successfully connected to aeron client, now trying to connect to archive... [aeronVersion={}, errors={:?}, closed={}]",
-                            aeron.version_full(),
+                            Aeron::version_full(),
                             Aeron::errmsg(),
                             aeron.is_closed()
                         );
