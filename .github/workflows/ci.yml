@@ -118,7 +118,6 @@ jobs:
           # Copy uuid and BSD headers into musl sysroot
           sudo mkdir -p /usr/x86_64-linux-musl/include/uuid /usr/x86_64-linux-musl/include/bsd
           sudo cp -r /usr/include/uuid/* /usr/x86_64-linux-musl/include/uuid/
-          sudo cp -r /usr/include/bsd/* /usr/x86_64-linux-musl/include/bsd/
           sudo rm -rf /usr/x86_64-linux-musl/include/uuid/uuid /usr/x86_64-linux-musl/include/bsd/bsd
           rustup target add x86_64-unknown-linux-musl
           ln -s "$(which musl-gcc)" /usr/local/bin/x86_64-linux-musl-g++
