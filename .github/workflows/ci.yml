@@ -111,6 +111,8 @@ jobs:
           CXX_x86_64_unknown_linux_musl: musl-gcc
         run: |
           sudo apt-get update && sudo apt-get install -y musl-tools linux-libc-dev
+          # Prepare musl sysroot include directories
+          sudo mkdir -p /usr/x86_64-linux-musl/include/linux /usr/x86_64-linux-musl/include/asm-generic
           sudo cp -r /usr/include/linux /usr/x86_64-linux-musl/include/linux
           sudo cp -r /usr/include/asm-generic /usr/x86_64-linux-musl/include/asm-generic
           rustup target add x86_64-unknown-linux-musl
