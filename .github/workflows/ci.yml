@@ -107,12 +107,11 @@ jobs:
         if: runner.os == 'Linux'
         env:
           PUBLISH_ARTIFACTS: true
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CXX_x86_64_unknown_linux_musl: musl-gcc
         run: |
-          # building using musl to remove requirement of glibc
           sudo apt-get install -y musl-tools
           rustup target add x86_64-unknown-linux-musl
-          export CC_x86_64_unknown_linux-musl=musl-gcc
-          export CXX_x86_64_unknown_linux_musl=musl-gcc
           ln -s "$(which musl-gcc)" /usr/local/bin/x86_64-linux-musl-g++
           cargo build --release --target x86_64-unknown-linux-musl --workspace ${{ env.feature-flags }}
           cargo test --workspace --target x86_64-unknown-linux-musl --all --all-targets ${{ env.feature-flags }} -- --nocapture
