@@ -82,10 +82,6 @@ jobs:
           toolchain: ${{ matrix.rust-version }}
           components: clippy, rustfmt
 
-      - name: Install dependencies on Ubuntu
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y curl pkg-config libssl-dev uuid-dev ca-certificates make cmake gcc g++ clang zlib1g-dev libbsd-dev
-
       # aeron archive cmake for some reason starts java
       - name: Install Java
         uses: actions/setup-java@v4
@@ -110,7 +106,7 @@ jobs:
           CC_x86_64_unknown_linux_musl: musl-gcc
           CXX_x86_64_unknown_linux_musl: musl-gcc
         run: |
-          sudo apt-get update && sudo apt-get install -y musl-tools linux-libc-dev && sudo apt-get -y upgrade
+          sudo apt-get update && sudo apt-get install -y curl pkg-config libssl-dev uuid-dev ca-certificates make cmake gcc g++ clang zlib1g-dev libbsd-dev musl-tools linux-libc-dev
           # Prepare musl sysroot include directories
           sudo mkdir -p /usr/x86_64-linux-musl/include/linux /usr/x86_64-linux-musl/include/asm-generic
           sudo cp -r /usr/include/linux/* /usr/x86_64-linux-musl/include/linux/
