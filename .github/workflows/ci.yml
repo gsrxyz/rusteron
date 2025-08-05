@@ -103,7 +103,7 @@ jobs:
         run: |
           Remove-Item -LiteralPath 'rusteron-archive/artifacts','rusteron-client/artifacts','rusteron-media-driver/artifacts' -Recurse -Force -ErrorAction SilentlyContinue
 
-      - name: Build musl binaries and Test
+      - name: Build and Test
         if: runner.os == 'Linux'
         env:
           PUBLISH_ARTIFACTS: true
