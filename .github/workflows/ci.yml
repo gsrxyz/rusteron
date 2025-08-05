@@ -49,7 +49,7 @@ jobs:
 
       - name: Check docs
         run: |
-          sudo apt-get update && sudo apt-get install -y libuuid-dev uuid-dev
+          sudo apt-get update && sudo apt-get install -y uuid-dev
           cargo test --doc
 
   build:
@@ -108,7 +108,7 @@ jobs:
           PKG_CONFIG_ALLOW_CROSS_x86_64_unknown_linux_musl: 1
           PKG_CONFIG_ALLOW_CROSS: 1
         run: |
-          sudo apt-get update && sudo apt-get install -y curl pkg-config libssl-dev libuuid-dev ca-certificates make cmake gcc g++ clang uuid-dev zlib1g-dev libbsd-dev musl-tools linux-libc-dev
+          sudo apt-get update && sudo apt-get install -y curl pkg-config libssl-dev ca-certificates make cmake gcc g++ clang uuid-dev zlib1g-dev libbsd-dev musl-tools linux-libc-dev
           # Prepare musl sysroot include directories
           sudo mkdir -p /usr/x86_64-linux-musl/include/linux /usr/x86_64-linux-musl/include/asm-generic
           sudo cp -r /usr/include/linux/* /usr/x86_64-linux-musl/include/linux/
