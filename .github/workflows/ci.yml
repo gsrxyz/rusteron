@@ -103,21 +103,25 @@ jobs:
         run: |
           Remove-Item -LiteralPath 'rusteron-archive/artifacts','rusteron-client/artifacts','rusteron-media-driver/artifacts' -Recurse -Force -ErrorAction SilentlyContinue
 
-      - name: Build and Test
+      - name: Build musl binaries and Test
+        if: runner.os == 'Linux'
         env:
           PUBLISH_ARTIFACTS: true
         run: |
-          if [ "${RUNNER_OS}" != "Linux" ]; then
-            cargo build --release --workspace ${{ env.feature-flags }}
-            cargo test --workspace --all --all-targets ${{ env.feature-flags }} -- --nocapture
-          else
-            # building using musl to remove requirement of glibc
-            rustup target add x86_64-unknown-linux-musl
-            export CC_x86_64_unknown_linux-musl=musl-gcc
-            export CXX_x86_64_unknown_linux_musl=musl-gcc
-            cargo build --release --target x86_64-unknown-linux-musl --workspace ${{ env.feature-flags }}
-            cargo test --workspace --target x86_64-unknown-linux-musl --all --all-targets ${{ env.feature-flags }} -- --nocapture
-          fi
+          # building using musl to remove requirement of glibc
+          rustup target add x86_64-unknown-linux-musl
+          export CC_x86_64_unknown_linux-musl=musl-gcc
+          export CXX_x86_64_unknown_linux_musl=musl-gcc
+          cargo build --release --target x86_64-unknown-linux-musl --workspace ${{ env.feature-flags }}
+          cargo test --workspace --target x86_64-unknown-linux-musl --all --all-targets ${{ env.feature-flags }} -- --nocapture
+
+      - name: Build and Test
+        if: runner.os != 'Linux'
+        env:
+          PUBLISH_ARTIFACTS: true
+        run: |
+          cargo build --release --workspace ${{ env.feature-flags }}
+          cargo test --workspace --all --all-targets ${{ env.feature-flags }} -- --nocapture
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
