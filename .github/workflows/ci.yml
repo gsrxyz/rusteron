@@ -110,7 +110,9 @@ jobs:
           CC_x86_64_unknown_linux_musl: musl-gcc
           CXX_x86_64_unknown_linux_musl: musl-gcc
         run: |
-          sudo apt-get install -y musl-tools
+          sudo apt-get update && sudo apt-get install -y musl-tools linux-libc-dev
+          sudo cp -r /usr/include/linux /usr/x86_64-linux-musl/include/linux
+          sudo cp -r /usr/include/asm-generic /usr/x86_64-linux-musl/include/asm-generic
           rustup target add x86_64-unknown-linux-musl
           ln -s "$(which musl-gcc)" /usr/local/bin/x86_64-linux-musl-g++
           cargo build --release --target x86_64-unknown-linux-musl --workspace ${{ env.feature-flags }}
