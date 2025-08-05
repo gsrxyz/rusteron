@@ -84,7 +84,7 @@ jobs:
 
       - name: Install dependencies on Ubuntu
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y curl pkg-config libssl-dev uuid-dev ca-certificates make cmake gcc g++ clang zlib1g-dev libbsd-dev
+        run: sudo apt-get update && sudo apt-get install -y curl pkg-config libssl-dev uuid-dev ca-certificates make cmake gcc g++ clang zlib1g-dev libbsd-dev musl-tools
 
       # aeron archive cmake for some reason starts java
       - name: Install Java
@@ -107,12 +107,16 @@ jobs:
         env:
           PUBLISH_ARTIFACTS: true
         run: |
-          rustup target add x86_64-unknown-linux-musl
-          sudo apt-get update && sudo apt-get install -y musl-tools
-          export CC_x86_64_unknown_linux_musl=musl-gcc
-  
-          cargo build --release --target x86_64-unknown-linux-musl --workspace ${{ env.feature-flags }}
-          cargo test --workspace --target x86_64-unknown-linux-musl --all --all-targets ${{ env.feature-flags }} -- --nocapture
+          if [ "${RUNNER_OS}" != "Linux" ]; then
+            cargo build --release --workspace ${{ env.feature-flags }}
+            cargo test --workspace --all --all-targets ${{ env.feature-flags }} -- --nocapture
+          else
+            # building using musl to remove requirement of glibc
+            rustup target add x86_64-unknown-linux-musl
+            export CC_x86_64_unknown_linux-musl=musl-gcc
+            cargo build --release --target x86_64-unknown-linux-musl --workspace ${{ env.feature-flags }}
+            cargo test --workspace --target x86_64-unknown-linux-musl --all --all-targets ${{ env.feature-flags }} -- --nocapture
+          fi
 
 
       - name: Upload Artifacts
