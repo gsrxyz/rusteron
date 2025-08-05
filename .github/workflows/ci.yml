@@ -114,10 +114,10 @@ jobs:
             # building using musl to remove requirement of glibc
             rustup target add x86_64-unknown-linux-musl
             export CC_x86_64_unknown_linux-musl=musl-gcc
+            export CXX_x86_64_unknown_linux_musl=musl-gcc
             cargo build --release --target x86_64-unknown-linux-musl --workspace ${{ env.feature-flags }}
             cargo test --workspace --target x86_64-unknown-linux-musl --all --all-targets ${{ env.feature-flags }} -- --nocapture
           fi
-
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
