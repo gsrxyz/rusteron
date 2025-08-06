@@ -107,9 +107,11 @@ jobs:
         if: runner.os == 'Linux'
         env:
           PUBLISH_ARTIFACTS: true
+          CROSS_CONTAINER_UID: 0
+          CROSS_CONTAINER_GID: 0
           GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
           CROSS_CONTAINER_OPTS: >-
-            --volume=${{ github.workspace }}/.gradle:/root/.gradle
+            --volume=${{ github.workspace }}/.gradle:/root/.gradle:rw
             --env GRADLE_USER_HOME=/root/.gradle
             --env PUBLISH_ARTIFACTS=true
         run: |
