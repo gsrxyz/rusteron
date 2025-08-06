@@ -113,9 +113,9 @@ jobs:
           sudo apt-get update 
           sudo apt-get install -y curl pkg-config libssl-dev ca-certificates make cmake gcc g++ clang uuid-dev zlib1g-dev libbsd-dev musl-tools linux-libc-dev default-jdk
           rustup target add x86_64-unknown-linux-musl
-          curl -LO https://ziglang.org/download/0.14.1/zig-linux-x86_64-0.14.1.tar.xz
-          tar xf zig-linux-x86_64-0.14.1.tar.xz
-          export PATH="$PWD/zig-linux-x86_64-0.14.1:$PATH"
+          curl -LO https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz
+          tar xf zig-x86_64-linux-0.14.1.tar.xz
+          export PATH="$PWD/zig-x86_64-linux-0.14.1:$PATH"
           cargo install --locked cargo-zigbuild
           #cargo install cross --locked
           cargo zigbuild --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }}
