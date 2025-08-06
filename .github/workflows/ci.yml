@@ -107,6 +107,9 @@ jobs:
         if: runner.os == 'Linux'
         env:
           PUBLISH_ARTIFACTS: true
+          CROSS_CONTAINER_OPTS: >-
+            --volume=${HOME}/.gradle:/root/.gradle
+            --env GRADLE_USER_HOME=/root/.gradle
         run: |
           rustup target add x86_64-unknown-linux-musl
           cargo install --locked cross
