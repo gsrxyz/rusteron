@@ -78,12 +78,13 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust and MUSL target
+        uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.rust-version }}
           components: clippy, rustfmt
           targets: x86_64-unknown-linux-musl
+          profile: minimal
 
       # aeron archive cmake for some reason starts java
       - name: Install Java
@@ -110,6 +111,10 @@ jobs:
 #          CXX_x86_64_unknown_linux_musl: musl-gcc
           PKG_CONFIG_ALLOW_CROSS_x86_64_unknown_linux_musl: 1
           PKG_CONFIG_ALLOW_CROSS: 1
+          # point Cargo’s musl target linker at zig
+          CC_x86_64_unknown_linux_musl: zig cc
+          CXX_x86_64_unknown_linux_musl: zig c++
+          AR_x86_64_unknown_linux_musl: zig ar
 #          C_INCLUDE_PATH: /usr/include
 #          CPLUS_INCLUDE_PATH: /usr/include
         run: |
@@ -120,7 +125,7 @@ jobs:
           export PATH="$PWD/zig-x86_64-linux-0.14.1:$PATH"
           cargo install --locked cargo-zigbuild
           #cargo install cross --locked
-          cargo zigbuild --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }}
+          cargo zigbuild --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }} -- -DCMAKE_DISABLE_FIND_PACKAGE_BSD=ON -DCMAKE_DISABLE_FIND_PACKAGE_UUID=ON
           # cross test  --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }} -- --nocapture
 
       - name: Build and Test
