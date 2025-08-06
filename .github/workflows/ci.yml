@@ -105,14 +105,10 @@ jobs:
         if: runner.os == 'Linux'
         env:
           PUBLISH_ARTIFACTS: true
-          CC_x86_64_unknown_linux_musl: musl-gcc
-          CXX_x86_64_unknown_linux_musl: musl-gcc
           PKG_CONFIG_ALLOW_CROSS_x86_64_unknown_linux_musl: 1
           PKG_CONFIG_ALLOW_CROSS: 1
-          C_INCLUDE_PATH: /usr/include
-          CPLUS_INCLUDE_PATH: /usr/include
         run: |
-          sudo apt-get update && sudo apt-get install -y curl pkg-config libssl-dev ca-certificates make cmake gcc g++ clang libclang-dev llvm-dev musl-tools musl-dev libbsd-dev uuid-dev default-jdk
+          sudo apt-get update && sudo apt-get install -y build-essential libc6-dev curl pkg-config libssl-dev ca-certificates make cmake gcc g++ clang libclang-dev llvm-dev musl-tools libbsd-dev uuid-dev default-jdk
           rustup target add x86_64-unknown-linux-musl
           curl -LO https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz
           tar xf zig-x86_64-linux-0.14.1.tar.xz
