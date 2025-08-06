@@ -1,7 +1,6 @@
 [target.x86_64-unknown-linux-musl]
 pre-build = [
-    "dpkg --add-architecture amd64",
+    "export DEBIAN_FRONTEND=noninteractive",
     "apt-get update",
-    "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libssl-dev:amd64 linux-libc-dev:amd64 uuid-dev:amd64 pkg-config:amd64",
-    "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates default-jdk tzdata make cmake gcc g++ clang libclang-dev llvm-dev musl-tools musl-dev libbsd-dev"
+    "apt-get install -y curl ca-certificates default-jdk tzdata make cmake gcc g++ clang libclang-dev llvm-dev zlib1g-dev libbsd-dev uuid-dev libssl-dev pkg-config musl-tools musl-dev"
 ]
