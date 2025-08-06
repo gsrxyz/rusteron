@@ -109,7 +109,7 @@ jobs:
           PUBLISH_ARTIFACTS: true
         run: |
           rustup target add x86_64-unknown-linux-musl
-          cargo install cargo-cross
+          cargo install --locked cross
           cross build --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }}
           cross test  --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }} -- --nocapture
 
