@@ -2,5 +2,5 @@
 pre-build = [
     "export DEBIAN_FRONTEND=noninteractive",
     "apt-get update",
-    "apt-get install -y curl ca-certificates default-jdk tzdata make cmake gcc g++ clang libclang-dev llvm-dev zlib1g-dev libbsd-dev uuid-dev libssl-dev pkg-config musl-tools musl-dev"
+    "apt-get install -y curl ca-certificates default-jdk tzdata make cmake gcc g++ clang libclang-dev llvm-dev zlib1g-dev libbsd-dev uuid-dev libssl-dev pkg-config"
 ]
