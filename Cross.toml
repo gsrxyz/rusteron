@@ -19,7 +19,7 @@ pre-build = [
     "export CC=x86_64-linux-musl-gcc",
     "export AR=x86_64-linux-musl-ar",
     "export RANLIB=x86_64-linux-musl-ranlib",
-    "export CFLAGS='-static'",
+    "export CFLAGS=-static",
     "find / | grep rusteron-archive/aeron",
     "cd /volume/rusteron-archive/aeron && ./gradlew :aeron-all:build",
     "cd /volume/rusteron-media-driver/aeron && ./gradlew :aeron-all:build",
