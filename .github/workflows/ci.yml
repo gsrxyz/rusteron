@@ -114,8 +114,8 @@ jobs:
           PKG_CONFIG_ALLOW_CROSS: 1
           C_INCLUDE_PATH: /usr/include
           CPLUS_INCLUDE_PATH: /usr/include
-          C_INCLUDE_PATH_x86_64_unknown_linux_musl: /usr/include/x86_64-linux-gnu
-          CPLUS_INCLUDE_PATH_x86_64_unknown_linux_musl: /usr/include/x86_64-linux-gnu
+          C_INCLUDE_PATH_x86_64_unknown_linux_musl: /usr/include/x86_64-linux-gnu:/usr/include
+          CPLUS_INCLUDE_PATH_x86_64_unknown_linux_musl: /usr/include/x86_64-linux-gnu:/usr/include
 
         run: |
           sudo apt-get update && sudo apt-get install -y curl linux-libc-dev pkg-config libssl-dev ca-certificates make cmake gcc g++ clang libclang-dev llvm-dev musl-tools musl-dev libbsd-dev uuid-dev default-jdk
