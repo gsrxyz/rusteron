@@ -116,8 +116,8 @@ jobs:
 #          CC_x86_64_unknown_linux_musl: zig cc
 #          CXX_x86_64_unknown_linux_musl: zig c++
 #          AR_x86_64_unknown_linux_musl: zig ar
-#          C_INCLUDE_PATH: /usr/include
-#          CPLUS_INCLUDE_PATH: /usr/include
+          C_INCLUDE_PATH: /usr/include
+          CPLUS_INCLUDE_PATH: /usr/include
         run: |
           sudo apt-get update && sudo apt-get install -y curl linux-libc-dev pkg-config libssl-dev ca-certificates make cmake gcc g++ clang libclang-dev llvm-dev musl-tools musl-dev libbsd-dev uuid-dev default-jdk
           rustup target add x86_64-unknown-linux-musl
