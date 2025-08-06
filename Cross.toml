@@ -1,6 +1,8 @@
 [target.x86_64-unknown-linux-musl]
 pre-build = [
-    "export DEBIAN_FRONTEND=noninteractive",
+    # allow installing the Debian/Ubuntu glibc-dev bits for the build container
+    "dpkg --add-architecture amd64",
     "apt-get update",
-    "apt-get install -y --no-install-recommends curl linux-libc-dev pkg-config libssl-dev ca-certificates make cmake gcc g++ clang libclang-dev llvm-dev musl-tools musl-dev libbsd-dev uuid-dev default-jdk tzdata"
+    "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libssl-dev:amd64 linux-libc-dev:amd64 uuid-dev:amd64 pkg-config:amd64",
+    "DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates default-jdk tzdata make cmake gcc g++ clang libclang-dev llvm-dev musl-tools musl-dev libbsd-dev"
 ]
