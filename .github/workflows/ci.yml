@@ -125,7 +125,7 @@ jobs:
           export PATH="$PWD/zig-x86_64-linux-0.14.1:$PATH"
           cargo install --locked cargo-zigbuild
           #cargo install cross --locked
-          cargo zigbuild --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }} -- -DCMAKE_DISABLE_FIND_PACKAGE_BSD=ON -DCMAKE_DISABLE_FIND_PACKAGE_UUID=ON
+          cargo zigbuild --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }}
           # cross test  --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }} -- --nocapture
 
       - name: Build and Test
