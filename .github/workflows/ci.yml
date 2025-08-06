@@ -61,12 +61,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-#        os: [ubuntu-latest, macos-latest, macos-13, windows-latest]
-#        os: [ubuntu-latest, macos-latest, macos-13]
-        os: [ubuntu-latest]
-        features: [static]
-#        features: [default, static]
-        rust-version: ["stable"]
+        #        os: [ubuntu-latest, macos-latest, macos-13, windows-latest]
+        #        os: [ubuntu-latest, macos-latest, macos-13]
+        os: [ ubuntu-latest ]
+        features: [ static ]
+        #        features: [default, static]
+        rust-version: [ "stable" ]
 
     env:
       feature-flags: ${{ matrix.features != 'default' && format('--features {0}', matrix.features) || '' }}
@@ -112,10 +112,6 @@ jobs:
             --volume=${{ github.workspace }}/.gradle:/root/.gradle:rw
             --env GRADLE_USER_HOME=/root/.gradle
             --env PUBLISH_ARTIFACTS=true
-            --env CC=x86_64-linux-musl-gcc
-            --env AR=x86_64-linux-musl-ar
-            --env RANLIB=x86_64-linux-musl-ranlib
-            --env CFLAGS="-static"
         run: |
           rustup target add x86_64-unknown-linux-musl
           cargo install --locked cross
