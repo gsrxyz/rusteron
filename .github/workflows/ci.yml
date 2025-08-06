@@ -110,13 +110,14 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y build-essential libc6-dev curl pkg-config libssl-dev ca-certificates make cmake gcc g++ clang libclang-dev llvm-dev musl-tools libbsd-dev uuid-dev default-jdk
           rustup target add x86_64-unknown-linux-musl
-          curl -LO https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz
-          tar xf zig-x86_64-linux-0.14.1.tar.xz
-          export PATH="$PWD/zig-x86_64-linux-0.14.1:$PATH"
-          cargo install --locked cargo-zigbuild
+          #curl -LO https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz
+          #tar xf zig-x86_64-linux-0.14.1.tar.xz
+          #export PATH="$PWD/zig-x86_64-linux-0.14.1:$PATH"
+          #cargo install --locked cargo-zigbuild
           #cargo install cross --locked
-          cargo zigbuild --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }}
-          # cross test  --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }} -- --nocapture
+          #cargo zigbuild --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }}
+          cargo build --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }}
+          cargo test  --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }} -- --nocapture
 
       - name: Build and Test
         if: runner.os != 'Linux'
