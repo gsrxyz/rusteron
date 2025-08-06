@@ -59,12 +59,12 @@ fn main() -> Result<()> {
                     );
 
                     if let Some(record) = &record_reader.last_recording {
-                        info!("trying replay merge {:?}", record);
+                        info!("trying replay merge {record:?}");
                         let session_id = record.session_id;
 
                         let replay_channel =
                             format!("aeron:udp?control-mode=manual|session-id={session_id}");
-                        info!("replay channel {}", replay_channel);
+                        info!("replay channel {replay_channel}");
                         let subscription = aeron.add_subscription(
                             &replay_channel.clone().into_c_string(),
                             TICKER_STREAM_ID,
@@ -74,10 +74,10 @@ fn main() -> Result<()> {
                         )?;
 
                         let replay_destination = "aeron:udp?endpoint=localhost:0".to_string();
-                        info!("replay destination {}", replay_destination);
+                        info!("replay destination {replay_destination}");
 
                         let live_destination = format!("aeron:udp?endpoint={TICKER_CHANNEL}");
-                        info!("live destination {}", live_destination);
+                        info!("live destination {live_destination}");
 
                         let merge = AeronArchiveReplayMerge::new(
                             &subscription,
@@ -94,7 +94,7 @@ fn main() -> Result<()> {
                         while !merge.is_merged() {
                             merge.poll_once(
                                 |buff, _header| {
-                                    println!("buffer {:?}", buff);
+                                    println!("buffer {buff:?}");
                                 },
                                 1024,
                             )?;
@@ -124,8 +124,7 @@ fn main() -> Result<()> {
                         let recording_id = record.recording_id();
                         assert_eq!(record.recording_id(), recording_id);
                         info!(
-                            "resolved replay channel: {} [recording_id={}, replayingRecord={:?}",
-                            replay_channel, recording_id, record
+                            "resolved replay channel: {replay_channel} [recording_id={recording_id}, replayingRecord={record:?}"
                         );
                         assert_eq!(record.recording_id(), recording_id);
 
@@ -137,8 +136,8 @@ fn main() -> Result<()> {
                         )?;
                         let session_id = replay_session_id as i32;
 
-                        let channel_replay = format!("{}|session-id={}", channel, session_id);
-                        info!("replay subscription {}", channel_replay);
+                        let channel_replay = format!("{channel}|session-id={session_id}");
+                        info!("replay subscription {channel_replay}");
                         match aeron.add_subscription(
                             &channel_replay.to_string().into_c_string(),
                             stream_id,
@@ -180,7 +179,7 @@ fn main() -> Result<()> {
                 }
                 Err(e) => {
                     // ideally should retry
-                    error!("failed to read from aeron archiver {}", e);
+                    error!("failed to read from aeron archiver {e}");
                 }
             }
         }
@@ -234,7 +233,7 @@ impl AeronArchiveRecordingDescriptorConsumerFuncCallback for RecorderDescriptorR
         &mut self,
         recording_descriptor: AeronArchiveRecordingDescriptor,
     ) {
-        info!("found recording {:?}", recording_descriptor);
+        info!("found recording {recording_descriptor:?}");
         let copy = recording_descriptor.clone_struct();
         if recording_descriptor.stop_position > 0 {
             self.last_recording_with_stop_position = Some(copy.clone_struct());

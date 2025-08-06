@@ -61,7 +61,7 @@ async fn main() -> websocket_lite::Result<()> {
                     .expect("Error occurred during retrieval");
             }
             Err(err) => {
-                error!("Error: {:?}", err);
+                error!("Error: {err:?}");
                 sleep(Duration::from_secs(5));
                 recorder = AeronRecorder::new(archive.clone(), aeron.clone());
             }
