@@ -78,13 +78,11 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Install Rust and MUSL target
-        uses: actions-rs/toolchain@v1
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust-version }}
           components: clippy, rustfmt
-          targets: x86_64-unknown-linux-musl
-          profile: minimal
 
       # aeron archive cmake for some reason starts java
       - name: Install Java
@@ -103,7 +101,7 @@ jobs:
         run: |
           Remove-Item -LiteralPath 'rusteron-archive/artifacts','rusteron-client/artifacts','rusteron-media-driver/artifacts' -Recurse -Force -ErrorAction SilentlyContinue
 
-      - name: Build and Test
+      - name: Build and Test Linux (MUSL)
         if: runner.os == 'Linux'
         env:
           PUBLISH_ARTIFACTS: true
@@ -114,9 +112,12 @@ jobs:
             --volume=${{ github.workspace }}/.gradle:/root/.gradle:rw
             --env GRADLE_USER_HOME=/root/.gradle
             --env PUBLISH_ARTIFACTS=true
+            --env CC=x86_64-linux-musl-gcc
+            --env AR=x86_64-linux-musl-ar
+            --env RANLIB=x86_64-linux-musl-ranlib
+            --env CFLAGS="-static"
         run: |
           rustup target add x86_64-unknown-linux-musl
-          mkdir -p ${{ github.workspace }}/.gradle/wrapper/dists/gradle-8.14.2-all
           cargo install --locked cross
           cross build --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }}
           cross test  --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }} -- --nocapture
