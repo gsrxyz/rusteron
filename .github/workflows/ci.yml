@@ -107,11 +107,9 @@ jobs:
         if: runner.os == 'Linux'
         env:
           PUBLISH_ARTIFACTS: true
-          CROSS_CONTAINER_OPTS: "--env HOME=${{ github.workspace }}"
         run: |
           rustup target add x86_64-unknown-linux-musl
           cargo install --locked cross
-          mkdir -p ~/.gradle/wrapper/dists/gradle-8.14.2-all/
           cross build --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }}
           cross test  --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }} -- --nocapture
 
