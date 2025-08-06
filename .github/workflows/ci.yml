@@ -59,11 +59,13 @@ jobs:
     timeout-minutes: 45
 
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
 #        os: [ubuntu-latest, macos-latest, macos-13, windows-latest]
-        os: [ubuntu-latest, macos-latest, macos-13]
-        features: [default, static]
+#        os: [ubuntu-latest, macos-latest, macos-13]
+        os: [ubuntu-latest]
+        features: [static]
+#        features: [default, static]
         rust-version: ["stable"]
 
     env:
@@ -99,6 +101,8 @@ jobs:
         run: |
           Remove-Item -LiteralPath 'rusteron-archive/artifacts','rusteron-client/artifacts','rusteron-media-driver/artifacts' -Recurse -Force -ErrorAction SilentlyContinue
 
+#docker run --rm -it --privileged -v "$(pwd)":/workspace -w /workspace ubuntu:24.04 bash
+
       - name: Build and Test
         if: runner.os == 'Linux'
         env:
@@ -109,8 +113,9 @@ jobs:
           PKG_CONFIG_ALLOW_CROSS: 1
         run: |
           sudo apt-get update && sudo apt-get install -y curl pkg-config libssl-dev ca-certificates make cmake gcc g++ clang uuid-dev zlib1g-dev libbsd-dev musl-tools linux-libc-dev
-          cargo install cross --locked
+          sudo apt-get install -y default-jdk curl pkg-config libssl-dev uuid-dev ca-certificates make cmake gcc g++ clang zlib1g-dev libbsd-dev \
           rustup target add x86_64-unknown-linux-musl
+          cargo install cross --locked
           cross build --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }}
           cross test  --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }} -- --nocapture
 
