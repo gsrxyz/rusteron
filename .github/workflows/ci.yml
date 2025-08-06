@@ -110,7 +110,6 @@ jobs:
           GRADLE_USER_HOME: ${{ github.workspace }}/.gradle
           CROSS_CONTAINER_OPTS: >-
             --volume=${{ github.workspace }}/.gradle:/root/.gradle:rw
-            --volume=.:/work/:rw
             --env GRADLE_USER_HOME=/root/.gradle
             --env PUBLISH_ARTIFACTS=true
         run: |
