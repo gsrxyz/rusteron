@@ -113,7 +113,7 @@ jobs:
           PKG_CONFIG_ALLOW_CROSS: 1
         run: |
           sudo apt-get update && sudo apt-get install -y curl pkg-config libssl-dev ca-certificates make cmake gcc g++ clang uuid-dev zlib1g-dev libbsd-dev musl-tools linux-libc-dev
-          sudo apt-get install -y default-jdk curl pkg-config libssl-dev uuid-dev ca-certificates make cmake gcc g++ clang zlib1g-dev libbsd-dev \
+          sudo apt-get install -y default-jdk curl pkg-config libssl-dev uuid-dev ca-certificates make cmake gcc g++ clang zlib1g-dev libbsd-dev 
           rustup target add x86_64-unknown-linux-musl
           cargo install cross --locked
           cross build --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }}
