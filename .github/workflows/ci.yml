@@ -108,27 +108,21 @@ jobs:
         env:
           PUBLISH_ARTIFACTS: true
           CC_x86_64_unknown_linux_musl: musl-gcc
-          CXX_x86_64_unknown_linux_musl: musl-gcc
+          CXX_x86_64_unknown_linux_musl: musl-g++
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
           PKG_CONFIG_ALLOW_CROSS_x86_64_unknown_linux_musl: 1
           PKG_CONFIG_ALLOW_CROSS: 1
-          # point Cargo’s musl target linker at zig
-#          CC_x86_64_unknown_linux_musl: zig cc
-#          CXX_x86_64_unknown_linux_musl: zig c++
-#          AR_x86_64_unknown_linux_musl: zig ar
           C_INCLUDE_PATH: /usr/include
           CPLUS_INCLUDE_PATH: /usr/include
+          C_INCLUDE_PATH_x86_64_unknown_linux_musl: /usr/include:/usr/include/x86_64-linux-gnu
+          CPLUS_INCLUDE_PATH_x86_64_unknown_linux_musl: /usr/include:/usr/include/x86_64-linux-gnu
+
         run: |
           sudo apt-get update && sudo apt-get install -y curl linux-libc-dev pkg-config libssl-dev ca-certificates make cmake gcc g++ clang libclang-dev llvm-dev musl-tools musl-dev libbsd-dev uuid-dev default-jdk
           rustup target add x86_64-unknown-linux-musl
-          #curl -LO https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz
-          #tar xf zig-x86_64-linux-0.14.1.tar.xz
-          #export PATH="$PWD/zig-x86_64-linux-0.14.1:$PATH"
-          #cargo install --locked cargo-zigbuild
-          #cargo install cross --locked
-          #cargo zigbuild --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }}
+          sudo ln -s /usr/include/x86_64-linux-gnu/asm /usr/include/asm || true
           cargo build --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }}
-          # cross test  --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }} -- --nocapture
+          cargo test  --release --target x86_64-unknown-linux-musl ${{ env.feature-flags }} -- --nocapture
 
       - name: Build and Test
         if: runner.os != 'Linux'
