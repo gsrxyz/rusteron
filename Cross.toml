@@ -23,7 +23,7 @@ pre-build = [
     "export CFLAGS=\"-O2 -static -pthread\"",
     "export CMAKE_EXE_LINKER_FLAGS=\"-static -s\"",
 #    "find / | grep rusteron-archive/aeron",
-#    "cd /volume/rusteron-archive/aeron && ./gradlew :aeπron-all:build",
+#    "cd /volume/rusteron-archive/aeron && ./gradlew :aeron-all:build",
 #    "cd /volume/rusteron-media-driver/aeron && ./gradlew :aeron-all:build",
 #    "cd /volume/rusteron-client/aeron && ./gradlew :aeron-all:build",
 ]
