@@ -149,11 +149,6 @@ pub fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=bindings.h");
 
-    if cfg!(target_os = "linux") {
-        println!("cargo:rustc-link-arg=-Wl,--no-as-needed");
-        println!("cargo:rustc-link-lib=bsd");
-        println!("cargo:rustc-link-arg=-Wl,--as-needed");
-    }
     if pkg_config::probe_library("uuid").is_err() {
         eprintln!("uuid lib not found in path");
     }
@@ -178,8 +173,13 @@ pub fn main() {
         }
         if cfg!(target_os = "linux") {
             println!("cargo:rustc-link-lib=uuid");
-            println!("cargo:rustc-link-lib=bsd");
         }
+    }
+
+    if cfg!(target_os = "linux") {
+        println!("cargo:rustc-link-arg=-Wl,--no-as-needed");
+        println!("cargo:rustc-link-lib=bsd");
+        println!("cargo:rustc-link-arg=-Wl,--as-needed");
     }
 
     let mut config = Config::new(&aeron_path);
