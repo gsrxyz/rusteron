@@ -149,6 +149,10 @@ pub fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=bindings.h");
 
+    if cfg!(target_os = "linux") {
+        println!("cargo:rustc-link-lib=bsd");
+    }
+
     if pkg_config::probe_library("uuid").is_err() {
         eprintln!("uuid lib not found in path");
     }

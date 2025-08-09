@@ -131,10 +131,6 @@ pub fn main() {
             eprintln!("uuid lib not found in path");
         }
 
-        if cfg!(target_os = "linux") {
-            println!("cargo:rustc-link-lib=bsd");
-        }
-
         if let LinkType::Static = link_type {
             // On Windows, there are some extra libraries needed for static link
             // that aren't included by Aeron.
@@ -164,6 +160,10 @@ pub fn main() {
         return;
     }
     let publish_binaries = std::env::var("PUBLISH_ARTIFACTS").is_ok();
+
+    if cfg!(target_os = "linux") {
+        println!("cargo:rustc-link-lib=bsd");
+    }
 
     let aeron_path = canonicalize(Path::new("./aeron")).unwrap();
     let header_path = aeron_path.join("aeron-archive/src/main/c");
