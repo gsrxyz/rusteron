@@ -122,6 +122,7 @@ pub fn main() {
             }
             if cfg!(target_os = "linux") {
                 println!("cargo:rustc-link-lib=uuid");
+                println!("cargo:rustc-link-lib=lbsd");
             }
         }
 
@@ -170,6 +171,7 @@ pub fn main() {
         }
         if cfg!(target_os = "linux") {
             println!("cargo:rustc-link-lib=uuid");
+            println!("cargo:rustc-link-lib=lbsd");
         }
     }
 
