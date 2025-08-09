@@ -124,6 +124,10 @@ pub fn main() {
                 println!("cargo:rustc-link-lib=uuid");
                 println!("cargo:rustc-link-lib=bsd");
             }
+        } else {
+            if cfg!(target_os = "linux") {
+                println!("cargo:rustc-link-lib=bsd");
+            }
         }
 
         // Copy generated Rust files (*.rs) from the artifacts folder into OUT_DIR.
