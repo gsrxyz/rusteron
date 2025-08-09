@@ -162,7 +162,9 @@ pub fn main() {
     let publish_binaries = std::env::var("PUBLISH_ARTIFACTS").is_ok();
 
     if cfg!(target_os = "linux") {
+        println!("cargo:rustc-link-arg=-Wl,--no-as-needed");
         println!("cargo:rustc-link-lib=bsd");
+        println!("cargo:rustc-link-arg=-Wl,--as-needed");
     }
 
     let aeron_path = canonicalize(Path::new("./aeron")).unwrap();
