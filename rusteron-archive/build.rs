@@ -130,6 +130,11 @@ pub fn main() {
         if pkg_config::probe_library("uuid").is_err() {
             eprintln!("uuid lib not found in path");
         }
+
+        if cfg!(target_os = "linux") {
+            println!("cargo:rustc-link-lib=bsd");
+        }
+
         if let LinkType::Static = link_type {
             // On Windows, there are some extra libraries needed for static link
             // that aren't included by Aeron.
@@ -139,12 +144,6 @@ pub fn main() {
             }
             if cfg!(target_os = "linux") {
                 println!("cargo:rustc-link-lib=uuid");
-                println!("cargo:rustc-link-lib=bsd");
-
-            }
-        } else {
-            if cfg!(target_os = "linux") {
-                println!("cargo:rustc-link-lib=bsd");
             }
         }
 
