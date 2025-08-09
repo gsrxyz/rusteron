@@ -17,6 +17,7 @@ pre-build = [
     "export JAVA_HOME=/usr/local/jdk-23",
     "export PATH=\"/usr/local/jdk-23/bin:$PATH\"",
     "export CC=x86_64-linux-musl-gcc",
+    "export PUBLISH_ARTIFACTS=true",
     "export AR=x86_64-linux-musl-ar",
     "export RANLIB=x86_64-linux-musl-ranlib",
     "export CMAKE_C_FLAGS=\"-O2 -static -pthread\"",
