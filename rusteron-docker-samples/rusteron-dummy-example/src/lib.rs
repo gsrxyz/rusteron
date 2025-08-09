@@ -42,16 +42,16 @@ pub async fn download_ws(
     loop {
         let mut client = ClientBuilder::new(url)?.async_connect().await?;
         let request = Message::text(serde_json::to_string(&subscription)?);
-        info!("{url} sending request: {:#?}", subscription);
+        info!("{url} sending request: {subscription:#?}");
         if let Err(e) = client.send(request).await {
-            info!("error sending websocket msg: {}", e);
+            info!("error sending websocket msg: {e}");
             continue;
         }
         while let Some(msg) = client.next().await {
             let msg = match msg {
                 Ok(msg) => msg,
                 Err(e) => {
-                    info!("Error while receiving message: {:?}", e);
+                    info!("Error while receiving message: {e:?}");
                     break;
                 }
             };
@@ -124,20 +124,20 @@ pub fn archive_connect() -> Result<(AeronArchive, Aeron), io::Error> {
                                                     return Ok((archive, aeron));
                                                 }
                                                 Err(e) => {
-                                                    error!("Failed to poll and connect to Aeron archive: {:?}", e);
+                                                    error!("Failed to poll and connect to Aeron archive: {e:?}");
                                                 }
                                             }
                                         }
                                         Err(e) => {
-                                            error!("Failed to create AeronArchiveAsyncConnect with the given context - {:?}", e);
+                                            error!("Failed to create AeronArchiveAsyncConnect with the given context - {e:?}");
                                         }
                                     }
                                 }
-                                Err(c) => error!("failed to create aeron context: {:?}", c),
+                                Err(c) => error!("failed to create aeron context: {c:?}"),
                             }
                         }
                         Err(e) => {
-                            error!("error creating archive context: {:?}", e);
+                            error!("error creating archive context: {e:?}");
                             error!("aeron error: {}", Aeron::errmsg());
                         }
                     },
@@ -157,7 +157,7 @@ pub fn archive_connect() -> Result<(AeronArchive, Aeron), io::Error> {
                 }
             }
             Err(e) => {
-                error!("error creating aeron context: {:?}", e);
+                error!("error creating aeron context: {e:?}");
             }
         }
         info!("waiting for aeron to start up, retrying...");

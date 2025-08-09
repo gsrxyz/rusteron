@@ -5,25 +5,26 @@ To build **rusteron-archive**, ensure the following are installed:
 ### Requirements
 
 - **Rust**: Install via [rustup.rs](https://rustup.rs/)
-  ```bash
+
+```bash
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-````
+```
 
 * **Java 17+**: Required for Aeron C bindings.
 
 * **CMake & Clang**: Required to compile C bindings.
 
-  ```bash
+```bash
   sudo apt install cmake clang uuid-dev -y
   # or
   sudo snap install cmake --classic
-  ```
+```
 
 * **just** (optional): Command runner for build tasks.
 
-  ```bash
+```bash
   cargo install just
-  ```
+```
 
 ---
 
@@ -40,19 +41,21 @@ sudo ln -sfn $(brew --prefix openjdk@17)/libexec/openjdk.jdk /Library/Java/JavaV
 
 * Ubuntu/Debian:
 
-  ```bash
+```bash
   sudo apt install openjdk-17-jdk
-  ```
+```
+
 * Fedora:
 
-  ```bash
+```bash
   sudo dnf install java-17-openjdk
-  ```
+```
+
 * Arch:
 
-  ```bash
+```bash
   sudo pacman -S jdk-openjdk
-  ```
+```
 
 **Windows**:
 Install from [Adoptium](https://adoptium.net/) (Temurin 17). Ensure environment variables are set during installation.
