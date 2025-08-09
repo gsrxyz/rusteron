@@ -49,7 +49,7 @@ jobs:
 
       - name: Check docs
         run: |
-          sudo apt-get update && sudo apt-get install -y uuid-dev
+          sudo apt-get update && sudo apt-get install -y uuid-dev libbsd-dev
           cargo test --doc
 
   build:
@@ -84,7 +84,7 @@ jobs:
 
       - name: Install dependencies on Ubuntu
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y curl pkg-config libssl-dev uuid-dev ca-certificates make cmake gcc g++ clang zlib1g-dev libbsd-dev
+        run: sudo apt-get update && sudo apt-get install -y curl pkg-config libssl-dev libbsd-dev uuid-dev ca-certificates make cmake gcc g++ clang zlib1g-dev libbsd-dev
 
       # aeron archive cmake for some reason starts java
       - name: Install Java

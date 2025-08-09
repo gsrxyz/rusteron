@@ -33,7 +33,7 @@ jobs:
           java-version: '17'
       - name: Clean docs folder
         run: |
-          sudo apt-get update && sudo apt-get install -y uuid-dev
+          sudo apt-get update && sudo apt-get install -y libbsd-dev uuid-dev
           cargo clean --doc
           cargo doc --features precompile,static --workspace --no-deps
       - name: Add redirect

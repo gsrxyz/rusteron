@@ -39,7 +39,7 @@ jobs:
 
       - name: Install dependencies on Ubuntu
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y uuid-dev
+        run: sudo apt-get update && sudo apt-get install -y libbsd-dev uuid-dev
 
       - name: Cache cargo-release binary
         uses: actions/cache@v4

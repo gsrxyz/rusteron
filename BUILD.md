@@ -14,7 +14,7 @@ To build **rusteron-archive**, ensure the following are installed:
 * **CMake & Clang**: Required to compile C bindings.
 
   ```bash
-  sudo apt install cmake clang uuid-dev -y
+  sudo apt install cmake clang uuid-dev libbsd-dev -y
   # or
   sudo snap install cmake --classic
   ```
