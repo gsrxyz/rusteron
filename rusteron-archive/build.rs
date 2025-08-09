@@ -211,7 +211,6 @@ pub fn main() {
         println!("cargo:rustc-link-arg=-Wl,--as-needed");
     }
 
-
     let mut config = Config::new(&aeron_path);
     if std::env::var("PROFILE").unwrap() == "release" {
         config.profile("Release");
