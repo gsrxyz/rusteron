@@ -63,7 +63,7 @@ mod tests {
             let minor = unsafe { crate::aeron_version_minor() };
             let patch = unsafe { crate::aeron_version_patch() };
 
-            let cargo_version = "1.48.5";
+            let cargo_version = "1.48.6";
             let aeron_version = format!("{}.{}.{}", major, minor, patch);
             assert_eq!(aeron_version, cargo_version);
 
