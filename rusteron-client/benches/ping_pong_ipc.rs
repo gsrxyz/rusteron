@@ -1,11 +1,11 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{black_box, Criterion};
 use rusteron_client::*;
 use rusteron_media_driver::{AeronDriver, AeronDriverContext};
 use std::clone::Clone;
 use std::ffi::CStr;
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread;
 use std::time::Duration;
 
 const PING_STREAM_ID: i32 = 1002;
@@ -16,6 +16,7 @@ const MESSAGE_LENGTH: usize = 32;
 const FRAGMENT_COUNT_LIMIT: usize = 10;
 
 fn criterion_benchmark(c: &mut Criterion) {
+    // Launch embedded media driver (acts as the shared media driver for both processes)
     let ctx = AeronDriverContext::new().unwrap();
     ctx.set_dir(&format!("{}{}", ctx.get_dir(), Aeron::nano_clock()).into_c_string())
         .unwrap();
@@ -23,18 +24,15 @@ fn criterion_benchmark(c: &mut Criterion) {
     ctx.set_dir_delete_on_shutdown(true).unwrap();
     ctx.set_print_configuration(true).unwrap();
     let dir = ctx.get_dir().to_string().leak();
-    let dir2 = ctx.get_dir().to_string().leak();
-    let (stop, _handle) = AeronDriver::launch_embedded(ctx.clone(), false);
-    let stop2 = stop.clone();
-    let _pong_thread = thread::Builder::new()
-        .name("pong".to_string())
-        .spawn(move || run_pong(stop2, dir).unwrap())
-        .unwrap();
+    let dir_for_client = ctx.get_dir().to_string().leak();
+    let (driver_stop, _handle) = AeronDriver::launch_embedded(ctx.clone(), false);
+
+    // Spawn pong as a separate process running this same binary in pong mode.
+    let mut pong_child = spawn_pong_process(dir).expect("Failed to spawn pong process");
 
     let context = AeronContext::new().unwrap();
-    println!("idle sleep {}", context.get_idle_sleep_duration_ns());
     context.set_idle_sleep_duration_ns(0).unwrap();
-    context.set_dir(&dir2.into_c_string()).unwrap();
+    context.set_dir(&dir_for_client.into_c_string()).unwrap();
     let aeron = Aeron::new(&context).unwrap();
     aeron.start().unwrap();
 
@@ -58,10 +56,9 @@ fn criterion_benchmark(c: &mut Criterion) {
     println!("PING: ping subscriber {PING_CHANNEL:?} {PING_STREAM_ID}");
 
     let mut buffer = vec![0u8; MESSAGE_LENGTH];
-
     let mut handler = Handler::leak(PingRoundTripHandler {});
 
-    c.bench_function("ping_pong_ipc_benchmark", |b| {
+    c.bench_function("ping_pong_ipc_process_benchmark", |b| {
         b.iter(|| {
             record_rtt(
                 &pong_publication,
@@ -72,10 +69,25 @@ fn criterion_benchmark(c: &mut Criterion) {
         });
     });
 
-    stop.store(false, Ordering::SeqCst);
+    driver_stop.store(false, Ordering::SeqCst);
+    if let Err(e) = pong_child.kill() {
+        eprintln!("Failed to kill pong child: {e}");
+    }
+    let _ = pong_child.wait();
 }
 
-fn run_pong(stop: Arc<AtomicBool>, dir: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn spawn_pong_process(dir: &str) -> std::io::Result<Child> {
+    let exe = std::env::current_exe()?;
+    Command::new(exe)
+        .arg("--pong")
+        .arg(dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+}
+
+fn run_pong_process(dir: &str) -> Result<(), Box<dyn std::error::Error>> {
     let context = AeronContext::new()?;
     context.set_dir(&dir.into_c_string())?;
     context.set_idle_sleep_duration_ns(0)?;
@@ -93,10 +105,9 @@ fn run_pong(stop: Arc<AtomicBool>, dir: &str) -> Result<(), Box<dyn std::error::
         )?
         .poll_blocking(Duration::from_secs(4))?;
 
-    println!("PONG: ping publisher {PING_CHANNEL:?} {PING_STREAM_ID}");
-    println!("PONG: pong subscriber {PONG_CHANNEL:?} {PONG_STREAM_ID}");
+    println!("PONG (process): ping publisher {PING_CHANNEL:?} {PING_STREAM_ID}");
+    println!("PONG (process): pong subscriber {PONG_CHANNEL:?} {PONG_STREAM_ID}");
 
-    println!("Starting pong thread");
     pub struct PongRoundTripHandler {
         publisher: AeronPublication,
         buffer_claim: AeronBufferClaim,
@@ -119,11 +130,11 @@ fn run_pong(stop: Arc<AtomicBool>, dir: &str) -> Result<(), Box<dyn std::error::
         publisher: ping_publication.clone(),
         buffer_claim: Default::default(),
     });
-    while !stop.load(Ordering::Acquire) {
+
+    // Loop forever until killed by parent process.
+    loop {
         let _ = pong_subscription.poll(Some(&handler), FRAGMENT_COUNT_LIMIT);
     }
-    println!("Shutting down pong thread");
-    Ok(())
 }
 
 pub struct PingRoundTripHandler {}
@@ -167,5 +178,32 @@ fn write_i64(buffer: &mut [u8], now: &i64) {
     buffer[0..8].copy_from_slice(&now.to_le_bytes());
 }
 
-criterion_group!(benches, criterion_benchmark);
-criterion_main!(benches);
+fn main() {
+    let mut args = std::env::args();
+    let _prog = args.next();
+    let mut raw: Vec<String> = Vec::new();
+    let mut pong_mode = false;
+    let mut pong_dir: Option<String> = None;
+
+    while let Some(arg) = args.next() {
+        if arg == "--pong" {
+            pong_mode = true;
+            pong_dir = args.next();
+            break; // remaining args irrelevant in pong mode
+        } else {
+            raw.push(arg);
+        }
+    }
+
+    if pong_mode {
+        let dir = pong_dir.expect("--pong requires <dir>");
+        if let Err(e) = run_pong_process(&dir) {
+            eprintln!("Pong process error: {e}");
+        }
+        return;
+    }
+
+    let mut c = Criterion::default().configure_from_args();
+    criterion_benchmark(&mut c);
+    c.final_summary();
+}
