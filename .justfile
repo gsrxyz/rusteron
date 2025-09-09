@@ -2,6 +2,8 @@
 # Functions
 # =============================================================================
 
+set shell := ["bash", "-cu"]
+
 is_mac := if os() == "macos" { 'true' } else { 'false' }
 
 version := if `git rev-parse --git-dir 2>/dev/null; echo $?` == "0" {
@@ -278,12 +280,58 @@ aeron-stat dir:
 # Aeron Version
 # =============================================================================
 
-# Update to specific aeron version e.g. tags/1.48.5 or master
+# Update Aeron submodules to a tag, branch, or commit.
+# Usage: just update-aeron-version 1.48.5   (auto-detects tag)
+#        just update-aeron-version master
+#        just update-aeron-version <commit-sha>
 update-aeron-version version:
-    cd rusteron-client/aeron && git fetch && git checkout {{version}} && cd -
-    cd rusteron-archive/aeron && git fetch && git checkout {{version}} && cd -
-    cd rusteron-media-driver/aeron && git fetch && git checkout {{version}} && cd -
+    #!/usr/bin/env bash
+    set -euo pipefail
+    RAW="{{version}}"
+    TARGET=${RAW#refs/}
+    TARGET=${TARGET#tags/}
+    echo "Updating Aeron submodules to tag/branch/commit input='${RAW}' normalised='${TARGET}'"
+    for DIR in rusteron-client/aeron rusteron-archive/aeron rusteron-media-driver/aeron; do
+      echo "-- $DIR"
+      (
+        cd "$DIR"
+        git fetch --tags --prune origin >/dev/null 2>&1 || true
+        MODE=""; REF=""
+        if git show-ref --verify --quiet "refs/tags/$TARGET"; then
+          MODE=tag; REF="tags/$TARGET"
+        elif git show-ref --verify --quiet "refs/heads/$TARGET"; then
+          MODE=branch; REF="$TARGET"
+        elif git rev-parse --verify --quiet "$TARGET^{commit}" >/dev/null 2>&1; then
+          MODE=commit; REF="$TARGET"
+        else
+          echo "ERROR: Cannot resolve '$TARGET' as tag, branch, or commit in $DIR" >&2; exit 1
+        fi
+        case "$MODE" in
+          tag)
+            COMMIT=$(git rev-list -n1 "$REF"); LOCAL_BRANCH="aeron-$TARGET"; git checkout -B "$LOCAL_BRANCH" "$COMMIT" >/dev/null ;;
+          branch)
+            git checkout "$REF" >/dev/null; git pull --ff-only || true; COMMIT=$(git rev-parse HEAD) ;;
+          commit)
+            COMMIT=$(git rev-parse "$REF"); LOCAL_BRANCH="aeron-${COMMIT:0:8}"; git checkout -B "$LOCAL_BRANCH" "$COMMIT" >/dev/null ;;
+        esac
+        SHORT=$(git rev-parse --short "$COMMIT")
+        DESC=$(git describe --tags --exact-match "$COMMIT" 2>/dev/null || git describe --tags --always "$COMMIT" 2>/dev/null || echo "$SHORT")
+        echo "   Mode=$MODE Commit=$SHORT Describe=$DESC Branch=$(git branch --show-current || echo detached)"
+      ) || exit 1
+    done
 
-# Update to the latest aeron version
+# Show current Aeron submodule commits (describe + branch/detached)
+show-aeron-version:
+    set -euo pipefail
+    for DIR in rusteron-client/aeron rusteron-archive/aeron rusteron-media-driver/aeron; do \
+      ( cd $DIR; \
+        BR=$(git branch --show-current || echo detached); \
+        CM=$(git rev-parse --short HEAD); \
+        DESC=$(git describe --tags --always --dirty 2>/dev/null || echo "$CM"); \
+        echo "$DIR => $DESC ($CM) branch=$BR"; \
+      ); \
+    done
+
+# Update to the latest Aeron release tag from GitHub
 update-to-latest-aeron-version:
-    just update-aeron-version tags/`curl -s https://github.com/aeron-io/aeron/releases | grep -o 'tag/[0-9]*\.[0-9]*\.[0-9]*' | head -1 | cut -d'/' -f2`
+    just update-aeron-version `curl -s https://api.github.com/repos/real-logic/aeron/releases | grep '"tag_name"' | head -1 | cut -d '"' -f4`

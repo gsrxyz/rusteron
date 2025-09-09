@@ -1,3 +1,5 @@
+**WARNING:** This page has not been updated since the initial first commit; implementation, configuration, and performance characteristics have changed. Treat all results below as stale. Rerun the benchmarks with the current codebase before citing, and feel free to submit PRs with updated, reproducible benchmark data.
+
 # Aeron IPC Throughput Benchmarks: Java vs. rusteron (Rust)
 
 **Note**: These benchmarks are early-stage and environment-sensitive. Interpret results with caution until verified across varied systems.
