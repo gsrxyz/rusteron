@@ -1855,9 +1855,9 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
         pub struct #logger_type_name;
         impl #closure_type_name for #logger_type_name {
             fn #handle_method_name(&mut self, #(#closure_args_in_logger),*) -> #closure_return_type {
-                log::info!("{}(\n\t{}\n)",
+                log::info!("{}({}\n)",
                     stringify!(#handle_method_name),
-                    [#(#log_field_names),*].join(",\n\t"),
+                    [#(#log_field_names),*].join(", "),
                 );
                 #logger_return_type
             }
@@ -1889,10 +1889,10 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
                 log::debug!("calling {}", stringify!(#handle_method_name));
             }
             #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}(\n\t{}\n)",
+            log::debug!(
+                "{}({}\n)",
                 stringify!(#fn_name),
-                [#(#arg_names_for_logging),*].join(",\n\t")
+                [#(#arg_names_for_logging),*].join(", ")
             );
             let closure: &mut F = &mut *(#closure_name as *mut F);
             closure.#handle_method_name(#(#converted_args),*)
@@ -1914,10 +1914,10 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
                 log::debug!("calling {}", stringify!(#closure_fn_name));
             }
             #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}(\n\t{}\n)",
+            log::debug!(
+                "{}({}\n)",
                 stringify!(#closure_fn_name),
-                [#(#arg_names_for_logging),*].join(",\n\t")
+                [#(#arg_names_for_logging),*].join(", ")
             );
             let closure: &mut F = &mut *(#closure_name as *mut F);
             closure(#(#converted_args),*)
