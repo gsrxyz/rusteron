@@ -32,18 +32,18 @@ pub fn parse_bindings(out: &PathBuf) -> CBinding {
 
     /*    // need to filter out args which don't match
         for wrapper in wrappers.values_mut() {
-            for method in wrapper.methods.iter_mut() {
-                let method_debug = format!("{:?}", method);
-                for arg in method.arguments.iter_mut() {
-                    if let ArgProcessing::Handler(args) = &arg.processing {
-                        let handler = args.get(0).unwrap();
-                        if !handlers.iter().any(|h| h.type_name == handler.c_type) {
-                            log::info!("replacing {} back to default", method_debug);
-                            // arg.processing = ArgProcessing::Default;
-                        }
+          for method in wrapper.methods.iter_mut() {
+              let method_debug = format!("{:?}", method);
+              for arg in method.arguments.iter_mut() {
+                if let ArgProcessing::Handler(args) = &arg.processing {
+                    let handler = args.get(0).unwrap();
+                    if !handlers.iter().any(|h| h.type_name == handler.c_type) {
+                      log::info!("replacing {} back to default", method_debug);
+                      // arg.processing = ArgProcessing::Default;
                     }
                 }
-            }
+              }
+          }
         }
     */
     let bindings = CBinding {

@@ -10,9 +10,10 @@
 //!
 //! - **`static`**: When enabled, this feature statically links the Aeron C code.
 //!   By default, the library uses dynamic linking to the Aeron C libraries.
-//! - **`backtrace`** - When enabled will log a backtrace for each AeronCError
-//! - **`extra-logging`** - When enabled will log when resource is created and destroyed. useful if your seeing a segfault due to a resource being closed
-//! - **`precompile`** - When enabled will use precompiled c code instead of requiring cmake and java to me installed
+//! - **`backtrace`**: When enabled will log a backtrace for each AeronCError
+//! - **`extra-logging`**: When enabled will log when resource is created and destroyed. Useful if you're seeing a segfault due to a resource being closed
+//! - **`log-c-bindings`**: When enabled will log every C binding call with arguments and return values. Useful for debugging FFI interactions
+//! - **`precompile`**: When enabled will use precompiled C code instead of requiring cmake and java to be installed
 
 pub mod bindings {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));

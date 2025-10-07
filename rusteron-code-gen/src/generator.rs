@@ -277,9 +277,9 @@ impl ReturnType {
         if convert_errors && self.original.is_c_raw_int() {
             quote! {
                 if result < 0 {
-                    return Err(AeronCError::from_code(result));
+                  return Err(AeronCError::from_code(result));
                 } else {
-                    return Ok(result)
+                  return Ok(result)
                 }
             }
         } else if self.original.is_c_string() {
@@ -313,7 +313,7 @@ impl ReturnType {
                 ))
                 .expect("Invalid class name in wrapper");
                 return Some(quote! {
-                    #new_type: #new_handler
+                  #new_type: #new_handler
                 });
             }
         }
@@ -330,7 +330,7 @@ impl ReturnType {
                 ))
                 .expect("Invalid class name in wrapper");
                 return Some(quote! {
-                    #new_type
+                  #new_type
                 });
             }
         }
@@ -612,6 +612,40 @@ impl CWrapper {
 
                 let mut method_docs: Vec<TokenStream> = get_docs(&method.docs, wrappers, Some(&fn_arguments) );
 
+                // Create logging format for arguments
+                // Note: Some arguments expand to multiple values (handlers, arrays with length)
+                // We need to track the actual index in arg_names separately
+                let mut arg_names_idx = 0;
+                let mut log_temp_vars = vec![];
+                let mut arg_names_for_logging = vec![];
+
+                for arg in method.arguments.iter() {
+                    if arg_names_idx >= arg_names.len() {
+                        break;
+                    }
+
+                    let arg_name_str = &arg.name;
+
+                    // Check if this argument expands to multiple values
+                    let is_multi_value = matches!(arg.processing,
+                        ArgProcessing::Handler(_) |
+                        ArgProcessing::StringWithLength(_) |
+                        ArgProcessing::ByteArrayWithLength(_)
+                    ) && !arg.is_mut_pointer();
+
+                    if is_multi_value {
+                        // This expands to 2 values, skip logging individual parts
+                        arg_names_idx += 2;
+                        arg_names_for_logging.push(quote! { format!("{} = <handler>", #arg_name_str) });
+                    } else {
+                        let temp_var = format_ident!("__log_arg_{}", arg_names_idx);
+                        let arg_value = &arg_names[arg_names_idx];
+                        log_temp_vars.push(quote! { let #temp_var = #arg_value; });
+                        arg_names_for_logging.push(quote! { format!("{} = {:?}", #arg_name_str, #temp_var) });
+                        arg_names_idx += 1;
+                    }
+                }
+
                 let possible_self = if uses_self  {
                     quote! { &self, }
                 } else {
@@ -688,7 +722,21 @@ impl CWrapper {
                             #set_closed
                             unsafe {
                                 let mut mut_result: #rt = Default::default();
+
+                                #[cfg(feature = "log-c-bindings")]
+                                {
+                                    #(#log_temp_vars)*
+                                    log::info!(
+                                        "{}(\n\t{}\n)",
+                                        stringify!(#ffi_call),
+                                        [#(#arg_names_for_logging),*].join(",\n\t")
+                                    );
+                                }
+
                                 let err_code = #ffi_call(#(#arg_names),*);
+
+                                #[cfg(feature = "log-c-bindings")]
+                                log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
 
                                 if err_code < 0 {
                                     return Err(AeronCError::from_code(err_code));
@@ -707,7 +755,21 @@ impl CWrapper {
                         pub fn #fn_name #where_clause(#possible_self #(#fn_arguments),*) -> #return_type {
                             #set_closed
                             unsafe {
+                                #[cfg(feature = "log-c-bindings")]
+                                {
+                                    #(#log_temp_vars)*
+                                    log::info!(
+                                        "{}(\n\t{}\n)",
+                                        stringify!(#ffi_call),
+                                        [#(#arg_names_for_logging),*].join(",\n\t")
+                                    );
+                                }
+
                                 let result = #ffi_call(#(#arg_names),*);
+
+                                #[cfg(feature = "log-c-bindings")]
+                                log::info!("  -> {:?}", result);
+
                                 #converter
                             }
                         }
@@ -812,6 +874,42 @@ impl CWrapper {
 
                 parse_str::<TokenStream>(&str).unwrap()
             }).collect_vec();
+
+            // Create logging format for arguments
+            // Note: Some arguments expand to multiple values (handlers, arrays with length)
+            let mut arg_names_idx = 0;
+            let mut log_temp_vars = vec![];
+            let mut arg_names_for_logging = vec![];
+
+            for arg in method.arguments.iter() {
+                if arg_names_idx >= arg_names.len() {
+                    break;
+                }
+
+                let arg_name_str = &arg.name;
+
+                // Check if this argument expands to multiple values
+                let is_multi_value = matches!(
+                    arg.processing,
+                    ArgProcessing::Handler(_)
+                        | ArgProcessing::StringWithLength(_)
+                        | ArgProcessing::ByteArrayWithLength(_)
+                ) && !arg.is_mut_pointer();
+
+                if is_multi_value {
+                    // This expands to 2 values, skip logging individual parts
+                    arg_names_idx += 2;
+                    arg_names_for_logging.push(quote! { format!("{} = <closure>", #arg_name_str) });
+                } else {
+                    let temp_var = format_ident!("__log_arg_{}", arg_names_idx);
+                    let arg_value = &arg_names[arg_names_idx];
+                    log_temp_vars.push(quote! { let #temp_var = #arg_value; });
+                    arg_names_for_logging
+                        .push(quote! { format!("{} = {:?}", #arg_name_str, #temp_var) });
+                    arg_names_idx += 1;
+                }
+            }
+
             additional_methods.push(quote! {
                 #[inline]
                 #(#method_docs)*
@@ -822,7 +920,21 @@ impl CWrapper {
                 pub fn #fn_name #where_clause(#possible_self #(#fn_arguments),*) -> #return_type {
                     #set_closed
                     unsafe {
+                        #[cfg(feature = "log-c-bindings")]
+                        {
+                            #(#log_temp_vars)*
+                            log::info!(
+                                "{}(\n\t{}\n)",
+                                stringify!(#ffi_call),
+                                [#(#arg_names_for_logging),*].join(",\n\t")
+                            );
+                        }
+
                         let result = #ffi_call(#(#arg_names),*);
+
+                        #[cfg(feature = "log-c-bindings")]
+                        log::info!("  -> {:?}", result);
+
                         #converter
                     }
                 }
@@ -1118,8 +1230,24 @@ impl CWrapper {
                             #(#lets)*
                             // new by using constructor
                             let resource_constructor = ManagedCResource::new(
-                                move |ctx_field| unsafe { #init_fn(#(#init_args),*) },
-                                Some(Box::new(move |ctx_field| unsafe { #close_fn(#(#close_args),*)} )),
+                                move |ctx_field| unsafe {
+                                    #[cfg(feature = "log-c-bindings")]
+                                    log::info!(
+                                        "{}({})",
+                                        stringify!(#init_fn),
+                                        [#(format!("{:?}", #init_args)),*].join(", ")
+                                    );
+                                    #init_fn(#(#init_args),*)
+                                },
+                                Some(Box::new(move |ctx_field| unsafe {
+                                    #[cfg(feature = "log-c-bindings")]
+                                    log::info!(
+                                        "{}({})",
+                                        stringify!(#close_fn),
+                                        [#(format!("{:?}", #close_args)),*].join(", ")
+                                    );
+                                    #close_fn(#(#close_args),*)
+                                } )),
                                 false,
                                 #is_closed_method,
                             )?;
@@ -1571,6 +1699,15 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
         .filter(|t| !t.is_empty())
         .collect();
 
+    let arg_names_for_logging: Vec<TokenStream> = handler
+        .args
+        .iter()
+        .map(|arg| {
+            let arg_name = arg.as_ident();
+            quote! { format!("{} = {:?}", stringify!(#arg_name), #arg_name) }
+        })
+        .collect();
+
     let converted_args: Vec<TokenStream> = handler
         .args
         .iter()
@@ -1747,6 +1884,12 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
             {
                 log::debug!("calling {}", stringify!(#handle_method_name));
             }
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}(\n\t{}\n)",
+                stringify!(#fn_name),
+                [#(#arg_names_for_logging),*].join(",\n\t")
+            );
             let closure: &mut F = &mut *(#closure_name as *mut F);
             closure.#handle_method_name(#(#converted_args),*)
         }
@@ -1766,6 +1909,12 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
             {
                 log::debug!("calling {}", stringify!(#closure_fn_name));
             }
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}(\n\t{}\n)",
+                stringify!(#closure_fn_name),
+                [#(#arg_names_for_logging),*].join(",\n\t")
+            );
             let closure: &mut F = &mut *(#closure_name as *mut F);
             closure(#(#converted_args),*)
         }
@@ -1998,6 +2147,12 @@ pub fn generate_rust_code(
                         pub fn new #where_clause_main (#(#new_args),*) -> Result<Self, AeronCError> {
                             let resource = ManagedCResource::new(
                                 move |ctx_field| unsafe {
+                                    #[cfg(feature = "log-c-bindings")]
+                                    log::info!(
+                                        "{}({})",
+                                        stringify!(#poll_method_name),
+                                        [#(format!("{:?}", #init_args)),*].join(", ")
+                                    );
                                     #poll_method_name(#(#init_args),*)
                                 },
                                 None,
@@ -2052,6 +2207,12 @@ pub fn generate_rust_code(
                         pub fn new #where_clause_async (#(#async_new_args),*) -> Result<Self, AeronCError> {
                             let resource_async = ManagedCResource::new(
                                 move |ctx_field| unsafe {
+                                    #[cfg(feature = "log-c-bindings")]
+                                    log::info!(
+                                        "{}({})",
+                                        stringify!(#new_method_name),
+                                        [#(format!("{:?}", #async_init_args)),*].join(", ")
+                                    );
                                     #new_method_name(#(#async_init_args),*)
                                 },
                                 None,
