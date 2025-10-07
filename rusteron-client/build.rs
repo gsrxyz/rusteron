@@ -307,11 +307,44 @@ pub fn main() {
         let code = rusteron_code_gen::generate_handlers(handler, &bindings_copy);
         stream.extend(code);
     }
-    append_to_file(
-        aeron.to_str().unwrap(),
-        &format_with_rustfmt(&stream.to_string()).unwrap(),
-    )
-    .unwrap();
+
+    let generated_code = stream.to_string();
+    if generated_code.trim().is_empty() {
+        panic!("ERROR: Generated code is empty! This indicates a problem with code generation.");
+    }
+
+    // fail fast if it fails to format (usually due to invalid rust code)
+    let debug_file = out_path.join("aeron_unformatted.rs");
+    std::fs::write(&debug_file, &generated_code).expect("Failed to write debug file");
+    eprintln!("Saved unformatted code to: {}", debug_file.display());
+
+    let formatted_code = match format_with_rustfmt(&generated_code) {
+        Ok(code) if !code.trim().is_empty() => code,
+        Ok(_) => {
+            eprintln!("WARNING: rustfmt returned empty output, using unformatted code");
+            eprintln!(
+                "First 1000 chars of generated code: {}",
+                &generated_code[..generated_code.len().min(1000)]
+            );
+            panic!("rustfmt returned empty output - likely syntax error in generated code");
+        }
+        Err(e) => {
+            eprintln!("WARNING: rustfmt failed with error: {}", e);
+            eprintln!(
+                "First 1000 chars of generated code: {}",
+                &generated_code[..generated_code.len().min(1000)]
+            );
+            panic!(
+                "rustfmt failed - likely syntax error in generated code: {}",
+                e
+            );
+        }
+    };
+
+    let _ = std::fs::remove_file(debug_file);
+
+    append_to_file(aeron.to_str().unwrap(), &formatted_code)
+        .expect("Failed to write generated code to file");
 
     if std::env::var("COPY_BINDINGS").is_ok() {
         copy_binds(out.clone());
