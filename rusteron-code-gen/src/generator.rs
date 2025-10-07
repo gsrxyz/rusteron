@@ -492,7 +492,7 @@ impl CWrapper {
         }
     }
 
-    /// Generate logging expressions for method arguments, useful for debugging
+    /// Generate logging expressions for method arguments
     fn generate_arg_logging(arguments: &[Arg], arg_names: &[TokenStream]) -> TokenStream {
         let mut arg_names_idx = 0;
         let mut arg_names_for_logging = vec![];
@@ -506,8 +506,10 @@ impl CWrapper {
             let arg_type = arg.as_type();
             let arg_ident = arg.as_ident();
 
+            // Determine how to log this argument
             match &arg.processing {
                 ArgProcessing::Handler(_) if !arg.is_mut_pointer() => {
+                    // Handlers - just show type
                     arg_names_for_logging.push(quote! {
                         concat!(#arg_name_str, ": ", stringify!(#arg_type)).to_string()
                     });
@@ -1853,9 +1855,9 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
         pub struct #logger_type_name;
         impl #closure_type_name for #logger_type_name {
             fn #handle_method_name(&mut self, #(#closure_args_in_logger),*) -> #closure_return_type {
-                log::info!("{}({}\n)",
+                log::info!("{}(\n\t{}\n)",
                     stringify!(#handle_method_name),
-                    [#(#log_field_names),*].join(", "),
+                    [#(#log_field_names),*].join(",\n\t"),
                 );
                 #logger_return_type
             }
@@ -1887,10 +1889,10 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
                 log::debug!("calling {}", stringify!(#handle_method_name));
             }
             #[cfg(feature = "log-c-bindings")]
-            log::debug!(
-                "{}({}\n)",
+            log::info!(
+                "{}(\n\t{}\n)",
                 stringify!(#fn_name),
-                [#(#arg_names_for_logging),*].join(", ")
+                [#(#arg_names_for_logging),*].join(",\n\t")
             );
             let closure: &mut F = &mut *(#closure_name as *mut F);
             closure.#handle_method_name(#(#converted_args),*)
@@ -1912,10 +1914,10 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
                 log::debug!("calling {}", stringify!(#closure_fn_name));
             }
             #[cfg(feature = "log-c-bindings")]
-            log::debug!(
-                "{}({}\n)",
+            log::info!(
+                "{}(\n\t{}\n)",
                 stringify!(#closure_fn_name),
-                [#(#arg_names_for_logging),*].join(", ")
+                [#(#arg_names_for_logging),*].join(",\n\t")
             );
             let closure: &mut F = &mut *(#closure_name as *mut F);
             closure(#(#converted_args),*)

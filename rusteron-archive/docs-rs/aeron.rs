@@ -31284,13 +31284,13 @@ pub struct AeronErrorHandlerLogger;
 impl AeronErrorHandlerCallback for AeronErrorHandlerLogger {
     fn handle_aeron_error_handler(&mut self, errcode: ::std::os::raw::c_int, message: &str) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_error_handler),
             [
                 format!("{} : {:?}", stringify!(errcode), errcode),
                 format!("{} : {:?}", stringify!(message), message)
             ]
-            .join(", "),
+            .join(",\n\t"),
         );
         ()
     }
@@ -31319,15 +31319,15 @@ unsafe extern "C" fn aeron_error_handler_t_callback<F: AeronErrorHandlerCallback
         log::debug!("calling {}", stringify!(handle_aeron_error_handler));
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_error_handler_t_callback),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(errcode), errcode),
             format!("{} = {:?}", stringify!(message), message)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_error_handler(
@@ -31360,15 +31360,15 @@ unsafe extern "C" fn aeron_error_handler_t_callback_for_once_closure<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_error_handler_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(errcode), errcode),
             format!("{} = {:?}", stringify!(message), message)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(
@@ -31399,9 +31399,9 @@ impl AeronPublicationErrorFrameHandlerCallback for AeronPublicationErrorFrameHan
         error_frame: AeronPublicationErrorValues,
     ) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_publication_error_frame_handler),
-            [format!("{} : {:?}", stringify!(error_frame), error_frame)].join(", "),
+            [format!("{} : {:?}", stringify!(error_frame), error_frame)].join(",\n\t"),
         );
         ()
     }
@@ -31437,14 +31437,14 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_publication_error_frame_handler_t_callback),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(error_frame), error_frame)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_publication_error_frame_handler(error_frame.into())
@@ -31471,14 +31471,14 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_for_once_c
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_publication_error_frame_handler_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(error_frame), error_frame)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(error_frame.into())
@@ -31494,9 +31494,9 @@ pub struct AeronNotificationLogger;
 impl AeronNotificationCallback for AeronNotificationLogger {
     fn handle_aeron_notification(&mut self) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_notification),
-            [""].join(", "),
+            [""].join(",\n\t"),
         );
         ()
     }
@@ -31523,10 +31523,10 @@ unsafe extern "C" fn aeron_notification_t_callback<F: AeronNotificationCallback>
         log::debug!("calling {}", stringify!(handle_aeron_notification));
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_notification_t_callback),
-        [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
+        [format!("{} = {:?}", stringify!(clientd), clientd)].join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_notification()
@@ -31548,10 +31548,10 @@ unsafe extern "C" fn aeron_notification_t_callback_for_once_closure<F: FnMut() -
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_notification_t_callback_for_once_closure),
-        [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
+        [format!("{} = {:?}", stringify!(clientd), clientd)].join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure()
@@ -31591,7 +31591,7 @@ impl AeronNewPublicationCallback for AeronNewPublicationLogger {
         correlation_id: i64,
     ) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_on_new_publication),
             [
                 format!("{} : {:?}", stringify!(async_), async_),
@@ -31600,7 +31600,7 @@ impl AeronNewPublicationCallback for AeronNewPublicationLogger {
                 format!("{} : {:?}", stringify!(session_id), session_id),
                 format!("{} : {:?}", stringify!(correlation_id), correlation_id)
             ]
-            .join(", "),
+            .join(",\n\t"),
         );
         ()
     }
@@ -31642,8 +31642,8 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback<F: AeronNewPublicationC
         log::debug!("calling {}", stringify!(handle_aeron_on_new_publication));
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_on_new_publication_t_callback),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
@@ -31653,7 +31653,7 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback<F: AeronNewPublicationC
             format!("{} = {:?}", stringify!(session_id), session_id),
             format!("{} = {:?}", stringify!(correlation_id), correlation_id)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_on_new_publication(
@@ -31702,8 +31702,8 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback_for_once_closure<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_on_new_publication_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
@@ -31713,7 +31713,7 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback_for_once_closure<
             format!("{} = {:?}", stringify!(session_id), session_id),
             format!("{} = {:?}", stringify!(correlation_id), correlation_id)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(
@@ -31761,7 +31761,7 @@ impl AeronNewSubscriptionCallback for AeronNewSubscriptionLogger {
         correlation_id: i64,
     ) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_on_new_subscription),
             [
                 format!("{} : {:?}", stringify!(async_), async_),
@@ -31769,7 +31769,7 @@ impl AeronNewSubscriptionCallback for AeronNewSubscriptionLogger {
                 format!("{} : {:?}", stringify!(stream_id), stream_id),
                 format!("{} : {:?}", stringify!(correlation_id), correlation_id)
             ]
-            .join(", "),
+            .join(",\n\t"),
         );
         ()
     }
@@ -31810,8 +31810,8 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback<F: AeronNewSubscriptio
         log::debug!("calling {}", stringify!(handle_aeron_on_new_subscription));
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_on_new_subscription_t_callback),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
@@ -31820,7 +31820,7 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback<F: AeronNewSubscriptio
             format!("{} = {:?}", stringify!(stream_id), stream_id),
             format!("{} = {:?}", stringify!(correlation_id), correlation_id)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_on_new_subscription(
@@ -31867,8 +31867,8 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback_for_once_closure<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_on_new_subscription_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
@@ -31877,7 +31877,7 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback_for_once_closure<
             format!("{} = {:?}", stringify!(stream_id), stream_id),
             format!("{} = {:?}", stringify!(correlation_id), correlation_id)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(
@@ -31914,13 +31914,13 @@ impl AeronAvailableImageCallback for AeronAvailableImageLogger {
         image: AeronImage,
     ) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_on_available_image),
             [
                 format!("{} : {:?}", stringify!(subscription), subscription),
                 format!("{} : {:?}", stringify!(image), image)
             ]
-            .join(", "),
+            .join(",\n\t"),
         );
         ()
     }
@@ -31953,15 +31953,15 @@ unsafe extern "C" fn aeron_on_available_image_t_callback<F: AeronAvailableImageC
         log::debug!("calling {}", stringify!(handle_aeron_on_available_image));
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_on_available_image_t_callback),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(subscription), subscription),
             format!("{} = {:?}", stringify!(image), image)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_on_available_image(subscription.into(), image.into())
@@ -31991,15 +31991,15 @@ unsafe extern "C" fn aeron_on_available_image_t_callback_for_once_closure<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_on_available_image_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(subscription), subscription),
             format!("{} = {:?}", stringify!(image), image)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(subscription.into(), image.into())
@@ -32028,13 +32028,13 @@ impl AeronUnavailableImageCallback for AeronUnavailableImageLogger {
         image: AeronImage,
     ) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_on_unavailable_image),
             [
                 format!("{} : {:?}", stringify!(subscription), subscription),
                 format!("{} : {:?}", stringify!(image), image)
             ]
-            .join(", "),
+            .join(",\n\t"),
         );
         ()
     }
@@ -32068,15 +32068,15 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback<F: AeronUnavailableIm
         log::debug!("calling {}", stringify!(handle_aeron_on_unavailable_image));
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_on_unavailable_image_t_callback),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(subscription), subscription),
             format!("{} = {:?}", stringify!(image), image)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_on_unavailable_image(subscription.into(), image.into())
@@ -32107,15 +32107,15 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback_for_once_closure<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_on_unavailable_image_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(subscription), subscription),
             format!("{} = {:?}", stringify!(image), image)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(subscription.into(), image.into())
@@ -32146,14 +32146,14 @@ impl AeronAvailableCounterCallback for AeronAvailableCounterLogger {
         counter_id: i32,
     ) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_on_available_counter),
             [
                 format!("{} : {:?}", stringify!(counters_reader), counters_reader),
                 format!("{} : {:?}", stringify!(registration_id), registration_id),
                 format!("{} : {:?}", stringify!(counter_id), counter_id)
             ]
-            .join(", "),
+            .join(",\n\t"),
         );
         ()
     }
@@ -32188,8 +32188,8 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback<F: AeronAvailableCoun
         log::debug!("calling {}", stringify!(handle_aeron_on_available_counter));
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_on_available_counter_t_callback),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
@@ -32197,7 +32197,7 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback<F: AeronAvailableCoun
             format!("{} = {:?}", stringify!(registration_id), registration_id),
             format!("{} = {:?}", stringify!(counter_id), counter_id)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_on_available_counter(
@@ -32233,8 +32233,8 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback_for_once_closure<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_on_available_counter_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
@@ -32242,7 +32242,7 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback_for_once_closure<
             format!("{} = {:?}", stringify!(registration_id), registration_id),
             format!("{} = {:?}", stringify!(counter_id), counter_id)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(
@@ -32277,14 +32277,14 @@ impl AeronUnavailableCounterCallback for AeronUnavailableCounterLogger {
         counter_id: i32,
     ) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_on_unavailable_counter),
             [
                 format!("{} : {:?}", stringify!(counters_reader), counters_reader),
                 format!("{} : {:?}", stringify!(registration_id), registration_id),
                 format!("{} : {:?}", stringify!(counter_id), counter_id)
             ]
-            .join(", "),
+            .join(",\n\t"),
         );
         ()
     }
@@ -32323,8 +32323,8 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback<F: AeronUnavailable
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_on_unavailable_counter_t_callback),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
@@ -32332,7 +32332,7 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback<F: AeronUnavailable
             format!("{} = {:?}", stringify!(registration_id), registration_id),
             format!("{} = {:?}", stringify!(counter_id), counter_id)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_on_unavailable_counter(
@@ -32368,8 +32368,8 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback_for_once_closure<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_on_unavailable_counter_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
@@ -32377,7 +32377,7 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback_for_once_closure<
             format!("{} = {:?}", stringify!(registration_id), registration_id),
             format!("{} = {:?}", stringify!(counter_id), counter_id)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(
@@ -32399,9 +32399,9 @@ pub struct AeronCloseClientLogger;
 impl AeronCloseClientCallback for AeronCloseClientLogger {
     fn handle_aeron_on_close_client(&mut self) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_on_close_client),
-            [""].join(", "),
+            [""].join(",\n\t"),
         );
         ()
     }
@@ -32430,10 +32430,10 @@ unsafe extern "C" fn aeron_on_close_client_t_callback<F: AeronCloseClientCallbac
         log::debug!("calling {}", stringify!(handle_aeron_on_close_client));
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_on_close_client_t_callback),
-        [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
+        [format!("{} = {:?}", stringify!(clientd), clientd)].join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_on_close_client()
@@ -32457,10 +32457,10 @@ unsafe extern "C" fn aeron_on_close_client_t_callback_for_once_closure<F: FnMut(
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_on_close_client_t_callback_for_once_closure),
-        [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
+        [format!("{} = {:?}", stringify!(clientd), clientd)].join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure()
@@ -32475,9 +32475,9 @@ pub struct AeronAgentStartFuncLogger;
 impl AeronAgentStartFuncCallback for AeronAgentStartFuncLogger {
     fn handle_aeron_agent_on_start_func(&mut self, role_name: &str) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_agent_on_start_func),
-            [format!("{} : {:?}", stringify!(role_name), role_name)].join(", "),
+            [format!("{} : {:?}", stringify!(role_name), role_name)].join(",\n\t"),
         );
         ()
     }
@@ -32504,14 +32504,14 @@ unsafe extern "C" fn aeron_agent_on_start_func_t_callback<F: AeronAgentStartFunc
         log::debug!("calling {}", stringify!(handle_aeron_agent_on_start_func));
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_agent_on_start_func_t_callback),
         [
             format!("{} = {:?}", stringify!(state), state),
             format!("{} = {:?}", stringify!(role_name), role_name)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(state as *mut F);
     closure.handle_aeron_agent_on_start_func(if role_name.is_null() {
@@ -32537,14 +32537,14 @@ unsafe extern "C" fn aeron_agent_on_start_func_t_callback_for_once_closure<F: Fn
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_agent_on_start_func_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(state), state),
             format!("{} = {:?}", stringify!(role_name), role_name)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(state as *mut F);
     closure(if role_name.is_null() {
@@ -32584,7 +32584,7 @@ impl AeronCountersReaderForeachCounterFuncCallback for AeronCountersReaderForeac
         label: &str,
     ) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_counters_reader_foreach_counter_func),
             [
                 format!("{} : {:?}", stringify!(value), value),
@@ -32593,7 +32593,7 @@ impl AeronCountersReaderForeachCounterFuncCallback for AeronCountersReaderForeac
                 format!("{} : {:?}", stringify!(key), key),
                 format!("{} : {:?}", stringify!(label), label)
             ]
-            .join(", "),
+            .join(",\n\t"),
         );
         ()
     }
@@ -32639,8 +32639,8 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_counters_reader_foreach_counter_func_t_callback),
         [
             format!("{} = {:?}", stringify!(value), value),
@@ -32652,7 +32652,7 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback<
             format!("{} = {:?}", stringify!(label_length), label_length),
             format!("{} = {:?}", stringify!(clientd), clientd)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_counters_reader_foreach_counter_func(
@@ -32706,8 +32706,8 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback_for_o
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_counters_reader_foreach_counter_func_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(value), value),
@@ -32719,7 +32719,7 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback_for_o
             format!("{} = {:?}", stringify!(label_length), label_length),
             format!("{} = {:?}", stringify!(clientd), clientd)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(
@@ -32761,13 +32761,13 @@ impl AeronReservedValueSupplierCallback for AeronReservedValueSupplierLogger {
         frame_length: usize,
     ) -> i64 {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_reserved_value_supplier),
             [
                 format!("{} : {:?}", stringify!(buffer), buffer),
                 format!("{} : {:?}", stringify!(frame_length), frame_length)
             ]
-            .join(", "),
+            .join(",\n\t"),
         );
         unimplemented!()
     }
@@ -32806,15 +32806,15 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_reserved_value_supplier_t_callback),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(buffer), buffer),
             format!("{} = {:?}", stringify!(frame_length), frame_length)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_reserved_value_supplier(buffer.into(), frame_length.into())
@@ -32844,15 +32844,15 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback_for_once_closure<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_reserved_value_supplier_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(buffer), buffer),
             format!("{} = {:?}", stringify!(frame_length), frame_length)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(buffer.into(), frame_length.into())
@@ -32876,13 +32876,13 @@ pub struct AeronFragmentHandlerLogger;
 impl AeronFragmentHandlerCallback for AeronFragmentHandlerLogger {
     fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: AeronHeader) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_fragment_handler),
             [
                 format!("{} : {:?}", stringify!(buffer), buffer),
                 format!("{} : {:?}", stringify!(header), header)
             ]
-            .join(", "),
+            .join(",\n\t"),
         );
         ()
     }
@@ -32920,8 +32920,8 @@ unsafe extern "C" fn aeron_fragment_handler_t_callback<F: AeronFragmentHandlerCa
         log::debug!("calling {}", stringify!(handle_aeron_fragment_handler));
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_fragment_handler_t_callback),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
@@ -32929,7 +32929,7 @@ unsafe extern "C" fn aeron_fragment_handler_t_callback<F: AeronFragmentHandlerCa
             format!("{} = {:?}", stringify!(length), length),
             format!("{} = {:?}", stringify!(header), header)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_fragment_handler(
@@ -32971,8 +32971,8 @@ unsafe extern "C" fn aeron_fragment_handler_t_callback_for_once_closure<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_fragment_handler_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
@@ -32980,7 +32980,7 @@ unsafe extern "C" fn aeron_fragment_handler_t_callback_for_once_closure<
             format!("{} = {:?}", stringify!(length), length),
             format!("{} = {:?}", stringify!(header), header)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(
@@ -33020,13 +33020,13 @@ impl AeronControlledFragmentHandlerCallback for AeronControlledFragmentHandlerLo
         header: AeronHeader,
     ) -> aeron_controlled_fragment_handler_action_t {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_controlled_fragment_handler),
             [
                 format!("{} : {:?}", stringify!(buffer), buffer),
                 format!("{} : {:?}", stringify!(header), header)
             ]
-            .join(", "),
+            .join(",\n\t"),
         );
         unimplemented!()
     }
@@ -33071,8 +33071,8 @@ unsafe extern "C" fn aeron_controlled_fragment_handler_t_callback<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_controlled_fragment_handler_t_callback),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
@@ -33080,7 +33080,7 @@ unsafe extern "C" fn aeron_controlled_fragment_handler_t_callback<
             format!("{} = {:?}", stringify!(length), length),
             format!("{} = {:?}", stringify!(header), header)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_controlled_fragment_handler(
@@ -33123,8 +33123,8 @@ unsafe extern "C" fn aeron_controlled_fragment_handler_t_callback_for_once_closu
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_controlled_fragment_handler_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
@@ -33132,7 +33132,7 @@ unsafe extern "C" fn aeron_controlled_fragment_handler_t_callback_for_once_closu
             format!("{} = {:?}", stringify!(length), length),
             format!("{} = {:?}", stringify!(header), header)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(
@@ -33162,14 +33162,14 @@ pub struct AeronBlockHandlerLogger;
 impl AeronBlockHandlerCallback for AeronBlockHandlerLogger {
     fn handle_aeron_block_handler(&mut self, buffer: &[u8], session_id: i32, term_id: i32) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_block_handler),
             [
                 format!("{} : {:?}", stringify!(buffer), buffer),
                 format!("{} : {:?}", stringify!(session_id), session_id),
                 format!("{} : {:?}", stringify!(term_id), term_id)
             ]
-            .join(", "),
+            .join(",\n\t"),
         );
         ()
     }
@@ -33207,8 +33207,8 @@ unsafe extern "C" fn aeron_block_handler_t_callback<F: AeronBlockHandlerCallback
         log::debug!("calling {}", stringify!(handle_aeron_block_handler));
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_block_handler_t_callback),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
@@ -33217,7 +33217,7 @@ unsafe extern "C" fn aeron_block_handler_t_callback<F: AeronBlockHandlerCallback
             format!("{} = {:?}", stringify!(session_id), session_id),
             format!("{} = {:?}", stringify!(term_id), term_id)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_block_handler(
@@ -33260,8 +33260,8 @@ unsafe extern "C" fn aeron_block_handler_t_callback_for_once_closure<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_block_handler_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
@@ -33270,7 +33270,7 @@ unsafe extern "C" fn aeron_block_handler_t_callback_for_once_closure<
             format!("{} = {:?}", stringify!(session_id), session_id),
             format!("{} = {:?}", stringify!(term_id), term_id)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(
@@ -33305,7 +33305,7 @@ impl AeronErrorLogReaderFuncCallback for AeronErrorLogReaderFuncLogger {
         error: &str,
     ) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_error_log_reader_func),
             [
                 format!(
@@ -33325,7 +33325,7 @@ impl AeronErrorLogReaderFuncCallback for AeronErrorLogReaderFuncLogger {
                 ),
                 format!("{} : {:?}", stringify!(error), error)
             ]
-            .join(", "),
+            .join(",\n\t"),
         );
         ()
     }
@@ -33357,8 +33357,8 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback<F: AeronErrorLogRead
         log::debug!("calling {}", stringify!(handle_aeron_error_log_reader_func));
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_error_log_reader_func_t_callback),
         [
             format!(
@@ -33380,7 +33380,7 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback<F: AeronErrorLogRead
             format!("{} = {:?}", stringify!(error_length), error_length),
             format!("{} = {:?}", stringify!(clientd), clientd)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_error_log_reader_func(
@@ -33420,8 +33420,8 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback_for_once_closure<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_error_log_reader_func_t_callback_for_once_closure),
         [
             format!(
@@ -33443,7 +33443,7 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback_for_once_closure<
             format!("{} = {:?}", stringify!(error_length), error_length),
             format!("{} = {:?}", stringify!(clientd), clientd)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(
@@ -33490,7 +33490,7 @@ impl AeronLossReporterReadEntryFuncCallback for AeronLossReporterReadEntryFuncLo
         source: &str,
     ) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_loss_reporter_read_entry_func),
             [
                 format!(
@@ -33514,7 +33514,7 @@ impl AeronLossReporterReadEntryFuncCallback for AeronLossReporterReadEntryFuncLo
                 format!("{} : {:?}", stringify!(channel), channel),
                 format!("{} : {:?}", stringify!(source), source)
             ]
-            .join(", "),
+            .join(",\n\t"),
         );
         ()
     }
@@ -33556,8 +33556,8 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_loss_reporter_read_entry_func_t_callback),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
@@ -33584,7 +33584,7 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback<
             format!("{} = {:?}", stringify!(source), source),
             format!("{} = {:?}", stringify!(source_length), source_length)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_loss_reporter_read_entry_func(
@@ -33640,8 +33640,8 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback_for_once_clo
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_loss_reporter_read_entry_func_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
@@ -33668,7 +33668,7 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback_for_once_clo
             format!("{} = {:?}", stringify!(source), source),
             format!("{} = {:?}", stringify!(source_length), source_length)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(
@@ -33706,9 +33706,9 @@ pub struct AeronIdleStrategyFuncLogger;
 impl AeronIdleStrategyFuncCallback for AeronIdleStrategyFuncLogger {
     fn handle_aeron_idle_strategy_func(&mut self, work_count: ::std::os::raw::c_int) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_idle_strategy_func),
-            [format!("{} : {:?}", stringify!(work_count), work_count)].join(", "),
+            [format!("{} : {:?}", stringify!(work_count), work_count)].join(",\n\t"),
         );
         ()
     }
@@ -33736,14 +33736,14 @@ unsafe extern "C" fn aeron_idle_strategy_func_t_callback<F: AeronIdleStrategyFun
         log::debug!("calling {}", stringify!(handle_aeron_idle_strategy_func));
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_idle_strategy_func_t_callback),
         [
             format!("{} = {:?}", stringify!(state), state),
             format!("{} = {:?}", stringify!(work_count), work_count)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(state as *mut F);
     closure.handle_aeron_idle_strategy_func(work_count.into())
@@ -33767,14 +33767,14 @@ unsafe extern "C" fn aeron_idle_strategy_func_t_callback_for_once_closure<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_idle_strategy_func_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(state), state),
             format!("{} = {:?}", stringify!(work_count), work_count)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(state as *mut F);
     closure(work_count.into())
@@ -33798,9 +33798,9 @@ impl AeronArchiveCredentialsEncodedCredentialsSupplierFuncCallback
         &mut self,
     ) -> *mut aeron_archive_encoded_credentials_t {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_archive_credentials_encoded_credentials_supplier_func),
-            [""].join(", "),
+            [""].join(",\n\t"),
         );
         unimplemented!()
     }
@@ -33835,10 +33835,10 @@ unsafe extern "C" fn aeron_archive_credentials_encoded_credentials_supplier_func
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_archive_credentials_encoded_credentials_supplier_func_t_callback),
-        [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
+        [format!("{} = {:?}", stringify!(clientd), clientd)].join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_archive_credentials_encoded_credentials_supplier_func()
@@ -33861,12 +33861,12 @@ unsafe extern "C" fn aeron_archive_credentials_encoded_credentials_supplier_func
         log :: debug ! ("calling {}" , stringify ! (aeron_archive_credentials_encoded_credentials_supplier_func_t_callback_for_once_closure));
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(
             aeron_archive_credentials_encoded_credentials_supplier_func_t_callback_for_once_closure
         ),
-        [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
+        [format!("{} = {:?}", stringify!(clientd), clientd)].join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure()
@@ -33893,14 +33893,14 @@ impl AeronArchiveCredentialsChallengeSupplierFuncCallback
         encoded_challenge: AeronArchiveEncodedCredentials,
     ) -> *mut aeron_archive_encoded_credentials_t {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_archive_credentials_challenge_supplier_func),
             [format!(
                 "{} : {:?}",
                 stringify!(encoded_challenge),
                 encoded_challenge
             )]
-            .join(", "),
+            .join(",\n\t"),
         );
         unimplemented!()
     }
@@ -33937,8 +33937,8 @@ unsafe extern "C" fn aeron_archive_credentials_challenge_supplier_func_t_callbac
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_archive_credentials_challenge_supplier_func_t_callback),
         [
             format!(
@@ -33948,7 +33948,7 @@ unsafe extern "C" fn aeron_archive_credentials_challenge_supplier_func_t_callbac
             ),
             format!("{} = {:?}", stringify!(clientd), clientd)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_archive_credentials_challenge_supplier_func(encoded_challenge.into())
@@ -33978,8 +33978,8 @@ unsafe extern "C" fn aeron_archive_credentials_challenge_supplier_func_t_callbac
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_archive_credentials_challenge_supplier_func_t_callback_for_once_closure),
         [
             format!(
@@ -33989,7 +33989,7 @@ unsafe extern "C" fn aeron_archive_credentials_challenge_supplier_func_t_callbac
             ),
             format!("{} = {:?}", stringify!(clientd), clientd)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(encoded_challenge.into())
@@ -34013,9 +34013,9 @@ impl AeronArchiveCredentialsFreeFuncCallback for AeronArchiveCredentialsFreeFunc
         credentials: AeronArchiveEncodedCredentials,
     ) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_archive_credentials_free_func),
-            [format!("{} : {:?}", stringify!(credentials), credentials)].join(", "),
+            [format!("{} : {:?}", stringify!(credentials), credentials)].join(",\n\t"),
         );
         ()
     }
@@ -34051,14 +34051,14 @@ unsafe extern "C" fn aeron_archive_credentials_free_func_t_callback<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_archive_credentials_free_func_t_callback),
         [
             format!("{} = {:?}", stringify!(credentials), credentials),
             format!("{} = {:?}", stringify!(clientd), clientd)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_archive_credentials_free_func(credentials.into())
@@ -34085,14 +34085,14 @@ unsafe extern "C" fn aeron_archive_credentials_free_func_t_callback_for_once_clo
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_archive_credentials_free_func_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(credentials), credentials),
             format!("{} = {:?}", stringify!(clientd), clientd)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(credentials.into())
@@ -34108,9 +34108,9 @@ pub struct AeronArchiveDelegatingInvokerFuncLogger;
 impl AeronArchiveDelegatingInvokerFuncCallback for AeronArchiveDelegatingInvokerFuncLogger {
     fn handle_aeron_archive_delegating_invoker_func(&mut self) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_archive_delegating_invoker_func),
-            [""].join(", "),
+            [""].join(",\n\t"),
         );
         ()
     }
@@ -34143,10 +34143,10 @@ unsafe extern "C" fn aeron_archive_delegating_invoker_func_t_callback<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_archive_delegating_invoker_func_t_callback),
-        [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
+        [format!("{} = {:?}", stringify!(clientd), clientd)].join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_archive_delegating_invoker_func()
@@ -34170,10 +34170,10 @@ unsafe extern "C" fn aeron_archive_delegating_invoker_func_t_callback_for_once_c
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_archive_delegating_invoker_func_t_callback_for_once_closure),
-        [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
+        [format!("{} = {:?}", stringify!(clientd), clientd)].join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure()
@@ -34197,14 +34197,14 @@ impl AeronArchiveRecordingDescriptorConsumerFuncCallback
         recording_descriptor: AeronArchiveRecordingDescriptor,
     ) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_archive_recording_descriptor_consumer_func),
             [format!(
                 "{} : {:?}",
                 stringify!(recording_descriptor),
                 recording_descriptor
             )]
-            .join(", "),
+            .join(",\n\t"),
         );
         ()
     }
@@ -34238,8 +34238,8 @@ unsafe extern "C" fn aeron_archive_recording_descriptor_consumer_func_t_callback
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_archive_recording_descriptor_consumer_func_t_callback),
         [
             format!(
@@ -34249,7 +34249,7 @@ unsafe extern "C" fn aeron_archive_recording_descriptor_consumer_func_t_callback
             ),
             format!("{} = {:?}", stringify!(clientd), clientd)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_archive_recording_descriptor_consumer_func(recording_descriptor.into())
@@ -34276,8 +34276,8 @@ unsafe extern "C" fn aeron_archive_recording_descriptor_consumer_func_t_callback
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_archive_recording_descriptor_consumer_func_t_callback_for_once_closure),
         [
             format!(
@@ -34287,7 +34287,7 @@ unsafe extern "C" fn aeron_archive_recording_descriptor_consumer_func_t_callback
             ),
             format!("{} = {:?}", stringify!(clientd), clientd)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(recording_descriptor.into())
@@ -34311,14 +34311,14 @@ impl AeronArchiveRecordingSubscriptionDescriptorConsumerFuncCallback
         recording_subscription_descriptor: AeronArchiveRecordingSubscriptionDescriptor,
     ) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_archive_recording_subscription_descriptor_consumer_func),
             [format!(
                 "{} : {:?}",
                 stringify!(recording_subscription_descriptor),
                 recording_subscription_descriptor
             )]
-            .join(", "),
+            .join(",\n\t"),
         );
         ()
     }
@@ -34353,8 +34353,8 @@ unsafe extern "C" fn aeron_archive_recording_subscription_descriptor_consumer_fu
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_archive_recording_subscription_descriptor_consumer_func_t_callback),
         [
             format!(
@@ -34364,7 +34364,7 @@ unsafe extern "C" fn aeron_archive_recording_subscription_descriptor_consumer_fu
             ),
             format!("{} = {:?}", stringify!(clientd), clientd)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_archive_recording_subscription_descriptor_consumer_func(
@@ -34388,7 +34388,7 @@ unsafe extern "C" fn aeron_archive_recording_subscription_descriptor_consumer_fu
         log :: debug ! ("calling {}" , stringify ! (aeron_archive_recording_subscription_descriptor_consumer_func_t_callback_for_once_closure));
     }
     #[cfg(feature = "log-c-bindings")]
-    log :: debug ! ("{}({}\n)" , stringify ! (aeron_archive_recording_subscription_descriptor_consumer_func_t_callback_for_once_closure) , [format ! ("{} = {:?}" , stringify ! (recording_subscription_descriptor) , recording_subscription_descriptor) , format ! ("{} = {:?}" , stringify ! (clientd) , clientd)] . join (", "));
+    log :: info ! ("{}(\n\t{}\n)" , stringify ! (aeron_archive_recording_subscription_descriptor_consumer_func_t_callback_for_once_closure) , [format ! ("{} = {:?}" , stringify ! (recording_subscription_descriptor) , recording_subscription_descriptor) , format ! ("{} = {:?}" , stringify ! (clientd) , clientd)] . join (",\n\t"));
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(recording_subscription_descriptor.into())
 }
@@ -34411,14 +34411,14 @@ impl AeronArchiveRecordingSignalConsumerFuncCallback
         recording_signal: AeronArchiveRecordingSignal,
     ) -> () {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_archive_recording_signal_consumer_func),
             [format!(
                 "{} : {:?}",
                 stringify!(recording_signal),
                 recording_signal
             )]
-            .join(", "),
+            .join(",\n\t"),
         );
         ()
     }
@@ -34452,14 +34452,14 @@ unsafe extern "C" fn aeron_archive_recording_signal_consumer_func_t_callback<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_archive_recording_signal_consumer_func_t_callback),
         [
             format!("{} = {:?}", stringify!(recording_signal), recording_signal),
             format!("{} = {:?}", stringify!(clientd), clientd)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_archive_recording_signal_consumer_func(recording_signal.into())
@@ -34484,14 +34484,14 @@ unsafe extern "C" fn aeron_archive_recording_signal_consumer_func_t_callback_for
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_archive_recording_signal_consumer_func_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(recording_signal), recording_signal),
             format!("{} = {:?}", stringify!(clientd), clientd)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(recording_signal.into())
@@ -34506,13 +34506,13 @@ pub struct AeronUriParseCallbackLogger;
 impl AeronUriParseCallbackCallback for AeronUriParseCallbackLogger {
     fn handle_aeron_uri_parse_callback(&mut self, key: &str, value: &str) -> ::std::os::raw::c_int {
         log::info!(
-            "{}({}\n)",
+            "{}(\n\t{}\n)",
             stringify!(handle_aeron_uri_parse_callback),
             [
                 format!("{} : {:?}", stringify!(key), key),
                 format!("{} : {:?}", stringify!(value), value)
             ]
-            .join(", "),
+            .join(",\n\t"),
         );
         unimplemented!()
     }
@@ -34541,15 +34541,15 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback<F: AeronUriParseCallbac
         log::debug!("calling {}", stringify!(handle_aeron_uri_parse_callback));
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_uri_parse_callback_t_callback),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(key), key),
             format!("{} = {:?}", stringify!(value), value)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_uri_parse_callback(
@@ -34585,15 +34585,15 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback_for_once_closure<
         );
     }
     #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
+    log::info!(
+        "{}(\n\t{}\n)",
         stringify!(aeron_uri_parse_callback_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(key), key),
             format!("{} = {:?}", stringify!(value), value)
         ]
-        .join(", ")
+        .join(",\n\t")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(
