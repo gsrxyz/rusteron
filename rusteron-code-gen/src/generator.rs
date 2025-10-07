@@ -492,7 +492,7 @@ impl CWrapper {
         }
     }
 
-    /// Generate logging expressions for method arguments
+    /// Generate logging expressions for method arguments, useful for debugging
     fn generate_arg_logging(arguments: &[Arg], arg_names: &[TokenStream]) -> TokenStream {
         let mut arg_names_idx = 0;
         let mut arg_names_for_logging = vec![];
@@ -506,10 +506,8 @@ impl CWrapper {
             let arg_type = arg.as_type();
             let arg_ident = arg.as_ident();
 
-            // Determine how to log this argument
             match &arg.processing {
                 ArgProcessing::Handler(_) if !arg.is_mut_pointer() => {
-                    // Handlers - just show type
                     arg_names_for_logging.push(quote! {
                         concat!(#arg_name_str, ": ", stringify!(#arg_type)).to_string()
                     });
