@@ -9602,6 +9602,7 @@ impl core::fmt::Debug for AeronImageConstants {
         } else {
             f.debug_struct(stringify!(AeronImageConstants))
                 .field("inner", &self.inner)
+                .field(stringify!(source_identity), &self.source_identity())
                 .field(stringify!(correlation_id), &self.correlation_id())
                 .field(stringify!(join_position), &self.join_position())
                 .field(
@@ -11447,6 +11448,8 @@ impl core::fmt::Debug for AeronIpcChannelParams {
         } else {
             f.debug_struct(stringify!(AeronIpcChannelParams))
                 .field("inner", &self.inner)
+                .field(stringify!(channel_tag), &self.channel_tag())
+                .field(stringify!(entity_tag), &self.entity_tag())
                 .field(stringify!(additional_params), &self.additional_params())
                 .finish()
         }
@@ -14631,6 +14634,7 @@ impl core::fmt::Debug for AeronPublicationConstants {
         } else {
             f.debug_struct(stringify!(AeronPublicationConstants))
                 .field("inner", &self.inner)
+                .field(stringify!(channel), &self.channel())
                 .field(
                     stringify!(original_registration_id),
                     &self.original_registration_id(),
@@ -17441,6 +17445,7 @@ impl core::fmt::Debug for AeronStrToPtrHashMapKey {
         } else {
             f.debug_struct(stringify!(AeronStrToPtrHashMapKey))
                 .field("inner", &self.inner)
+                .field(stringify!(str_), &self.str_())
                 .field(stringify!(hash_code), &self.hash_code())
                 .field(stringify!(str_length), &self.str_length())
                 .finish()
@@ -17818,6 +17823,7 @@ impl core::fmt::Debug for AeronSubscriptionConstants {
         } else {
             f.debug_struct(stringify!(AeronSubscriptionConstants))
                 .field("inner", &self.inner)
+                .field(stringify!(channel), &self.channel())
                 .field(stringify!(registration_id), &self.registration_id())
                 .field(stringify!(stream_id), &self.stream_id())
                 .field(
@@ -20606,6 +20612,13 @@ impl core::fmt::Debug for AeronUdpChannelParams {
         } else {
             f.debug_struct(stringify!(AeronUdpChannelParams))
                 .field("inner", &self.inner)
+                .field(stringify!(endpoint), &self.endpoint())
+                .field(stringify!(bind_interface), &self.bind_interface())
+                .field(stringify!(control), &self.control())
+                .field(stringify!(control_mode), &self.control_mode())
+                .field(stringify!(channel_tag), &self.channel_tag())
+                .field(stringify!(entity_tag), &self.entity_tag())
+                .field(stringify!(ttl), &self.ttl())
                 .field(stringify!(additional_params), &self.additional_params())
                 .finish()
         }
@@ -20847,6 +20860,8 @@ impl core::fmt::Debug for AeronUriParam {
         } else {
             f.debug_struct(stringify!(AeronUriParam))
                 .field("inner", &self.inner)
+                .field(stringify!(key), &self.key())
+                .field(stringify!(value), &self.value())
                 .finish()
         }
     }

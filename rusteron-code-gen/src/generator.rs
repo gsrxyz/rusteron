@@ -1086,7 +1086,7 @@ impl CWrapper {
                     || rt.original.is_byte_array()
                     || cwrappers.contains_key(&rt.original.c_type)
                 {
-                    if !rt.original.is_any_pointer() {
+                    if !rt.original.is_any_pointer() || rt.original.is_c_string_any() {
                         debug_fields
                             .push(quote! { .field(stringify!(#fn_name), &self.#fn_name()) });
                     }

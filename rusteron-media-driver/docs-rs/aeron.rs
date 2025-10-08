@@ -1162,6 +1162,7 @@ impl core::fmt::Debug for Addrinfo {
         } else {
             f.debug_struct(stringify!(Addrinfo))
                 .field("inner", &self.inner)
+                .field(stringify!(ai_canonname), &self.ai_canonname())
                 .finish()
         }
     }
@@ -1376,6 +1377,7 @@ impl core::fmt::Debug for AeronAgentRunner {
         } else {
             f.debug_struct(stringify!(AeronAgentRunner))
                 .field("inner", &self.inner)
+                .field(stringify!(role_name), &self.role_name())
                 .field(stringify!(running), &self.running())
                 .finish()
         }
@@ -14330,6 +14332,7 @@ impl core::fmt::Debug for AeronDistinctObservation {
         } else {
             f.debug_struct(stringify!(AeronDistinctObservation))
                 .field("inner", &self.inner)
+                .field(stringify!(description), &self.description())
                 .field(stringify!(offset), &self.offset())
                 .field(stringify!(description_length), &self.description_length())
                 .finish()
@@ -18033,6 +18036,7 @@ impl core::fmt::Debug for AeronDriverContextBindingsClientdEntry {
         } else {
             f.debug_struct(stringify!(AeronDriverContextBindingsClientdEntry))
                 .field("inner", &self.inner)
+                .field(stringify!(name), &self.name())
                 .finish()
         }
     }
@@ -18489,6 +18493,46 @@ impl core::fmt::Debug for AeronDriverContext {
                     stringify!(conductor_command_queue),
                     &self.conductor_command_queue(),
                 )
+                .field(
+                    stringify!(conductor_idle_strategy_init_args),
+                    &self.conductor_idle_strategy_init_args(),
+                )
+                .field(
+                    stringify!(conductor_idle_strategy_name),
+                    &self.conductor_idle_strategy_name(),
+                )
+                .field(
+                    stringify!(shared_idle_strategy_init_args),
+                    &self.shared_idle_strategy_init_args(),
+                )
+                .field(
+                    stringify!(shared_idle_strategy_name),
+                    &self.shared_idle_strategy_name(),
+                )
+                .field(
+                    stringify!(shared_network_idle_strategy_init_args),
+                    &self.shared_network_idle_strategy_init_args(),
+                )
+                .field(
+                    stringify!(shared_network_idle_strategy_name),
+                    &self.shared_network_idle_strategy_name(),
+                )
+                .field(
+                    stringify!(sender_idle_strategy_init_args),
+                    &self.sender_idle_strategy_init_args(),
+                )
+                .field(
+                    stringify!(sender_idle_strategy_name),
+                    &self.sender_idle_strategy_name(),
+                )
+                .field(
+                    stringify!(receiver_idle_strategy_init_args),
+                    &self.receiver_idle_strategy_init_args(),
+                )
+                .field(
+                    stringify!(receiver_idle_strategy_name),
+                    &self.receiver_idle_strategy_name(),
+                )
                 .field(stringify!(next_receiver_id), &self.next_receiver_id())
                 .field(
                     stringify!(unicast_delay_feedback_generator),
@@ -18497,6 +18541,16 @@ impl core::fmt::Debug for AeronDriverContext {
                 .field(
                     stringify!(multicast_delay_feedback_generator),
                     &self.multicast_delay_feedback_generator(),
+                )
+                .field(stringify!(resolver_name), &self.resolver_name())
+                .field(stringify!(resolver_interface), &self.resolver_interface())
+                .field(
+                    stringify!(resolver_bootstrap_neighbor),
+                    &self.resolver_bootstrap_neighbor(),
+                )
+                .field(
+                    stringify!(name_resolver_init_args),
+                    &self.name_resolver_init_args(),
                 )
                 .field(
                     stringify!(conductor_duty_cycle_stall_tracker),
@@ -31106,6 +31160,7 @@ impl core::fmt::Debug for AeronFlowControlStrategySupplierFuncTableEntry {
         } else {
             f.debug_struct(stringify!(AeronFlowControlStrategySupplierFuncTableEntry))
                 .field("inner", &self.inner)
+                .field(stringify!(name), &self.name())
                 .finish()
         }
     }
@@ -31598,6 +31653,7 @@ impl core::fmt::Debug for AeronFlowControlTaggedOptions {
                     stringify!(strategy_name_length),
                     &self.strategy_name_length(),
                 )
+                .field(stringify!(strategy_name), &self.strategy_name())
                 .field(
                     stringify!(multicast_flow_control_rrwm),
                     &self.multicast_flow_control_rrwm(),
@@ -33409,6 +33465,7 @@ impl core::fmt::Debug for AeronImageConstants {
         } else {
             f.debug_struct(stringify!(AeronImageConstants))
                 .field("inner", &self.inner)
+                .field(stringify!(source_identity), &self.source_identity())
                 .field(stringify!(correlation_id), &self.correlation_id())
                 .field(stringify!(join_position), &self.join_position())
                 .field(
@@ -36211,6 +36268,8 @@ impl core::fmt::Debug for AeronIpcChannelParams {
         } else {
             f.debug_struct(stringify!(AeronIpcChannelParams))
                 .field("inner", &self.inner)
+                .field(stringify!(channel_tag), &self.channel_tag())
+                .field(stringify!(entity_tag), &self.entity_tag())
                 .field(stringify!(additional_params), &self.additional_params())
                 .finish()
         }
@@ -36594,10 +36653,12 @@ impl core::fmt::Debug for AeronIpcPublication {
                     &self.starting_term_offset(),
                 )
                 .field(stringify!(channel_length), &self.channel_length())
+                .field(stringify!(channel), &self.channel())
                 .field(
                     stringify!(log_file_name_length),
                     &self.log_file_name_length(),
                 )
+                .field(stringify!(log_file_name), &self.log_file_name())
                 .finish()
         }
     }
@@ -41397,6 +41458,7 @@ impl core::fmt::Debug for AeronNetworkPublication {
                     &self.time_of_last_setup_ns(),
                 )
                 .field(stringify!(endpoint_address), &self.endpoint_address())
+                .field(stringify!(log_file_name), &self.log_file_name())
                 .field(stringify!(term_buffer_length), &self.term_buffer_length())
                 .field(stringify!(term_window_length), &self.term_window_length())
                 .field(stringify!(trip_gain), &self.trip_gain())
@@ -44414,6 +44476,7 @@ impl core::fmt::Debug for AeronPublicationConstants {
         } else {
             f.debug_struct(stringify!(AeronPublicationConstants))
                 .field("inner", &self.inner)
+                .field(stringify!(channel), &self.channel())
                 .field(
                     stringify!(original_registration_id),
                     &self.original_registration_id(),
@@ -45532,6 +45595,7 @@ impl core::fmt::Debug for AeronPublicationImage {
                 .field(stringify!(rcv_hwm_position), &self.rcv_hwm_position())
                 .field(stringify!(rcv_pos_position), &self.rcv_pos_position())
                 .field(stringify!(rcv_naks_sent), &self.rcv_naks_sent())
+                .field(stringify!(log_file_name), &self.log_file_name())
                 .field(stringify!(session_id), &self.session_id())
                 .field(stringify!(stream_id), &self.stream_id())
                 .field(stringify!(initial_term_id), &self.initial_term_id())
@@ -45582,6 +45646,7 @@ impl core::fmt::Debug for AeronPublicationImage {
                     stringify!(time_of_last_packet_ns),
                     &self.time_of_last_packet_ns(),
                 )
+                .field(stringify!(invalidation_reason), &self.invalidation_reason())
                 .field(stringify!(is_sm_enabled), &self.is_sm_enabled())
                 .field(stringify!(response_session_id), &self.response_session_id())
                 .field(stringify!(is_end_of_stream), &self.is_end_of_stream())
@@ -54305,6 +54370,7 @@ impl core::fmt::Debug for AeronStrToPtrHashMapKey {
         } else {
             f.debug_struct(stringify!(AeronStrToPtrHashMapKey))
                 .field("inner", &self.inner)
+                .field(stringify!(str_), &self.str_())
                 .field(stringify!(hash_code), &self.hash_code())
                 .field(stringify!(str_length), &self.str_length())
                 .finish()
@@ -55551,6 +55617,7 @@ impl core::fmt::Debug for AeronSubscriptionConstants {
         } else {
             f.debug_struct(stringify!(AeronSubscriptionConstants))
                 .field("inner", &self.inner)
+                .field(stringify!(channel), &self.channel())
                 .field(stringify!(registration_id), &self.registration_id())
                 .field(stringify!(stream_id), &self.stream_id())
                 .field(
@@ -57247,6 +57314,7 @@ impl core::fmt::Debug for AeronSystemCounter {
         } else {
             f.debug_struct(stringify!(AeronSystemCounter))
                 .field("inner", &self.inner)
+                .field(stringify!(label), &self.label())
                 .field(stringify!(id), &self.id())
                 .finish()
         }
@@ -62458,6 +62526,13 @@ impl core::fmt::Debug for AeronUdpChannelParams {
         } else {
             f.debug_struct(stringify!(AeronUdpChannelParams))
                 .field("inner", &self.inner)
+                .field(stringify!(endpoint), &self.endpoint())
+                .field(stringify!(bind_interface), &self.bind_interface())
+                .field(stringify!(control), &self.control())
+                .field(stringify!(control_mode), &self.control_mode())
+                .field(stringify!(channel_tag), &self.channel_tag())
+                .field(stringify!(entity_tag), &self.entity_tag())
+                .field(stringify!(ttl), &self.ttl())
                 .field(stringify!(additional_params), &self.additional_params())
                 .finish()
         }
@@ -63760,6 +63835,8 @@ impl core::fmt::Debug for AeronUriParam {
         } else {
             f.debug_struct(stringify!(AeronUriParam))
                 .field("inner", &self.inner)
+                .field(stringify!(key), &self.key())
+                .field(stringify!(value), &self.value())
                 .finish()
         }
     }
@@ -65582,6 +65659,7 @@ impl core::fmt::Debug for Ifaddrs {
         } else {
             f.debug_struct(stringify!(Ifaddrs))
                 .field("inner", &self.inner)
+                .field(stringify!(ifa_name), &self.ifa_name())
                 .finish()
         }
     }
