@@ -3246,6 +3246,8 @@ impl core::fmt::Debug for AeronCnc {
         } else {
             f.debug_struct(stringify!(AeronCnc))
                 .field("inner", &self.inner)
+                .field(stringify!(constants), &self.get_constants())
+                .field(stringify!(filename), &self.filename())
                 .finish()
         }
     }
@@ -3713,6 +3715,8 @@ impl core::fmt::Debug for AeronContext {
         } else {
             f.debug_struct(stringify!(AeronContext))
                 .field("inner", &self.inner)
+                .field(stringify!(get_dir), &self.get_dir())
+                .field(stringify!(get_client_name), &self.get_client_name())
                 .finish()
         }
     }
@@ -5810,6 +5814,7 @@ impl core::fmt::Debug for AeronCounter {
         } else {
             f.debug_struct(stringify!(AeronCounter))
                 .field("inner", &self.inner)
+                .field(stringify!(constants), &self.get_constants())
                 .finish()
         }
     }
@@ -6086,7 +6091,7 @@ impl Drop for AeronCounter {
                 && !inner.is_closed_already_called()
             {
                 if inner.auto_close.get() {
-                    log::info!("auto closing {}", stringify!(AeronCounter));
+                    log::info!("auto closing {self:?}");
                     let result = self.close_with_no_args();
                     log::debug!("result {:?}", result);
                 } else {
@@ -7659,6 +7664,7 @@ impl core::fmt::Debug for AeronExclusivePublication {
         } else {
             f.debug_struct(stringify!(AeronExclusivePublication))
                 .field("inner", &self.inner)
+                .field(stringify!(constants), &self.get_constants())
                 .finish()
         }
     }
@@ -8558,7 +8564,7 @@ impl Drop for AeronExclusivePublication {
                 && !inner.is_closed_already_called()
             {
                 if inner.auto_close.get() {
-                    log::info!("auto closing {}", stringify!(AeronExclusivePublication));
+                    log::info!("auto closing {self:?}");
                     let result = self.close_with_no_args();
                     log::debug!("result {:?}", result);
                 } else {
@@ -8972,6 +8978,7 @@ impl core::fmt::Debug for AeronHeader {
         } else {
             f.debug_struct(stringify!(AeronHeader))
                 .field("inner", &self.inner)
+                .field(stringify!(values), &self.get_values())
                 .finish()
         }
     }
@@ -10284,6 +10291,7 @@ impl core::fmt::Debug for AeronImage {
         } else {
             f.debug_struct(stringify!(AeronImage))
                 .field("inner", &self.inner)
+                .field(stringify!(constants), &self.get_constants())
                 .finish()
         }
     }
@@ -15092,6 +15100,8 @@ impl core::fmt::Debug for AeronPublication {
         } else {
             f.debug_struct(stringify!(AeronPublication))
                 .field("inner", &self.inner)
+                .field(stringify!(constants), &self.get_constants())
+                .field(stringify!(channel), &self.channel())
                 .finish()
         }
     }
@@ -15835,7 +15845,7 @@ impl Drop for AeronPublication {
                 && !inner.is_closed_already_called()
             {
                 if inner.auto_close.get() {
-                    log::info!("auto closing {}", stringify!(AeronPublication));
+                    log::info!("auto closing {self:?}");
                     let result = self.close_with_no_args();
                     log::debug!("result {:?}", result);
                 } else {
@@ -18010,6 +18020,7 @@ impl core::fmt::Debug for AeronSubscription {
         } else {
             f.debug_struct(stringify!(AeronSubscription))
                 .field("inner", &self.inner)
+                .field(stringify!(constants), &self.get_constants())
                 .finish()
         }
     }
@@ -19018,7 +19029,7 @@ impl Drop for AeronSubscription {
                 && !inner.is_closed_already_called()
             {
                 if inner.auto_close.get() {
-                    log::info!("auto closing {}", stringify!(AeronSubscription));
+                    log::info!("auto closing {self:?}");
                     let result = self.close_with_no_args();
                     log::debug!("result {:?}", result);
                 } else {
@@ -22161,7 +22172,7 @@ impl Drop for AeronUri {
                 && !inner.is_closed_already_called()
             {
                 if inner.auto_close.get() {
-                    log::info!("auto closing {}", stringify!(AeronUri));
+                    log::info!("auto closing {self:?}");
                     let result = self.close();
                     log::debug!("result {:?}", result);
                 } else {

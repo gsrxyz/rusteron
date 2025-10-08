@@ -1412,6 +1412,22 @@ impl core::fmt::Debug for AeronArchiveContext {
         } else {
             f.debug_struct(stringify!(AeronArchiveContext))
                 .field("inner", &self.inner)
+                .field(
+                    stringify!(get_aeron_directory_name),
+                    &self.get_aeron_directory_name(),
+                )
+                .field(
+                    stringify!(get_control_request_channel),
+                    &self.get_control_request_channel(),
+                )
+                .field(
+                    stringify!(get_control_response_channel),
+                    &self.get_control_response_channel(),
+                )
+                .field(
+                    stringify!(get_recording_events_channel),
+                    &self.get_recording_events_channel(),
+                )
                 .finish()
         }
     }
@@ -12048,6 +12064,7 @@ impl core::fmt::Debug for AeronCnc {
             f.debug_struct(stringify!(AeronCnc))
                 .field("inner", &self.inner)
                 .field(stringify!(constants), &self.get_constants())
+                .field(stringify!(filename), &self.filename())
                 .finish()
         }
     }
@@ -12515,6 +12532,8 @@ impl core::fmt::Debug for AeronContext {
         } else {
             f.debug_struct(stringify!(AeronContext))
                 .field("inner", &self.inner)
+                .field(stringify!(get_dir), &self.get_dir())
+                .field(stringify!(get_client_name), &self.get_client_name())
                 .finish()
         }
     }
@@ -24092,6 +24111,7 @@ impl core::fmt::Debug for AeronPublication {
             f.debug_struct(stringify!(AeronPublication))
                 .field("inner", &self.inner)
                 .field(stringify!(constants), &self.get_constants())
+                .field(stringify!(channel), &self.channel())
                 .finish()
         }
     }

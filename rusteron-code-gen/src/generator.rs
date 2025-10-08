@@ -2,7 +2,6 @@ use crate::get_possible_wrappers;
 #[allow(unused_imports)]
 use crate::snake_to_pascal_case;
 use itertools::Itertools;
-use log::info;
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use std::collections::{BTreeMap, BTreeSet};
@@ -573,9 +572,6 @@ impl CWrapper {
             .iter()
             .filter(|m| !m.arguments.iter().any(|arg| arg.is_double_mut_pointer()))
             .map(|method| {
-                if method.struct_method_name.contains("errmsg") {
-                    info!("{}", method.fn_name);
-                }
                 let set_closed = if method.struct_method_name == "close" {
                     quote! {
                         if let Some(inner) = self.inner.as_owned() {
@@ -685,6 +681,13 @@ impl CWrapper {
                 // Generate logging expression for arguments
                 let args_log_expr = Self::generate_arg_logging(&method.arguments, &arg_names);
 
+                if uses_self && method.return_type.is_c_string_any() && method.arguments.len() == 1 {
+                    let name = format_ident!("{}", method.struct_method_name);
+                    debug_fields.push( quote! {
+                            .field(stringify!(#name), &self.#name() )
+                        } );
+                }
+
                 let possible_self = if uses_self  {
                     quote! { &self, }
                 } else {
@@ -753,6 +756,7 @@ impl CWrapper {
                             .map(|s| TokenStream::from_str(s.to_string().replace("# Parameters\n", "").as_str()).unwrap())
                             .collect_vec();
                     }
+
 
                     quote! {
                         #[inline]
@@ -948,7 +952,7 @@ impl CWrapper {
         possible_self: &TokenStream,
         method_docs: &Vec<TokenStream>,
         additional_methods: &mut Vec<TokenStream>,
-        debug_fields:  &mut Vec<TokenStream>,
+        debug_fields: &mut Vec<TokenStream>,
     ) {
         if ["constants", "buffers", "values"]
             .iter()
@@ -972,9 +976,9 @@ impl CWrapper {
                             Ok(result)
                         }
                     });
-            debug_fields.push( quote! {
+            debug_fields.push(quote! {
                 .field(stringify!(#fn_name), &self.#getter_method() )
-            } );
+            });
         }
     }
 
@@ -1945,7 +1949,12 @@ pub fn generate_rust_code(
     let mut additional_outer_impls = vec![];
     let mut debug_fields = vec![];
 
-    let methods = wrapper.generate_methods(wrappers, closure_handlers, &mut additional_outer_impls, &mut debug_fields);
+    let methods = wrapper.generate_methods(
+        wrappers,
+        closure_handlers,
+        &mut additional_outer_impls,
+        &mut debug_fields,
+    );
     let mut constructor_fields = vec![];
     let mut new_ref_set_none = vec![];
     let constructor =
