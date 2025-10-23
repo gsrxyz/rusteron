@@ -206,6 +206,8 @@ pub struct ManagedCResource<T> {
     check_for_is_closed: Option<fn(*mut T) -> bool>,
     #[doc = " this will be called if closed hasn't already happened even if its borrowed"]
     auto_close: std::cell::Cell<bool>,
+    #[doc = " indicates if the underlying resource has already been handed off and should not be re-polled"]
+    resource_released: std::cell::Cell<bool>,
     #[doc = " to prevent the dependencies from being dropped as you have a copy here,"]
     #[doc = " for example, you want to have a dependency to aeron for any async jobs so aeron doesnt get dropped first"]
     #[doc = " when you have a publication/subscription"]
@@ -250,6 +252,7 @@ impl<T> ManagedCResource<T> {
             close_already_called: std::cell::Cell::new(false),
             check_for_is_closed,
             auto_close: std::cell::Cell::new(false),
+            resource_released: std::cell::Cell::new(false),
             dependencies: UnsafeCell::new(vec![]),
         };
         #[cfg(feature = "extra-logging")]
@@ -305,6 +308,14 @@ impl<T> ManagedCResource<T> {
                 .filter_map(|x| x.as_ref().downcast_ref::<V>().cloned())
                 .next()
         }
+    }
+    #[inline]
+    pub fn is_resource_released(&self) -> bool {
+        self.resource_released.get()
+    }
+    #[inline]
+    pub fn mark_resource_released(&self) {
+        self.resource_released.set(true);
     }
     #[doc = " Closes the resource by calling the cleanup function."]
     #[doc = ""]
@@ -1368,19 +1379,34 @@ impl AeronArchiveAsyncConnect {
         Ok(result)
     }
     pub fn poll(&self) -> Result<Option<AeronArchive>, AeronCError> {
+        if let Some(inner) = self.inner.as_owned() {
+            if inner.is_resource_released() {
+                return Ok(None);
+            }
+        }
         let mut result = AeronArchive::new(self);
         if let Ok(result) = &mut result {
             unsafe {
                 for d in (&mut *self.inner.as_owned().unwrap().dependencies.get()).iter_mut() {
                     result.inner.add_dependency(d.clone());
                 }
-                result.inner.as_owned().unwrap().auto_close.set(true);
             }
         }
         match result {
-            Ok(result) => Ok(Some(result)),
+            Ok(result) => {
+                if let Some(inner) = self.inner.as_owned() {
+                    inner.mark_resource_released();
+                }
+                result.inner.as_owned().unwrap().auto_close.set(true);
+                Ok(Some(result))
+            }
             Err(AeronCError { code }) if code == 0 => Ok(None),
-            Err(e) => Err(e),
+            Err(e) => {
+                if let Some(inner) = self.inner.as_owned() {
+                    inner.mark_resource_released();
+                }
+                Err(e)
+            }
         }
     }
     pub fn poll_blocking(&self, timeout: std::time::Duration) -> Result<AeronArchive, AeronCError> {
@@ -9562,7 +9588,7 @@ impl AeronCounter {
             },
             None,
             false,
-            None,
+            Some(|c| unsafe { aeron_counter_is_closed(c) }),
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
@@ -9665,19 +9691,34 @@ impl AeronAsyncAddCounter {
         Ok(result)
     }
     pub fn poll(&self) -> Result<Option<AeronCounter>, AeronCError> {
+        if let Some(inner) = self.inner.as_owned() {
+            if inner.is_resource_released() {
+                return Ok(None);
+            }
+        }
         let mut result = AeronCounter::new(self);
         if let Ok(result) = &mut result {
             unsafe {
                 for d in (&mut *self.inner.as_owned().unwrap().dependencies.get()).iter_mut() {
                     result.inner.add_dependency(d.clone());
                 }
-                result.inner.as_owned().unwrap().auto_close.set(true);
             }
         }
         match result {
-            Ok(result) => Ok(Some(result)),
+            Ok(result) => {
+                if let Some(inner) = self.inner.as_owned() {
+                    inner.mark_resource_released();
+                }
+                result.inner.as_owned().unwrap().auto_close.set(true);
+                Ok(Some(result))
+            }
             Err(AeronCError { code }) if code == 0 => Ok(None),
-            Err(e) => Err(e),
+            Err(e) => {
+                if let Some(inner) = self.inner.as_owned() {
+                    inner.mark_resource_released();
+                }
+                Err(e)
+            }
         }
     }
     pub fn poll_blocking(&self, timeout: std::time::Duration) -> Result<AeronCounter, AeronCError> {
@@ -9900,7 +9941,7 @@ impl AeronExclusivePublication {
             },
             None,
             false,
-            None,
+            Some(|c| unsafe { aeron_exclusive_publication_is_closed(c) }),
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
@@ -9992,19 +10033,34 @@ impl AeronAsyncAddExclusivePublication {
         Ok(result)
     }
     pub fn poll(&self) -> Result<Option<AeronExclusivePublication>, AeronCError> {
+        if let Some(inner) = self.inner.as_owned() {
+            if inner.is_resource_released() {
+                return Ok(None);
+            }
+        }
         let mut result = AeronExclusivePublication::new(self);
         if let Ok(result) = &mut result {
             unsafe {
                 for d in (&mut *self.inner.as_owned().unwrap().dependencies.get()).iter_mut() {
                     result.inner.add_dependency(d.clone());
                 }
-                result.inner.as_owned().unwrap().auto_close.set(true);
             }
         }
         match result {
-            Ok(result) => Ok(Some(result)),
+            Ok(result) => {
+                if let Some(inner) = self.inner.as_owned() {
+                    inner.mark_resource_released();
+                }
+                result.inner.as_owned().unwrap().auto_close.set(true);
+                Ok(Some(result))
+            }
             Err(AeronCError { code }) if code == 0 => Ok(None),
-            Err(e) => Err(e),
+            Err(e) => {
+                if let Some(inner) = self.inner.as_owned() {
+                    inner.mark_resource_released();
+                }
+                Err(e)
+            }
         }
     }
     pub fn poll_blocking(
@@ -10199,7 +10255,7 @@ impl AeronPublication {
             },
             None,
             false,
-            None,
+            Some(|c| unsafe { aeron_publication_is_closed(c) }),
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
@@ -10287,19 +10343,34 @@ impl AeronAsyncAddPublication {
         Ok(result)
     }
     pub fn poll(&self) -> Result<Option<AeronPublication>, AeronCError> {
+        if let Some(inner) = self.inner.as_owned() {
+            if inner.is_resource_released() {
+                return Ok(None);
+            }
+        }
         let mut result = AeronPublication::new(self);
         if let Ok(result) = &mut result {
             unsafe {
                 for d in (&mut *self.inner.as_owned().unwrap().dependencies.get()).iter_mut() {
                     result.inner.add_dependency(d.clone());
                 }
-                result.inner.as_owned().unwrap().auto_close.set(true);
             }
         }
         match result {
-            Ok(result) => Ok(Some(result)),
+            Ok(result) => {
+                if let Some(inner) = self.inner.as_owned() {
+                    inner.mark_resource_released();
+                }
+                result.inner.as_owned().unwrap().auto_close.set(true);
+                Ok(Some(result))
+            }
             Err(AeronCError { code }) if code == 0 => Ok(None),
-            Err(e) => Err(e),
+            Err(e) => {
+                if let Some(inner) = self.inner.as_owned() {
+                    inner.mark_resource_released();
+                }
+                Err(e)
+            }
         }
     }
     pub fn poll_blocking(
@@ -10494,7 +10565,7 @@ impl AeronSubscription {
             },
             None,
             false,
-            None,
+            Some(|c| unsafe { aeron_subscription_is_closed(c) }),
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
@@ -10650,19 +10721,34 @@ impl AeronAsyncAddSubscription {
         Ok(result)
     }
     pub fn poll(&self) -> Result<Option<AeronSubscription>, AeronCError> {
+        if let Some(inner) = self.inner.as_owned() {
+            if inner.is_resource_released() {
+                return Ok(None);
+            }
+        }
         let mut result = AeronSubscription::new(self);
         if let Ok(result) = &mut result {
             unsafe {
                 for d in (&mut *self.inner.as_owned().unwrap().dependencies.get()).iter_mut() {
                     result.inner.add_dependency(d.clone());
                 }
-                result.inner.as_owned().unwrap().auto_close.set(true);
             }
         }
         match result {
-            Ok(result) => Ok(Some(result)),
+            Ok(result) => {
+                if let Some(inner) = self.inner.as_owned() {
+                    inner.mark_resource_released();
+                }
+                result.inner.as_owned().unwrap().auto_close.set(true);
+                Ok(Some(result))
+            }
             Err(AeronCError { code }) if code == 0 => Ok(None),
-            Err(e) => Err(e),
+            Err(e) => {
+                if let Some(inner) = self.inner.as_owned() {
+                    inner.mark_resource_released();
+                }
+                Err(e)
+            }
         }
     }
     pub fn poll_blocking(
