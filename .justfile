@@ -95,6 +95,89 @@ docs:
   cargo test  --workspace --doc
   cargo doc --workspace --no-deps --open
 
+# CANNOT USE MIRI due to ffi :(
+#check-miri:
+#  rustup toolchain install nightly --component miri
+#  rustup run nightly cargo miri setup
+#  MIRIFLAGS="" rustup run nightly cargo miri test -p rusteron-code-gen --lib -- test_drop_
+
+test-valgrind:
+    test -f ./id_ed25519 || ssh-keygen -t ed25519 -N "" -C "container@$(hostname)" -f ./id_ed25519
+    docker build --platform=linux/amd64 -f Dockerfile -t rusteron-valgrind .
+    docker run --rm --platform=linux/amd64 \
+      --shm-size=2g \
+      -e HOME=/work/target/asan \
+      -e TMP=/work/target/asan/tmp \
+      -e TEMP=/work/target/asan/tmp \
+      -e GRADLE_USER_HOME=/work/target/asan/gradle \
+      -e CARGO_HOME=/work/target/asan/cargo-home \
+      -e CARGO_TARGET_DIR=/work/target/asan/target \
+      -e RUST_TEST_THREADS=1 \
+      -v "$PWD:/work" \
+      --entrypoint valgrind \
+      rusteron-valgrind \
+      --tool=memcheck \
+      --error-exitcode=1 \
+      --track-origins=yes \
+      --leak-check=full \
+      --show-leak-kinds=all \
+      --track-origins=yes \
+      --track-fds=yes \
+      --show-reachable=yes \
+      --show-possibly-lost=yes \
+      --errors-for-leak-kinds=all \
+      --gen-suppressions=no \
+      --num-callers=30 \
+      --suppressions=/dev/null \
+      cargo test --workspace -- --test-threads=1
+
+test-valgrind2:
+    test -f ./id_ed25519 || ssh-keygen -t ed25519 -N "" -C "container@$(hostname)" -f ./id_ed25519
+    docker build --platform=linux/amd64 -f Dockerfile -t rusteron-valgrind .
+    docker container inspect rusteron-valgrind-test >/dev/null 2>&1 || \
+      docker create --platform=linux/amd64 \
+        --name rusteron-valgrind-test \
+        --shm-size=2g \
+        -e HOME=/work/target/asan \
+        -e TMP=/work/target/asan/tmp \
+        -e TEMP=/work/target/asan/tmp \
+        -e GRADLE_USER_HOME=/work/target/asan/gradle \
+        -e CARGO_HOME=/work/target/asan/cargo-home \
+        -e CARGO_TARGET_DIR=/work/target/asan/target \
+        -e RUST_TEST_THREADS=1 \
+        -v "$PWD:/work" \
+        --entrypoint valgrind \
+        rusteron-valgrind \
+        --tool=memcheck \
+        --error-exitcode=1 \
+        --track-origins=yes \
+        --leak-check=full \
+        --show-leak-kinds=all \
+        --track-origins=yes \
+        --track-fds=yes \
+        --show-reachable=yes \
+        --show-possibly-lost=yes \
+        --errors-for-leak-kinds=all \
+        --gen-suppressions=no \
+        --num-callers=30 \
+        --suppressions=/dev/null \
+        cargo test --workspace -- --test-threads=1
+    docker start -a rusteron-valgrind-test
+
+# starts docker image with valgrind and ssh, can ssh with ssh -i $PWD/id_ed25519 -p 2222 root@localhost
+start-valgrind-sshd:
+    test -f ./id_ed25519 || ssh-keygen -t ed25519 -N "" -C "container@$(hostname)" -f ./id_ed25519
+    docker build --platform=linux/amd64 -f Dockerfile -t rusteron-valgrind .
+    docker rm -f rusteron-valgrind-sshd >/dev/null 2>&1 || true
+    docker run --rm --platform=linux/amd64 \
+      --shm-size=2g \
+      -v "$PWD:/work" \
+      -p 2222:22 \
+      --name rusteron-valgrind-sshd \
+      --entrypoint /bin/sh \
+      rusteron-valgrind \
+      -c "sed -i '/^ListenAddress /d' /etc/ssh/sshd_config && exec /usr/sbin/sshd -D -e -o ListenAddress=0.0.0.0"
+
 # Run unit tests
 test:
   cargo test --workspace -- --nocapture
@@ -336,3 +419,10 @@ show-aeron-version:
 # Update to the latest Aeron release tag from GitHub
 update-to-latest-aeron-version:
     just update-aeron-version `curl -s https://api.github.com/repos/real-logic/aeron/releases | grep '"tag_name"' | head -1 | cut -d '"' -f4`
+
+#test-asan:
+#  rustup toolchain install nightly-2024-12-05
+#  rustup component add rust-src --toolchain nightly-aarch64-apple-darwin
+#  rustup default nightly-2024-12-05
+#  RUSTUP_TOOLCHAIN=nightly-2024-12-05 RUSTC="$(rustup which rustc --toolchain nightly-2024-12-05)" DYLD_INSERT_LIBRARIES="$(rustup run nightly-2024-12-05 rustc --print target-libdir)/librustc-nightly_rt.asan.dylib" ASAN_OPTIONS=detect_leaks=1,abort_on_error=1 CFLAGS="-fsanitize=address" RUSTFLAGS="-Zsanitizer=address" "$(rustup which cargo --toolchain nightly-2024-12-05)" -Z build-std test --package rusteron-client --lib -- --nocapture
+#  RUSTUP_TOOLCHAIN=nightly-2024-12-05 RUSTC="$(rustup which rustc --toolchain nightly-2024-12-05)" DYLD_INSERT_LIBRARIES="$(rustup run nightly-2024-12-05 rustc --print target-libdir)/librustc-nightly_rt.asan.dylib" ASAN_OPTIONS=detect_leaks=1,abort_on_error=1 CFLAGS="-fsanitize=address" RUSTFLAGS="-Zsanitizer=address" "$(rustup which cargo --toolchain nightly-2024-12-05)" -Z build-std test --package rusteron-archive --lib -- --nocapture

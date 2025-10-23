@@ -97,6 +97,8 @@ pub struct ManagedCResource<T> {
     check_for_is_closed: Option<fn(*mut T) -> bool>,
     /// this will be called if closed hasn't already happened even if its borrowed
     auto_close: std::cell::Cell<bool>,
+    /// indicates if the underlying resource has already been handed off and should not be re-polled
+    resource_released: std::cell::Cell<bool>,
     /// to prevent the dependencies from being dropped as you have a copy here,
     /// for example, you want to have a dependency to aeron for any async jobs so aeron doesnt get dropped first
     /// when you have a publication/subscription
@@ -146,6 +148,7 @@ impl<T> ManagedCResource<T> {
             close_already_called: std::cell::Cell::new(false),
             check_for_is_closed,
             auto_close: std::cell::Cell::new(false),
+            resource_released: std::cell::Cell::new(false),
             dependencies: UnsafeCell::new(vec![]),
         };
         #[cfg(feature = "extra-logging")]
@@ -208,6 +211,16 @@ impl<T> ManagedCResource<T> {
                 .filter_map(|x| x.as_ref().downcast_ref::<V>().cloned())
                 .next()
         }
+    }
+
+    #[inline]
+    pub fn is_resource_released(&self) -> bool {
+        self.resource_released.get()
+    }
+
+    #[inline]
+    pub fn mark_resource_released(&self) {
+        self.resource_released.set(true);
     }
 
     /// Closes the resource by calling the cleanup function.

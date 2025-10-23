@@ -14,8 +14,8 @@ compression = "best"
 [workspace.dependencies]
 bindgen         = "0.72"
 cmake           = "0.1"
-criterion       = "0.6"
-ctrlc           = "3.4"
+criterion       = "0.7"
+ctrlc           = "3.5"
 dunce           = "1.0"
 flate2          = { version = "1.1" }
 hdrhistogram    = "7.5"

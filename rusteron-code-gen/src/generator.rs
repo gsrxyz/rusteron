@@ -2167,6 +2167,7 @@ pub fn generate_rust_code(
             // Generate logging for poll method arguments (as token stream)
             let poll_log_expr_tokens =
                 CWrapper::generate_arg_logging(&poll_method.arguments, &init_args);
+            let is_closed_method = main.get_is_closed_method_quote();
 
             quote! {
                     impl #main_class_name {
@@ -2183,7 +2184,7 @@ pub fn generate_rust_code(
                                 },
                                 None,
                                 false,
-                                None,
+                                #is_closed_method,
                             )?;
                             Ok(Self {
                                 inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
@@ -2253,22 +2254,38 @@ pub fn generate_rust_code(
 
                         pub fn poll(&self) -> Result<Option<#main_class_name>, AeronCError> {
 
+                            if let Some(inner) = self.inner.as_owned() {
+                                if inner.is_resource_released() {
+                                    return Ok(None);
+                                }
+                            }
+
                             let mut result = #main_class_name::new(self);
                             if let Ok(result) = &mut result {
                                 unsafe {
                                     for d in (&mut *self.inner.as_owned().unwrap().dependencies.get()).iter_mut() {
                                       result.inner.add_dependency(d.clone());
                                     }
-                                    result.inner.as_owned().unwrap().auto_close.set(true);
                                 }
                             }
 
                             match result {
-                                Ok(result) => Ok(Some(result)),
+                                Ok(result) => {
+                                    if let Some(inner) = self.inner.as_owned() {
+                                        inner.mark_resource_released();
+                                    }
+                                    result.inner.as_owned().unwrap().auto_close.set(true);
+                                    Ok(Some(result))
+                                }
                                 Err(AeronCError {code }) if code == 0 => {
                                   Ok(None) // try again
                                 }
-                                Err(e) => Err(e)
+                                Err(e) => {
+                                    if let Some(inner) = self.inner.as_owned() {
+                                        inner.mark_resource_released();
+                                    }
+                                    Err(e)
+                                }
                             }
                         }
 

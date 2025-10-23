@@ -52,6 +52,29 @@ jobs:
           sudo apt-get update && sudo apt-get install -y uuid-dev libbsd-dev
           cargo test --doc
 
+  memory-check:
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    name: Memory Check (Valgrind)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run tests under Valgrind
+        run: |
+          cargo install just
+          just test-valgrind
+
   build:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     name: Build
@@ -59,7 +82,7 @@ jobs:
     timeout-minutes: 45
 
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
 #        os: [ubuntu-latest, macos-latest, macos-13, windows-latest]
         os: [ubuntu-22.04, macos-latest, macos-13]
@@ -103,13 +126,15 @@ jobs:
         run: |
           Remove-Item -LiteralPath 'rusteron-archive/artifacts','rusteron-client/artifacts','rusteron-media-driver/artifacts' -Recurse -Force -ErrorAction SilentlyContinue
 
-      - name: Build and Test
+      - name: Build
         env:
           PUBLISH_ARTIFACTS: true
         run: |
           cargo build --release --workspace ${{ env.feature-flags }}
-          cargo test --workspace --all --all-targets ${{ env.feature-flags }} -- --nocapture
 
+      - name: Test
+        run: |
+          cargo test --workspace --all --all-targets ${{ env.feature-flags }} -- --nocapture
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4

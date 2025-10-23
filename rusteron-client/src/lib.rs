@@ -1,3 +1,4 @@
+#![allow(improper_ctypes_definitions)]
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -14,6 +15,7 @@
 //! - **`log-c-bindings`**: When enabled will log every C binding call with arguments and return values. Useful for debugging FFI interactions
 //! - **`precompile`**: When enabled will use precompiled C code instead of requiring cmake and java to be installed
 
+#[allow(improper_ctypes_definitions)]
 pub mod bindings {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
@@ -87,6 +89,293 @@ mod tests {
             current_allocs()
         );
 
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn async_publication_invalid_interface_poll_then_drop() -> Result<(), Box<dyn error::Error>> {
+        let _ = env_logger::Builder::new()
+            .is_test(true)
+            .filter_level(log::LevelFilter::Info)
+            .try_init();
+
+        let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
+        media_driver_ctx.set_dir_delete_on_shutdown(true)?;
+        media_driver_ctx.set_dir_delete_on_start(true)?;
+        media_driver_ctx.set_dir(
+            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
+        )?;
+        let (stop, driver_handle) =
+            rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
+
+        let ctx = AeronContext::new()?;
+        ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+        ctx.set_error_handler(Some(&Handler::leak(ErrorCount::default())))?;
+        let aeron = Aeron::new(&ctx)?;
+        aeron.start()?;
+
+        let channel = String::from("aeron:udp?endpoint=203.0.113.1:54321");
+
+        // Create async publication and subscription pollers on the same invalid channel and
+        // attempt to resolve them. If both are created, try a small send/receive cycle and then exit.
+        let pub_poller = aeron.async_add_publication(&channel.clone().into_c_string(), 4321)?;
+        let sub_poller = aeron.async_add_subscription(
+            &channel.into_c_string(),
+            4321,
+            Handlers::no_available_image_handler(),
+            Handlers::no_unavailable_image_handler(),
+        )?;
+
+        let mut publication: Option<AeronPublication> = None;
+        let mut subscription: Option<AeronSubscription> = None;
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(2) {
+            if publication.is_none() {
+                match pub_poller.poll() {
+                    Ok(Some(p)) => publication = Some(p),
+                    Ok(None) | Err(_) => {}
+                }
+            }
+            if subscription.is_none() {
+                match sub_poller.poll() {
+                    Ok(Some(s)) => subscription = Some(s),
+                    Ok(None) | Err(_) => {}
+                }
+            }
+            if publication.is_some() && subscription.is_some() {
+                break;
+            }
+            #[cfg(debug_assertions)]
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        info!("publication: {:?}", publication);
+        info!("subscription: {:?}", subscription);
+
+        if let (Some(publisher), Some(subscription)) = (publication, subscription) {
+            let payload = b"hello-aeron";
+            let send_start = Instant::now();
+            let mut sent = false;
+            while send_start.elapsed() < Duration::from_millis(500) {
+                let res = publisher.offer(payload, Handlers::no_reserved_value_supplier_handler());
+                if res >= payload.len() as i64 {
+                    sent = true;
+                    info!("sent {:?}", payload);
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+
+            if sent {
+                let mut got = false;
+                let read_start = Instant::now();
+                while read_start.elapsed() < Duration::from_millis(500) {
+                    let _ = subscription.poll_once(
+                        |msg, _hdr| {
+                            if msg == payload {
+                                got = true;
+                                info!("received {:?}", payload);
+                            }
+                        },
+                        1024,
+                    );
+                    if got {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                // We don't assert on got, just exercise the path.
+            }
+        }
+
+        // Shutdown
+        stop.store(true, Ordering::SeqCst);
+        let _ = driver_handle.join().unwrap();
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn async_pub_sub_invalid_endpoint_create_drop_stress() -> Result<(), Box<dyn error::Error>> {
+        let _ = env_logger::Builder::new()
+            .is_test(true)
+            .filter_level(log::LevelFilter::Info)
+            .try_init();
+
+        let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
+        media_driver_ctx.set_dir_delete_on_shutdown(true)?;
+        media_driver_ctx.set_dir_delete_on_start(true)?;
+        media_driver_ctx.set_dir(
+            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
+        )?;
+        let (stop, driver_handle) =
+            rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
+
+        let ctx = AeronContext::new()?;
+        ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+        ctx.set_error_handler(Some(&Handler::leak(ErrorCount::default())))?;
+        let aeron = Aeron::new(&ctx)?;
+        aeron.start()?;
+
+        // Stress: repeatedly create and drop pub/sub async pollers on an invalid endpoint.
+        for i in 0..60u16 {
+            let port = 55000u16 + i;
+            let channel = format!("aeron:udp?endpoint=203.0.113.1:{}", port);
+            let pub_poller =
+                aeron.async_add_publication(&channel.clone().into_c_string(), 4500 + i as i32)?;
+            let sub_poller = aeron.async_add_subscription(
+                &channel.into_c_string(),
+                4500 + i as i32,
+                Handlers::no_available_image_handler(),
+                Handlers::no_unavailable_image_handler(),
+            )?;
+
+            let start = Instant::now();
+            while start.elapsed() < Duration::from_millis(50) {
+                let _ = pub_poller.poll();
+                let _ = sub_poller.poll();
+            }
+
+            if i % 2 == 0 {
+                drop(sub_poller);
+                drop(pub_poller);
+            } else {
+                drop(pub_poller);
+                drop(sub_poller);
+            }
+        }
+
+        stop.store(true, Ordering::SeqCst);
+        let _ = driver_handle.join().unwrap();
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    // // #[ignore] // TODO FIXME broken test
+    fn async_subscription_invalid_interface_poll_then_drop() -> Result<(), Box<dyn error::Error>> {
+        let _ = env_logger::Builder::new()
+            .is_test(true)
+            .filter_level(log::LevelFilter::Info)
+            .try_init();
+
+        let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
+        media_driver_ctx.set_dir_delete_on_shutdown(true)?;
+        media_driver_ctx.set_dir_delete_on_start(true)?;
+        media_driver_ctx.set_dir(
+            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
+        )?;
+        let (stop, driver_handle) =
+            rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
+
+        let ctx = AeronContext::new()?;
+        ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+        ctx.set_error_handler(Some(&Handler::leak(ErrorCount::default())))?;
+        let aeron = Aeron::new(&ctx)?;
+        aeron.start()?;
+
+        // Invalid remote endpoint only (no interface)
+        let channel = String::from("aeron:udp?endpoint=203.0.113.1:54323");
+
+        let poller = aeron.async_add_subscription(
+            &channel.into_c_string(),
+            4323,
+            Handlers::no_available_image_handler(),
+            Handlers::no_unavailable_image_handler(),
+        )?;
+
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_millis(250) {
+            let _ = poller.poll();
+            #[cfg(debug_assertions)]
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        drop(poller);
+
+        stop.store(true, Ordering::SeqCst);
+        let _ = driver_handle.join().unwrap();
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn blocking_add_subscription_invalid_interface_timeout() -> Result<(), Box<dyn error::Error>> {
+        let _ = env_logger::Builder::new()
+            .is_test(true)
+            .filter_level(log::LevelFilter::Info)
+            .try_init();
+
+        let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
+        media_driver_ctx.set_dir_delete_on_shutdown(true)?;
+        media_driver_ctx.set_dir_delete_on_start(true)?;
+        media_driver_ctx.set_dir(
+            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
+        )?;
+        let (stop, driver_handle) =
+            rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
+
+        let ctx = AeronContext::new()?;
+        ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+        ctx.set_error_handler(Some(&Handler::leak(ErrorCount::default())))?;
+        let aeron = Aeron::new(&ctx)?;
+        aeron.start()?;
+
+        let channel = String::from("aeron:udp?endpoint=203.0.113.1:54324");
+
+        let result = aeron.add_subscription(
+            &channel.into_c_string(),
+            4324,
+            Handlers::no_available_image_handler(),
+            Handlers::no_unavailable_image_handler(),
+            Duration::from_millis(300),
+        );
+
+        assert!(result.is_err(), "expected error for invalid interface");
+
+        stop.store(true, Ordering::SeqCst);
+        let _ = driver_handle.join().unwrap();
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn async_publication_invalid_bind_poll_then_drop() -> Result<(), Box<dyn error::Error>> {
+        let _ = env_logger::Builder::new()
+            .is_test(true)
+            .filter_level(log::LevelFilter::Info)
+            .try_init();
+
+        let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
+        media_driver_ctx.set_dir_delete_on_shutdown(true)?;
+        media_driver_ctx.set_dir_delete_on_start(true)?;
+        media_driver_ctx.set_dir(
+            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
+        )?;
+        let (stop, driver_handle) =
+            rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
+
+        let ctx = AeronContext::new()?;
+        ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+        ctx.set_error_handler(Some(&Handler::leak(ErrorCount::default())))?;
+        let aeron = Aeron::new(&ctx)?;
+        aeron.start()?;
+
+        // Use an invalid bind on publication (bind is not valid for publication, and the IP is unowned).
+        let channel = format!("aeron:udp?endpoint=127.0.0.1:54330|bind=203.0.113.1:60000");
+
+        let poller = aeron.async_add_publication(&channel.into_c_string(), 4330)?;
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_millis(250) {
+            let _ = poller.poll();
+            #[cfg(debug_assertions)]
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        drop(poller);
+
+        stop.store(true, Ordering::SeqCst);
+        let _ = driver_handle.join().unwrap();
         Ok(())
     }
 
