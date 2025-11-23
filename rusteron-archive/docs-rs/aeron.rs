@@ -1454,6 +1454,7 @@ impl core::fmt::Debug for AeronArchiveContext {
                     stringify!(get_recording_events_channel),
                     &self.get_recording_events_channel(),
                 )
+                .field(stringify!(get_client_name), &self.get_client_name())
                 .finish()
         }
     }
@@ -2153,6 +2154,50 @@ impl AeronArchiveContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
+        }
+    }
+    #[inline]
+    #[doc = "Specify client name to identify this client on the archive side."]
+    pub fn set_client_name(&self, value: &std::ffi::CStr) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_archive_context_set_client_name),
+                [
+                    concat!("context", ": ", stringify!(*mut aeron_archive_context_t)).to_string(),
+                    concat!("value", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_archive_context_set_client_name(self.get_inner(), value.as_ptr());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn get_client_name(&self) -> &str {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_archive_context_get_client_name),
+                [concat!("context", ": ", stringify!(*mut aeron_archive_context_t)).to_string()]
+                    .join(", ")
+            );
+            let result = aeron_archive_context_get_client_name(self.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(result).to_str().unwrap_or("") }
+            }
         }
     }
     #[inline]
@@ -3326,6 +3371,10 @@ impl AeronArchiveProxy {
     #[inline]
     pub fn buffer(&self) -> [u8; 8192usize] {
         self.buffer.into()
+    }
+    #[inline]
+    pub fn client_info(&self) -> [::std::os::raw::c_char; 200usize] {
+        self.client_info.into()
     }
     #[inline]
     pub fn init(
@@ -4556,6 +4605,47 @@ impl AeronArchiveProxy {
                 correlation_id.into(),
                 src_recording_id.into(),
                 dst_recording_id.into(),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn update_channel(
+        &self,
+        correlation_id: i64,
+        recording_id: i64,
+        new_channel: &std::ffi::CStr,
+    ) -> bool {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_archive_proxy_update_channel),
+                [
+                    concat!(
+                        "archive_proxy",
+                        ": ",
+                        stringify!(*mut aeron_archive_proxy_t)
+                    )
+                    .to_string(),
+                    format!("{} = {:?}", "correlation_id", correlation_id),
+                    format!("{} = {:?}", "recording_id", recording_id),
+                    concat!(
+                        "new_channel",
+                        ": ",
+                        stringify!(*const ::std::os::raw::c_char)
+                    )
+                    .to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_archive_proxy_update_channel(
+                self.get_inner(),
+                correlation_id.into(),
+                recording_id.into(),
+                new_channel.as_ptr(),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -9205,6 +9295,48 @@ impl AeronArchive {
         }
     }
     #[inline]
+    #[doc = "Update the channel for a recording, i.e. replace original and stripped channel information in the catalog."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `recording_id` the id of the recording."]
+    #[doc = " \n - `new_channel` to use in the catalogue."]
+    #[doc = " \n# Return\n 0 for success, -1 for failure"]
+    pub fn update_channel(
+        &self,
+        recording_id: i64,
+        new_channel: &std::ffi::CStr,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_archive_update_channel),
+                [
+                    concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string(),
+                    format!("{} = {:?}", "recording_id", recording_id),
+                    concat!(
+                        "new_channel",
+                        ": ",
+                        stringify!(*const ::std::os::raw::c_char)
+                    )
+                    .to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_archive_update_channel(
+                self.get_inner(),
+                recording_id.into(),
+                new_channel.as_ptr(),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
     #[doc = "Position of the recorded stream at the base of a segment file."]
     #[doc = " \n"]
     #[doc = " If a recording starts within a term then the base position can be before the recording started."]
@@ -11297,6 +11429,165 @@ impl From<aeron_async_destination_t> for AeronAsyncDestination {
     #[inline]
     fn from(value: aeron_async_destination_t) -> Self {
         AeronAsyncDestination {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
+        }
+    }
+}
+#[derive(Clone)]
+pub struct AeronAsyncGetNextAvailableSessionId {
+    inner: CResource<aeron_async_get_next_available_session_id_t>,
+}
+impl core::fmt::Debug for AeronAsyncGetNextAvailableSessionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronAsyncGetNextAvailableSessionId))
+                .field("inner", &"null")
+                .finish()
+        } else {
+            f.debug_struct(stringify!(AeronAsyncGetNextAvailableSessionId))
+                .field("inner", &self.inner)
+                .finish()
+        }
+    }
+}
+impl AeronAsyncGetNextAvailableSessionId {
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!(
+                    "creating zeroed empty resource on heap {}",
+                    stringify!(aeron_async_get_next_available_session_id_t)
+                );
+                let inst: aeron_async_get_next_available_session_id_t =
+                    unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_async_get_next_available_session_id_t =
+                    Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+            None,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_async_get_next_available_session_id_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
+        }
+    }
+    #[inline]
+    #[doc = "Poll the completion of the aeron_async_next_session_id call."]
+    #[doc = ""]
+    #[doc = "\n \n # Parameters
+- `next_session_id` to set if completed successfully."]
+    pub fn aeron_async_next_session_id_poll(&self) -> Result<i32, AeronCError> {
+        unsafe {
+            let mut mut_result: i32 = Default::default();
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_async_next_session_id_poll),
+                [
+                    concat!("next_session_id", ": ", stringify!(*mut i32)).to_string(),
+                    concat!(
+                        "async_",
+                        ": ",
+                        stringify!(*mut aeron_async_get_next_available_session_id_t)
+                    )
+                    .to_string()
+                ]
+                .join(", ")
+            );
+            let err_code = aeron_async_next_session_id_poll(&mut mut_result, self.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
+            if err_code < 0 {
+                return Err(AeronCError::from_code(err_code));
+            } else {
+                return Ok(mut_result);
+            }
+        }
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_async_get_next_available_session_id_t {
+        self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_mut(&self) -> &mut aeron_async_get_next_available_session_id_t {
+        unsafe { &mut *self.inner.get() }
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_async_get_next_available_session_id_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronAsyncGetNextAvailableSessionId {
+    type Target = aeron_async_get_next_available_session_id_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_async_get_next_available_session_id_t>
+    for AeronAsyncGetNextAvailableSessionId
+{
+    #[inline]
+    fn from(value: *mut aeron_async_get_next_available_session_id_t) -> Self {
+        AeronAsyncGetNextAvailableSessionId {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronAsyncGetNextAvailableSessionId>
+    for *mut aeron_async_get_next_available_session_id_t
+{
+    #[inline]
+    fn from(value: AeronAsyncGetNextAvailableSessionId) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronAsyncGetNextAvailableSessionId>
+    for *mut aeron_async_get_next_available_session_id_t
+{
+    #[inline]
+    fn from(value: &AeronAsyncGetNextAvailableSessionId) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronAsyncGetNextAvailableSessionId> for aeron_async_get_next_available_session_id_t {
+    #[inline]
+    fn from(value: AeronAsyncGetNextAvailableSessionId) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_async_get_next_available_session_id_t>
+    for AeronAsyncGetNextAvailableSessionId
+{
+    #[inline]
+    fn from(value: *const aeron_async_get_next_available_session_id_t) -> Self {
+        AeronAsyncGetNextAvailableSessionId {
+            inner: CResource::Borrowed(value as *mut aeron_async_get_next_available_session_id_t),
+        }
+    }
+}
+impl From<aeron_async_get_next_available_session_id_t> for AeronAsyncGetNextAvailableSessionId {
+    #[inline]
+    fn from(value: aeron_async_get_next_available_session_id_t) -> Self {
+        AeronAsyncGetNextAvailableSessionId {
             inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
         }
     }
@@ -20562,6 +20853,7 @@ impl core::fmt::Debug for AeronIpcChannelParams {
                 .field("inner", &self.inner)
                 .field(stringify!(channel_tag), &self.channel_tag())
                 .field(stringify!(entity_tag), &self.entity_tag())
+                .field(stringify!(control_mode), &self.control_mode())
                 .field(stringify!(additional_params), &self.additional_params())
                 .finish()
         }
@@ -20572,6 +20864,7 @@ impl AeronIpcChannelParams {
     pub fn new(
         channel_tag: &std::ffi::CStr,
         entity_tag: &std::ffi::CStr,
+        control_mode: &std::ffi::CStr,
         additional_params: AeronUriParams,
     ) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::new(
@@ -20579,6 +20872,7 @@ impl AeronIpcChannelParams {
                 let inst = aeron_ipc_channel_params_t {
                     channel_tag: channel_tag.as_ptr(),
                     entity_tag: entity_tag.as_ptr(),
+                    control_mode: control_mode.as_ptr(),
                     additional_params: additional_params.into(),
                 };
                 let inner_ptr: *mut aeron_ipc_channel_params_t = Box::into_raw(Box::new(inst));
@@ -20649,6 +20943,18 @@ impl AeronIpcChannelParams {
         } else {
             unsafe {
                 std::ffi::CStr::from_ptr(self.entity_tag)
+                    .to_str()
+                    .unwrap_or("")
+            }
+        }
+    }
+    #[inline]
+    pub fn control_mode(&self) -> &str {
+        if self.control_mode.is_null() {
+            ""
+        } else {
+            unsafe {
+                std::ffi::CStr::from_ptr(self.control_mode)
                     .to_str()
                     .unwrap_or("")
             }
