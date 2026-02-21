@@ -78,7 +78,6 @@ pub const AERON_URI_MEDIA_RCV_TIMESTAMP_OFFSET_KEY: &[u8; 20] = b"media-rcv-ts-o
 pub const AERON_URI_CHANNEL_RCV_TIMESTAMP_OFFSET_KEY: &[u8; 22] = b"channel-rcv-ts-offset\0";
 pub const AERON_URI_CHANNEL_SND_TIMESTAMP_OFFSET_KEY: &[u8; 22] = b"channel-snd-ts-offset\0";
 pub const AERON_URI_TIMESTAMP_OFFSET_RESERVED: &[u8; 9] = b"reserved\0";
-pub const AERON_URI_RESPONSE_CORRELATION_ID_PROTOTYPE: &[u8; 10] = b"prototype\0";
 pub const AERON_URI_RESPONSE_CORRELATION_ID_KEY: &[u8; 24] = b"response-correlation-id\0";
 pub const AERON_URI_NAK_DELAY_KEY: &[u8; 10] = b"nak-delay\0";
 pub const AERON_URI_UNTETHERED_WINDOW_LIMIT_TIMEOUT_KEY: &[u8; 32] =
@@ -109,8 +108,12 @@ pub const AERON_ERROR_HAS_GROUP_TAG_FLAG: u32 = 8;
 pub const AERON_LOGBUFFER_PARTITION_COUNT: u32 = 3;
 pub const AERON_LOGBUFFER_TERM_MIN_LENGTH: u32 = 65536;
 pub const AERON_LOGBUFFER_TERM_MAX_LENGTH: u32 = 1073741824;
+pub const AERON_PAGE_MIN_SIZE: u32 = 4096;
+pub const AERON_PAGE_MAX_SIZE: u32 = 1073741824;
+pub const AERON_LOGBUFFER_PADDING_SIZE: u32 = 64;
 pub const AERON_LOGBUFFER_DEFAULT_FRAME_HEADER_MAX_LENGTH: u32 = 128;
 pub const AERON_MAX_UDP_PAYLOAD_LENGTH: u32 = 65504;
+pub const AERON_LOGBUFFER_META_DATA_LENGTH: u32 = 4096;
 pub const AERON_LOGBUFFER_FRAME_ALIGNMENT: u32 = 32;
 pub const AERON_FILEUTIL_ERROR_ENOSPC: u32 = 28;
 pub const AERON_PUBLICATIONS_DIR: &[u8; 13] = b"publications\0";
@@ -440,7 +443,6 @@ pub type aeron_async_add_subscription_t = aeron_client_registering_resource_stct
 pub type aeron_async_add_counter_t = aeron_client_registering_resource_stct;
 pub type aeron_async_destination_t = aeron_client_registering_resource_stct;
 pub type aeron_async_destination_by_id_t = aeron_client_registering_resource_stct;
-pub type aeron_async_get_next_available_session_id_t = aeron_client_registering_resource_stct;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct aeron_image_fragment_assembler_stct {
@@ -840,21 +842,6 @@ unsafe extern "C" {
 unsafe extern "C" {
     #[doc = " Return a unique correlation id from the driver.\n\n @param client to use to get the id.\n @return unique correlation id or -1 for an error."]
     pub fn aeron_next_correlation_id(client: *mut aeron_t) -> i64;
-}
-unsafe extern "C" {
-    #[doc = " Asynchronously request next available session from the media driver. The session id will be unique for the\n connected media driver and given {@code stream_id}.\n\n @param async object to use for polling completion.\n @param client connected to the media driver.\n @param stream_id for which a new session id is requested. Media driver only checks for session clashes at the\n                 stream level.\n @return 0 for success or -1 for an error."]
-    pub fn aeron_async_next_session_id(
-        async_: *mut *mut aeron_async_get_next_available_session_id_t,
-        client: *mut aeron_t,
-        stream_id: i32,
-    ) -> ::std::os::raw::c_int;
-}
-unsafe extern "C" {
-    #[doc = " Poll the completion of the aeron_async_next_session_id call.\n\n @param next_session_id to set if completed successfully.\n @param async to check for completion.\n @return 0 for not complete (try again), 1 for completed successfully, or -1 for an error."]
-    pub fn aeron_async_next_session_id_poll(
-        next_session_id: *mut i32,
-        async_: *mut aeron_async_get_next_available_session_id_t,
-    ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     #[doc = " Asynchronously add a publication using the given client and return an object to use to determine when the\n publication is available.\n\n @param async object to use for polling completion.\n @param client to add the publication to.\n @param uri for the channel of the publication.\n @param stream_id for the publication.\n @return 0 for success or -1 for an error."]
@@ -3161,18 +3148,6 @@ unsafe extern "C" {
     ) -> bool;
 }
 unsafe extern "C" {
-    #[doc = " Specify client name to identify this client on the archive side."]
-    pub fn aeron_archive_context_set_client_name(
-        context: *mut aeron_archive_context_t,
-        value: *const ::std::os::raw::c_char,
-    ) -> ::std::os::raw::c_int;
-}
-unsafe extern "C" {
-    pub fn aeron_archive_context_get_client_name(
-        context: *mut aeron_archive_context_t,
-    ) -> *const ::std::os::raw::c_char;
-}
-unsafe extern "C" {
     #[doc = " Specify the idle strategy function and associated state used by the client between polling calls."]
     pub fn aeron_archive_context_set_idle_strategy(
         ctx: *mut aeron_archive_context_t,
@@ -3599,14 +3574,6 @@ unsafe extern "C" {
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    #[doc = " Update the channel for a recording, i.e. replace original and stripped channel information in the catalog.\n\n @param aeron_archive the archive client\n @param recording_id the id of the recording.\n @param new_channel to use in the catalogue.\n @return 0 for success, -1 for failure"]
-    pub fn aeron_archive_update_channel(
-        aeron_archive: *mut aeron_archive_t,
-        recording_id: i64,
-        new_channel: *const ::std::os::raw::c_char,
-    ) -> ::std::os::raw::c_int;
-}
-unsafe extern "C" {
     #[doc = " Position of the recorded stream at the base of a segment file.\n <p>\n If a recording starts within a term then the base position can be before the recording started.\n\n @param start_position start position of the stream\n @param position position in the stream to calculate the segment base position from.\n @param term_buffer_length term buffer length of the stream\n @param segment_file_length segment file length, which is a multiple of term buffer length\n @return the position of the recorded stream at the beginning of a segment file"]
     pub fn aeron_archive_segment_file_base_position(
         start_position: i64,
@@ -3729,12 +3696,11 @@ pub struct aeron_archive_proxy_stct {
     pub control_session_id: i64,
     pub retry_attempts: ::std::os::raw::c_int,
     pub buffer: [u8; 8192usize],
-    pub client_info: [::std::os::raw::c_char; 200usize],
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of aeron_archive_proxy_stct"]
-        [::std::mem::size_of::<aeron_archive_proxy_stct>() - 8424usize];
+        [::std::mem::size_of::<aeron_archive_proxy_stct>() - 8224usize];
     ["Alignment of aeron_archive_proxy_stct"]
         [::std::mem::align_of::<aeron_archive_proxy_stct>() - 8usize];
     ["Offset of field: aeron_archive_proxy_stct::ctx"]
@@ -3747,8 +3713,6 @@ const _: () = {
         [::std::mem::offset_of!(aeron_archive_proxy_stct, retry_attempts) - 24usize];
     ["Offset of field: aeron_archive_proxy_stct::buffer"]
         [::std::mem::offset_of!(aeron_archive_proxy_stct, buffer) - 28usize];
-    ["Offset of field: aeron_archive_proxy_stct::client_info"]
-        [::std::mem::offset_of!(aeron_archive_proxy_stct, client_info) - 8220usize];
 };
 impl Default for aeron_archive_proxy_stct {
     fn default() -> Self {
@@ -4033,14 +3997,6 @@ unsafe extern "C" {
         correlation_id: i64,
         src_recording_id: i64,
         dst_recording_id: i64,
-    ) -> bool;
-}
-unsafe extern "C" {
-    pub fn aeron_archive_proxy_update_channel(
-        archive_proxy: *mut aeron_archive_proxy_t,
-        correlation_id: i64,
-        recording_id: i64,
-        new_channel: *const ::std::os::raw::c_char,
     ) -> bool;
 }
 #[repr(C)]
@@ -4462,12 +4418,6 @@ pub type pthread_t = __darwin_pthread_t;
 pub type aeron_mutex_t = pthread_mutex_t;
 pub type aeron_thread_t = pthread_t;
 pub type aeron_thread_attr_t = pthread_attr_t;
-unsafe extern "C" {
-    pub fn aeron_mutex_init(
-        mutex: *mut aeron_mutex_t,
-        attr: *mut ::std::os::raw::c_void,
-    ) -> ::std::os::raw::c_int;
-}
 pub type aeron_cond_t = pthread_cond_t;
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -4662,23 +4612,20 @@ pub type aeron_udp_channel_params_t = aeron_udp_channel_params_stct;
 pub struct aeron_ipc_channel_params_stct {
     pub channel_tag: *const ::std::os::raw::c_char,
     pub entity_tag: *const ::std::os::raw::c_char,
-    pub control_mode: *const ::std::os::raw::c_char,
     pub additional_params: aeron_uri_params_t,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     ["Size of aeron_ipc_channel_params_stct"]
-        [::std::mem::size_of::<aeron_ipc_channel_params_stct>() - 40usize];
+        [::std::mem::size_of::<aeron_ipc_channel_params_stct>() - 32usize];
     ["Alignment of aeron_ipc_channel_params_stct"]
         [::std::mem::align_of::<aeron_ipc_channel_params_stct>() - 8usize];
     ["Offset of field: aeron_ipc_channel_params_stct::channel_tag"]
         [::std::mem::offset_of!(aeron_ipc_channel_params_stct, channel_tag) - 0usize];
     ["Offset of field: aeron_ipc_channel_params_stct::entity_tag"]
         [::std::mem::offset_of!(aeron_ipc_channel_params_stct, entity_tag) - 8usize];
-    ["Offset of field: aeron_ipc_channel_params_stct::control_mode"]
-        [::std::mem::offset_of!(aeron_ipc_channel_params_stct, control_mode) - 16usize];
     ["Offset of field: aeron_ipc_channel_params_stct::additional_params"]
-        [::std::mem::offset_of!(aeron_ipc_channel_params_stct, additional_params) - 24usize];
+        [::std::mem::offset_of!(aeron_ipc_channel_params_stct, additional_params) - 16usize];
 };
 impl Default for aeron_ipc_channel_params_stct {
     fn default() -> Self {
@@ -4879,9 +4826,6 @@ unsafe extern "C" {
         max_tokens: ::std::os::raw::c_int,
         tokens: *mut *mut ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
-}
-unsafe extern "C" {
-    pub fn aeron_digit_count(value: u32) -> ::std::os::raw::c_int;
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]

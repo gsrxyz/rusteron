@@ -62,6 +62,9 @@ clean:
   rm -rf rusteron-media-driver/artifacts
   rm -rf rusteron-docker-samples/target
   rm -rf rusteron-docker-samples/rusteron-dummy-example/target
+  cd rusteron-archive/aeron/aeron-all && ./gradlew --no-daemon clean || true && cd -
+  cd rusteron-client/aeron/aeron-all && ./gradlew --no-daemon clean || true && cd -
+  cd rusteron-media-driver/aeron/aeron-all && ./gradlew --no-daemon clean || true && cd -
   cd rusteron-archive/aeron && git submodule update --init --recursive --checkout && git reset --hard && git clean -fdx && cd -
   cd rusteron-client/aeron && git submodule update --init --recursive --checkout && git reset --hard && git clean -fdx && cd -
   cd rusteron-media-driver/aeron && git submodule update --init --recursive --checkout && git reset --hard && git clean -fdx && cd -
