@@ -1288,15 +1288,12 @@ mod tests {
         );
         let mdc_host = std::env::var("RUSTERON_MDC_HOST").unwrap_or("127.0.0.1".to_string());
 
-        // Low-latency loss tuning for a single subscriber:
-        // - group=false: do not apply MDC receiver-group semantics.
-        // - rejoin=false: do not rejoin stream after falling behind.
-        // - nak-delay=100us: shorten unreliable-stream gap-fill decision latency.
-        // - short untethered timeouts: reduce latency spikes when gaps appear.
         let publication_channel = format!(
             "aeron:udp?control-mode=manual|control={}:{CONTROL_PORT}",
             mdc_host
         );
+        // - group=false: do not apply MDC receiver-group semantics.
+        // - nak-delay=100us: shorten unreliable-stream gap-fill decision latency.
         let subscription_channel = format!(
             "aeron:udp?endpoint={}:{SUBSCRIBER_PORT}|reliable=false|tether=false|group=false|nak-delay=500us",
             mdc_host
