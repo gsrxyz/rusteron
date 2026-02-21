@@ -1,4 +1,3 @@
-
 type aeron_client_registering_resource_t = aeron_client_registering_resource_stct;
 #[derive(Clone)]
 pub struct DarwinPthreadHandlerRec {
@@ -3676,6 +3675,165 @@ impl From<aeron_async_destination_t> for AeronAsyncDestination {
     #[inline]
     fn from(value: aeron_async_destination_t) -> Self {
         AeronAsyncDestination {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
+        }
+    }
+}
+#[derive(Clone)]
+pub struct AeronAsyncGetNextAvailableSessionId {
+    inner: CResource<aeron_async_get_next_available_session_id_t>,
+}
+impl core::fmt::Debug for AeronAsyncGetNextAvailableSessionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronAsyncGetNextAvailableSessionId))
+                .field("inner", &"null")
+                .finish()
+        } else {
+            f.debug_struct(stringify!(AeronAsyncGetNextAvailableSessionId))
+                .field("inner", &self.inner)
+                .finish()
+        }
+    }
+}
+impl AeronAsyncGetNextAvailableSessionId {
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!(
+                    "creating zeroed empty resource on heap {}",
+                    stringify!(aeron_async_get_next_available_session_id_t)
+                );
+                let inst: aeron_async_get_next_available_session_id_t =
+                    unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_async_get_next_available_session_id_t =
+                    Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+            None,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_async_get_next_available_session_id_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
+        }
+    }
+    #[inline]
+    #[doc = "Poll the completion of the aeron_async_next_session_id call."]
+    #[doc = ""]
+    #[doc = "\n \n # Parameters
+- `next_session_id` to set if completed successfully."]
+    pub fn aeron_async_next_session_id_poll(&self) -> Result<i32, AeronCError> {
+        unsafe {
+            let mut mut_result: i32 = Default::default();
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_async_next_session_id_poll),
+                [
+                    concat!("next_session_id", ": ", stringify!(*mut i32)).to_string(),
+                    concat!(
+                        "async_",
+                        ": ",
+                        stringify!(*mut aeron_async_get_next_available_session_id_t)
+                    )
+                    .to_string()
+                ]
+                .join(", ")
+            );
+            let err_code = aeron_async_next_session_id_poll(&mut mut_result, self.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
+            if err_code < 0 {
+                return Err(AeronCError::from_code(err_code));
+            } else {
+                return Ok(mut_result);
+            }
+        }
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_async_get_next_available_session_id_t {
+        self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_mut(&self) -> &mut aeron_async_get_next_available_session_id_t {
+        unsafe { &mut *self.inner.get() }
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_async_get_next_available_session_id_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronAsyncGetNextAvailableSessionId {
+    type Target = aeron_async_get_next_available_session_id_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_async_get_next_available_session_id_t>
+    for AeronAsyncGetNextAvailableSessionId
+{
+    #[inline]
+    fn from(value: *mut aeron_async_get_next_available_session_id_t) -> Self {
+        AeronAsyncGetNextAvailableSessionId {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronAsyncGetNextAvailableSessionId>
+    for *mut aeron_async_get_next_available_session_id_t
+{
+    #[inline]
+    fn from(value: AeronAsyncGetNextAvailableSessionId) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronAsyncGetNextAvailableSessionId>
+    for *mut aeron_async_get_next_available_session_id_t
+{
+    #[inline]
+    fn from(value: &AeronAsyncGetNextAvailableSessionId) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronAsyncGetNextAvailableSessionId> for aeron_async_get_next_available_session_id_t {
+    #[inline]
+    fn from(value: AeronAsyncGetNextAvailableSessionId) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_async_get_next_available_session_id_t>
+    for AeronAsyncGetNextAvailableSessionId
+{
+    #[inline]
+    fn from(value: *const aeron_async_get_next_available_session_id_t) -> Self {
+        AeronAsyncGetNextAvailableSessionId {
+            inner: CResource::Borrowed(value as *mut aeron_async_get_next_available_session_id_t),
+        }
+    }
+}
+impl From<aeron_async_get_next_available_session_id_t> for AeronAsyncGetNextAvailableSessionId {
+    #[inline]
+    fn from(value: aeron_async_get_next_available_session_id_t) -> Self {
+        AeronAsyncGetNextAvailableSessionId {
             inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
         }
     }
@@ -17805,6 +17963,41 @@ impl AeronDriverConductor {
             );
             let result =
                 aeron_driver_conductor_on_invalidate_image(self.get_inner(), command.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn on_get_next_available_session_id(
+        &self,
+        command: &AeronGetNextAvailableSessionIdCommand,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_conductor_on_get_next_available_session_id),
+                [
+                    concat!("conductor", ": ", stringify!(*mut aeron_driver_conductor_t))
+                        .to_string(),
+                    concat!(
+                        "command",
+                        ": ",
+                        stringify!(*mut aeron_get_next_available_session_id_command_t)
+                    )
+                    .to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_conductor_on_get_next_available_session_id(
+                self.get_inner(),
+                command.get_inner(),
+            );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -32317,6 +32510,184 @@ impl AeronFrameHeader {
     }
 }
 #[derive(Clone)]
+pub struct AeronGetNextAvailableSessionIdCommand {
+    inner: CResource<aeron_get_next_available_session_id_command_t>,
+}
+impl core::fmt::Debug for AeronGetNextAvailableSessionIdCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronGetNextAvailableSessionIdCommand))
+                .field("inner", &"null")
+                .finish()
+        } else {
+            f.debug_struct(stringify!(AeronGetNextAvailableSessionIdCommand))
+                .field("inner", &self.inner)
+                .field(stringify!(correlated), &self.correlated())
+                .field(stringify!(stream_id), &self.stream_id())
+                .finish()
+        }
+    }
+}
+impl AeronGetNextAvailableSessionIdCommand {
+    #[inline]
+    pub fn new(correlated: AeronCorrelatedCommand, stream_id: i32) -> Result<Self, AeronCError> {
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = aeron_get_next_available_session_id_command_t {
+                    correlated: correlated.into(),
+                    stream_id: stream_id.into(),
+                };
+                let inner_ptr: *mut aeron_get_next_available_session_id_command_t =
+                    Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+            None,
+        )?;
+        Ok(Self {
+            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+        })
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!(
+                    "creating zeroed empty resource on heap {}",
+                    stringify!(aeron_get_next_available_session_id_command_t)
+                );
+                let inst: aeron_get_next_available_session_id_command_t =
+                    unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_get_next_available_session_id_command_t =
+                    Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+            None,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_get_next_available_session_id_command_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
+        }
+    }
+    #[inline]
+    pub fn correlated(&self) -> AeronCorrelatedCommand {
+        self.correlated.into()
+    }
+    #[inline]
+    pub fn stream_id(&self) -> i32 {
+        self.stream_id.into()
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_get_next_available_session_id_command_t {
+        self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_mut(&self) -> &mut aeron_get_next_available_session_id_command_t {
+        unsafe { &mut *self.inner.get() }
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_get_next_available_session_id_command_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronGetNextAvailableSessionIdCommand {
+    type Target = aeron_get_next_available_session_id_command_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_get_next_available_session_id_command_t>
+    for AeronGetNextAvailableSessionIdCommand
+{
+    #[inline]
+    fn from(value: *mut aeron_get_next_available_session_id_command_t) -> Self {
+        AeronGetNextAvailableSessionIdCommand {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronGetNextAvailableSessionIdCommand>
+    for *mut aeron_get_next_available_session_id_command_t
+{
+    #[inline]
+    fn from(value: AeronGetNextAvailableSessionIdCommand) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronGetNextAvailableSessionIdCommand>
+    for *mut aeron_get_next_available_session_id_command_t
+{
+    #[inline]
+    fn from(value: &AeronGetNextAvailableSessionIdCommand) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronGetNextAvailableSessionIdCommand> for aeron_get_next_available_session_id_command_t {
+    #[inline]
+    fn from(value: AeronGetNextAvailableSessionIdCommand) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_get_next_available_session_id_command_t>
+    for AeronGetNextAvailableSessionIdCommand
+{
+    #[inline]
+    fn from(value: *const aeron_get_next_available_session_id_command_t) -> Self {
+        AeronGetNextAvailableSessionIdCommand {
+            inner: CResource::Borrowed(value as *mut aeron_get_next_available_session_id_command_t),
+        }
+    }
+}
+impl From<aeron_get_next_available_session_id_command_t> for AeronGetNextAvailableSessionIdCommand {
+    #[inline]
+    fn from(value: aeron_get_next_available_session_id_command_t) -> Self {
+        AeronGetNextAvailableSessionIdCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
+        }
+    }
+}
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for AeronGetNextAvailableSessionIdCommand {
+    fn default() -> Self {
+        AeronGetNextAvailableSessionIdCommand::new_zeroed_on_heap()
+    }
+}
+impl AeronGetNextAvailableSessionIdCommand {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        copy.get_inner_mut().clone_from(self.deref());
+        copy
+    }
+}
+#[derive(Clone)]
 pub struct AeronHeader {
     inner: CResource<aeron_header_t>,
 }
@@ -36349,6 +36720,7 @@ impl core::fmt::Debug for AeronIpcChannelParams {
                 .field("inner", &self.inner)
                 .field(stringify!(channel_tag), &self.channel_tag())
                 .field(stringify!(entity_tag), &self.entity_tag())
+                .field(stringify!(control_mode), &self.control_mode())
                 .field(stringify!(additional_params), &self.additional_params())
                 .finish()
         }
@@ -36359,6 +36731,7 @@ impl AeronIpcChannelParams {
     pub fn new(
         channel_tag: &std::ffi::CStr,
         entity_tag: &std::ffi::CStr,
+        control_mode: &std::ffi::CStr,
         additional_params: AeronUriParams,
     ) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::new(
@@ -36366,6 +36739,7 @@ impl AeronIpcChannelParams {
                 let inst = aeron_ipc_channel_params_t {
                     channel_tag: channel_tag.as_ptr(),
                     entity_tag: entity_tag.as_ptr(),
+                    control_mode: control_mode.as_ptr(),
                     additional_params: additional_params.into(),
                 };
                 let inner_ptr: *mut aeron_ipc_channel_params_t = Box::into_raw(Box::new(inst));
@@ -36436,6 +36810,18 @@ impl AeronIpcChannelParams {
         } else {
             unsafe {
                 std::ffi::CStr::from_ptr(self.entity_tag)
+                    .to_str()
+                    .unwrap_or("")
+            }
+        }
+    }
+    #[inline]
+    pub fn control_mode(&self) -> &str {
+        if self.control_mode.is_null() {
+            ""
+        } else {
+            unsafe {
+                std::ffi::CStr::from_ptr(self.control_mode)
                     .to_str()
                     .unwrap_or("")
             }
@@ -42454,6 +42840,180 @@ impl From<aeron_network_publication_t> for AeronNetworkPublication {
         AeronNetworkPublication {
             inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
         }
+    }
+}
+#[derive(Clone)]
+pub struct AeronNextAvailableSessionIdResponse {
+    inner: CResource<aeron_next_available_session_id_response_t>,
+}
+impl core::fmt::Debug for AeronNextAvailableSessionIdResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronNextAvailableSessionIdResponse))
+                .field("inner", &"null")
+                .finish()
+        } else {
+            f.debug_struct(stringify!(AeronNextAvailableSessionIdResponse))
+                .field("inner", &self.inner)
+                .field(stringify!(correlation_id), &self.correlation_id())
+                .field(stringify!(next_session_id), &self.next_session_id())
+                .finish()
+        }
+    }
+}
+impl AeronNextAvailableSessionIdResponse {
+    #[inline]
+    pub fn new(correlation_id: i64, next_session_id: i32) -> Result<Self, AeronCError> {
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = aeron_next_available_session_id_response_t {
+                    correlation_id: correlation_id.into(),
+                    next_session_id: next_session_id.into(),
+                };
+                let inner_ptr: *mut aeron_next_available_session_id_response_t =
+                    Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+            None,
+        )?;
+        Ok(Self {
+            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+        })
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!(
+                    "creating zeroed empty resource on heap {}",
+                    stringify!(aeron_next_available_session_id_response_t)
+                );
+                let inst: aeron_next_available_session_id_response_t =
+                    unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_next_available_session_id_response_t =
+                    Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+            None,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_next_available_session_id_response_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
+        }
+    }
+    #[inline]
+    pub fn correlation_id(&self) -> i64 {
+        self.correlation_id.into()
+    }
+    #[inline]
+    pub fn next_session_id(&self) -> i32 {
+        self.next_session_id.into()
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_next_available_session_id_response_t {
+        self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_mut(&self) -> &mut aeron_next_available_session_id_response_t {
+        unsafe { &mut *self.inner.get() }
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_next_available_session_id_response_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronNextAvailableSessionIdResponse {
+    type Target = aeron_next_available_session_id_response_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_next_available_session_id_response_t> for AeronNextAvailableSessionIdResponse {
+    #[inline]
+    fn from(value: *mut aeron_next_available_session_id_response_t) -> Self {
+        AeronNextAvailableSessionIdResponse {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronNextAvailableSessionIdResponse> for *mut aeron_next_available_session_id_response_t {
+    #[inline]
+    fn from(value: AeronNextAvailableSessionIdResponse) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronNextAvailableSessionIdResponse>
+    for *mut aeron_next_available_session_id_response_t
+{
+    #[inline]
+    fn from(value: &AeronNextAvailableSessionIdResponse) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronNextAvailableSessionIdResponse> for aeron_next_available_session_id_response_t {
+    #[inline]
+    fn from(value: AeronNextAvailableSessionIdResponse) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_next_available_session_id_response_t>
+    for AeronNextAvailableSessionIdResponse
+{
+    #[inline]
+    fn from(value: *const aeron_next_available_session_id_response_t) -> Self {
+        AeronNextAvailableSessionIdResponse {
+            inner: CResource::Borrowed(value as *mut aeron_next_available_session_id_response_t),
+        }
+    }
+}
+impl From<aeron_next_available_session_id_response_t> for AeronNextAvailableSessionIdResponse {
+    #[inline]
+    fn from(value: aeron_next_available_session_id_response_t) -> Self {
+        AeronNextAvailableSessionIdResponse {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
+        }
+    }
+}
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for AeronNextAvailableSessionIdResponse {
+    fn default() -> Self {
+        AeronNextAvailableSessionIdResponse::new_zeroed_on_heap()
+    }
+}
+impl AeronNextAvailableSessionIdResponse {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        copy.get_inner_mut().clone_from(self.deref());
+        copy
     }
 }
 #[derive(Clone)]
@@ -55255,7 +55815,7 @@ impl core::fmt::Debug for AeronSubscribable {
                 .field(stringify!(correlation_id), &self.correlation_id())
                 .field(stringify!(length), &self.length())
                 .field(stringify!(capacity), &self.capacity())
-                .field(stringify!(resting_count), &self.resting_count())
+                .field(stringify!(inactive_count), &self.inactive_count())
                 .finish()
         }
     }
@@ -55267,7 +55827,7 @@ impl AeronSubscribable {
         length: usize,
         capacity: usize,
         array: &AeronTetherablePosition,
-        resting_count: usize,
+        inactive_count: usize,
         add_position_hook_func: ::std::option::Option<
             unsafe extern "C" fn(clientd: *mut ::std::os::raw::c_void, value_addr: *mut i64),
         >,
@@ -55284,7 +55844,7 @@ impl AeronSubscribable {
                     length: length.into(),
                     capacity: capacity.into(),
                     array: array.into(),
-                    resting_count: resting_count.into(),
+                    inactive_count: inactive_count.into(),
                     add_position_hook_func: add_position_hook_func.into(),
                     remove_position_hook_func: remove_position_hook_func.into(),
                     clientd: clientd.into(),
@@ -55355,8 +55915,8 @@ impl AeronSubscribable {
         self.array.into()
     }
     #[inline]
-    pub fn resting_count(&self) -> usize {
-        self.resting_count.into()
+    pub fn inactive_count(&self) -> usize {
+        self.inactive_count.into()
     }
     #[inline]
     pub fn add_position_hook_func(
@@ -55384,6 +55944,9 @@ impl AeronSubscribable {
         tetherable_position: &AeronTetherablePosition,
         state: aeron_subscription_tether_state_t,
         now_ns: i64,
+        stream_id: i32,
+        session_id: i32,
+        log_func: aeron_untethered_subscription_state_change_func_t,
     ) -> () {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -55401,7 +55964,15 @@ impl AeronSubscribable {
                     .to_string(),
                     concat!("state", ": ", stringify!(aeron_subscription_tether_state_t))
                         .to_string(),
-                    format!("{} = {:?}", "now_ns", now_ns)
+                    format!("{} = {:?}", "now_ns", now_ns),
+                    format!("{} = {:?}", "stream_id", stream_id),
+                    format!("{} = {:?}", "session_id", session_id),
+                    concat!(
+                        "log_func",
+                        ": ",
+                        stringify!(aeron_untethered_subscription_state_change_func_t)
+                    )
+                    .to_string()
                 ]
                 .join(", ")
             );
@@ -55410,6 +55981,9 @@ impl AeronSubscribable {
                 tetherable_position.get_inner(),
                 state.into(),
                 now_ns.into(),
+                stream_id.into(),
+                session_id.into(),
+                log_func.into(),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -57635,12 +58209,11 @@ impl core::fmt::Debug for AeronSystemCounters {
 }
 impl AeronSystemCounters {
     #[inline]
-    pub fn new(counter_ids: &mut i32, manager: &AeronCountersManager) -> Result<Self, AeronCError> {
+    pub fn new(manager: &AeronCountersManager) -> Result<Self, AeronCError> {
         let manager_copy = manager.clone();
         let r_constructor = ManagedCResource::new(
             move |ctx_field| {
                 let inst = aeron_system_counters_t {
-                    counter_ids: counter_ids as *mut _,
                     manager: manager.into(),
                 };
                 let inner_ptr: *mut aeron_system_counters_t = Box::into_raw(Box::new(inst));
@@ -57691,10 +58264,6 @@ impl AeronSystemCounters {
         Self {
             inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
         }
-    }
-    #[inline]
-    pub fn counter_ids(&self) -> &mut i32 {
-        unsafe { &mut *self.counter_ids }
     }
     #[inline]
     pub fn manager(&self) -> AeronCountersManager {
@@ -58933,6 +59502,25 @@ impl Aeron {
                 [format!("{} = {:?}", "version", version)].join(", ")
             );
             let result = aeron_semantic_version_patch(version.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn driver_subscribable_is_active_state(state: aeron_subscription_tether_state_t) -> bool {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_subscribable_is_active_state),
+                [
+                    concat!("state", ": ", stringify!(aeron_subscription_tether_state_t))
+                        .to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_subscribable_is_active_state(state.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -61002,8 +61590,6 @@ impl core::fmt::Debug for AeronTetherablePosition {
         } else {
             f.debug_struct(stringify!(AeronTetherablePosition))
                 .field("inner", &self.inner)
-                .field(stringify!(is_tether), &self.is_tether())
-                .field(stringify!(counter_id), &self.counter_id())
                 .field(
                     stringify!(subscription_registration_id),
                     &self.subscription_registration_id(),
@@ -61012,6 +61598,9 @@ impl core::fmt::Debug for AeronTetherablePosition {
                     stringify!(time_of_last_update_ns),
                     &self.time_of_last_update_ns(),
                 )
+                .field(stringify!(counter_id), &self.counter_id())
+                .field(stringify!(is_tether), &self.is_tether())
+                .field(stringify!(is_rejoin), &self.is_rejoin())
                 .finish()
         }
     }
@@ -61019,22 +61608,24 @@ impl core::fmt::Debug for AeronTetherablePosition {
 impl AeronTetherablePosition {
     #[inline]
     pub fn new(
-        is_tether: bool,
-        state: aeron_subscription_tether_state_t,
-        counter_id: i32,
         value_addr: &mut i64,
         subscription_registration_id: i64,
         time_of_last_update_ns: i64,
+        state: aeron_subscription_tether_state_t,
+        counter_id: i32,
+        is_tether: bool,
+        is_rejoin: bool,
     ) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::new(
             move |ctx_field| {
                 let inst = aeron_tetherable_position_t {
-                    is_tether: is_tether.into(),
-                    state: state.into(),
-                    counter_id: counter_id.into(),
                     value_addr: value_addr as *mut _,
                     subscription_registration_id: subscription_registration_id.into(),
                     time_of_last_update_ns: time_of_last_update_ns.into(),
+                    state: state.into(),
+                    counter_id: counter_id.into(),
+                    is_tether: is_tether.into(),
+                    is_rejoin: is_rejoin.into(),
                 };
                 let inner_ptr: *mut aeron_tetherable_position_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
@@ -61086,18 +61677,6 @@ impl AeronTetherablePosition {
         }
     }
     #[inline]
-    pub fn is_tether(&self) -> bool {
-        self.is_tether.into()
-    }
-    #[inline]
-    pub fn state(&self) -> aeron_subscription_tether_state_t {
-        self.state.into()
-    }
-    #[inline]
-    pub fn counter_id(&self) -> i32 {
-        self.counter_id.into()
-    }
-    #[inline]
     pub fn value_addr(&self) -> &mut i64 {
         unsafe { &mut *self.value_addr }
     }
@@ -61110,48 +61689,20 @@ impl AeronTetherablePosition {
         self.time_of_last_update_ns.into()
     }
     #[inline]
-    pub fn aeron_untethered_subscription_state_change(
-        &self,
-        now_ns: i64,
-        new_state: aeron_subscription_tether_state_t,
-        stream_id: i32,
-        session_id: i32,
-    ) -> () {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_untethered_subscription_state_change),
-                [
-                    concat!(
-                        "tetherable_position",
-                        ": ",
-                        stringify!(*mut aeron_tetherable_position_t)
-                    )
-                    .to_string(),
-                    format!("{} = {:?}", "now_ns", now_ns),
-                    concat!(
-                        "new_state",
-                        ": ",
-                        stringify!(aeron_subscription_tether_state_t)
-                    )
-                    .to_string(),
-                    format!("{} = {:?}", "stream_id", stream_id),
-                    format!("{} = {:?}", "session_id", session_id)
-                ]
-                .join(", ")
-            );
-            let result = aeron_untethered_subscription_state_change(
-                self.get_inner(),
-                now_ns.into(),
-                new_state.into(),
-                stream_id.into(),
-                session_id.into(),
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
+    pub fn state(&self) -> aeron_subscription_tether_state_t {
+        self.state.into()
+    }
+    #[inline]
+    pub fn counter_id(&self) -> i32 {
+        self.counter_id.into()
+    }
+    #[inline]
+    pub fn is_tether(&self) -> bool {
+        self.is_tether.into()
+    }
+    #[inline]
+    pub fn is_rejoin(&self) -> bool {
+        self.is_rejoin.into()
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_tetherable_position_t {
@@ -73272,4 +73823,3 @@ unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback_for_once_closure
     let closure: &mut F = &mut *(resource as *mut F);
     closure()
 }
-

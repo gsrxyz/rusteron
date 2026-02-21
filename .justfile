@@ -189,6 +189,114 @@ slow-tests:
   cargo test --package rusteron-archive --lib --features "precompile static" -- --ignored --nocapture
 
 # =============================================================================
+# MDC Loss Testing (macOS)
+# =============================================================================
+
+# Run MDC diagnostics with packet loss on subscriber port 32930 (macOS).
+# Usage: just mdc-loss-run [duration_secs] [report_interval_secs] [loss_rate] [host] [force_lo0]
+# Example: just mdc-loss-run 120 10 0.10
+# Example: just mdc-loss-run 120 10 1.0 127.0.0.1
+# Example: just mdc-loss-run 120 10 0.10 '' 0  # disable loopback PF workaround
+mdc-loss-run duration='180' report_interval='30' loss='0.10' host='' force_lo0='1':
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if [[ "$(uname)" != "Darwin" ]]; then
+    echo "mdc-loss-run is macOS-only"
+    exit 1
+  fi
+
+  HOST="{{host}}"
+  if [[ -z "$HOST" ]]; then
+    HOST="$(ipconfig getifaddr en0 2>/dev/null || true)"
+  fi
+  if [[ -z "$HOST" ]]; then
+    HOST="$(ipconfig getifaddr en1 2>/dev/null || true)"
+  fi
+  if [[ -z "$HOST" ]]; then
+    HOST="127.0.0.1"
+  fi
+  echo "Using MDC host: $HOST"
+  ROUTE_IF="$(route -n get "$HOST" 2>/dev/null | awk '/interface:/{print $2; exit}')"
+  echo "Route interface for $HOST: ${ROUTE_IF:-unknown}"
+
+  PF_MAIN_TMP=""
+  LOADED_MAIN_PF=0
+
+  cleanup() {
+    sudo pfctl -a com.apple/rusteron-mdc-loss -F all || true
+    sudo dnctl -q flush || true
+    if [[ "$LOADED_MAIN_PF" == "1" ]]; then
+      sudo pfctl -f /etc/pf.conf || true
+    fi
+    if [[ -n "$PF_MAIN_TMP" ]] && [[ -f "$PF_MAIN_TMP" ]]; then
+      rm -f "$PF_MAIN_TMP" || true
+    fi
+  }
+  trap cleanup EXIT INT TERM
+
+  if [[ "${ROUTE_IF:-}" == "lo0" ]] && [[ "{{force_lo0}}" == "0" ]]; then
+    echo "Route to $HOST uses lo0 and force_lo0=0."
+    echo "PF on default macOS rules typically skips lo0, so no loss will be observed."
+    echo "Re-run with force_lo0=1 or choose a non-local destination host."
+    exit 2
+  fi
+
+  sudo pfctl -E
+  if [[ "${ROUTE_IF:-}" == "lo0" ]]; then
+
+    PF_MAIN_TMP="$(mktemp /tmp/rusteron-pf-main.XXXXXX.conf)"
+    cat > "$PF_MAIN_TMP" <<EOF
+  # Temporary PF ruleset for rusteron mdc-loss-run.
+  # Intentionally omits "set skip on lo0" so dummynet can affect local traffic.
+  scrub-anchor "com.apple/*" all fragment reassemble
+  nat-anchor "com.apple/*"
+  rdr-anchor "com.apple/*"
+  dummynet-anchor "com.apple/*"
+  anchor "com.apple/*"
+  load anchor "com.apple/rusteron-mdc-loss" from "$PWD/rusteron-client/examples/pf-macos-mdc-loss.conf"
+  pass quick all flags S/SA keep state
+  EOF
+    echo "Route uses lo0; loading temporary PF main ruleset without lo0 skip."
+    sudo pfctl -f "$PF_MAIN_TMP"
+    LOADED_MAIN_PF=1
+  fi
+
+  sudo dnctl -q flush
+  sudo dnctl pipe 1 config plr {{loss}} delay 0ms bw 100Mbit/s
+  echo "=== Dummynet pipe config ==="
+  sudo dnctl pipe show 1
+  sudo pfctl -a com.apple/rusteron-mdc-loss -F all
+  sudo pfctl -a com.apple/rusteron-mdc-loss -f "$PWD/rusteron-client/examples/pf-macos-mdc-loss.conf"
+  echo "=== PF active rules (anchor) ==="
+  sudo pfctl -a com.apple/rusteron-mdc-loss -sr
+  echo "=== PF skip-on-lo0 check (main ruleset) ==="
+  sudo pfctl -sr | rg -n "skip on lo0" || true
+  echo "=== Dummynet counters before test ==="
+  sudo dnctl -s pipe show 1 || true
+  echo "=== UDP probe to $HOST:32930 ==="
+  python3 - "$HOST" <<'PY'
+  import socket
+  import sys
+  
+  host = sys.argv[1]
+  port = 32930
+  sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+  for _ in range(250):
+      sock.sendto(b"probe", (host, port))
+  sock.close()
+  PY
+  sleep 1
+  echo "=== Dummynet counters after probe ==="
+  sudo dnctl -s pipe show 1 || true
+  echo "=== Running test with RUSTERON_MDC_HOST=$HOST ==="
+  RUSTERON_MDC_HOST=$HOST \
+  RUSTERON_MDC_TEST_DURATION_SECS={{duration}} \
+  RUSTERON_MDC_REPORT_INTERVAL_SECS={{report_interval}} \
+    cargo test -p rusteron-client --lib mdc_unreliable_gap_latency_histogram_report -- --ignored --nocapture
+  echo "=== Dummynet counters after test ==="
+  sudo dnctl -s pipe show 1 || true
+
+# =============================================================================
 # Aeron Drivers
 # =============================================================================
 

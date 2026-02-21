@@ -30,6 +30,7 @@ include!(concat!(env!("OUT_DIR"), "/aeron_custom.rs"));
 mod tests {
     use super::*;
     use crate::test_alloc::current_allocs;
+    use hdrhistogram::Histogram;
     use log::{error, info};
     use rusteron_media_driver::AeronDriverContext;
     use serial_test::serial;
@@ -1167,6 +1168,287 @@ mod tests {
         Ok(())
     }
 
+    #[derive(Default, Debug)]
+    struct MdcTotals {
+        gap_events: u64,
+        missing_messages: u64,
+        received_messages: u64,
+    }
+
+    #[derive(Debug)]
+    struct MdcWindowStats {
+        expected_seq: Option<u64>,
+        gap_events: u64,
+        missing_messages: u64,
+        received_messages: u64,
+        histogram: Histogram<u64>,
+    }
+
+    impl MdcWindowStats {
+        fn new() -> Result<Self, Box<dyn error::Error>> {
+            Ok(Self {
+                expected_seq: None,
+                gap_events: 0,
+                missing_messages: 0,
+                received_messages: 0,
+                histogram: Histogram::new(3)?,
+            })
+        }
+
+        fn observe(&mut self, seq: u64, sent_ts_ns: u64) {
+            self.received_messages += 1;
+
+            match self.expected_seq {
+                None => self.expected_seq = Some(seq.saturating_add(1)),
+                Some(expected) if seq > expected => {
+                    self.gap_events += 1;
+                    self.missing_messages += seq - expected;
+                    self.expected_seq = Some(seq.saturating_add(1));
+                }
+                Some(expected) if seq == expected => {
+                    self.expected_seq = Some(expected.saturating_add(1));
+                }
+                Some(_) => {
+                    // Ignore out-of-order/late packets for gap counting in this window.
+                }
+            }
+
+            let now_ns = Aeron::nano_clock().max(0) as u64;
+            let latency_ns = now_ns.saturating_sub(sent_ts_ns);
+            let _ = self.histogram.record(latency_ns);
+        }
+
+        fn print_and_reset(
+            &mut self,
+            window_number: usize,
+            interval: Duration,
+            totals: &mut MdcTotals,
+        ) {
+            totals.gap_events += self.gap_events;
+            totals.missing_messages += self.missing_messages;
+            totals.received_messages += self.received_messages;
+
+            if self.histogram.len() > 0 {
+                let min_us = self.histogram.min() / 1_000;
+                let p50_us = self.histogram.value_at_quantile(0.50) / 1_000;
+                let p99_us = self.histogram.value_at_quantile(0.99) / 1_000;
+                let max_us = self.histogram.max() / 1_000;
+                println!(
+                    "[mdc-window-{window_number}] interval={interval:?} received={} gaps={} missing={} latency_us[min={}, p50={}, p99={}, max={}]",
+                    self.received_messages, self.gap_events, self.missing_messages, min_us, p50_us, p99_us, max_us,
+                );
+            } else {
+                println!(
+                    "[mdc-window-{window_number}] interval={interval:?} received=0 gaps=0 missing=0 latency_us[min=n/a, p50=n/a, p99=n/a, max=n/a]"
+                );
+            }
+
+            self.expected_seq = None;
+            self.gap_events = 0;
+            self.missing_messages = 0;
+            self.received_messages = 0;
+            self.histogram.reset();
+        }
+    }
+
+    /// Run with loss profile on macOS:
+    /// `just mdc-loss-run 120 10 0.10`
+    ///
+    /// The recipe handles PF setup and cleanup automatically.
+    ///
+    /// Manual cleanup (if needed):
+    /// `sudo pfctl -a com.apple/rusteron-mdc-loss -F all`
+    /// `sudo dnctl -q flush`
+    /// `sudo pfctl -f /etc/pf.conf`
+    #[test]
+    #[serial]
+    #[ignore] // Long-running diagnostics test for manual MDC with rolling latency/gap reports.
+    pub fn mdc_unreliable_gap_latency_histogram_report() -> Result<(), Box<dyn error::Error>> {
+        let _ = env_logger::Builder::new()
+            .is_test(true)
+            .filter_level(log::LevelFilter::Info)
+            .try_init();
+
+        const STREAM_ID: i32 = 32931;
+        const CONTROL_PORT: u16 = 32929;
+        const SUBSCRIBER_PORT: u16 = 32930;
+        const MESSAGE_LEN: usize = 130;
+
+        let report_interval = Duration::from_secs(
+            std::env::var("RUSTERON_MDC_REPORT_INTERVAL_SECS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(10),
+        );
+        let test_duration = Duration::from_secs(
+            std::env::var("RUSTERON_MDC_TEST_DURATION_SECS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(300),
+        );
+        let mdc_host = std::env::var("RUSTERON_MDC_HOST").unwrap_or("127.0.0.1".to_string());
+
+        // Low-latency loss tuning for a single subscriber:
+        // - group=false: do not apply MDC receiver-group semantics.
+        // - rejoin=false: do not rejoin stream after falling behind.
+        // - nak-delay=100us: shorten unreliable-stream gap-fill decision latency.
+        // - short untethered timeouts: reduce latency spikes when gaps appear.
+        let publication_channel = format!(
+            "aeron:udp?control-mode=manual|control={}:{CONTROL_PORT}",
+            mdc_host
+        );
+        let subscription_channel = format!(
+            "aeron:udp?endpoint={}:{SUBSCRIBER_PORT}|reliable=false|tether=false|group=false|nak-delay=500us",
+            mdc_host
+        );
+        let destination_uri = format!("aeron:udp?endpoint={}:{SUBSCRIBER_PORT}", mdc_host);
+
+        let (media_driver_ctx, stop_driver, driver_handle) = start_media_driver(32930)?;
+        let aeron_dir = media_driver_ctx.get_dir().to_string();
+
+        println!(
+            "[mdc-start] publication={} subscription={} duration={:?} report_interval={:?}",
+            publication_channel, subscription_channel, test_duration, report_interval
+        );
+
+        let running = Arc::new(AtomicBool::new(true));
+
+        let subscriber_dir = aeron_dir.clone();
+        let subscriber_channel = subscription_channel.clone();
+        let subscriber_running = Arc::clone(&running);
+        let subscriber_thread = std::thread::spawn(move || -> MdcTotals {
+            let (_ctx, aeron) = create_client_for_dir(&subscriber_dir)
+                .expect("failed to create subscriber aeron client");
+
+            let subscription = aeron
+                .add_subscription(
+                    &subscriber_channel.into_c_string(),
+                    STREAM_ID,
+                    Handlers::no_available_image_handler(),
+                    Handlers::no_unavailable_image_handler(),
+                    Duration::from_secs(5),
+                )
+                .expect("failed to create subscriber");
+
+            let mut totals = MdcTotals::default();
+            let mut window_stats = MdcWindowStats::new().expect("failed to create histogram");
+            let test_start = Instant::now();
+            let mut window_start = test_start;
+            let mut window_number = 1usize;
+
+            while test_start.elapsed() < test_duration {
+                let _ = subscription
+                    .poll_once(
+                        |msg, _header| {
+                            if msg.len() < 16 {
+                                return;
+                            }
+
+                            let seq = u64::from_le_bytes(msg[0..8].try_into().unwrap());
+                            let sent_ts_ns = u64::from_le_bytes(msg[8..16].try_into().unwrap());
+                            window_stats.observe(seq, sent_ts_ns);
+                        },
+                        10_000,
+                    )
+                    .expect("subscriber poll failed");
+
+                if window_start.elapsed() >= report_interval {
+                    window_stats.print_and_reset(window_number, report_interval, &mut totals);
+                    window_number += 1;
+                    window_start = Instant::now();
+                }
+            }
+
+            window_stats.print_and_reset(window_number, report_interval, &mut totals);
+            subscriber_running.store(false, Ordering::SeqCst);
+            totals
+        });
+
+        // Ensure subscriber has started before publisher setup.
+        sleep(Duration::from_millis(250));
+
+        let publisher_dir = aeron_dir;
+        let publisher_channel = publication_channel.clone();
+        let publisher_destination = destination_uri.clone();
+        let publisher_running = Arc::clone(&running);
+        let publisher_thread = std::thread::spawn(move || -> u64 {
+            let (_ctx, aeron) = create_client_for_dir(&publisher_dir)
+                .expect("failed to create publisher aeron client");
+
+            let publication = aeron
+                .add_exclusive_publication(
+                    &publisher_channel.into_c_string(),
+                    STREAM_ID,
+                    Duration::from_secs(5),
+                )
+                .expect("failed to create publication");
+
+            let add_destination =
+                AeronAsyncDestination::aeron_exclusive_publication_async_add_destination(
+                    &aeron,
+                    &publication,
+                    &publisher_destination.into_c_string(),
+                )
+                .expect("failed to add manual MDC destination");
+
+            let add_destination_start = Instant::now();
+            while add_destination
+                .aeron_exclusive_publication_async_destination_poll()
+                .expect("destination add poll failed")
+                == 0
+            {
+                assert!(
+                    add_destination_start.elapsed() <= Duration::from_secs(5),
+                    "Timed out adding manual MDC destination"
+                );
+                sleep(Duration::from_millis(10));
+            }
+
+            let connect_start = Instant::now();
+            while !publication.is_connected() && connect_start.elapsed() < Duration::from_secs(5) {
+                sleep(Duration::from_millis(10));
+            }
+            assert!(
+                publication.is_connected(),
+                "manual MDC publication did not connect to subscriber destination"
+            );
+
+            let mut seq: u64 = 0;
+            let mut payload = [0u8; MESSAGE_LEN];
+            while publisher_running.load(Ordering::Acquire) {
+                payload[0..8].copy_from_slice(&seq.to_le_bytes());
+                let ts_ns = Aeron::nano_clock().max(0) as u64;
+                payload[8..16].copy_from_slice(&ts_ns.to_le_bytes());
+
+                let result =
+                    publication.offer(&payload, Handlers::no_reserved_value_supplier_handler());
+                if result > 0 {
+                    seq = seq.wrapping_add(1);
+                }
+                sleep(Duration::from_millis(1));
+            }
+            seq
+        });
+
+        let totals = subscriber_thread.join().unwrap();
+        running.store(false, Ordering::SeqCst);
+        let sent_messages = publisher_thread.join().unwrap();
+        stop_driver.store(true, Ordering::SeqCst);
+        let _ = driver_handle.join().unwrap();
+
+        println!(
+            "[mdc-summary] sent={} received={} total_gaps={} total_missing={}",
+            sent_messages, totals.received_messages, totals.gap_events, totals.missing_messages
+        );
+
+        assert!(sent_messages > 0, "publisher failed to send any messages");
+        assert!(
+            totals.received_messages > 0,
+            "subscriber did not receive any messages"
+        );
+        Ok(())
+    }
+
     #[test]
     #[serial]
     #[ignore] // need to work to get tags working properly, its more of testing issue then tag issue
@@ -1257,10 +1539,7 @@ mod tests {
         Ok(())
     }
 
-    fn create_client(
-        media_driver_ctx: &AeronDriverContext,
-    ) -> Result<(AeronContext, Aeron), Box<dyn Error>> {
-        let dir = media_driver_ctx.get_dir();
+    fn create_client_for_dir(dir: &str) -> Result<(AeronContext, Aeron), Box<dyn Error>> {
         info!("creating aeron client [dir={}]", dir);
         let ctx = AeronContext::new()?;
         ctx.set_dir(&dir.into_c_string())?;
@@ -1268,6 +1547,13 @@ mod tests {
         let aeron = Aeron::new(&ctx)?;
         aeron.start()?;
         Ok((ctx, aeron))
+    }
+
+    fn create_client(
+        media_driver_ctx: &AeronDriverContext,
+    ) -> Result<(AeronContext, Aeron), Box<dyn Error>> {
+        let dir = media_driver_ctx.get_dir().to_string();
+        create_client_for_dir(&dir)
     }
 
     fn start_media_driver(
