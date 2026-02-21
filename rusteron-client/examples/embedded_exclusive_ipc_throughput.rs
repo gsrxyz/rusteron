@@ -37,11 +37,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .async_add_exclusive_publication(CHANNEL, STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
 
-    let publisher_thread = thread::spawn(move || {
-        Publisher::new(running_publisher, publication).run();
-        Ok::<_, AeronCError>(())
-    });
-
     let subscription = aeron
         .async_add_subscription(
             CHANNEL,
@@ -58,10 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok::<_, AeronCError>(())
     });
 
-    publisher_thread
-        .join()
-        .expect("Publisher thread failed")
-        .unwrap();
+    Publisher::new(running_publisher, publication).run();
     subscriber_thread
         .join()
         .expect("Subscriber thread failed")

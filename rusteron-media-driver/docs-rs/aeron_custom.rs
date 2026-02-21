@@ -1,4 +1,3 @@
-
 // code here is included in all modules and extends generated classes
 pub static AERON_IPC_STREAM: &std::ffi::CStr =
     unsafe { std::ffi::CStr::from_bytes_with_nul_unchecked(b"aeron:ipc\0") };
@@ -8,8 +7,6 @@ unsafe impl Send for AeronSubscription {}
 unsafe impl Sync for AeronSubscription {}
 unsafe impl Send for AeronPublication {}
 unsafe impl Sync for AeronPublication {}
-unsafe impl Send for AeronExclusivePublication {}
-unsafe impl Sync for AeronExclusivePublication {}
 unsafe impl Send for AeronCounter {}
 unsafe impl Sync for AeronCounter {}
 
@@ -1155,4 +1152,3 @@ impl std::fmt::Debug for AeronCError {
 }
 
 impl std::error::Error for AeronCError {}
-

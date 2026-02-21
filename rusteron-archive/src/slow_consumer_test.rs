@@ -156,7 +156,7 @@ mod tests {
 
         // Create publication on Archive Driver
         let publication = aeron_archive
-            .async_add_exclusive_publication(&channel.into_c_string(), stream_id)?
+            .async_add_publication(&channel.into_c_string(), stream_id)?
             .poll_blocking(Duration::from_secs(5))?;
 
         // Wait for publication to be connected (recording started)

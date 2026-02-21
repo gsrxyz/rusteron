@@ -29475,6 +29475,32 @@ impl Aeron {
         }
     }
     #[inline]
+    pub fn mutex_init(
+        mutex: *mut aeron_mutex_t,
+        attr: *mut ::std::os::raw::c_void,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_mutex_init),
+                [
+                    concat!("mutex", ": ", stringify!(*mut aeron_mutex_t)).to_string(),
+                    concat!("attr", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_mutex_init(mutex.into(), attr.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
     pub fn randomised_int32() -> i32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -29559,6 +29585,25 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
+        }
+    }
+    #[inline]
+    pub fn digit_count(value: u32) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_digit_count),
+                [format!("{} = {:?}", "value", value)].join(", ")
+            );
+            let result = aeron_digit_count(value.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
         }
     }
     #[inline]

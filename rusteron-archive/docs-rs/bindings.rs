@@ -4462,6 +4462,12 @@ pub type pthread_t = __darwin_pthread_t;
 pub type aeron_mutex_t = pthread_mutex_t;
 pub type aeron_thread_t = pthread_t;
 pub type aeron_thread_attr_t = pthread_attr_t;
+unsafe extern "C" {
+    pub fn aeron_mutex_init(
+        mutex: *mut aeron_mutex_t,
+        attr: *mut ::std::os::raw::c_void,
+    ) -> ::std::os::raw::c_int;
+}
 pub type aeron_cond_t = pthread_cond_t;
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -4873,6 +4879,9 @@ unsafe extern "C" {
         max_tokens: ::std::os::raw::c_int,
         tokens: *mut *mut ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn aeron_digit_count(value: u32) -> ::std::os::raw::c_int;
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -5292,6 +5301,21 @@ const _: () = {
 pub type aeron_status_message_header_t = aeron_status_message_header_stct;
 #[repr(C, packed(4))]
 #[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct aeron_status_message_optional_header_stct {
+    pub group_tag: i64,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of aeron_status_message_optional_header_stct"]
+        [::std::mem::size_of::<aeron_status_message_optional_header_stct>() - 8usize];
+    ["Alignment of aeron_status_message_optional_header_stct"]
+        [::std::mem::align_of::<aeron_status_message_optional_header_stct>() - 4usize];
+    ["Offset of field: aeron_status_message_optional_header_stct::group_tag"]
+        [::std::mem::offset_of!(aeron_status_message_optional_header_stct, group_tag) - 0usize];
+};
+pub type aeron_status_message_optional_header_t = aeron_status_message_optional_header_stct;
+#[repr(C, packed(4))]
+#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct aeron_error_stct {
     pub frame_header: aeron_frame_header_t,
     pub session_id: i32,
@@ -5321,21 +5345,6 @@ const _: () = {
         [::std::mem::offset_of!(aeron_error_stct, error_length) - 36usize];
 };
 pub type aeron_error_t = aeron_error_stct;
-#[repr(C, packed(4))]
-#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct aeron_status_message_optional_header_stct {
-    pub group_tag: i64,
-}
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of aeron_status_message_optional_header_stct"]
-        [::std::mem::size_of::<aeron_status_message_optional_header_stct>() - 8usize];
-    ["Alignment of aeron_status_message_optional_header_stct"]
-        [::std::mem::align_of::<aeron_status_message_optional_header_stct>() - 4usize];
-    ["Offset of field: aeron_status_message_optional_header_stct::group_tag"]
-        [::std::mem::offset_of!(aeron_status_message_optional_header_stct, group_tag) - 0usize];
-};
-pub type aeron_status_message_optional_header_t = aeron_status_message_optional_header_stct;
 #[repr(C, packed(4))]
 #[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct aeron_rttm_header_stct {
