@@ -1298,7 +1298,7 @@ mod tests {
             mdc_host
         );
         let subscription_channel = format!(
-            "aeron:udp?endpoint={}:{SUBSCRIBER_PORT}|reliable=false|tether=false|group=true|nak-delay=500us",
+            "aeron:udp?endpoint={}:{SUBSCRIBER_PORT}|reliable=false|tether=false|group=false|nak-delay=500us",
             mdc_host
         );
         let destination_uri = format!("aeron:udp?endpoint={}:{SUBSCRIBER_PORT}", mdc_host);
