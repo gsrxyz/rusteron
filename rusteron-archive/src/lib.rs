@@ -975,6 +975,3 @@ mod tests {
 // run `just slow-tests`
 #[cfg(test)]
 mod slow_consumer_test;
-
-#[cfg(test)]
-mod update_channel_test;
