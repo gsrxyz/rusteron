@@ -81,10 +81,37 @@ mod tests {
     };
     use proc_macro2::TokenStream;
     use std::fs;
+    use std::process::Command;
+
+    fn running_under_valgrind() -> bool {
+        std::env::var_os("RUSTERON_VALGRIND").is_some()
+    }
+
+    fn new_trybuild_cases() -> trybuild::TestCases {
+        // Keep trybuild's cargo invocation deterministic under valgrind/docker.
+        std::env::remove_var("CARGO_BUILD_TARGET");
+        std::env::remove_var("CARGO_ENCODED_RUSTFLAGS");
+        std::env::remove_var("RUSTFLAGS");
+
+        if let Ok(output) = Command::new("which").arg("cargo").output() {
+            if output.status.success() {
+                let cargo_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !cargo_path.is_empty() {
+                    std::env::set_var("CARGO", cargo_path);
+                }
+            }
+        }
+
+        trybuild::TestCases::new()
+    }
 
     #[test]
     #[cfg(not(target_os = "windows"))] // the generated bindings have different sizes
     fn client() {
+        if running_under_valgrind() {
+            return;
+        }
+
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("bindings")
             .join("client.rs");
@@ -127,7 +154,7 @@ mod tests {
             append_to_file(&file, &format_with_rustfmt(&code.to_string()).unwrap()).unwrap();
         }
 
-        let t = trybuild::TestCases::new();
+        let t = new_trybuild_cases();
         append_to_file(&file, "use bindings::*; mod bindings { ").unwrap();
         append_to_file(&file, CLIENT_BINDINGS).unwrap();
         append_to_file(&file, "}").unwrap();
@@ -139,6 +166,10 @@ mod tests {
     #[test]
     #[cfg(not(target_os = "windows"))] // the generated bindings have different sizes
     fn media_driver() {
+        if running_under_valgrind() {
+            return;
+        }
+
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("bindings")
             .join("media-driver.rs");
@@ -180,7 +211,7 @@ mod tests {
             let code = crate::generate_handlers(handler, &bindings_copy);
             append_to_file(&file, &format_with_rustfmt(&code.to_string()).unwrap()).unwrap();
         }
-        let t = trybuild::TestCases::new();
+        let t = new_trybuild_cases();
         append_to_file(&file, "use bindings::*; mod bindings { ").unwrap();
         append_to_file(&file, MEDIA_DRIVER_BINDINGS).unwrap();
         append_to_file(&file, "}").unwrap();
@@ -192,6 +223,10 @@ mod tests {
     #[test]
     #[cfg(not(target_os = "windows"))] // the generated bindings have different sizes
     fn archive() {
+        if running_under_valgrind() {
+            return;
+        }
+
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("bindings")
             .join("archive.rs");
@@ -227,7 +262,7 @@ mod tests {
             let code = crate::generate_handlers(handler, &bindings_copy);
             append_to_file(&file, &format_with_rustfmt(&code.to_string()).unwrap()).unwrap();
         }
-        let t = trybuild::TestCases::new();
+        let t = new_trybuild_cases();
         append_to_file(&file, "use bindings::*; mod bindings { ").unwrap();
         append_to_file(&file, ARCHIVE_BINDINGS).unwrap();
         append_to_file(&file, "}").unwrap();

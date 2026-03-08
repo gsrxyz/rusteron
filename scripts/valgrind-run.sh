@@ -13,6 +13,16 @@ SUPP_FILE="${VALGRIND_SUPP:-/work/valgrind.supp}"
 CARGO="${CARGO:-cargo}"
 GEN_SUPPRESSIONS="${VALGRIND_GEN_SUPPRESSIONS:-0}"
 
+# Keep cargo/rustup lookup stable for trybuild subprocesses spawned by tests.
+export PATH="/usr/local/cargo/bin:${PATH}"
+if command -v cargo >/dev/null 2>&1; then
+  export CARGO="$(command -v cargo)"
+fi
+export RUSTERON_VALGRIND=1
+unset CARGO_BUILD_TARGET || true
+unset CARGO_ENCODED_RUSTFLAGS || true
+unset RUSTFLAGS || true
+
 echo "=== Phase 1: build test binaries ==="
 # --no-run builds but does not execute; --message-format=json lets us extract
 # the exact paths of the compiled test executables via jq.
