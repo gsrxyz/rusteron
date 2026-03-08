@@ -257,3 +257,144 @@
    fun:start_thread
    fun:clone
 }
+
+# Aeron client conductor can report "possibly lost" allocations at process exit
+# when teardown races with async publication/subscription/image flows.
+{
+   aeron_client_conductor_image_create_possible
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:aeron_alloc
+   fun:aeron_image_create
+   fun:aeron_client_conductor_on_available_image
+   fun:aeron_client_conductor_on_driver_response
+   fun:aeron_broadcast_receiver_receive
+   fun:aeron_client_conductor_do_work
+   fun:aeron_do_work
+   fun:agent_main
+   fun:start_thread
+   fun:clone
+}
+
+{
+   aeron_client_conductor_add_publication_array_growth_possible
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:realloc
+   fun:aeron_reallocf
+   fun:aeron_array_ensure_capacity
+   fun:aeron_client_conductor_on_cmd_add_publication
+   fun:aeron_client_conductor_on_command
+   fun:aeron_mpsc_concurrent_array_queue_drain
+   fun:aeron_client_conductor_do_work
+   fun:aeron_do_work
+   fun:agent_main
+   fun:start_thread
+   fun:clone
+}
+
+{
+   aeron_client_conductor_subscription_image_list_ready_possible
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:aeron_alloc
+   fun:aeron_subscription_alloc_image_list
+   fun:aeron_subscription_create
+   fun:aeron_client_conductor_on_subscription_ready
+   fun:aeron_client_conductor_on_driver_response
+   fun:aeron_broadcast_receiver_receive
+   fun:aeron_client_conductor_do_work
+   fun:aeron_do_work
+   fun:agent_main
+   fun:start_thread
+   fun:clone
+}
+
+{
+   aeron_client_conductor_subscription_image_list_add_image_possible
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:aeron_alloc
+   fun:aeron_subscription_alloc_image_list
+   fun:aeron_client_conductor_subscription_add_image
+   fun:aeron_client_conductor_on_available_image
+   fun:aeron_client_conductor_on_driver_response
+   fun:aeron_broadcast_receiver_receive
+   fun:aeron_client_conductor_do_work
+   fun:aeron_do_work
+   fun:agent_main
+   fun:start_thread
+   fun:clone
+}
+
+{
+   aeron_client_conductor_log_buffer_create_possible
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:aeron_alloc
+   fun:aeron_log_buffer_create
+   fun:aeron_client_conductor_get_or_create_log_buffer
+   fun:aeron_client_conductor_on_publication_ready
+   fun:aeron_client_conductor_on_driver_response
+   fun:aeron_broadcast_receiver_receive
+   fun:aeron_client_conductor_do_work
+   fun:aeron_do_work
+   fun:agent_main
+   fun:start_thread
+   fun:clone
+}
+
+{
+   aeron_client_conductor_publication_create_possible
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:aeron_alloc
+   fun:aeron_publication_create
+   fun:aeron_client_conductor_on_publication_ready
+   fun:aeron_client_conductor_on_driver_response
+   fun:aeron_broadcast_receiver_receive
+   fun:aeron_client_conductor_do_work
+   fun:aeron_do_work
+   fun:agent_main
+   fun:start_thread
+   fun:clone
+}
+
+{
+   aeron_client_conductor_subscription_create_possible
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:aeron_alloc
+   fun:aeron_subscription_create
+   fun:aeron_client_conductor_on_subscription_ready
+   fun:aeron_client_conductor_on_driver_response
+   fun:aeron_broadcast_receiver_receive
+   fun:aeron_client_conductor_do_work
+   fun:aeron_do_work
+   fun:agent_main
+   fun:start_thread
+   fun:clone
+}
+
+{
+   aeron_agent_start_tls_allocation_possible
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:calloc
+   fun:calloc
+   fun:allocate_dtv
+   fun:_dl_allocate_tls
+   fun:allocate_stack
+   fun:pthread_create@@GLIBC_2.34
+   fun:aeron_agent_start
+   fun:aeron_driver_start
+   ...
+   fun:start_thread
+   fun:clone
+}
