@@ -419,8 +419,16 @@ mod tests {
     use crate::parser::parse_bindings;
     use std::path::PathBuf;
 
+    fn running_under_valgrind() -> bool {
+        std::env::var_os("RUSTERON_VALGRIND").is_some()
+    }
+
     #[test]
     fn media_driver() {
+        if running_under_valgrind() {
+            return;
+        }
+
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("bindings")
             .join("media-driver.rs");
@@ -436,6 +444,10 @@ mod tests {
     }
     #[test]
     fn client() {
+        if running_under_valgrind() {
+            return;
+        }
+
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("bindings")
             .join("client.rs");
