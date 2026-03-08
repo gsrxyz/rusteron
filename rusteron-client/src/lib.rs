@@ -55,6 +55,10 @@ mod tests {
         }
     }
 
+    fn running_under_valgrind() -> bool {
+        std::env::var_os("RUSTERON_VALGRIND").is_some()
+    }
+
     #[test]
     #[serial]
     fn version_check() -> Result<(), Box<dyn error::Error>> {
@@ -966,21 +970,31 @@ mod tests {
     pub fn backpressure_recovery_test() -> Result<(), Box<dyn error::Error>> {
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
 
+        let under_valgrind = running_under_valgrind();
+        let driver_timeout_ms = if under_valgrind { 180_000 } else { 60_000 };
+        let liveness_timeout_ns = if under_valgrind {
+            180_000_000_000
+        } else {
+            60_000_000_000
+        };
+        let poll_timeout = Duration::from_millis(driver_timeout_ms as u64);
+
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
         media_driver_ctx.set_dir(
             &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
         )?;
-        media_driver_ctx.set_client_liveness_timeout_ns(60_000_000_000)?;
-        media_driver_ctx.set_image_liveness_timeout_ns(60_000_000_000)?;
-        media_driver_ctx.set_publication_unblock_timeout_ns(65_000_000_000)?;
-        media_driver_ctx.set_driver_timeout_ms(60_000)?;
+        media_driver_ctx.set_client_liveness_timeout_ns(liveness_timeout_ns)?;
+        media_driver_ctx.set_image_liveness_timeout_ns(liveness_timeout_ns)?;
+        media_driver_ctx.set_publication_unblock_timeout_ns(liveness_timeout_ns + 5_000_000_000)?;
+        media_driver_ctx.set_driver_timeout_ms(driver_timeout_ms)?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
         ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+        ctx.set_driver_timeout_ms(driver_timeout_ms)?;
         let mut error_handler = Handler::leak(TestErrorCount::default());
         ctx.set_error_handler(Some(&error_handler))?;
 
@@ -1021,7 +1035,7 @@ mod tests {
         };
 
         // Poll using the inline closure via poll_once until we receive at least 50 messages.
-        while count.load(Ordering::SeqCst) < 50 && start_time.elapsed() < Duration::from_secs(60) {
+        while count.load(Ordering::SeqCst) < 50 && start_time.elapsed() < poll_timeout {
             let _ = subscription.poll_once(
                 |_msg, _header| {
                     count.fetch_add(1, Ordering::SeqCst);

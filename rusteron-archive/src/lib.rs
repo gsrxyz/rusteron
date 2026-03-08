@@ -416,8 +416,6 @@ mod tests {
                     AeronArchiveAsyncConnect::new_with_aeron(&aeron_archive_context, &aeron)?
                         .poll_blocking(Duration::from_secs(60))?;
                 replay_merge_subscription(&merge_archive, aeron.clone(), session_id)?;
-                drop(merge_archive);
-                drop(aeron);
                 Ok(())
             })();
 
@@ -427,6 +425,9 @@ mod tests {
 
         running.store(false, Ordering::Release);
         publisher_thread.join().unwrap();
+        drop(archive);
+        drop(aeron);
+        drop(media_driver);
 
         Ok(())
     }
@@ -501,6 +502,9 @@ mod tests {
                 }
             }
             assert!(caught_up_count > 0);
+            if let Err(err) = publication.close(Handlers::no_notification_handler()) {
+                info!("publisher close returned error: {err:?}");
+            }
             info!("Publisher thread terminated");
         });
         Ok((session_id, publisher_thread))
@@ -648,6 +652,12 @@ mod tests {
         assert!(!replay_merge.has_failed());
         assert!(replay_merge.is_live_added());
         assert!(reply_count > 10_000, "no replay-merge fragments received");
+        if let Err(err) = replay_merge.close() {
+            info!("replay merge close returned error: {err:?}");
+        }
+        if let Err(err) = subscription.close(Handlers::no_notification_handler()) {
+            info!("replay subscription close returned error: {err:?}");
+        }
         Ok(())
     }
 
