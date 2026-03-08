@@ -82,9 +82,19 @@ mod tests {
     use proc_macro2::TokenStream;
     use std::fs;
 
+    // valgrind can give false positives, so we don't want to run on tests which are 100% rust
+    // and do not have any chance of any undefined behaviour i.e. parsing rs and generating code
+    fn running_under_valgrind() -> bool {
+        std::env::var_os("RUSTERON_VALGRIND").is_some()
+    }
+
     #[test]
     #[cfg(not(target_os = "windows"))] // the generated bindings have different sizes
     fn client() {
+        if running_under_valgrind() {
+            return;
+        }
+
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("bindings")
             .join("client.rs");
@@ -139,6 +149,10 @@ mod tests {
     #[test]
     #[cfg(not(target_os = "windows"))] // the generated bindings have different sizes
     fn media_driver() {
+        if running_under_valgrind() {
+            return;
+        }
+
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("bindings")
             .join("media-driver.rs");
@@ -192,6 +206,10 @@ mod tests {
     #[test]
     #[cfg(not(target_os = "windows"))] // the generated bindings have different sizes
     fn archive() {
+        if running_under_valgrind() {
+            return;
+        }
+
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("bindings")
             .join("archive.rs");
