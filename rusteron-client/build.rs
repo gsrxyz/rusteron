@@ -62,14 +62,23 @@ pub fn main() {
     println!("cargo:rerun-if-changed=bindings.h");
 
     // Determine the artifacts folder based on feature, OS, and architecture.
-    #[cfg(all(feature = "precompile", feature = "static"))]
+    #[cfg(all(
+        any(feature = "precompile", feature = "precompile-rustls"),
+        feature = "static"
+    ))]
     let artifacts_dir = get_artifact_path();
 
-    #[cfg(all(feature = "precompile", feature = "static"))]
+    #[cfg(all(
+        any(feature = "precompile", feature = "precompile-rustls"),
+        feature = "static"
+    ))]
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     // If the artifacts folder exists use that instead of doing cmake and requiring java to be installed
-    #[cfg(all(feature = "precompile", feature = "static"))]
+    #[cfg(all(
+        any(feature = "precompile", feature = "precompile-rustls"),
+        feature = "static"
+    ))]
     if fs::read_dir(&artifacts_dir)
         .as_mut()
         .map(|s| s.next().is_none())
@@ -81,7 +90,10 @@ pub fn main() {
             println!("Error downloading precompiled binaries: {e:?}");
         }
     }
-    #[cfg(all(feature = "precompile", feature = "static"))]
+    #[cfg(all(
+        any(feature = "precompile", feature = "precompile-rustls"),
+        feature = "static"
+    ))]
     if artifacts_dir.exists()
         && fs::read_dir(&artifacts_dir)
             .as_mut()
@@ -442,7 +454,10 @@ fn publish_artifacts(cmake_build_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(all(feature = "precompile", feature = "static"))]
+#[cfg(all(
+    any(feature = "precompile", feature = "precompile-rustls"),
+    feature = "static"
+))]
 fn download_precompiled_binaries(artifacts_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let version = env::var("CARGO_PKG_VERSION").unwrap();
     let mut target_os = env::var("CARGO_CFG_TARGET_OS").unwrap(); // e.g., "macos", "linux", "windows"

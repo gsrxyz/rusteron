@@ -24,6 +24,12 @@ For **MacOS users**, the easiest way to get started is by using the static libra
 rusteron-archive = { version = "0.1", features = ["static", "precompile"] }
 ````
 
+If you prefer a rustls-only downloader dependency:
+
+```toml
+rusteron-archive = { version = "0.1", features = ["static", "precompile-rustls"] }
+````
+
 ---
 
 ## Installation
@@ -39,6 +45,9 @@ rusteron-archive = { version = "0.1", features = ["static"] }
 
 # Static linking with precompiled C libraries (best for Mac users, no Java/cmake needed)
 rusteron-archive = { version = "0.1", features = ["static", "precompile"] }
+
+# Static linking with precompiled C libraries using rustls downloader
+rusteron-archive = { version = "0.1", features = ["static", "precompile-rustls"] }
 ```
 
 When using the default dynamic configuration, you must ensure Aeron C libraries are available at runtime. The `static` option embeds them automatically into the binary.

@@ -59,8 +59,9 @@ static         = ["build-from-source"]              # Statically links the Aeron
 backtrace      = ["dep:regex"]   # Logs the backtrace on each AeronCError
 extra-logging  = []              # Logs when resources are created and destroyed
 log-c-bindings = []              # Logs every C binding call with arguments and return values
-precompile        = ["dep:reqwest", "dep:flate2", "dep:tar", "native-tls"]  # Uses precompiled C code instead of requiring cmake and java (implies native-tls)
-native-tls        = ["reqwest?/default-tls"]   # Use native-tls for reqwest (default when precompile is enabled)
+precompile        = ["dep:reqwest", "dep:flate2", "dep:tar", "native-tls"]  # Uses precompiled C code instead of requiring cmake and java (defaults to native-tls)
+precompile-rustls = ["dep:reqwest", "dep:flate2", "dep:tar", "rustls-tls"]  # Uses precompiled C code and rustls for downloads
+native-tls        = ["reqwest?/native-tls"]   # Use native-tls for reqwest
 rustls-tls        = ["reqwest?/rustls"]         # Use rustls instead of native-tls for reqwest
 build-from-source = ["dep:bindgen", "dep:cmake", "dep:dunce", "dep:proc-macro2"]  # Builds Aeron C from source (requires cmake and a C++ compiler)
 

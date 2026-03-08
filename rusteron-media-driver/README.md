@@ -39,6 +39,11 @@ rusteron-media-driver = { version = "0.1", features = ["static"] }
 rusteron-media-driver = { version = "0.1", features = ["static", "precompile"] }
 ```
 
+```toml
+[dependencies]
+rusteron-media-driver = { version = "0.1", features = ["static", "precompile-rustls"] }
+```
+
 </details>
 
 Ensure the Aeron C libraries are properly installed and available on your system.

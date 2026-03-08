@@ -71,6 +71,13 @@ rusteron-client = { version = "0.1", features = ["static"] }
 rusteron-client = { version = "0.1", features = ["static", "precompile"] }
 ```
 
+**macOS-only precompiled static libs with rustls downloader:**
+
+```toml
+[dependencies]
+rusteron-client = { version = "0.1", features = ["static", "precompile-rustls"] }
+```
+
 Replace `rusteron-client` with `rusteron-archive` or `rusteron-media-driver` as needed.
 
 For full build instructions, see [BUILD.md](./BUILD.md).
