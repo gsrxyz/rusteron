@@ -1,8 +1,8 @@
-FROM maven:3.8.6-openjdk-18 as builder
+FROM maven:3.8.6-openjdk-18 AS builder
 
 WORKDIR /aeron
 
-#ENV AERON_VERSION=1.46.7
+#ENV AERON_VERSION=1.50.2
 #RUN mvn org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy \
 #    -DrepoUrl=https://repo1.maven.org/maven2/ \
 #    -Dartifact=io.aeron:aeron-all:${AERON_VERSION} -DoutputDirectory=/aeron && \
@@ -10,7 +10,7 @@ WORKDIR /aeron
 #    -DrepoUrl=https://repo1.maven.org/maven2/ \
 #    -Dartifact=io.aeron:aeron-archive:${AERON_VERSION} -DoutputDirectory=/aeron
 
-RUN git clone https://github.com/real-logic/aeron.git . && ./gradlew :aeron-all:jar :aeron-agent:jar
+RUN git clone https://github.com/real-logic/aeron.git . && ./gradlew :aeron-all:jar :aeron-agent:shadowJar
 
 FROM eclipse-temurin:21
 

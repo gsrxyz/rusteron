@@ -1,6 +1,6 @@
 [package]
 name = "rusteron-archive"
-version = "0.1.160"
+version = "0.1.161"
 edition = "2021"
 authors = ["GSR devs <dev@gsr.io>"]
 license = "MIT OR Apache-2.0"
