@@ -1,3 +1,4 @@
+
 // code here is included in all modules and extends generated classes
 pub static AERON_IPC_STREAM: &std::ffi::CStr =
     unsafe { std::ffi::CStr::from_bytes_with_nul_unchecked(b"aeron:ipc\0") };
@@ -67,6 +68,18 @@ impl AeronCnc {
             } else {
                 return Err(AeronCError::from_code(timestamp as i32));
             }
+        }
+    }
+}
+
+impl AeronHeader {
+    /// returns AeronImage, **must** be called in poll method
+    pub fn image(&self) -> Option<AeronImage> {
+        let ptr = self.context();
+        if ptr.is_null() {
+            None
+        } else {
+            Some(AeronImage::from(ptr as *mut aeron_image_t))
         }
     }
 }
@@ -500,6 +513,50 @@ impl AeronCError {
 const PARSE_CSTR_ERROR_CODE: i32 = -132131;
 
 impl AeronUriStringBuilder {
+    #[inline]
+    #[doc = "Initialize a new AeronUriStringBuilder. If already initialized, it will close the previous builder to prevent memory leaks."]
+    pub fn init_new(&self) -> Result<i32, AeronCError> {
+        if let Some(inner) = self.inner.as_owned() {
+            if !inner.close_already_called.get() {
+                let _ = self.close();
+                inner.close_already_called.set(false);
+            }
+        }
+        let result = unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("aeron_uri_string_builder_init_new(self.get_inner())");
+
+            aeron_uri_string_builder_init_new(self.get_inner())
+        };
+        if result < 0 {
+            Err(AeronCError::from_code(result))
+        } else {
+            Ok(result)
+        }
+    }
+
+    #[inline]
+    #[doc = "Initialize AeronUriStringBuilder with an existing URI string. If already initialized, it will close the previous builder."]
+    pub fn init_on_string(&self, uri: &std::ffi::CStr) -> Result<i32, AeronCError> {
+        if let Some(inner) = self.inner.as_owned() {
+            if !inner.close_already_called.get() {
+                let _ = self.close();
+                inner.close_already_called.set(false);
+            }
+        }
+        let result = unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("aeron_uri_string_builder_init_on_string(self.get_inner(), uri)");
+
+            aeron_uri_string_builder_init_on_string(self.get_inner(), uri.as_ptr())
+        };
+        if result < 0 {
+            Err(AeronCError::from_code(result))
+        } else {
+            Ok(result)
+        }
+    }
+
     #[inline]
     pub fn build(&self, max_str_length: usize) -> Result<String, AeronCError> {
         let mut result = String::with_capacity(max_str_length);
@@ -1152,3 +1209,4 @@ impl std::fmt::Debug for AeronCError {
 }
 
 impl std::error::Error for AeronCError {}
+
