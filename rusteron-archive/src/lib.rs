@@ -304,6 +304,10 @@ mod tests {
         }
     }
 
+    fn running_under_valgrind() -> bool {
+        std::env::var_os("RUSTERON_VALGRIND").is_some()
+    }
+
     pub const ARCHIVE_CONTROL_REQUEST: &str = "aeron:udp?endpoint=localhost:8010";
     pub const ARCHIVE_CONTROL_RESPONSE: &str = "aeron:udp?endpoint=localhost:8011";
     pub const ARCHIVE_RECORDING_EVENTS: &str =
@@ -583,6 +587,12 @@ mod tests {
             Duration::from_secs(5),
         )?;
 
+        let merge_progress_timeout_ms = if running_under_valgrind() {
+            60_000
+        } else {
+            10_000
+        };
+
         let replay_merge = AeronArchiveReplayMerge::new(
             &subscription,
             &archive,
@@ -592,7 +602,7 @@ mod tests {
             recording_id,
             start_position,
             Aeron::epoch_clock(),
-            10_000,
+            merge_progress_timeout_ms,
         )?;
 
         info!(
@@ -669,7 +679,7 @@ mod tests {
 
         let aeron_version = format!("{}.{}.{}", major, minor, patch);
 
-        let cargo_version = "1.50.2";
+        let cargo_version = "1.51.0";
         assert_eq!(aeron_version, cargo_version);
     }
 

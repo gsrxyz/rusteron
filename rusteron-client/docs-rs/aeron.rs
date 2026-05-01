@@ -4096,6 +4096,11 @@ impl core::fmt::Debug for AeronContext {
             f.debug_struct(stringify!(AeronContext))
                 .field("inner", &self.inner)
                 .field(stringify!(get_dir), &self.get_dir())
+                .field(
+                    stringify!(get_idle_strategy_init_args),
+                    &self.get_idle_strategy_init_args(),
+                )
+                .field(stringify!(get_idle_strategy), &self.get_idle_strategy())
                 .field(stringify!(get_client_name), &self.get_client_name())
                 .finish()
         }
@@ -4295,21 +4300,6 @@ impl AeronContext {
         }
     }
     #[inline]
-    pub fn get_idle_sleep_duration_ns(&self) -> u64 {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_context_get_idle_sleep_duration_ns),
-                [concat!("context", ": ", stringify!(*mut aeron_context_t)).to_string()].join(", ")
-            );
-            let result = aeron_context_get_idle_sleep_duration_ns(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
     pub fn set_idle_sleep_duration_ns(&self, value: u64) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -4329,6 +4319,106 @@ impl AeronContext {
                 return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn get_idle_sleep_duration_ns(&self) -> u64 {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_context_get_idle_sleep_duration_ns),
+                [concat!("context", ": ", stringify!(*mut aeron_context_t)).to_string()].join(", ")
+            );
+            let result = aeron_context_get_idle_sleep_duration_ns(self.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn set_idle_strategy_init_args(&self, value: &std::ffi::CStr) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_context_set_idle_strategy_init_args),
+                [
+                    concat!("context", ": ", stringify!(*mut aeron_context_t)).to_string(),
+                    concat!("value", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
+                ]
+                .join(", ")
+            );
+            let result =
+                aeron_context_set_idle_strategy_init_args(self.get_inner(), value.as_ptr());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn get_idle_strategy_init_args(&self) -> &str {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_context_get_idle_strategy_init_args),
+                [concat!("context", ": ", stringify!(*mut aeron_context_t)).to_string()].join(", ")
+            );
+            let result = aeron_context_get_idle_strategy_init_args(self.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(result).to_str().unwrap_or("") }
+            }
+        }
+    }
+    #[inline]
+    pub fn set_idle_strategy(&self, value: &std::ffi::CStr) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_context_set_idle_strategy),
+                [
+                    concat!("context", ": ", stringify!(*mut aeron_context_t)).to_string(),
+                    concat!("value", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_context_set_idle_strategy(self.get_inner(), value.as_ptr());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn get_idle_strategy(&self) -> &str {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_context_get_idle_strategy),
+                [concat!("context", ": ", stringify!(*mut aeron_context_t)).to_string()].join(", ")
+            );
+            let result = aeron_context_get_idle_strategy(self.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(result).to_str().unwrap_or("") }
             }
         }
     }
@@ -4690,7 +4780,7 @@ impl AeronContext {
     #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
     #[doc = r"  use with care_"]
     pub fn set_on_new_publication_once<
-        AeronNewPublicationHandlerImpl: FnMut(AeronAsyncAddPublication, &str, i32, i32, i64) -> (),
+        AeronNewPublicationHandlerImpl: FnMut(&str, i32, i32, i64) -> (),
     >(
         &self,
         mut handler: AeronNewPublicationHandlerImpl,
@@ -4801,7 +4891,7 @@ impl AeronContext {
     #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
     #[doc = r"  use with care_"]
     pub fn set_on_new_exclusive_publication_once<
-        AeronNewPublicationHandlerImpl: FnMut(AeronAsyncAddPublication, &str, i32, i32, i64) -> (),
+        AeronNewPublicationHandlerImpl: FnMut(&str, i32, i32, i64) -> (),
     >(
         &self,
         mut handler: AeronNewPublicationHandlerImpl,
@@ -4914,7 +5004,7 @@ impl AeronContext {
     #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
     #[doc = r"  use with care_"]
     pub fn set_on_new_subscription_once<
-        AeronNewSubscriptionHandlerImpl: FnMut(AeronAsyncAddSubscription, &str, i32, i64) -> (),
+        AeronNewSubscriptionHandlerImpl: FnMut(&str, i32, i64) -> (),
     >(
         &self,
         mut handler: AeronNewSubscriptionHandlerImpl,
@@ -5812,7 +5902,7 @@ impl From<aeron_controlled_fragment_assembler_t> for AeronControlledFragmentAsse
         }
     }
 }
-#[doc = "Configuration for a counter that does not change during it's lifetime."]
+#[doc = "Configuration for a counter that does not change during its lifetime."]
 #[derive(Clone)]
 pub struct AeronCounterConstants {
     inner: CResource<aeron_counter_constants_t>,
@@ -5826,6 +5916,7 @@ impl core::fmt::Debug for AeronCounterConstants {
         } else {
             f.debug_struct(stringify!(AeronCounterConstants))
                 .field("inner", &self.inner)
+                .field(stringify!(correlation_id), &self.correlation_id())
                 .field(stringify!(registration_id), &self.registration_id())
                 .field(stringify!(counter_id), &self.counter_id())
                 .finish()
@@ -5834,10 +5925,15 @@ impl core::fmt::Debug for AeronCounterConstants {
 }
 impl AeronCounterConstants {
     #[inline]
-    pub fn new(registration_id: i64, counter_id: i32) -> Result<Self, AeronCError> {
+    pub fn new(
+        correlation_id: i64,
+        registration_id: i64,
+        counter_id: i32,
+    ) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::new(
             move |ctx_field| {
                 let inst = aeron_counter_constants_t {
+                    correlation_id: correlation_id.into(),
                     registration_id: registration_id.into(),
                     counter_id: counter_id.into(),
                 };
@@ -5889,6 +5985,10 @@ impl AeronCounterConstants {
         Self {
             inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
         }
+    }
+    #[inline]
+    pub fn correlation_id(&self) -> i64 {
+        self.correlation_id.into()
     }
     #[inline]
     pub fn registration_id(&self) -> i64 {
@@ -8086,6 +8186,27 @@ impl AeronError {
     #[inline]
     pub fn error_length(&self) -> i32 {
         self.error_length.into()
+    }
+    #[inline]
+    #[doc = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
+    pub fn code_str(errcode: ::std::os::raw::c_int) -> &'static str {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_error_code_str),
+                [concat!("errcode", ": ", stringify!(::std::os::raw::c_int)).to_string()]
+                    .join(", ")
+            );
+            let result = aeron_error_code_str(errcode.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(result).to_str().unwrap_or("") }
+            }
+        }
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_error_t {
@@ -10980,6 +11101,33 @@ impl AeronImage {
         );
         Self {
             inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
+        }
+    }
+    #[inline]
+    #[doc = "Release an image that was retained by aeron_subscription_image_by_session_id or"]
+    #[doc = " aeron_subscription_image_at_index."]
+    #[doc = ""]
+    #[doc = " Unlike aeron_subscription_image_release, this function unconditionally decrements the reference"]
+    #[doc = " count and is safe to call after the image has become unavailable (i.e. after it has been removed"]
+    #[doc = " from the subscription's image list)."]
+    #[doc = ""]
+    #[doc = " \n# Return\n 0 for success and -1 for error."]
+    pub fn release(&self) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_image_release),
+                [concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string()].join(", ")
+            );
+            let result = aeron_image_release(self.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
         }
     }
     #[inline]
@@ -20617,6 +20765,429 @@ impl Aeron {
         }
     }
     #[inline]
+    #[doc = "Cancel an in-progress <code>aeron_async_add_publication</code> operation."]
+    #[doc = ""]
+    #[doc = " \n"]
+    #[doc = " Will eventually free the given <code>`AeronAsyncAddPublication`</code> instance. If a publication gets created by"]
+    #[doc = " the time cancellation happens, it will get removed."]
+    #[doc = ""]
+    #[doc = " \n"]
+    #[doc = " <em>Note:</em> The above guarantees only apply when a call to this method succeeds, i.e. return value is zero. If a"]
+    #[doc = " return value is non-zero the operation won't be canceled and the <code>`AeronAsyncAddPublication`</code> instance"]
+    #[doc = " won't be freed."]
+    #[doc = ""]
+    #[doc = " \n# Return\n 0 for success or -1 for error."]
+    pub fn async_add_publication_cancel(
+        &self,
+        async_: &AeronAsyncAddPublication,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_async_add_publication_cancel),
+                [
+                    concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                    concat!(
+                        "async_",
+                        ": ",
+                        stringify!(*mut aeron_async_add_publication_t)
+                    )
+                    .to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_async_add_publication_cancel(self.get_inner(), async_.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    #[doc = "Asynchronously remove a publication."]
+    #[doc = " If there is an `AeronPublication` object for that publication, it will get closed and freed."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `registration_id` of the publication to be removed."]
+    #[doc = " \n - `on_complete` optional callback to execute once the publication has been removed. This may happen on a separate"]
+    #[doc = " thread, so the caller should ensure that clientd has the appropriate lifetime. Use NULL if not needed."]
+    #[doc = " \n - `on_complete_clientd` parameter to pass to the on_complete callback."]
+    #[doc = " \n# Return\n 0 for success or -1 for error."]
+    pub fn async_remove_publication<AeronNotificationHandlerImpl: AeronNotificationCallback>(
+        &self,
+        registration_id: i64,
+        on_complete: Option<&Handler<AeronNotificationHandlerImpl>>,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_async_remove_publication),
+                [
+                    format!("{} = {:?}", "registration_id", registration_id),
+                    concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                    concat!("on_complete", ": ", stringify!(aeron_notification_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_async_remove_publication(
+                registration_id.into(),
+                self.get_inner(),
+                {
+                    let callback: aeron_notification_t = if on_complete.is_none() {
+                        None
+                    } else {
+                        Some(aeron_notification_t_callback::<AeronNotificationHandlerImpl>)
+                    };
+                    callback
+                },
+                on_complete
+                    .map(|m| m.as_raw())
+                    .unwrap_or_else(|| std::ptr::null_mut()),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    #[doc = "Asynchronously remove a publication."]
+    #[doc = " If there is an `AeronPublication` object for that publication, it will get closed and freed."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `registration_id` of the publication to be removed."]
+    #[doc = " \n - `on_complete` optional callback to execute once the publication has been removed. This may happen on a separate"]
+    #[doc = " thread, so the caller should ensure that clientd has the appropriate lifetime. Use NULL if not needed."]
+    #[doc = " \n - `on_complete_clientd` parameter to pass to the on_complete callback."]
+    #[doc = " \n# Return\n 0 for success or -1 for error."]
+    #[doc = r""]
+    #[doc = r""]
+    #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
+    #[doc = r"  use with care_"]
+    pub fn async_remove_publication_once<AeronNotificationHandlerImpl: FnMut() -> ()>(
+        &self,
+        registration_id: i64,
+        mut on_complete: AeronNotificationHandlerImpl,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_async_remove_publication),
+                [
+                    format!("{} = {:?}", "registration_id", registration_id),
+                    concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                    concat!("on_complete", ": ", stringify!(aeron_notification_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_async_remove_publication(
+                registration_id.into(),
+                self.get_inner(),
+                Some(
+                    aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>,
+                ),
+                &mut on_complete as *mut _ as *mut std::os::raw::c_void,
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    #[doc = "Cancel an in-progress <code>aeron_async_add_exclusive_publication</code> operation."]
+    #[doc = ""]
+    #[doc = " \n"]
+    #[doc = " Will eventually free the given <code>`AeronAsyncAddExclusivePublication`</code> instance. If a publication gets"]
+    #[doc = " created by the time cancellation happens, it will get removed."]
+    #[doc = ""]
+    #[doc = " \n"]
+    #[doc = " <em>Note:</em> The above guarantees only apply when a call to this method succeeds, i.e. return value is zero. If a"]
+    #[doc = " return value is non-zero the operation won't be canceled and the <code>`AeronAsyncAddExclusivePublication`</code>"]
+    #[doc = " instance won't be freed."]
+    #[doc = ""]
+    #[doc = " \n# Return\n 0 for success or -1 for error."]
+    pub fn async_add_exclusive_publication_cancel(
+        &self,
+        async_: &AeronAsyncAddExclusivePublication,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_async_add_exclusive_publication_cancel),
+                [
+                    concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                    concat!(
+                        "async_",
+                        ": ",
+                        stringify!(*mut aeron_async_add_exclusive_publication_t)
+                    )
+                    .to_string()
+                ]
+                .join(", ")
+            );
+            let result =
+                aeron_async_add_exclusive_publication_cancel(self.get_inner(), async_.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    #[doc = "Asynchronously remove an exclusive publication."]
+    #[doc = " If there is an `AeronExclusivePublication` object for that publication, it will get closed and freed."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `registration_id` of the exclusive publication to be removed."]
+    #[doc = " \n - `on_complete` optional callback to execute once the exclusive publication has been removed. This may happen on"]
+    #[doc = " a separate thread, so the caller should ensure that clientd has the appropriate lifetime. Use NULL if not needed."]
+    #[doc = " \n - `on_complete_clientd` parameter to pass to the on_complete callback."]
+    #[doc = " \n# Return\n 0 for success or -1 for error."]
+    pub fn async_remove_exclusive_publication<
+        AeronNotificationHandlerImpl: AeronNotificationCallback,
+    >(
+        &self,
+        registration_id: i64,
+        on_complete: Option<&Handler<AeronNotificationHandlerImpl>>,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_async_remove_exclusive_publication),
+                [
+                    format!("{} = {:?}", "registration_id", registration_id),
+                    concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                    concat!("on_complete", ": ", stringify!(aeron_notification_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_async_remove_exclusive_publication(
+                registration_id.into(),
+                self.get_inner(),
+                {
+                    let callback: aeron_notification_t = if on_complete.is_none() {
+                        None
+                    } else {
+                        Some(aeron_notification_t_callback::<AeronNotificationHandlerImpl>)
+                    };
+                    callback
+                },
+                on_complete
+                    .map(|m| m.as_raw())
+                    .unwrap_or_else(|| std::ptr::null_mut()),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    #[doc = "Asynchronously remove an exclusive publication."]
+    #[doc = " If there is an `AeronExclusivePublication` object for that publication, it will get closed and freed."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `registration_id` of the exclusive publication to be removed."]
+    #[doc = " \n - `on_complete` optional callback to execute once the exclusive publication has been removed. This may happen on"]
+    #[doc = " a separate thread, so the caller should ensure that clientd has the appropriate lifetime. Use NULL if not needed."]
+    #[doc = " \n - `on_complete_clientd` parameter to pass to the on_complete callback."]
+    #[doc = " \n# Return\n 0 for success or -1 for error."]
+    #[doc = r""]
+    #[doc = r""]
+    #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
+    #[doc = r"  use with care_"]
+    pub fn async_remove_exclusive_publication_once<AeronNotificationHandlerImpl: FnMut() -> ()>(
+        &self,
+        registration_id: i64,
+        mut on_complete: AeronNotificationHandlerImpl,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_async_remove_exclusive_publication),
+                [
+                    format!("{} = {:?}", "registration_id", registration_id),
+                    concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                    concat!("on_complete", ": ", stringify!(aeron_notification_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_async_remove_exclusive_publication(
+                registration_id.into(),
+                self.get_inner(),
+                Some(
+                    aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>,
+                ),
+                &mut on_complete as *mut _ as *mut std::os::raw::c_void,
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    #[doc = "Cancel an in-progress aeron_async_add_subscription operation."]
+    #[doc = ""]
+    #[doc = " \n"]
+    #[doc = " Will eventually free the given <code>`AeronAsyncAddSubscription`</code> instance. If a subscription gets created"]
+    #[doc = " by the time cancellation happens, it will get removed."]
+    #[doc = ""]
+    #[doc = " \n"]
+    #[doc = " <em>Note:</em> The above guarantees only apply when a call to this method succeeds, i.e. return value is zero. If a"]
+    #[doc = " return value is non-zero the operation won't be canceled and the <code>`AeronAsyncAddSubscription`</code> instance"]
+    #[doc = " won't be freed."]
+    #[doc = ""]
+    #[doc = " \n# Return\n 0 for success or -1 for error."]
+    pub fn async_add_subscription_cancel(
+        &self,
+        async_: &AeronAsyncAddSubscription,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_async_add_subscription_cancel),
+                [
+                    concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                    concat!(
+                        "async_",
+                        ": ",
+                        stringify!(*mut aeron_async_add_subscription_t)
+                    )
+                    .to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_async_add_subscription_cancel(self.get_inner(), async_.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    #[doc = "Asynchronously remove a subscription."]
+    #[doc = " If there is an `AeronSubscription` object for that subscription, it will get closed and freed."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `registration_id` of the subscription to be removed."]
+    #[doc = " \n - `on_complete` optional callback to execute once the subscription has been removed. This may happen on a separate"]
+    #[doc = " thread, so the caller should ensure that clientd has the appropriate lifetime. Use NULL if not needed."]
+    #[doc = " \n - `on_complete_clientd` parameter to pass to the on_complete callback."]
+    #[doc = " \n# Return\n 0 for success or -1 for error."]
+    pub fn async_remove_subscription<AeronNotificationHandlerImpl: AeronNotificationCallback>(
+        &self,
+        registration_id: i64,
+        on_complete: Option<&Handler<AeronNotificationHandlerImpl>>,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_async_remove_subscription),
+                [
+                    format!("{} = {:?}", "registration_id", registration_id),
+                    concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                    concat!("on_complete", ": ", stringify!(aeron_notification_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_async_remove_subscription(
+                registration_id.into(),
+                self.get_inner(),
+                {
+                    let callback: aeron_notification_t = if on_complete.is_none() {
+                        None
+                    } else {
+                        Some(aeron_notification_t_callback::<AeronNotificationHandlerImpl>)
+                    };
+                    callback
+                },
+                on_complete
+                    .map(|m| m.as_raw())
+                    .unwrap_or_else(|| std::ptr::null_mut()),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    #[doc = "Asynchronously remove a subscription."]
+    #[doc = " If there is an `AeronSubscription` object for that subscription, it will get closed and freed."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `registration_id` of the subscription to be removed."]
+    #[doc = " \n - `on_complete` optional callback to execute once the subscription has been removed. This may happen on a separate"]
+    #[doc = " thread, so the caller should ensure that clientd has the appropriate lifetime. Use NULL if not needed."]
+    #[doc = " \n - `on_complete_clientd` parameter to pass to the on_complete callback."]
+    #[doc = " \n# Return\n 0 for success or -1 for error."]
+    #[doc = r""]
+    #[doc = r""]
+    #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
+    #[doc = r"  use with care_"]
+    pub fn async_remove_subscription_once<AeronNotificationHandlerImpl: FnMut() -> ()>(
+        &self,
+        registration_id: i64,
+        mut on_complete: AeronNotificationHandlerImpl,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_async_remove_subscription),
+                [
+                    format!("{} = {:?}", "registration_id", registration_id),
+                    concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                    concat!("on_complete", ": ", stringify!(aeron_notification_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_async_remove_subscription(
+                registration_id.into(),
+                self.get_inner(),
+                Some(
+                    aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>,
+                ),
+                &mut on_complete as *mut _ as *mut std::os::raw::c_void,
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
     #[doc = "Return a reference to the counters reader of the given client."]
     #[doc = ""]
     #[doc = " The `AeronCountersReader` is maintained by the client. And should not be freed."]
@@ -20634,6 +21205,142 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
+        }
+    }
+    #[inline]
+    #[doc = "Cancel an in-progress <code>aeron_async_add_counter</code> operation. Not applicable to"]
+    #[doc = " <code>aeron_async_add_static_counter</code>, i.e. attempt to cancel static counter will fail with an error."]
+    #[doc = ""]
+    #[doc = " \n"]
+    #[doc = " Will eventually free the given <code>`AeronAsyncAddCounter`</code> instance. If a counter gets created by the time"]
+    #[doc = " cancellation happens, it will get removed."]
+    #[doc = ""]
+    #[doc = " \n"]
+    #[doc = " <em>Note:</em> The above guarantees only apply when a call to this method succeeds, i.e. return value is zero. If a"]
+    #[doc = " return value is non-zero the operation won't be canceled and the <code>`AeronAsyncAddCounter`</code> instance"]
+    #[doc = " won't be freed."]
+    #[doc = ""]
+    #[doc = " \n# Return\n 0 for success or -1 for error."]
+    pub fn async_add_counter_cancel(
+        &self,
+        async_: &AeronAsyncAddCounter,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_async_add_counter_cancel),
+                [
+                    concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                    concat!("async_", ": ", stringify!(*mut aeron_async_add_counter_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_async_add_counter_cancel(self.get_inner(), async_.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    #[doc = "Asynchronously remove a counter. Not applicable to static counters."]
+    #[doc = " If there is an `AeronCounter` object for that counter, it will get closed and freed."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `registration_id` of the counter to be removed."]
+    #[doc = " \n - `on_complete` optional callback to execute once the counter has been removed. This may happen on a separate"]
+    #[doc = " thread, so the caller should ensure that clientd has the appropriate lifetime. Use NULL if not needed."]
+    #[doc = " \n - `on_complete_clientd` parameter to pass to the on_complete callback."]
+    #[doc = " \n# Return\n 0 for success or -1 for error."]
+    pub fn async_remove_counter<AeronNotificationHandlerImpl: AeronNotificationCallback>(
+        &self,
+        registration_id: i64,
+        on_complete: Option<&Handler<AeronNotificationHandlerImpl>>,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_async_remove_counter),
+                [
+                    format!("{} = {:?}", "registration_id", registration_id),
+                    concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                    concat!("on_complete", ": ", stringify!(aeron_notification_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_async_remove_counter(
+                registration_id.into(),
+                self.get_inner(),
+                {
+                    let callback: aeron_notification_t = if on_complete.is_none() {
+                        None
+                    } else {
+                        Some(aeron_notification_t_callback::<AeronNotificationHandlerImpl>)
+                    };
+                    callback
+                },
+                on_complete
+                    .map(|m| m.as_raw())
+                    .unwrap_or_else(|| std::ptr::null_mut()),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    #[doc = "Asynchronously remove a counter. Not applicable to static counters."]
+    #[doc = " If there is an `AeronCounter` object for that counter, it will get closed and freed."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `registration_id` of the counter to be removed."]
+    #[doc = " \n - `on_complete` optional callback to execute once the counter has been removed. This may happen on a separate"]
+    #[doc = " thread, so the caller should ensure that clientd has the appropriate lifetime. Use NULL if not needed."]
+    #[doc = " \n - `on_complete_clientd` parameter to pass to the on_complete callback."]
+    #[doc = " \n# Return\n 0 for success or -1 for error."]
+    #[doc = r""]
+    #[doc = r""]
+    #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
+    #[doc = r"  use with care_"]
+    pub fn async_remove_counter_once<AeronNotificationHandlerImpl: FnMut() -> ()>(
+        &self,
+        registration_id: i64,
+        mut on_complete: AeronNotificationHandlerImpl,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_async_remove_counter),
+                [
+                    format!("{} = {:?}", "registration_id", registration_id),
+                    concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                    concat!("on_complete", ": ", stringify!(aeron_notification_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_async_remove_counter(
+                registration_id.into(),
+                self.get_inner(),
+                Some(
+                    aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>,
+                ),
+                &mut on_complete as *mut _ as *mut std::os::raw::c_void,
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
         }
     }
     #[inline]
@@ -21394,27 +22101,6 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
-        }
-    }
-    #[inline]
-    #[doc = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
-    pub fn error_code_str(errcode: ::std::os::raw::c_int) -> &'static str {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_error_code_str),
-                [concat!("errcode", ": ", stringify!(::std::os::raw::c_int)).to_string()]
-                    .join(", ")
-            );
-            let result = aeron_error_code_str(errcode.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result.is_null() {
-                ""
-            } else {
-                unsafe { std::ffi::CStr::from_ptr(result).to_str().unwrap_or("") }
-            }
         }
     }
     #[inline]
@@ -23912,7 +24598,6 @@ unsafe extern "C" fn aeron_notification_t_callback_for_once_closure<F: FnMut() -
 #[doc = " Implementations should do the minimum work for passing off state to another thread for later processing."]
 #[doc = ""]
 #[doc = " @param clientd to be returned in the call"]
-#[doc = " @param async associated with the original add publication call"]
 #[doc = " @param channel of the publication"]
 #[doc = " @param stream_id within the channel of the publication"]
 #[doc = " @param session_id of the publication"]
@@ -23923,7 +24608,6 @@ unsafe extern "C" fn aeron_notification_t_callback_for_once_closure<F: FnMut() -
 pub trait AeronNewPublicationCallback {
     fn handle_aeron_on_new_publication(
         &mut self,
-        async_: AeronAsyncAddPublication,
         channel: &str,
         stream_id: i32,
         session_id: i32,
@@ -23934,7 +24618,6 @@ pub struct AeronNewPublicationLogger;
 impl AeronNewPublicationCallback for AeronNewPublicationLogger {
     fn handle_aeron_on_new_publication(
         &mut self,
-        async_: AeronAsyncAddPublication,
         channel: &str,
         stream_id: i32,
         session_id: i32,
@@ -23944,7 +24627,6 @@ impl AeronNewPublicationCallback for AeronNewPublicationLogger {
             "{}({}\n)",
             stringify!(handle_aeron_on_new_publication),
             [
-                format!("{} : {:?}", stringify!(async_), async_),
                 format!("{} : {:?}", stringify!(channel), channel),
                 format!("{} : {:?}", stringify!(stream_id), stream_id),
                 format!("{} : {:?}", stringify!(session_id), session_id),
@@ -23970,14 +24652,12 @@ impl Handlers {
 #[doc = " Implementations should do the minimum work for passing off state to another thread for later processing."]
 #[doc = ""]
 #[doc = " @param clientd to be returned in the call"]
-#[doc = " @param async associated with the original add publication call"]
 #[doc = " @param channel of the publication"]
 #[doc = " @param stream_id within the channel of the publication"]
 #[doc = " @param session_id of the publication"]
 #[doc = " @param correlation_id used by the publication"]
 unsafe extern "C" fn aeron_on_new_publication_t_callback<F: AeronNewPublicationCallback>(
     clientd: *mut ::std::os::raw::c_void,
-    async_: *mut aeron_async_add_publication_t,
     channel: *const ::std::os::raw::c_char,
     stream_id: i32,
     session_id: i32,
@@ -23997,7 +24677,6 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback<F: AeronNewPublicationC
         stringify!(aeron_on_new_publication_t_callback),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
-            format!("{} = {:?}", stringify!(async_), async_),
             format!("{} = {:?}", stringify!(channel), channel),
             format!("{} = {:?}", stringify!(stream_id), stream_id),
             format!("{} = {:?}", stringify!(session_id), session_id),
@@ -24007,7 +24686,6 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback<F: AeronNewPublicationC
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_on_new_publication(
-        async_.into(),
         if channel.is_null() {
             ""
         } else {
@@ -24025,16 +24703,14 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback<F: AeronNewPublicationC
 #[doc = " Implementations should do the minimum work for passing off state to another thread for later processing."]
 #[doc = ""]
 #[doc = " @param clientd to be returned in the call"]
-#[doc = " @param async associated with the original add publication call"]
 #[doc = " @param channel of the publication"]
 #[doc = " @param stream_id within the channel of the publication"]
 #[doc = " @param session_id of the publication"]
 #[doc = " @param correlation_id used by the publication"]
 unsafe extern "C" fn aeron_on_new_publication_t_callback_for_once_closure<
-    F: FnMut(AeronAsyncAddPublication, &str, i32, i32, i64) -> (),
+    F: FnMut(&str, i32, i32, i64) -> (),
 >(
     clientd: *mut ::std::os::raw::c_void,
-    async_: *mut aeron_async_add_publication_t,
     channel: *const ::std::os::raw::c_char,
     stream_id: i32,
     session_id: i32,
@@ -24057,7 +24733,6 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback_for_once_closure<
         stringify!(aeron_on_new_publication_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
-            format!("{} = {:?}", stringify!(async_), async_),
             format!("{} = {:?}", stringify!(channel), channel),
             format!("{} = {:?}", stringify!(stream_id), stream_id),
             format!("{} = {:?}", stringify!(session_id), session_id),
@@ -24067,7 +24742,6 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback_for_once_closure<
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(
-        async_.into(),
         if channel.is_null() {
             ""
         } else {
@@ -24084,7 +24758,6 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback_for_once_closure<
 #[doc = " Implementations should do the minimum work for handing off state to another thread for later processing."]
 #[doc = ""]
 #[doc = " @param clientd to be returned in the call"]
-#[doc = " @param async associated with the original aeron_add_async_subscription call"]
 #[doc = " @param channel of the subscription"]
 #[doc = " @param stream_id within the channel of the subscription"]
 #[doc = " @param session_id of the subscription"]
@@ -24095,7 +24768,6 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback_for_once_closure<
 pub trait AeronNewSubscriptionCallback {
     fn handle_aeron_on_new_subscription(
         &mut self,
-        async_: AeronAsyncAddSubscription,
         channel: &str,
         stream_id: i32,
         correlation_id: i64,
@@ -24105,7 +24777,6 @@ pub struct AeronNewSubscriptionLogger;
 impl AeronNewSubscriptionCallback for AeronNewSubscriptionLogger {
     fn handle_aeron_on_new_subscription(
         &mut self,
-        async_: AeronAsyncAddSubscription,
         channel: &str,
         stream_id: i32,
         correlation_id: i64,
@@ -24114,7 +24785,6 @@ impl AeronNewSubscriptionCallback for AeronNewSubscriptionLogger {
             "{}({}\n)",
             stringify!(handle_aeron_on_new_subscription),
             [
-                format!("{} : {:?}", stringify!(async_), async_),
                 format!("{} : {:?}", stringify!(channel), channel),
                 format!("{} : {:?}", stringify!(stream_id), stream_id),
                 format!("{} : {:?}", stringify!(correlation_id), correlation_id)
@@ -24139,14 +24809,12 @@ impl Handlers {
 #[doc = " Implementations should do the minimum work for handing off state to another thread for later processing."]
 #[doc = ""]
 #[doc = " @param clientd to be returned in the call"]
-#[doc = " @param async associated with the original aeron_add_async_subscription call"]
 #[doc = " @param channel of the subscription"]
 #[doc = " @param stream_id within the channel of the subscription"]
 #[doc = " @param session_id of the subscription"]
 #[doc = " @param correlation_id used by the subscription"]
 unsafe extern "C" fn aeron_on_new_subscription_t_callback<F: AeronNewSubscriptionCallback>(
     clientd: *mut ::std::os::raw::c_void,
-    async_: *mut aeron_async_add_subscription_t,
     channel: *const ::std::os::raw::c_char,
     stream_id: i32,
     correlation_id: i64,
@@ -24165,7 +24833,6 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback<F: AeronNewSubscriptio
         stringify!(aeron_on_new_subscription_t_callback),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
-            format!("{} = {:?}", stringify!(async_), async_),
             format!("{} = {:?}", stringify!(channel), channel),
             format!("{} = {:?}", stringify!(stream_id), stream_id),
             format!("{} = {:?}", stringify!(correlation_id), correlation_id)
@@ -24174,7 +24841,6 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback<F: AeronNewSubscriptio
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure.handle_aeron_on_new_subscription(
-        async_.into(),
         if channel.is_null() {
             ""
         } else {
@@ -24191,16 +24857,14 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback<F: AeronNewSubscriptio
 #[doc = " Implementations should do the minimum work for handing off state to another thread for later processing."]
 #[doc = ""]
 #[doc = " @param clientd to be returned in the call"]
-#[doc = " @param async associated with the original aeron_add_async_subscription call"]
 #[doc = " @param channel of the subscription"]
 #[doc = " @param stream_id within the channel of the subscription"]
 #[doc = " @param session_id of the subscription"]
 #[doc = " @param correlation_id used by the subscription"]
 unsafe extern "C" fn aeron_on_new_subscription_t_callback_for_once_closure<
-    F: FnMut(AeronAsyncAddSubscription, &str, i32, i64) -> (),
+    F: FnMut(&str, i32, i64) -> (),
 >(
     clientd: *mut ::std::os::raw::c_void,
-    async_: *mut aeron_async_add_subscription_t,
     channel: *const ::std::os::raw::c_char,
     stream_id: i32,
     correlation_id: i64,
@@ -24222,7 +24886,6 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback_for_once_closure<
         stringify!(aeron_on_new_subscription_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
-            format!("{} = {:?}", stringify!(async_), async_),
             format!("{} = {:?}", stringify!(channel), channel),
             format!("{} = {:?}", stringify!(stream_id), stream_id),
             format!("{} = {:?}", stringify!(correlation_id), correlation_id)
@@ -24231,7 +24894,6 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback_for_once_closure<
     );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(
-        async_.into(),
         if channel.is_null() {
             ""
         } else {
@@ -25012,7 +25674,7 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback<
         if key.is_null() {
             &[] as &[_]
         } else {
-            std::slice::from_raw_parts(key, key_length)
+            std::slice::from_raw_parts(key, key_length.try_into().unwrap())
         },
         if label.is_null() {
             ""
@@ -25079,7 +25741,7 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback_for_o
         if key.is_null() {
             &[] as &[_]
         } else {
-            std::slice::from_raw_parts(key, key_length)
+            std::slice::from_raw_parts(key, key_length.try_into().unwrap())
         },
         if label.is_null() {
             ""
@@ -25286,7 +25948,7 @@ unsafe extern "C" fn aeron_fragment_handler_t_callback<F: AeronFragmentHandlerCa
         if buffer.is_null() {
             &[] as &[_]
         } else {
-            std::slice::from_raw_parts(buffer, length)
+            std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
         header.into(),
     )
@@ -25337,7 +25999,7 @@ unsafe extern "C" fn aeron_fragment_handler_t_callback_for_once_closure<
         if buffer.is_null() {
             &[] as &[_]
         } else {
-            std::slice::from_raw_parts(buffer, length)
+            std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
         header.into(),
     )
@@ -25437,7 +26099,7 @@ unsafe extern "C" fn aeron_controlled_fragment_handler_t_callback<
         if buffer.is_null() {
             &[] as &[_]
         } else {
-            std::slice::from_raw_parts(buffer, length)
+            std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
         header.into(),
     )
@@ -25489,7 +26151,7 @@ unsafe extern "C" fn aeron_controlled_fragment_handler_t_callback_for_once_closu
         if buffer.is_null() {
             &[] as &[_]
         } else {
-            std::slice::from_raw_parts(buffer, length)
+            std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
         header.into(),
     )
@@ -25574,7 +26236,7 @@ unsafe extern "C" fn aeron_block_handler_t_callback<F: AeronBlockHandlerCallback
         if buffer.is_null() {
             &[] as &[_]
         } else {
-            std::slice::from_raw_parts(buffer, length)
+            std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
         session_id.into(),
         term_id.into(),
@@ -25627,7 +26289,7 @@ unsafe extern "C" fn aeron_block_handler_t_callback_for_once_closure<
         if buffer.is_null() {
             &[] as &[_]
         } else {
-            std::slice::from_raw_parts(buffer, length)
+            std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
         session_id.into(),
         term_id.into(),
@@ -26240,6 +26902,133 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback_for_once_closure<
         } else {
             unsafe { std::ffi::CStr::from_ptr(value).to_str().unwrap_or("") }
         },
+    )
+}
+#[doc = r""]
+#[doc = r""]
+#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+pub trait AeronStrToPtrHashMapForEachFuncCallback {
+    fn handle_aeron_str_to_ptr_hash_map_for_each_func(
+        &mut self,
+        key: &str,
+        key_len: usize,
+        value: *mut ::std::os::raw::c_void,
+    ) -> ();
+}
+pub struct AeronStrToPtrHashMapForEachFuncLogger;
+impl AeronStrToPtrHashMapForEachFuncCallback for AeronStrToPtrHashMapForEachFuncLogger {
+    fn handle_aeron_str_to_ptr_hash_map_for_each_func(
+        &mut self,
+        key: &str,
+        key_len: usize,
+        value: *mut ::std::os::raw::c_void,
+    ) -> () {
+        log::info!(
+            "{}({}\n)",
+            stringify!(handle_aeron_str_to_ptr_hash_map_for_each_func),
+            [
+                format!("{} : {:?}", stringify!(key), key),
+                format!("{} : {:?}", stringify!(key_len), key_len),
+                format!("{} : {:?}", stringify!(value), value)
+            ]
+            .join(", "),
+        );
+        ()
+    }
+}
+unsafe impl Send for AeronStrToPtrHashMapForEachFuncLogger {}
+unsafe impl Sync for AeronStrToPtrHashMapForEachFuncLogger {}
+impl Handlers {
+    #[doc = r" No handler is set i.e. None with correct type"]
+    pub fn no_str_to_ptr_hash_map_for_each_func_handler(
+    ) -> Option<&'static Handler<AeronStrToPtrHashMapForEachFuncLogger>> {
+        None::<&Handler<AeronStrToPtrHashMapForEachFuncLogger>>
+    }
+}
+#[allow(dead_code)]
+unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback<
+    F: AeronStrToPtrHashMapForEachFuncCallback,
+>(
+    clientd: *mut ::std::os::raw::c_void,
+    key: *const ::std::os::raw::c_char,
+    key_len: usize,
+    value: *mut ::std::os::raw::c_void,
+) -> () {
+    #[cfg(debug_assertions)]
+    if clientd.is_null() {
+        unimplemented!("closure should not be null")
+    }
+    #[cfg(feature = "extra-logging")]
+    {
+        log::debug!(
+            "calling {}",
+            stringify!(handle_aeron_str_to_ptr_hash_map_for_each_func)
+        );
+    }
+    #[cfg(feature = "log-c-bindings")]
+    log::debug!(
+        "{}({}\n)",
+        stringify!(aeron_str_to_ptr_hash_map_for_each_func_t_callback),
+        [
+            format!("{} = {:?}", stringify!(clientd), clientd),
+            format!("{} = {:?}", stringify!(key), key),
+            format!("{} = {:?}", stringify!(key_len), key_len),
+            format!("{} = {:?}", stringify!(value), value)
+        ]
+        .join(", ")
+    );
+    let closure: &mut F = &mut *(clientd as *mut F);
+    closure.handle_aeron_str_to_ptr_hash_map_for_each_func(
+        if key.is_null() {
+            ""
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(key).to_str().unwrap_or("") }
+        },
+        key_len.into(),
+        value.into(),
+    )
+}
+#[allow(dead_code)]
+unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback_for_once_closure<
+    F: FnMut(&str, usize, *mut ::std::os::raw::c_void) -> (),
+>(
+    clientd: *mut ::std::os::raw::c_void,
+    key: *const ::std::os::raw::c_char,
+    key_len: usize,
+    value: *mut ::std::os::raw::c_void,
+) -> () {
+    #[cfg(debug_assertions)]
+    if clientd.is_null() {
+        unimplemented!("closure should not be null")
+    }
+    #[cfg(feature = "extra-logging")]
+    {
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_str_to_ptr_hash_map_for_each_func_t_callback_for_once_closure)
+        );
+    }
+    #[cfg(feature = "log-c-bindings")]
+    log::debug!(
+        "{}({}\n)",
+        stringify!(aeron_str_to_ptr_hash_map_for_each_func_t_callback_for_once_closure),
+        [
+            format!("{} = {:?}", stringify!(clientd), clientd),
+            format!("{} = {:?}", stringify!(key), key),
+            format!("{} = {:?}", stringify!(key_len), key_len),
+            format!("{} = {:?}", stringify!(value), value)
+        ]
+        .join(", ")
+    );
+    let closure: &mut F = &mut *(clientd as *mut F);
+    closure(
+        if key.is_null() {
+            ""
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(key).to_str().unwrap_or("") }
+        },
+        key_len.into(),
+        value.into(),
     )
 }
 

@@ -14,38 +14,36 @@ pub fn parse_bindings(out: &PathBuf) -> CBinding {
     let mut methods = Vec::new();
     let mut handlers = Vec::new();
 
-    // Iterate through the items in the file
-    for item in syntax_tree.items {
-        match item {
-            Item::Struct(s) => {
-                process_struct(&mut wrappers, &s);
-            }
-            Item::Type(ty) => {
-                process_type(&mut wrappers, &mut handlers, &ty);
-            }
-            Item::ForeignMod(fm) => {
-                process_c_method(&mut wrappers, &mut methods, fm);
-            }
-            _ => {}
+    let items = syntax_tree.items;
+
+    for item in &items {
+        if let Item::Type(ty) = item {
+            process_type(&mut wrappers, &mut handlers, ty);
         }
     }
 
-    /*    // need to filter out args which don't match
-        for wrapper in wrappers.values_mut() {
-          for method in wrapper.methods.iter_mut() {
-              let method_debug = format!("{:?}", method);
-              for arg in method.arguments.iter_mut() {
-                if let ArgProcessing::Handler(args) = &arg.processing {
-                    let handler = args.get(0).unwrap();
-                    if !handlers.iter().any(|h| h.type_name == handler.c_type) {
-                      log::info!("replacing {} back to default", method_debug);
-                      // arg.processing = ArgProcessing::Default;
-                    }
-                }
-              }
-          }
+    let handler_names = handlers
+        .iter()
+        .filter(|h| {
+            !["aeron_udp_channel", "aeron_udp_transport"]
+                .iter()
+                .any(|&filter| h.type_name.starts_with(filter))
+        })
+        .map(|handler| handler.type_name.clone())
+        .collect();
+
+    for item in &items {
+        if let Item::Struct(s) = item {
+            process_struct(&mut wrappers, s, &handler_names);
         }
-    */
+    }
+
+    for item in &items {
+        if let Item::ForeignMod(fm) = item {
+            process_c_method(&mut wrappers, &mut methods, fm, &handler_names);
+        }
+    }
+
     let mut bindings = CBinding {
         wrappers: wrappers
             .into_iter()
@@ -95,11 +93,12 @@ pub fn parse_bindings(out: &PathBuf) -> CBinding {
 fn process_c_method(
     wrappers: &mut BTreeMap<String, CWrapper>,
     methods: &mut Vec<Method>,
-    fm: ItemForeignMod,
+    fm: &ItemForeignMod,
+    handler_names: &BTreeSet<String>,
 ) {
     // Extract functions inside extern "C" blocks
     if fm.abi.name.is_some() && fm.abi.name.as_ref().unwrap().value() == "C" {
-        for foreign_item in fm.items {
+        for foreign_item in &fm.items {
             if let syn::ForeignItem::Fn(f) = foreign_item {
                 let docs = get_doc_comments(&f.attrs);
                 let fn_name = f.sig.ident.to_string();
@@ -137,7 +136,7 @@ fn process_c_method(
                                 c_type: ret.clone(),
                                 processing: ArgProcessing::Default,
                             },
-                            arguments: process_types(args.clone()),
+                            arguments: process_types(args.clone(), Some(handler_names)),
                             docs: docs.clone(),
                         });
                     }
@@ -149,7 +148,7 @@ fn process_c_method(
                             c_type: ret.clone(),
                             processing: ArgProcessing::Default,
                         },
-                        arguments: process_types(args.clone()),
+                        arguments: process_types(args.clone(), Some(handler_names)),
                         docs: docs.clone(),
                     }),
                 }
@@ -195,7 +194,7 @@ fn process_type(
     let type_name = ty.ident.to_string();
     let class_name = snake_to_pascal_case(&type_name);
 
-    if ty.to_token_stream().to_string().contains("_stct") {
+    if is_struct_typedef(&ty.ty) {
         wrappers
             .entry(type_name.clone())
             .or_insert(CWrapper {
@@ -243,10 +242,10 @@ fn process_type(
                                 return_type = "()";
                             }
 
-                            if args.iter().filter(|a| a.is_c_void()).count() == 1 {
+                            if is_handler_typedef(&args) {
                                 let value = CHandler {
                                     type_name: ty.ident.to_string(),
-                                    args: process_types(args),
+                                    args: process_types(args, None),
                                     return_type: Arg {
                                         name: "".to_string(),
                                         c_type: return_type.to_string(),
@@ -266,7 +265,37 @@ fn process_type(
     }
 }
 
-fn process_struct(wrappers: &mut BTreeMap<String, CWrapper>, s: &ItemStruct) {
+fn is_handler_typedef(args: &[Arg]) -> bool {
+    args.iter().filter(|arg| arg.is_c_void()).count() == 1
+        || args
+            .first()
+            .map(|arg| arg.is_c_void() && is_client_data_arg(&arg.name))
+            .unwrap_or(false)
+}
+
+fn is_client_data_arg(name: &str) -> bool {
+    name == "clientd"
+        || name == "state"
+        || name == "task_clientd"
+        || name.ends_with("_clientd")
+        || name.ends_with("_state")
+}
+
+fn is_struct_typedef(ty: &syn::Type) -> bool {
+    if let syn::Type::Path(type_path) = ty {
+        if let Some(segment) = type_path.path.segments.last() {
+            return segment.ident.to_string().ends_with("_stct");
+        }
+    }
+
+    false
+}
+
+fn process_struct(
+    wrappers: &mut BTreeMap<String, CWrapper>,
+    s: &ItemStruct,
+    handler_names: &BTreeSet<String>,
+) {
     // Print the struct name and its doc comments
     let docs = get_doc_comments(&s.attrs);
     let type_name = s.ident.to_string().replace("_stct", "_t");
@@ -294,10 +323,13 @@ fn process_struct(wrappers: &mut BTreeMap<String, CWrapper>, s: &ItemStruct) {
         ..Default::default()
     });
     w.docs.extend(docs);
-    w.fields = process_types(fields);
+    w.fields = process_types(fields, Some(handler_names));
 }
 
-fn process_types(mut name_and_type: Vec<Arg>) -> Vec<Arg> {
+fn process_types(
+    mut name_and_type: Vec<Arg>,
+    handler_names: Option<&BTreeSet<String>>,
+) -> Vec<Arg> {
     // now mark arguments which can be reduced
     for i in 1..name_and_type.len() {
         let param1 = &name_and_type[i - 1];
@@ -307,7 +339,13 @@ fn process_types(mut name_and_type: Vec<Arg>) -> Vec<Arg> {
         let length_field = param2.name == "length"
             || param2.name == "len"
             || (param2.name.ends_with("_length") && param2.name.starts_with(&param1.name));
-        if param2.is_c_void() && !param1.is_mut_pointer() && param1.c_type.ends_with("_t") {
+        if param2.is_c_void()
+            && !param1.is_mut_pointer()
+            && param1.c_type.ends_with("_t")
+            && handler_names
+                .map(|handler_names| handler_names.contains(&param1.c_type))
+                .unwrap_or(false)
+        {
             // closures
             //         handler: aeron_on_available_counter_t,
             //         clientd: *mut ::std::os::raw::c_void,
