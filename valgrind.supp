@@ -398,3 +398,21 @@
    fun:start_thread
    fun:clone
 }
+
+# `serial_test` file-lock path keeps process-global lock state reachable at exit.
+{
+   serial_test_file_lock_reachable_archive
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   fun:malloc
+   fun:_ZN3std3sys5alloc4unix81_$LT$impl$u20$core..alloc..global..GlobalAlloc$u20$for$u20$std..alloc..System$GT$5alloc*
+   fun:_ZN100_$LT$rusteron_archive..test_alloc..TrackingAllocator$u20$as$u20$core..alloc..global..GlobalAlloc$GT$5alloc*
+   fun:*
+   ...
+   fun:_ZN11serial_test9file_lock4Lock3new*
+   fun:_ZN11serial_test9file_lock27make_lock_for_name_and_path*
+   fun:_ZN11serial_test9file_lock9get_locks*
+   ...
+   fun:_ZN11serial_test16serial_file_lock14fs_serial_core*
+   fun:_ZN16rusteron_archive52aeron_archive_encoded_credentials_t_allocation_tests12test_default*
+}
