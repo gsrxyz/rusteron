@@ -194,6 +194,10 @@ mod tests {
         }
 
         // Shutdown
+        drop(subscription);
+        drop(publication);
+        drop(sub_poller);
+        drop(pub_poller);
         drop(aeron);
         stop.store(true, Ordering::SeqCst);
         let _ = driver_handle.join().unwrap();
