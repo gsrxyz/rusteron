@@ -1,4 +1,4 @@
-ARG RUST_VERSION=1.89.0
+ARG RUST_VERSION=1.95.0
 FROM --platform=linux/amd64 rust:${RUST_VERSION}
 
 ENV HOME=/work/target/asan

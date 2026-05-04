@@ -36,6 +36,13 @@ impl LinkType {
             LinkType::Static => "aeron_driver_static",
         }
     }
+
+    fn base_target_name(&self) -> Option<&'static str> {
+        match self {
+            LinkType::Dynamic => Some("aeron"),
+            LinkType::Static => None,
+        }
+    }
 }
 
 pub fn main() {
@@ -184,6 +191,13 @@ fn build_from_source(docs_rs: &Path) {
         link_type.link_lib(),
         link_type.target_name()
     );
+    if let Some(base_target_name) = link_type.base_target_name() {
+        println!(
+            "cargo:rustc-link-lib={}{}",
+            link_type.link_lib(),
+            base_target_name
+        );
+    }
 
     if let LinkType::Static = link_type {
         // On Windows, there are some extra libraries needed for static link

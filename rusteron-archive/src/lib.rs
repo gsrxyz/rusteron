@@ -23,7 +23,6 @@ pub mod bindings {
 
 use bindings::*;
 use std::cell::Cell;
-use std::os::raw::c_int;
 use std::time::{Duration, Instant};
 
 pub mod testing;
@@ -36,12 +35,6 @@ pub const SOURCE_LOCATION_LOCAL: aeron_archive_source_location_en =
     SourceLocation::AERON_ARCHIVE_SOURCE_LOCATION_LOCAL;
 pub const SOURCE_LOCATION_REMOTE: aeron_archive_source_location_en =
     SourceLocation::AERON_ARCHIVE_SOURCE_LOCATION_REMOTE;
-
-unsafe extern "C" fn no_op_idle_strategy_func(
-    _state: *mut std::os::raw::c_void,
-    _work_count: c_int,
-) {
-}
 
 pub struct RecordingPos;
 impl RecordingPos {
@@ -225,9 +218,10 @@ impl_archive_position_methods!(AeronPublication);
 impl_archive_position_methods!(AeronExclusivePublication);
 
 impl AeronArchiveContext {
-    // The method below sets no credentials supplier, which is essential for the operation
-    // of the Aeron Archive Context. The `set_credentials_supplier` must be set to prevent
-    // segmentation faults in the C bindings.
+    #[deprecated(
+        since = "0.1.162",
+        note = "Aeron no longer requires explicitly installing a no-op credentials supplier"
+    )]
     pub fn set_no_credentials_supplier(&self) -> Result<i32, AeronCError> {
         let result = unsafe {
             bindings::aeron_archive_context_set_credentials_supplier(
@@ -244,36 +238,6 @@ impl AeronArchiveContext {
             Ok(result)
         }
     }
-
-    /// This method creates a new `AeronArchiveContext` with a no-op credentials supplier.
-    /// If you do not set a credentials supplier, it will segfault.
-    /// This method ensures that a non-functional credentials supplier is set to avoid the segfault.
-    pub fn new_with_no_credentials_supplier(
-        aeron: &Aeron,
-        request_control_channel: &str,
-        response_control_channel: &str,
-        recording_events_channel: &str,
-    ) -> Result<AeronArchiveContext, AeronCError> {
-        let context = Self::new()?;
-        context.set_no_credentials_supplier()?;
-        context.set_aeron(aeron)?;
-        context.set_control_request_channel(&request_control_channel.into_c_string())?;
-        context.set_control_response_channel(&response_control_channel.into_c_string())?;
-        context.set_recording_events_channel(&recording_events_channel.into_c_string())?;
-        // see https://github.com/gsrxyz/rusteron/issues/18
-        // Use a plain function pointer with null clientd to avoid sharing mutable handler state.
-        let result = unsafe {
-            bindings::aeron_archive_context_set_idle_strategy(
-                context.get_inner(),
-                Some(no_op_idle_strategy_func),
-                std::ptr::null_mut(),
-            )
-        };
-        if result < 0 {
-            return Err(AeronCError::from_code(result));
-        }
-        Ok(context)
-    }
 }
 
 #[cfg(test)]
@@ -286,6 +250,7 @@ mod tests {
     use std::cell::Cell;
     use std::error;
     use std::error::Error;
+    use std::os::raw::c_int;
     use std::str::FromStr;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
@@ -403,12 +368,23 @@ mod tests {
             let inner: Result<(), AeronCError> = (|| {
                 let aeron = Aeron::new(&context)?;
                 aeron.start()?;
-                let aeron_archive_context = archive.get_archive_context();
-                let aeron_archive_context = AeronArchiveContext::new_with_no_credentials_supplier(
-                    &aeron,
-                    aeron_archive_context.get_control_request_channel(),
-                    aeron_archive_context.get_control_response_channel(),
-                    aeron_archive_context.get_recording_events_channel(),
+                let source_archive_context = archive.get_archive_context();
+                let aeron_archive_context = AeronArchiveContext::new()?;
+                aeron_archive_context.set_aeron(&aeron)?;
+                aeron_archive_context.set_control_request_channel(
+                    &source_archive_context
+                        .get_control_request_channel()
+                        .into_c_string(),
+                )?;
+                aeron_archive_context.set_control_response_channel(
+                    &source_archive_context
+                        .get_control_response_channel()
+                        .into_c_string(),
+                )?;
+                aeron_archive_context.set_recording_events_channel(
+                    &source_archive_context
+                        .get_recording_events_channel()
+                        .into_c_string(),
                 )?;
                 aeron_archive_context.set_message_timeout_ns(60_000_000_000)?;
                 aeron_archive_context.set_error_handler(Some(&error_handler))?;
@@ -592,7 +568,7 @@ mod tests {
             recording_id,
             start_position,
             Aeron::epoch_clock(),
-            10_000,
+            60_000,
         )?;
 
         info!(
@@ -669,7 +645,7 @@ mod tests {
 
         let aeron_version = format!("{}.{}.{}", major, minor, patch);
 
-        let cargo_version = "1.50.2";
+        let cargo_version = "1.51.0";
         assert_eq!(aeron_version, cargo_version);
     }
 
@@ -720,12 +696,14 @@ mod tests {
         let inner: Result<(Aeron, AeronArchiveContext), Box<dyn Error>> = (|| {
             let aeron = Aeron::new(&aeron_context)?;
             aeron.start()?;
-            let archive_context = AeronArchiveContext::new_with_no_credentials_supplier(
-                &aeron,
-                request_control_channel,
-                response_control_channel,
-                recording_events_channel,
-            )?;
+            let archive_context = AeronArchiveContext::new()?;
+            archive_context.set_aeron(&aeron)?;
+            archive_context
+                .set_control_request_channel(&request_control_channel.as_str().into_c_string())?;
+            archive_context
+                .set_control_response_channel(&response_control_channel.as_str().into_c_string())?;
+            archive_context
+                .set_recording_events_channel(&recording_events_channel.as_str().into_c_string())?;
             archive_context.set_error_handler(Some(&error_handler))?;
             Ok((aeron, archive_context))
         })();
