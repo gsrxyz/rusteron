@@ -592,7 +592,7 @@ mod tests {
             recording_id,
             start_position,
             Aeron::epoch_clock(),
-            10_000,
+            60_000,
         )?;
 
         info!(
