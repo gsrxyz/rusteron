@@ -194,8 +194,6 @@ mod tests {
         }
 
         // Shutdown
-        drop(subscription);
-        drop(publication);
         drop(sub_poller);
         drop(pub_poller);
         drop(aeron);
