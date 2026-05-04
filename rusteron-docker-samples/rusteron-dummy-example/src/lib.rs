@@ -104,13 +104,30 @@ pub fn archive_connect() -> Result<(AeronArchive, Aeron), io::Error> {
                             aeron.is_closed()
                         );
 
-                            match AeronArchiveContext::new_with_no_credentials_supplier(
-                                &aeron,
-                                request_control_channel,
-                                response_control_channel,
-                                recording_events_channel,
-                            ) {
+                            match AeronArchiveContext::new() {
                                 Ok(archive_context) => {
+                                    if let Err(e) = archive_context.set_aeron(&aeron) {
+                                        error!("Failed to set Aeron on archive context: {e:?}");
+                                        continue;
+                                    }
+                                    if let Err(e) = archive_context.set_control_request_channel(
+                                        &request_control_channel.as_str().into_c_string(),
+                                    ) {
+                                        error!("Failed to set archive control request channel: {e:?}");
+                                        continue;
+                                    }
+                                    if let Err(e) = archive_context.set_control_response_channel(
+                                        &response_control_channel.as_str().into_c_string(),
+                                    ) {
+                                        error!("Failed to set archive control response channel: {e:?}");
+                                        continue;
+                                    }
+                                    if let Err(e) = archive_context.set_recording_events_channel(
+                                        &recording_events_channel.as_str().into_c_string(),
+                                    ) {
+                                        error!("Failed to set archive recording events channel: {e:?}");
+                                        continue;
+                                    }
                                     match AeronArchiveAsyncConnect::new_with_aeron(
                                         &archive_context,
                                         &aeron,
