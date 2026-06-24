@@ -85,12 +85,14 @@ mod tests {
         let inner: Result<(Aeron, AeronArchiveContext), Box<dyn Error>> = (|| {
             let aeron = Aeron::new(&aeron_context)?;
             aeron.start()?;
-            let archive_context = AeronArchiveContext::new_with_no_credentials_supplier(
-                &aeron,
-                &request_control_channel,
-                &response_control_channel,
-                &recording_events_channel,
-            )?;
+            let archive_context = AeronArchiveContext::new()?;
+            archive_context.set_aeron(&aeron)?;
+            archive_context
+                .set_control_request_channel(&request_control_channel.as_str().into_c_string())?;
+            archive_context
+                .set_control_response_channel(&response_control_channel.as_str().into_c_string())?;
+            archive_context
+                .set_recording_events_channel(&recording_events_channel.as_str().into_c_string())?;
             archive_context.set_error_handler(Some(&error_handler))?;
             Ok((aeron, archive_context))
         })();

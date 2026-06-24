@@ -267,7 +267,7 @@ impl ReturnType {
                     };
                 } else {
                     return quote! {
-                        if #me #star_const.is_null() { &[] as &[_]  } else { std::slice::from_raw_parts(#me #star_const, #me #length) }
+                        if #me #star_const.is_null() { &[] as &[_]  } else { std::slice::from_raw_parts(#me #star_const, #me #length.try_into().unwrap()) }
                     };
                 }
             }

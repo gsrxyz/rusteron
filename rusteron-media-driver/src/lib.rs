@@ -141,7 +141,7 @@ mod tests {
         let patch = unsafe { crate::aeron_version_patch() };
 
         let aeron_version = format!("{}.{}.{}", major, minor, patch);
-        let cargo_version = "1.50.2";
+        let cargo_version = "1.51.0";
         assert_eq!(aeron_version, cargo_version);
     }
 
@@ -200,13 +200,12 @@ mod tests {
         impl AeronNewPublicationCallback for Test {
             fn handle_aeron_on_new_publication(
                 &mut self,
-                async_: AeronAsyncAddPublication,
                 channel: &str,
                 stream_id: i32,
                 session_id: i32,
                 correlation_id: i64,
             ) -> () {
-                info!("on new publication {async_:?} {channel} {stream_id} {session_id} {correlation_id}")
+                info!("on new publication {channel} {stream_id} {session_id} {correlation_id}")
             }
         }
         let mut handler = Handler::leak(Test {});

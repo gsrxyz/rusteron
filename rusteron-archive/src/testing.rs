@@ -127,14 +127,23 @@ impl EmbeddedArchiveMediaDriverProcess {
                     .expect("invalid client name");
                 if let Ok(aeron) = Aeron::new(&aeron_context) {
                     if aeron.start().is_ok() {
-                        if let Ok(archive_context) =
-                            AeronArchiveContext::new_with_no_credentials_supplier(
-                                &aeron,
-                                &self.control_request_channel,
-                                &self.control_response_channel,
-                                &self.recording_events_channel,
-                            )
-                        {
+                        if let Ok(archive_context) = AeronArchiveContext::new() {
+                            archive_context.set_aeron(&aeron).expect("invalid aeron");
+                            archive_context
+                                .set_control_request_channel(
+                                    &self.control_request_channel.as_str().into_c_string(),
+                                )
+                                .expect("invalid control request channel");
+                            archive_context
+                                .set_control_response_channel(
+                                    &self.control_response_channel.as_str().into_c_string(),
+                                )
+                                .expect("invalid control response channel");
+                            archive_context
+                                .set_recording_events_channel(
+                                    &self.recording_events_channel.as_str().into_c_string(),
+                                )
+                                .expect("invalid recording events channel");
                             if let Ok(connect) =
                                 AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)
                             {

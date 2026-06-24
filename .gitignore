@@ -3,6 +3,7 @@ Cargo.lock
 .idea/
 .vscode/
 **/target/
+rusteron-*/artifacts/
 .aid*
 /id_ed25519
 /id_ed25519.pub
