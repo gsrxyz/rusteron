@@ -94,70 +94,60 @@ To view all available commands, run `just` in the command line.
 
 ---
 
-## Example: Aeron Client
+## Example: Pub/Sub
 
 <details>
 <summary>Expand for usage example</summary>
 
-```rust
-use rusteron::client::{Aeron, AeronContext, IntoCString};
-use rusteron_media_driver::{AeronDriverContext, AeronDriver};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+```rust,no_run
+use rusteron_client::{Aeron, AeronContext, AeronHeader, Handlers, IntoCString};
+use rusteron_media_driver::{AeronDriver, AeronDriverContext};
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Start embedded media driver
-    let media_driver_ctx = AeronDriverContext::new()?;
-    let (stop, driver_handle) = AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
+    // Embedded media driver
+    let driver_ctx = AeronDriverContext::new()?;
+    let (stop, driver) = AeronDriver::launch_embedded(driver_ctx.clone(), false);
 
     let ctx = AeronContext::new()?;
-    ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+    ctx.set_dir(&driver_ctx.get_dir().into_c_string())?;
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
 
-    // Create subscription and publication
+    let channel = &"aeron:ipc".into_c_string();
+    let publication = aeron
+        .async_add_publication(channel, 123)?
+        .poll_blocking(Duration::from_secs(5))?;
     let subscription = aeron
-        .async_add_subscription(&"aeron:ipc".into_c_string(), 123,                
-                                Handlers::no_available_image_handler(),
-                                Handlers::no_unavailable_image_handler())?
+        .async_add_subscription(
+            channel, 123,
+            Handlers::no_available_image_handler(),
+            Handlers::no_unavailable_image_handler(),
+        )?
         .poll_blocking(Duration::from_secs(5))?;
 
-    let publisher = aeron
-        .async_add_publication(&"aeron:ipc".into_c_string(), 123)?
-        .poll_blocking(Duration::from_secs(5))?;
+    publication.offer(b"Hello, Aeron!", Handlers::no_reserved_value_supplier_handler());
 
-    let message = "Hello, Aeron!".as_bytes();
-    let result = publisher.offer(message, Handlers::no_reserved_value_supplier_handler());
+    // `poll_once` runs the closure per fragment; use a fragment assembler for messages
+    // larger than the MTU.
+    subscription.poll_once(
+        |msg: &[u8], header: AeronHeader| {
+            println!("received {} bytes at position {:?}", msg.len(), header.position());
+        },
+        10,
+    )?;
 
-    // Fragment handler example
-    struct FragmentHandler;
-    impl AeronFragmentHandlerCallback for FragmentHandler {
-        fn handle_aeron_fragment_handler(
-            &mut self,
-            msg: &[u8],
-            header: AeronHeader,
-        ) {
-            println!(
-                "received a message from aeron {:?}, msg length:{}",
-                header.position(),
-                msg.len()
-            );
-        }
-    }
-
-    let (closure, _inner) = Handler::leak_with_fragment_assembler(FragmentHandler)?;
-
-    let mut count = 0;
-    while count < 10000 {
-        subscription.poll(Some(&closure), 128)?;
-        count += 1;
-    }
+    stop.store(true, Ordering::SeqCst);
+    driver.join().ok();
     Ok(())
 }
 ```
 
 </details>
+
+For recording, replay, and **persistent subscriptions** (replay history, then seamlessly join a
+live stream), see [`rusteron-archive`](./rusteron-archive/README.md#persistent-subscriptions).
 
 ---
 

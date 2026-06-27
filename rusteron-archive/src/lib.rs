@@ -493,6 +493,14 @@ impl AeronArchiveContext {
     }
 }
 
+/// Sentinel for [`PersistentSubscriptionBuilder::start_position`]: replay from the
+/// beginning of the recording. Maps to Aeron's `AERON_ARCHIVE_PERSISTENT_SUBSCRIPTION_FROM_START`.
+pub const PERSISTENT_SUBSCRIPTION_FROM_START: i64 = -1;
+
+/// Sentinel for [`PersistentSubscriptionBuilder::start_position`]: skip replay and join
+/// the live stream immediately. Maps to Aeron's `AERON_ARCHIVE_PERSISTENT_SUBSCRIPTION_FROM_LIVE`.
+pub const PERSISTENT_SUBSCRIPTION_FROM_LIVE: i64 = -2;
+
 /// Returns a builder for configuring a persistent subscription context
 pub fn persistent_subscription_builder() -> Result<PersistentSubscriptionBuilder, AeronCError> {
     PersistentSubscriptionBuilder::new()
@@ -570,6 +578,16 @@ impl PersistentSubscriptionBuilder {
     pub fn start_position(self, pos: i64) -> Result<Self, AeronCError> {
         self.ctx.set_start_position(pos)?;
         Ok(self)
+    }
+
+    /// Replay from the beginning of the recording (Aeron `FROM_START`).
+    pub fn start_from_beginning(self) -> Result<Self, AeronCError> {
+        self.start_position(PERSISTENT_SUBSCRIPTION_FROM_START)
+    }
+
+    /// Skip replay and join the live stream immediately (Aeron `FROM_LIVE`).
+    pub fn start_from_live(self) -> Result<Self, AeronCError> {
+        self.start_position(PERSISTENT_SUBSCRIPTION_FROM_LIVE)
     }
 
     /// Set the recording ID.
