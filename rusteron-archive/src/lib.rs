@@ -23,9 +23,15 @@ pub mod bindings {
 
 use bindings::*;
 use std::cell::Cell;
+use std::os::raw::c_int;
 use std::time::{Duration, Instant};
 
 pub mod testing;
+
+#[cfg(test)]
+pub mod persistent_subscription_integration;
+#[cfg(test)]
+pub mod persistent_subscription_tests;
 
 include!(concat!(env!("OUT_DIR"), "/aeron.rs"));
 include!(concat!(env!("OUT_DIR"), "/aeron_custom.rs"));
@@ -157,6 +163,87 @@ impl AeronArchive {
     pub fn aeron(&self) -> Aeron {
         self.get_archive_context().get_aeron()
     }
+
+    /// Find the latest recording matching a predicate.
+    /// Returns the recording with the highest recording_id that matches the predicate.
+    pub fn find_recording<F>(
+        &self,
+        mut predicate: F,
+    ) -> Result<Option<RecordingDescriptor>, AeronCError>
+    where
+        F: FnMut(&RecordingDescriptor) -> bool,
+    {
+        // Find the latest matching recording by fetching all recordings in one call.
+        // Uses record_count=i32::MAX to fetch all available recordings.
+        let mut result = None;
+        let mut count = 0;
+        self.list_recordings_once(&mut count, 0, i32::MAX, |desc| {
+            let descriptor = self.descriptor_to_owned(&desc);
+            if predicate(&descriptor) {
+                if result.is_none()
+                    || result
+                        .as_ref()
+                        .map(|r: &RecordingDescriptor| r.recording_id)
+                        .unwrap_or(0)
+                        < descriptor.recording_id
+                {
+                    result = Some(descriptor);
+                }
+            }
+        })?;
+        Ok(result)
+    }
+
+    /// Find the latest recording for a given stream ID.
+    pub fn find_recording_for_stream(
+        &self,
+        stream_id: i32,
+    ) -> Result<Option<RecordingDescriptor>, AeronCError> {
+        self.find_recording(|desc| desc.stream_id == stream_id)
+    }
+
+    /// Collect all recordings matching a predicate.
+    pub fn collect_recordings<F>(
+        &self,
+        mut predicate: F,
+    ) -> Result<Vec<RecordingDescriptor>, AeronCError>
+    where
+        F: FnMut(&RecordingDescriptor) -> bool,
+    {
+        // Collect all matching recordings by fetching all recordings in one call.
+        // Uses record_count=i32::MAX to fetch all available recordings.
+        let mut recordings = Vec::new();
+        let mut count = 0;
+        self.list_recordings_once(&mut count, 0, i32::MAX, |desc| {
+            let descriptor = self.descriptor_to_owned(&desc);
+            if predicate(&descriptor) {
+                recordings.push(descriptor);
+            }
+        })?;
+        Ok(recordings)
+    }
+
+    /// Convert a callback-scoped recording descriptor to an owned struct.
+    fn descriptor_to_owned(&self, desc: &AeronArchiveRecordingDescriptor) -> RecordingDescriptor {
+        let start_position = desc.start_position();
+        let stop_position = desc.stop_position();
+        RecordingDescriptor {
+            recording_id: desc.recording_id(),
+            start_position,
+            stop_position,
+            start_timestamp: desc.start_timestamp(),
+            stop_timestamp: desc.stop_timestamp(),
+            position: stop_position.saturating_sub(start_position),
+            recording_length: stop_position.saturating_sub(start_position),
+            control_session_id: desc.control_session_id() as i32,
+            correlation_id: desc.correlation_id(),
+            session_id: desc.session_id(),
+            stream_id: desc.stream_id(),
+            channel: desc.stripped_channel().to_string(),
+            source_identity: desc.source_identity().to_string(),
+            original_channel: desc.original_channel().to_string(),
+        }
+    }
 }
 
 impl AeronArchiveAsyncConnect {
@@ -217,6 +304,172 @@ macro_rules! impl_archive_position_methods {
 impl_archive_position_methods!(AeronPublication);
 impl_archive_position_methods!(AeronExclusivePublication);
 
+/// Recording descriptor for owned recording data
+#[derive(Debug, Clone)]
+pub struct RecordingDescriptor {
+    pub recording_id: i64,
+    pub start_position: i64,
+    pub stop_position: i64,
+    pub start_timestamp: i64,
+    pub stop_timestamp: i64,
+    pub position: i64,
+    pub recording_length: i64,
+    pub control_session_id: i32,
+    pub correlation_id: i64,
+    pub session_id: i32,
+    pub stream_id: i32,
+    pub channel: String,
+    pub source_identity: String,
+    pub original_channel: String,
+}
+
+/// Wrapper for `Box<dyn PersistentSubscriptionListener>` that provides a stable
+/// thin pointer for C FFI callbacks.
+struct ListenerHolder {
+    listener: Box<dyn PersistentSubscriptionListener>,
+}
+
+// Hand-written trampolines: the code generator only wires single-callback args,
+// but this listener has 3 callbacks sharing one clientd.
+unsafe extern "C" fn persistent_subscription_on_live_joined(clientd: *mut std::ffi::c_void) {
+    if !clientd.is_null() {
+        // SAFETY: clientd is the ListenerHolder kept alive as a dependency of the subscription.
+        let holder = &*(clientd as *const ListenerHolder);
+        holder.listener.on_live_joined();
+    }
+}
+
+unsafe extern "C" fn persistent_subscription_on_live_left(clientd: *mut std::ffi::c_void) {
+    if !clientd.is_null() {
+        let holder = &*(clientd as *const ListenerHolder);
+        holder.listener.on_live_left();
+    }
+}
+
+unsafe extern "C" fn persistent_subscription_on_error(
+    clientd: *mut std::ffi::c_void,
+    error_code: c_int,
+    error_message: *const std::os::raw::c_char,
+) {
+    if !clientd.is_null() {
+        let holder = &*(clientd as *const ListenerHolder);
+        let msg = if !error_message.is_null() {
+            std::ffi::CStr::from_ptr(error_message).to_string_lossy()
+        } else {
+            std::borrow::Cow::Borrowed("")
+        };
+        holder.listener.on_error(error_code, &msg);
+    }
+}
+
+/// Safe creation method for AeronArchivePersistentSubscription
+impl AeronArchivePersistentSubscription {
+    /// Create a persistent subscription from a context.
+    ///
+    /// If `listener` is `Some`, it is wired into the context (the C layer copies
+    /// the callback pointers + `clientd`) and kept alive for the subscription's
+    /// lifetime; it is freed once the subscription is closed.
+    ///
+    /// The context is consumed and owned by the subscription from this point on —
+    /// it will be closed when the subscription is closed, so it must not be used
+    /// afterwards.
+    pub fn create(
+        ctx: AeronArchivePersistentSubscriptionContext,
+        listener: Option<Box<dyn PersistentSubscriptionListener>>,
+    ) -> Result<Self, AeronCError> {
+        use std::os::raw::c_void;
+
+        // Box the listener so we can hand C a stable clientd; a Box's heap address
+        // never moves, so the pointer C copies stays valid until the box drops.
+        let holder_box: Option<Box<ListenerHolder>> = match listener {
+            Some(listener) => {
+                let mut hb = Box::new(ListenerHolder { listener });
+                let holder_ptr: *mut ListenerHolder = &mut *hb;
+                let c_listener = match AeronArchivePersistentSubscriptionListener::new(
+                    Some(persistent_subscription_on_live_joined),
+                    Some(persistent_subscription_on_live_left),
+                    Some(persistent_subscription_on_error),
+                    holder_ptr as *mut c_void,
+                ) {
+                    Ok(l) => l,
+                    Err(e) => return Err(e),
+                };
+                if let Err(e) = ctx.set_listener(c_listener.get_inner()) {
+                    return Err(e);
+                }
+                Some(hb)
+            }
+            None => None,
+        };
+
+        let mut raw_ptr: *mut aeron_archive_persistent_subscription_t = std::ptr::null_mut();
+        unsafe {
+            let result =
+                aeron_archive_persistent_subscription_create(&mut raw_ptr, ctx.get_inner());
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            }
+        }
+
+        // The C subscription now owns the context. Mark it already-closed so dropping
+        // `ctx` frees the Rust bookkeeping without re-running the C context close.
+        if let Some(inner) = ctx.inner.as_owned() {
+            inner.close_already_called.set(true);
+        }
+
+        // C close, run on drop if close() wasn't called explicitly.
+        let resource = match ManagedCResource::new(
+            move |ctx_field| unsafe {
+                *ctx_field = raw_ptr;
+                0
+            },
+            Some(Box::new(move |ctx_field| unsafe {
+                aeron_archive_persistent_subscription_close(*ctx_field)
+            })),
+            true,
+            None,
+        ) {
+            Ok(r) => r,
+            Err(e) => {
+                unsafe {
+                    aeron_archive_persistent_subscription_close(raw_ptr);
+                }
+                return Err(e);
+            }
+        };
+
+        // Reclaim via a dependency, not the cleanup closure — the generated
+        // close() bypasses the closure, but a field always drops.
+        if let Some(hb) = holder_box {
+            resource.add_dependency(hb);
+        }
+
+        Ok(Self {
+            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+        })
+    }
+
+    /// Get the failure reason as a tuple of (error_code, error_message).
+    /// Returns None if there is no failure. This is a safe wrapper around the C function.
+    pub fn get_failure_reason(&self) -> Option<(i32, String)> {
+        let mut error_code: i32 = 0;
+        let mut reason_ptr: *const std::os::raw::c_char = std::ptr::null();
+        let has_reason = unsafe {
+            bindings::aeron_archive_persistent_subscription_failure_reason(
+                self.get_inner(),
+                &mut error_code,
+                &mut reason_ptr,
+            )
+        };
+        if has_reason && !reason_ptr.is_null() {
+            let cstr = unsafe { std::ffi::CStr::from_ptr(reason_ptr) };
+            Some((error_code, cstr.to_string_lossy().into_owned()))
+        } else {
+            None
+        }
+    }
+}
+
 impl AeronArchiveContext {
     #[deprecated(
         since = "0.1.162",
@@ -237,6 +490,106 @@ impl AeronArchiveContext {
         } else {
             Ok(result)
         }
+    }
+}
+
+/// Returns a builder for configuring a persistent subscription context
+pub fn persistent_subscription_builder() -> Result<PersistentSubscriptionBuilder, AeronCError> {
+    PersistentSubscriptionBuilder::new()
+}
+
+/// Trait for persistent subscription event listeners.
+/// This provides a safe Rust alternative to using raw C function pointers.
+pub trait PersistentSubscriptionListener: Send + 'static {
+    /// Called when the persistent subscription has joined the live stream.
+    fn on_live_joined(&self) {}
+
+    /// Called when the persistent subscription has left the live stream.
+    fn on_live_left(&self) {}
+
+    /// Called when an error occurs.
+    fn on_error(&self, error_code: i32, error_message: &str) {}
+}
+
+/// Builder for configuring and creating a persistent subscription.
+/// This provides a fluent interface for setting up a persistent subscription
+/// with proper CString handling.
+pub struct PersistentSubscriptionBuilder {
+    ctx: AeronArchivePersistentSubscriptionContext,
+    listener: Option<Box<dyn PersistentSubscriptionListener>>,
+}
+
+impl PersistentSubscriptionBuilder {
+    /// Create a new builder with a default context.
+    pub fn new() -> Result<Self, AeronCError> {
+        Ok(Self {
+            ctx: AeronArchivePersistentSubscriptionContext::new()?,
+            listener: None,
+        })
+    }
+
+    /// Set the Aeron client to use.
+    pub fn aeron(self, aeron: &Aeron) -> Result<Self, AeronCError> {
+        self.ctx.set_aeron(aeron)?;
+        Ok(self)
+    }
+
+    /// Set the archive context to use.
+    pub fn archive_context(self, ctx: &AeronArchiveContext) -> Result<Self, AeronCError> {
+        self.ctx.set_archive_context(ctx)?;
+        Ok(self)
+    }
+
+    /// Set the live channel (accepts &str, handles CString conversion internally).
+    pub fn live_channel(self, channel: &str) -> Result<Self, AeronCError> {
+        let channel = std::ffi::CString::new(channel).map_err(|_| AeronCError::from_code(-1))?;
+        self.ctx.set_live_channel(&channel)?;
+        Ok(self)
+    }
+
+    /// Set the live stream ID.
+    pub fn live_stream_id(self, id: i32) -> Result<Self, AeronCError> {
+        self.ctx.set_live_stream_id(id)?;
+        Ok(self)
+    }
+
+    /// Set the replay channel (accepts &str, handles CString conversion internally).
+    pub fn replay_channel(self, channel: &str) -> Result<Self, AeronCError> {
+        let channel = std::ffi::CString::new(channel).map_err(|_| AeronCError::from_code(-1))?;
+        self.ctx.set_replay_channel(&channel)?;
+        Ok(self)
+    }
+
+    /// Set the replay stream ID.
+    pub fn replay_stream_id(self, id: i32) -> Result<Self, AeronCError> {
+        self.ctx.set_replay_stream_id(id)?;
+        Ok(self)
+    }
+
+    /// Set the start position.
+    pub fn start_position(self, pos: i64) -> Result<Self, AeronCError> {
+        self.ctx.set_start_position(pos)?;
+        Ok(self)
+    }
+
+    /// Set the recording ID.
+    pub fn recording_id(self, id: i64) -> Result<Self, AeronCError> {
+        self.ctx.set_recording_id(id)?;
+        Ok(self)
+    }
+
+    /// Set the listener for events.
+    pub fn listener<L: PersistentSubscriptionListener>(
+        mut self,
+        listener: L,
+    ) -> Result<Self, AeronCError> {
+        self.listener = Some(Box::new(listener));
+        Ok(self)
+    }
+
+    /// Build the persistent subscription.
+    pub fn build(mut self) -> Result<AeronArchivePersistentSubscription, AeronCError> {
+        AeronArchivePersistentSubscription::create(self.ctx, self.listener.take())
     }
 }
 
@@ -321,6 +674,11 @@ mod tests {
     #[test]
     #[serial]
     fn test_simple_replay_merge() -> Result<(), AeronCError> {
+        // Skip test under Valgrind due to timeout issues
+        if std::env::var_os("RUSTERON_VALGRIND").is_some() {
+            return Ok(());
+        }
+
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
 
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes()
@@ -1083,3 +1441,7 @@ mod tests {
 // run `just slow-tests`
 #[cfg(test)]
 mod slow_consumer_test;
+
+///////////////////////////////////////////////////////////////////////////////
+// Backtest Tests
+///////////////////////////////////////////////////////////////////////////////

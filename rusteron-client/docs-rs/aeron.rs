@@ -318,7 +318,15 @@ use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 pub enum CResource<T> {
     OwnedOnHeap(std::rc::Rc<ManagedCResource<T>>),
-    #[doc = " stored on stack, unsafe, use with care"]
+    #[doc = " Stored on stack, unsafe, use with care."]
+    #[doc = ""]
+    #[doc = " # Invariant"]
+    #[doc = " The `MaybeUninit` is **always initialised by construction** — only ever"]
+    #[doc = " built via `MaybeUninit::zeroed()` (partial-stack-init pattern, fields then"]
+    #[doc = " written via the raw pointer from `get()`) or `MaybeUninit::new(value)`."]
+    #[doc = " Never store a `MaybeUninit::uninit()` here: the `Clone` impl and `get()`"]
+    #[doc = " rely on the value being initialised, and `assume_init_ref` on an uninit"]
+    #[doc = " value is undefined behaviour."]
     OwnedOnStack(std::mem::MaybeUninit<T>),
     Borrowed(*mut T),
 }
@@ -405,6 +413,13 @@ pub struct ManagedCResource<T> {
     #[doc = " for example, you want to have a dependency to aeron for any async jobs so aeron doesnt get dropped first"]
     #[doc = " when you have a publication/subscription"]
     #[doc = " Note empty vec does not allocate on heap"]
+    #[doc = ""]
+    #[doc = " # Invariant (single-threaded mutation)"]
+    #[doc = " This is interior-mutable via `UnsafeCell` with **no locking** (latency:"]
+    #[doc = " `Mutex` is deliberately avoided). Dependencies are mutated **only at"]
+    #[doc = " construction, from the single owning thread**, and never after the"]
+    #[doc = " resource is in active use. This compounds the accepted `Send`-over-`Rc`"]
+    #[doc = " unsoundness on the wrapper types — same stance: documented, not locked."]
     dependencies: UnsafeCell<Vec<std::rc::Rc<dyn std::any::Any>>>,
 }
 impl<T> std::fmt::Debug for ManagedCResource<T> {
@@ -654,6 +669,20 @@ impl AeronErrorType {
 pub struct AeronCError {
     pub code: i32,
 }
+impl std::fmt::Debug for AeronCError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AeronCError")
+            .field("code", &self.code)
+            .field("kind", &self.kind())
+            .finish()
+    }
+}
+impl std::fmt::Display for AeronCError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Aeron error {}: {:?}", self.code, self.kind())
+    }
+}
+impl std::error::Error for AeronCError {}
 impl AeronCError {
     #[doc = " Creates an AeronError from the error code returned by Aeron."]
     #[doc = ""]
@@ -664,8 +693,10 @@ impl AeronCError {
             if code < 0 {
                 let backtrace = Backtrace::capture();
                 let backtrace = format!("{:?}", backtrace);
-                let re =
-                    regex::Regex::new(r#"fn: "([^"]+)", file: "([^"]+)", line: (\d+)"#).unwrap();
+                static BACKTRACE_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+                let re = BACKTRACE_RE.get_or_init(|| {
+                    regex::Regex::new(r#"fn: "([^"]+)", file: "([^"]+)", line: (\d+)"#).unwrap()
+                });
                 let mut lines = String::new();
                 re.captures_iter(&backtrace).for_each(|cap| {
                     let function = &cap[1];
@@ -749,6 +780,7 @@ impl<T> Handler<T> {
                 log::info!("dropping handler {:?}", self.raw_ptr);
                 let _ = Box::from_raw(self.raw_ptr as *mut T);
                 self.should_drop = false;
+                self.raw_ptr = std::ptr::null_mut();
             }
         }
     }
@@ -764,6 +796,9 @@ impl<T> Drop for Handler<T> {
         if self.should_drop && !self.raw_ptr.is_null() {
             log :: error ! ("Handler<{}> at {:?} is being dropped but release() was never called — \
                  memory leak: {} bytes. Call release() explicitly when the C side no longer holds the pointer." , std :: any :: type_name ::< T > () , self . raw_ptr , std :: mem :: size_of ::< T > () ,);
+            unsafe {
+                let _ = Box::from_raw(self.raw_ptr as *mut T);
+            }
         }
     }
 }
@@ -940,6 +975,33 @@ impl IntoCString for String {
         #[cfg(feature = "extra-logging")]
         log::info!("created c string on heap: {:?}", self);
         std::ffi::CString::new(self).expect("failed to create CString")
+    }
+}
+#[cfg(test)]
+mod handler_tests {
+    use super::*;
+    #[test]
+    fn release_nulls_pointer_so_is_none_is_true() {
+        let mut handler = Handler::leak(42u32);
+        assert!(
+            !handler.is_none(),
+            "freshly leaked handler must be non-null"
+        );
+        handler.release();
+        assert!(handler.is_none(), "release() must null raw_ptr (was a UAF)");
+    }
+    #[test]
+    fn release_is_idempotent_no_double_free() {
+        let mut handler = Handler::leak(99u64);
+        handler.release();
+        handler.release();
+        assert!(handler.is_none());
+    }
+    #[test]
+    fn release_then_drop_is_silent() {
+        let mut handler = Handler::leak(7u16);
+        handler.release();
+        drop(handler);
     }
 }
 #[derive(Clone)]
@@ -6609,6 +6671,18 @@ impl From<aeron_counter_t> for AeronCounter {
         }
     }
 }
+impl AeronCounter {
+    pub fn close_with_no_args(&self) -> Result<(), AeronCError> {
+        self.close(Handlers::no_notification_handler())?;
+        Ok(())
+    }
+}
+impl AeronCounter {
+    #[inline]
+    pub fn addr_atomic(&self) -> &std::sync::atomic::AtomicI64 {
+        unsafe { std::sync::atomic::AtomicI64::from_ptr(self.addr()) }
+    }
+}
 impl Drop for AeronCounter {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_owned() {
@@ -9216,6 +9290,18 @@ impl From<aeron_exclusive_publication_t> for AeronExclusivePublication {
         AeronExclusivePublication {
             inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
         }
+    }
+}
+impl AeronExclusivePublication {
+    pub fn close_with_no_args(&self) -> Result<(), AeronCError> {
+        self.close(Handlers::no_notification_handler())?;
+        Ok(())
+    }
+}
+impl AeronExclusivePublication {
+    #[inline]
+    pub fn is_ready(&self) -> bool {
+        self.is_connected() && self.position_limit() != 0
     }
 }
 impl Drop for AeronExclusivePublication {
@@ -17042,6 +17128,18 @@ impl From<aeron_publication_t> for AeronPublication {
         }
     }
 }
+impl AeronPublication {
+    pub fn close_with_no_args(&self) -> Result<(), AeronCError> {
+        self.close(Handlers::no_notification_handler())?;
+        Ok(())
+    }
+}
+impl AeronPublication {
+    #[inline]
+    pub fn is_ready(&self) -> bool {
+        self.is_connected() && self.position_limit() != 0
+    }
+}
 impl Drop for AeronPublication {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_owned() {
@@ -20483,6 +20581,12 @@ impl From<aeron_subscription_t> for AeronSubscription {
         AeronSubscription {
             inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
         }
+    }
+}
+impl AeronSubscription {
+    pub fn close_with_no_args(&self) -> Result<(), AeronCError> {
+        self.close(Handlers::no_notification_handler())?;
+        Ok(())
     }
 }
 impl Drop for AeronSubscription {

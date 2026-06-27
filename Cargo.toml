@@ -25,6 +25,7 @@ log             = "0.4"
 num-format      = "0.4"
 pkg-config      = "0.3"
 proc-macro2     = "1.0"
+proptest        = "1.6"
 quote           = "1.0"
 regex           = "1.11"
 reqwest         = { version = "0.13", features = ["blocking"], default-features = false }

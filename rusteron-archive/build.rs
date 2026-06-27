@@ -228,6 +228,13 @@ fn build_from_source(docs_rs: &Path) {
     }
 
     let mut config = Config::new(&aeron_path);
+
+    // Support for custom GRADLE_WRAPPER path
+    // This allows static builds to use a different gradlew script, useful for isolated network environments
+    if let Ok(gradle_wrapper) = std::env::var("GRADLE_WRAPPER") {
+        config.define("GRADLE_WRAPPER", gradle_wrapper);
+    }
+
     if std::env::var("PROFILE").unwrap() == "release" {
         config.profile("Release");
         config.define(

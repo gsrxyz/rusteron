@@ -175,6 +175,7 @@ fn find_closest_wrapper_from_method_name(
 }
 
 pub fn get_possible_wrappers(fn_name: &str) -> Vec<String> {
+    // Try all possible wrapper names by splitting at underscores
     fn_name
         .char_indices()
         .filter(|(_, c)| *c == '_')

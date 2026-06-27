@@ -21,7 +21,14 @@ fi
 export RUSTERON_VALGRIND=1
 unset CARGO_BUILD_TARGET || true
 unset CARGO_ENCODED_RUSTFLAGS || true
-unset RUSTFLAGS || true
+# .cargo/config.toml sets target-cpu=native, which on a modern runner emits
+# AVX-512 (EVEX) opcodes that Valgrind 3.24's VEX translator cannot decode,
+# aborting every test binary with SIGILL ("vex amd64->IR: unhandled instruction
+# bytes: 0x62 ..."). Pin a baseline x86-64 target for the Valgrind build so the
+# binaries only use instructions Valgrind understands. The RUSTFLAGS env var
+# overrides [build].rustflags in config.toml. Memory behaviour is unaffected by
+# target-cpu, so this does not weaken the leak/use-after-free checks.
+export RUSTFLAGS="-C target-cpu=x86-64"
 
 echo "=== Phase 1: build test binaries ==="
 # --no-run builds but does not execute; --message-format=json lets us extract
@@ -74,7 +81,7 @@ for BIN in $BINARIES; do
       --error-exitcode=1 \
       --track-origins=yes \
       --leak-check=full \
-      --show-leak-kinds=all \
+      --show-leak-kinds=definite,possible,indirect \
       --errors-for-leak-kinds=definite,possible \
       --num-callers=30 \
       -s \

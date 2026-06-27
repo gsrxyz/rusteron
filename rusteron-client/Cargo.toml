@@ -52,6 +52,7 @@ walkdir           = { workspace = true }
 criterion             = { workspace = true }
 fd-lock               = { workspace = true }
 hdrhistogram          = { workspace = true }
+proptest              = { workspace = true }
 rusteron-code-gen     = { workspace = true }
 rusteron-media-driver = { path = "../rusteron-media-driver" }
 serial_test           = { workspace = true }
@@ -90,6 +91,10 @@ harness = false
 
 [[bench]]
 name    = "ping_pong_ipc"
+harness = false
+
+[[bench]]
+name    = "offer_claim_poll"
 harness = false
 
 [package.metadata.docs.rs]
