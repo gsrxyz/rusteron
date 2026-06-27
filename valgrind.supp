@@ -706,8 +706,9 @@
    fun:*test::run_test*
 }
 
-# NOTE: the ListenerHolder definite leak is FIXED (reclaimed via a ListenerHolderGuard
-# dependency). It was a real leak, not a false positive — do NOT re-add a suppression for it.
+# NOTE: the ListenerHolder definite leak is FIXED (reclaimed via an add_dependency on
+# Box<ListenerHolder> — the generated close() bypasses cleanup closures, but a field drops).
+# It was a real leak, not a false positive — do NOT re-add a suppression for it.
 
 # glibc pthread TLS (DTV) false positive: glibc frees the test-thread's TLS only at
 # exit. NOT a rusteron leak. NB: `*Thread::new` won't match the demangled `<...Thread>::new`
