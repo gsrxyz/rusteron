@@ -15,8 +15,7 @@
    fun:_ZN4test16test_main_static*
 }
 
-# Fallback for Rust test runner spawned test-thread bookkeeping that can appear as
-# "possibly lost" with toolchain-dependent symbol paths.
+# Fallback for Rust test-thread bookkeeping (toolchain-dependent symbol paths).
 {
    rust_test_thread_spawn_possible_leak
    Memcheck:Leak
@@ -60,9 +59,7 @@
    fun:main
 }
 
-# Comprehensive suppression for Rust runtime ThreadInfo allocations that persist
-# until process exit and are detected as different leak kinds by Valgrind.
-# This targets the specific allocator pattern that shows up in Valgrind stack traces.
+# Rust runtime ThreadInfo allocations persisting to exit (all leak kinds).
 {
    rust_runtime_thread_info_all_leak_kinds
    Memcheck:Leak
@@ -82,7 +79,7 @@
    fun:main
 }
 
-# Alternative suppression for when different allocator functions appear in the stack trace
+# Same, different allocator chain in the trace.
 {
    rust_runtime_thread_info_all_leak_kinds_alt
    Memcheck:Leak
@@ -100,8 +97,7 @@
    fun:main
 }
 
-# General suppression for ThreadInfo allocations without requiring specific allocator chain
-# This handles cases where different allocators or allocation patterns appear in the stack trace
+# ThreadInfo allocations, any allocator chain.
 {
    rust_runtime_thread_info_general
    Memcheck:Leak
@@ -166,8 +162,7 @@
    fun:run_test_in_process
 }
 
-# Archive replay-merge test can leave an Aeron async publication allocation as reachable
-# at process exit under Valgrind. Scope this suppression tightly to that test path.
+# Archive replay-merge test leaves an async-publication allocation reachable at exit.
 {
    archive_reply_merge_async_add_publication_reachable
    Memcheck:Leak
@@ -301,9 +296,7 @@
    ...
 }
 
-# Upstream Aeron C shutdown race: conductor idle strategy may read sleeping state
-# after context close frees it. This is a real memory-safety pattern, but it is
-# outside rusteron's Rust-owned lifecycle control, so it stays suppressed here.
+# Upstream Aeron C shutdown race (idle strategy read after context close frees it); outside rusteron's lifecycle.
 {
    aeron_idle_strategy_sleeping_after_context_close
    Memcheck:Addr8
@@ -313,8 +306,7 @@
    fun:clone
 }
 
-# Aeron client conductor can report "possibly lost" allocations at process exit
-# when teardown races with async publication/subscription/image flows.
+# Aeron client conductor "possibly lost" at exit (teardown races async pub/sub/image flows).
 {
    aeron_client_conductor_image_create_possible
    Memcheck:Leak
@@ -703,9 +695,7 @@
    fun:*lang_start*
    fun:main
 }
-# Small possible leaks from Rust test harness/runtime bookkeeping that show up
-# as "possibly lost" consistently across test runs. These are false positives from
-# how the Rust test runner manages thread state and cleanup.
+# Small Rust test-harness/runtime bookkeeping false positives ("possibly lost").
 {
    rust_test_runtime_small_possible_leaks
    Memcheck:Leak
@@ -716,20 +706,12 @@
    fun:*test::run_test*
 }
 
-# NOTE: the ListenerHolder definite leak that used to be suppressed here is FIXED
-# in code now — `AeronArchivePersistentSubscription::create` (rusteron-archive) reclaims
-# the holder via a ListenerHolderGuard ManagedCResource dependency and no longer
-# mem::forgets the context. Do NOT re-add a suppression for it: it was a real leak
-# (generated close() bypassed the cleanup closure), not a false positive.
+# NOTE: the ListenerHolder definite leak is FIXED (reclaimed via a ListenerHolderGuard
+# dependency). It was a real leak, not a false positive — do NOT re-add a suppression for it.
 
-# glibc pthread TLS (DTV) block retained by the Rust test harness's worker thread
-# at process exit. Every workspace test binary spawns its test runner thread via
-# pthread_create; glibc frees that thread's TLS only at exit, which Valgrind reports
-# as "possibly lost" (calloc -> allocate_dtv -> _dl_allocate_tls -> allocate_stack ->
-# pthread_create). This is a well-known glibc/Rust-test false positive, NOT a rusteron
-# leak. Scoped to the test harness via the spawn_unchecked<test::run_test...> frame.
-# NB: `*Thread::new` does NOT match the demangled `<...Thread>::new` (the trailing `>`),
-# which is why earlier attempts here failed to match — the `...` bridge avoids that.
+# glibc pthread TLS (DTV) false positive: glibc frees the test-thread's TLS only at
+# exit. NOT a rusteron leak. NB: `*Thread::new` won't match the demangled `<...Thread>::new`
+# — the `...` bridge is why.
 {
    rust_test_thread_tls_possible_leak
    Memcheck:Leak
@@ -746,16 +728,9 @@
    fun:*test*run_test*
 }
 
-# Same glibc pthread-TLS false positive (calloc -> allocate_dtv -> _dl_allocate_tls
-# -> allocate_stack -> pthread_create) but for threads spawned by rusteron itself —
-# notably the embedded media driver's conductor/agent thread launched from
-# AeronDriver::launch_embedded (and the C agent thread from aeron_agent_start). These
-# threads run until the test/process ends, so glibc frees their TLS only at exit and
-# Valgrind reports it as "possibly lost". This is categorically NOT an application
-# leak: the DTV/TLS block is glibc-internal per-thread state, never rusteron-owned
-# memory, and no real allocation traverses allocate_dtv/_dl_allocate_tls. Anchored on
-# that glibc chain alone (the launch_embedded path is deep, so the trace is truncated
-# before the test-runner frames — do not add a trailing run_test frame).
+# Same glibc pthread-TLS false positive, for rusteron-spawned threads (embedded media
+# driver). Anchored on the glibc chain alone — trace truncates before the runner
+# frames, so no trailing run_test frame.
 {
    pthread_create_tls_possible_leak
    Memcheck:Leak
@@ -768,9 +743,7 @@
    fun:pthread_create*
 }
 
-# Rust test harness CompletedTest allocation that shows up as possible leak.
-# This is a false positive from how the Rust test infrastructure manages test events
-# during test execution.
+# Rust test harness CompletedTest allocation false positive.
 {
    rust_test_harness_completed_test_possible_leak
    Memcheck:Leak
@@ -788,15 +761,9 @@
    fun:*test::run_test*
 }
 
-# `serial_test` crate's process-global `code_lock::LockMap` (a lazy HashMap that
-# maps each #[serial] group key to a UniqueReentrantMutex). It is intentionally
-# never freed — it lives for the whole test-binary process and is reclaimed by the
-# OS at exit — so Valgrind reports its hashbrown backing-store allocations
-# (reserve/rehash) as "possibly lost". This is a genuine false positive in
-# third-party test infrastructure, NOT a rusteron leak; rusteron owns none of it.
-# Anchored only on the serial_test code_lock frames (the call path is deep
-# iterator-comprehension machinery, so with --num-callers=30 the trace is truncated
-# before the test-runner frames — do NOT require a trailing run_test frame here).
+# `serial_test` process-global `code_lock::LockMap` — intentionally never freed, reclaimed
+# by the OS at exit. Third-party false positive, not a rusteron leak. Anchored on code_lock
+# frames only (trace truncates before the runner frames).
 {
    serial_test_code_lock_global_map_possible_leak
    Memcheck:Leak

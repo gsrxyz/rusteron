@@ -460,10 +460,6 @@ pub struct CWrapper {
 /// This lets the generator skip auto-generating methods that have hand-written overrides.
 pub fn parse_custom_methods(src: &str) -> HashMap<String, BTreeSet<String>> {
     let mut result: HashMap<String, BTreeSet<String>> = HashMap::new();
-    // Fail loud: a parse error here used to return an EMPTY skip-list, which made
-    // the generator emit duplicates of every hand-written method (confusing
-    // "duplicate definition" compile errors with no hint at the real cause).
-    // A malformed `aeron_custom.rs` is a hard codegen error and must say so.
     let file = syn::parse_file(src).unwrap_or_else(|e| {
         panic!(
             "rusteron codegen: failed to parse aeron_custom.rs while extracting custom method \
@@ -1773,11 +1769,6 @@ mod parse_custom_methods_tests {
 
     #[test]
     fn self_type_keyed_by_plain_token_stream() {
-        // The skip-list keys on `self_ty.to_token_stream().to_string().trim()`.
-        // Generated struct names (and the impls in aeron_custom.rs) are always
-        // PLAIN identifiers, so they match exactly. This test pins that contract:
-        // a plain `impl Name` keys to exactly "Name", and a generic/path-qualified
-        // self type does NOT collide with a plain generated name.
         let src = r#"
             impl AeronPublication { pub fn offer_result(&self) -> i64 { 0 } }
         "#;
@@ -1788,12 +1779,6 @@ mod parse_custom_methods_tests {
     }
 }
 
-/// B4: unit tests for the `Arg` pattern-classification primitives. These are the
-/// fragile heart of the generator's pattern recognition (`StringWithLength`,
-/// `ByteArrayWithLength`, `Handler`, output-param `Result<T>`, ...). A new Aeron
-/// C version that shifts a signature is most likely to break one of these
-/// classifiers first, so pinning them gives targeted coverage. The `c_type`
-/// strings mirror the exact bindgen tokenisation the generator compares against.
 #[cfg(test)]
 mod arg_classification_tests {
     use super::{Arg, ArgProcessing};

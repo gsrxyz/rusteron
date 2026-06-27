@@ -777,6 +777,30 @@ impl AeronCError {
     }
 }
 
+impl std::fmt::Debug for AeronCError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AeronCError")
+            .field("code", &self.code)
+            .field("kind", &self.kind())
+            .field("lastError", &self.get_last_err_message())
+            .finish()
+    }
+}
+
+impl std::fmt::Display for AeronCError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Aeron error {}: {:?} [lastError={}]",
+            self.code,
+            self.kind(),
+            self.get_last_err_message()
+        )
+    }
+}
+
+impl std::error::Error for AeronCError {}
+
 const PARSE_CSTR_ERROR_CODE: i32 = -132131;
 
 impl AeronUriStringBuilder {
@@ -1577,7 +1601,9 @@ impl AeronImage {
     /// Instrumented wrapper around [`AeronImage::poll_once`] that adds tracing spans
     /// when the `instrument-ops` feature is enabled.
     #[inline]
-    pub fn poll_once_instrumented<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
+    pub fn poll_once_instrumented<
+        AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> (),
+    >(
         &self,
         handler: AeronFragmentHandlerHandlerImpl,
         fragment_limit: usize,

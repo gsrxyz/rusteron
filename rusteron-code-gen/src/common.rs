@@ -7,15 +7,8 @@ use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 pub enum CResource<T> {
     OwnedOnHeap(std::rc::Rc<ManagedCResource<T>>),
-    /// Stored on stack, unsafe, use with care.
-    ///
-    /// # Invariant
-    /// The `MaybeUninit` is **always initialised by construction** — only ever
-    /// built via `MaybeUninit::zeroed()` (partial-stack-init pattern, fields then
-    /// written via the raw pointer from `get()`) or `MaybeUninit::new(value)`.
-    /// Never store a `MaybeUninit::uninit()` here: the `Clone` impl and `get()`
-    /// rely on the value being initialised, and `assume_init_ref` on an uninit
-    /// value is undefined behaviour.
+    /// Always initialised by construction (zeroed or `new(v)`). Never store
+    /// `uninit()` — `Clone` and `get()` assume it's valid.
     OwnedOnStack(std::mem::MaybeUninit<T>),
     Borrowed(*mut T),
 }
@@ -110,17 +103,9 @@ pub struct ManagedCResource<T> {
     auto_close: std::cell::Cell<bool>,
     /// indicates if the underlying resource has already been handed off and should not be re-polled
     resource_released: std::cell::Cell<bool>,
-    /// to prevent the dependencies from being dropped as you have a copy here,
-    /// for example, you want to have a dependency to aeron for any async jobs so aeron doesnt get dropped first
-    /// when you have a publication/subscription
-    /// Note empty vec does not allocate on heap
-    ///
-    /// # Invariant (single-threaded mutation)
-    /// This is interior-mutable via `UnsafeCell` with **no locking** (latency:
-    /// `Mutex` is deliberately avoided). Dependencies are mutated **only at
-    /// construction, from the single owning thread**, and never after the
-    /// resource is in active use. This compounds the accepted `Send`-over-`Rc`
-    /// unsoundness on the wrapper types — same stance: documented, not locked.
+    /// Keeps deps alive (e.g. the Aeron client while a pub/sub exists).
+    /// Mutated only at construction from the owning thread — no locking,
+    /// same Send-over-Rc unsoundness stance. Empty vec doesn't allocate.
     dependencies: UnsafeCell<Vec<std::rc::Rc<dyn std::any::Any>>>,
 }
 
@@ -402,23 +387,6 @@ impl AeronErrorType {
 pub struct AeronCError {
     pub code: i32,
 }
-
-impl std::fmt::Debug for AeronCError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AeronCError")
-            .field("code", &self.code)
-            .field("kind", &self.kind())
-            .finish()
-    }
-}
-
-impl std::fmt::Display for AeronCError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Aeron error {}: {:?}", self.code, self.kind())
-    }
-}
-
-impl std::error::Error for AeronCError {}
 
 impl AeronCError {
     /// Creates an AeronError from the error code returned by Aeron.

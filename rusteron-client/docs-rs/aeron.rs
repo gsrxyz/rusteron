@@ -1,4 +1,3 @@
-
 type aeron_client_registering_resource_t = aeron_client_registering_resource_stct;
 #[derive(Clone)]
 pub struct AeronAsyncAddCounter {
@@ -318,15 +317,8 @@ use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 pub enum CResource<T> {
     OwnedOnHeap(std::rc::Rc<ManagedCResource<T>>),
-    #[doc = " Stored on stack, unsafe, use with care."]
-    #[doc = ""]
-    #[doc = " # Invariant"]
-    #[doc = " The `MaybeUninit` is **always initialised by construction** — only ever"]
-    #[doc = " built via `MaybeUninit::zeroed()` (partial-stack-init pattern, fields then"]
-    #[doc = " written via the raw pointer from `get()`) or `MaybeUninit::new(value)`."]
-    #[doc = " Never store a `MaybeUninit::uninit()` here: the `Clone` impl and `get()`"]
-    #[doc = " rely on the value being initialised, and `assume_init_ref` on an uninit"]
-    #[doc = " value is undefined behaviour."]
+    #[doc = " Always initialised by construction (zeroed or `new(v)`). Never store"]
+    #[doc = " `uninit()` — `Clone` and `get()` assume it's valid."]
     OwnedOnStack(std::mem::MaybeUninit<T>),
     Borrowed(*mut T),
 }
@@ -409,17 +401,9 @@ pub struct ManagedCResource<T> {
     auto_close: std::cell::Cell<bool>,
     #[doc = " indicates if the underlying resource has already been handed off and should not be re-polled"]
     resource_released: std::cell::Cell<bool>,
-    #[doc = " to prevent the dependencies from being dropped as you have a copy here,"]
-    #[doc = " for example, you want to have a dependency to aeron for any async jobs so aeron doesnt get dropped first"]
-    #[doc = " when you have a publication/subscription"]
-    #[doc = " Note empty vec does not allocate on heap"]
-    #[doc = ""]
-    #[doc = " # Invariant (single-threaded mutation)"]
-    #[doc = " This is interior-mutable via `UnsafeCell` with **no locking** (latency:"]
-    #[doc = " `Mutex` is deliberately avoided). Dependencies are mutated **only at"]
-    #[doc = " construction, from the single owning thread**, and never after the"]
-    #[doc = " resource is in active use. This compounds the accepted `Send`-over-`Rc`"]
-    #[doc = " unsoundness on the wrapper types — same stance: documented, not locked."]
+    #[doc = " Keeps deps alive (e.g. the Aeron client while a pub/sub exists)."]
+    #[doc = " Mutated only at construction from the owning thread — no locking,"]
+    #[doc = " same Send-over-Rc unsoundness stance. Empty vec doesn't allocate."]
     dependencies: UnsafeCell<Vec<std::rc::Rc<dyn std::any::Any>>>,
 }
 impl<T> std::fmt::Debug for ManagedCResource<T> {
@@ -669,20 +653,6 @@ impl AeronErrorType {
 pub struct AeronCError {
     pub code: i32,
 }
-impl std::fmt::Debug for AeronCError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AeronCError")
-            .field("code", &self.code)
-            .field("kind", &self.kind())
-            .finish()
-    }
-}
-impl std::fmt::Display for AeronCError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Aeron error {}: {:?}", self.code, self.kind())
-    }
-}
-impl std::error::Error for AeronCError {}
 impl AeronCError {
     #[doc = " Creates an AeronError from the error code returned by Aeron."]
     #[doc = ""]
@@ -27135,4 +27105,3 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback_for_once
         value.into(),
     )
 }
-
