@@ -177,176 +177,6 @@ impl AeronHeader {
     }
 }
 
-// ============================================================================
-// Latency measurement (Wingfoil-inspired): allocation-free, sync.
-// Aeron's per-frame reserved-value field is designed for timestamps; this gives
-// the send side a timestamp stamping supplier and the receive side an accessor
-// plus a log2-bucketed histogram sink.
-// ============================================================================
-
-/// Wall-clock nanoseconds since the UNIX epoch. Suitable for stamping into
-/// Aeron's per-frame reserved-value field and comparing across processes.
-///
-/// Derived from `SystemTime`, so it is subject to NTP adjustments; for
-/// sub-microsecond intra-process timing a TSC-based clock would be preferable,
-/// but is intentionally omitted here to keep this crate dependency-free.
-#[inline]
-pub fn now_nanos() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as i64)
-        .unwrap_or(0)
-}
-
-/// Allocation-free latency statistics with a log2-bucketed histogram for
-/// percentile estimation. Record observed latencies (nanoseconds) and read back
-/// count / min / max / mean plus approximate p50 / p95 / p99.
-///
-/// No allocations: every field is fixed-size. Safe to update from a fragment
-/// handler on the polling thread.
-#[derive(Debug)]
-pub struct LatencyStats {
-    count: u64,
-    min_ns: u64,
-    max_ns: u64,
-    total_ns: u128,
-    buckets: [u64; 64],
-}
-
-impl LatencyStats {
-    /// Create an empty set of statistics.
-    pub const fn new() -> Self {
-        Self {
-            count: 0,
-            min_ns: u64::MAX,
-            max_ns: 0,
-            total_ns: 0,
-            buckets: [0; 64],
-        }
-    }
-
-    /// Record an observed latency in nanoseconds. O(1) and allocation-free.
-    #[inline]
-    pub fn record(&mut self, ns: u64) {
-        self.count += 1;
-        if ns < self.min_ns {
-            self.min_ns = ns;
-        }
-        if ns > self.max_ns {
-            self.max_ns = ns;
-        }
-        self.total_ns += ns as u128;
-        // log2 bucket: index 0 holds 0..=1, index i (>=1) holds [2^i, 2^(i+1)).
-        let idx = if ns <= 1 {
-            0
-        } else {
-            (63_usize - (ns.leading_zeros() as usize)).min(63)
-        };
-        self.buckets[idx] += 1;
-    }
-
-    /// Number of samples recorded.
-    #[inline]
-    pub fn count(&self) -> u64 {
-        self.count
-    }
-    /// Minimum observed latency (ns), or 0 if no samples.
-    #[inline]
-    pub fn min_ns(&self) -> u64 {
-        if self.count == 0 {
-            0
-        } else {
-            self.min_ns
-        }
-    }
-    /// Maximum observed latency (ns).
-    #[inline]
-    pub fn max_ns(&self) -> u64 {
-        self.max_ns
-    }
-    /// Mean observed latency (ns), or 0 if no samples.
-    #[inline]
-    pub fn mean_ns(&self) -> u64 {
-        if self.count == 0 {
-            0
-        } else {
-            (self.total_ns / self.count as u128) as u64
-        }
-    }
-
-    /// Approximate percentile (0..=100) via the log2 histogram: returns the
-    /// midpoint of the bucket holding the requested rank, so resolution is
-    /// bounded by the log2 bucket width.
-    pub fn percentile(&self, p: f64) -> u64 {
-        if self.count == 0 {
-            return 0;
-        }
-        let target = ((p.clamp(0.0, 100.0) / 100.0) * self.count as f64).ceil() as u64;
-        let mut acc = 0u64;
-        for (i, &c) in self.buckets.iter().enumerate() {
-            acc += c;
-            if acc >= target {
-                let lo = if i == 0 { 0 } else { 1u64 << i };
-                let hi = if i == 0 { 1 } else { lo << 1 };
-                return (lo + hi) / 2;
-            }
-        }
-        self.max_ns
-    }
-    /// Approximate p50 (median) latency (ns).
-    #[inline]
-    pub fn p50(&self) -> u64 {
-        self.percentile(50.0)
-    }
-    /// Approximate p95 latency (ns).
-    #[inline]
-    pub fn p95(&self) -> u64 {
-        self.percentile(95.0)
-    }
-    /// Approximate p99 latency (ns).
-    #[inline]
-    pub fn p99(&self) -> u64 {
-        self.percentile(99.0)
-    }
-}
-
-impl Default for LatencyStats {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Reserved-value supplier that stamps the current wall-clock nanosecond time
-/// into each frame's reserved-value field, enabling end-to-end latency
-/// measurement on the receiver via [`AeronHeader::reserved_value`].
-pub struct AeronReservedValueSupplierTimestamp;
-impl AeronReservedValueSupplierCallback for AeronReservedValueSupplierTimestamp {
-    #[inline]
-    fn handle_aeron_reserved_value_supplier(
-        &mut self,
-        _buffer: *mut u8,
-        _frame_length: usize,
-    ) -> i64 {
-        now_nanos()
-    }
-}
-unsafe impl Send for AeronReservedValueSupplierTimestamp {}
-unsafe impl Sync for AeronReservedValueSupplierTimestamp {}
-
-/// Build an allocation-free fragment handler that records end-to-end latency —
-/// the receiver's [`now_nanos`] minus the sender-stamped reserved value — into
-/// the given [`LatencyStats`]. Frames without a reserved value are skipped.
-/// Pass the returned closure to `poll` / `for_each_fragment`.
-pub fn latency_recorder(stats: &mut LatencyStats) -> impl FnMut(&[u8], AeronHeader) + '_ {
-    move |_buffer, header| {
-        if let Some(sent) = header.reserved_value() {
-            let elapsed = (now_nanos() - sent).max(0) as u64;
-            stats.record(elapsed);
-        }
-    }
-}
-
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum AeronSystemCounterType {
@@ -1436,22 +1266,6 @@ impl AeronPublication {
         )
     }
 
-    /// Like [`offer_result`](Self::offer_result) but stamps the current
-    /// wall-clock nanosecond time into the frame's reserved-value field, so a
-    /// receiver can measure end-to-end latency via
-    /// [`AeronHeader::reserved_value`]. This leaks and releases one timestamp
-    /// supplier per call; for an allocation-free hot path, leak a single
-    /// `Handler<AeronReservedValueSupplierTimestamp>` and pass it to
-    /// [`offer_result`](Self::offer_result) directly.
-    #[inline]
-    pub fn offer_timestamped(&self, buffer: &[u8]) -> Result<i64, AeronCError> {
-        let mut supplier = Handler::leak(AeronReservedValueSupplierTimestamp);
-        let result =
-            self.offer_result::<AeronReservedValueSupplierTimestamp>(buffer, Some(&supplier));
-        supplier.release();
-        result
-    }
-
     /// Like [`AeronPublication::try_claim`](AeronPublication::try_claim) but
     /// maps a negative Aeron code to a typed [`AeronCError`].
     #[inline]
@@ -1466,10 +1280,6 @@ impl AeronPublication {
     /// Zero-copy claim returning a RAII [`AeronClaim`] that is auto-aborted on
     /// drop unless explicitly committed or aborted.
     pub fn try_claim_owned(&self, length: usize) -> Result<AeronClaim, AeronCError> {
-        // Stack-backed claim: `default()` uses `new_zeroed_on_heap` which
-        // Box-allocates per call (~60 ns + a heap alloc per message — caught by
-        // the `offer_claim_poll` bench). `new_zeroed_on_stack` is allocation-free
-        // (OwnedOnStack), keeping the RAII claim on the hot path zero-alloc.
         let claim = AeronBufferClaim::new_zeroed_on_stack();
         let position = publication_position_to_result(self.try_claim(length, &claim))?;
         Ok(AeronClaim {
@@ -1515,22 +1325,6 @@ impl AeronExclusivePublication {
         )
     }
 
-    /// Like [`offer_result`](Self::offer_result) but stamps the current
-    /// wall-clock nanosecond time into the frame's reserved-value field, so a
-    /// receiver can measure end-to-end latency via
-    /// [`AeronHeader::reserved_value`]. This leaks and releases one timestamp
-    /// supplier per call; for an allocation-free hot path, leak a single
-    /// `Handler<AeronReservedValueSupplierTimestamp>` and pass it to
-    /// [`offer_result`](Self::offer_result) directly.
-    #[inline]
-    pub fn offer_timestamped(&self, buffer: &[u8]) -> Result<i64, AeronCError> {
-        let mut supplier = Handler::leak(AeronReservedValueSupplierTimestamp);
-        let result =
-            self.offer_result::<AeronReservedValueSupplierTimestamp>(buffer, Some(&supplier));
-        supplier.release();
-        result
-    }
-
     /// Like [`AeronExclusivePublication::try_claim`]
     /// (AeronExclusivePublication::try_claim) but maps a negative Aeron code to
     /// a typed [`AeronCError`].
@@ -1546,10 +1340,6 @@ impl AeronExclusivePublication {
     /// Zero-copy claim returning a RAII [`AeronClaim`] that is auto-aborted on
     /// drop unless explicitly committed or aborted.
     pub fn try_claim_owned(&self, length: usize) -> Result<AeronClaim, AeronCError> {
-        // Stack-backed claim: `default()` uses `new_zeroed_on_heap` which
-        // Box-allocates per call (~60 ns + a heap alloc per message — caught by
-        // the `offer_claim_poll` bench). `new_zeroed_on_stack` is allocation-free
-        // (OwnedOnStack), keeping the RAII claim on the hot path zero-alloc.
         let claim = AeronBufferClaim::new_zeroed_on_stack();
         let position = publication_position_to_result(self.try_claim(length, &claim))?;
         Ok(AeronClaim {
