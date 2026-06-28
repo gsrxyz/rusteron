@@ -1059,4 +1059,93 @@ mod tests {
 
         Ok(())
     }
+
+    /// Truncate and purge a recording — ports the purge exercise in Aeron's
+    /// `RecordedBasicPublisher`. Archive RPCs are synchronous (Ok = the archive
+    /// accepted the request), so we assert each step rather than ignore the result.
+    /// Truncate requires a *stopped* recording, so we stop recording first.
+    #[test]
+    #[serial]
+    fn test_truncate_and_purge_recording() -> Result<(), Box<dyn Error>> {
+        crate::skip_unless_java!();
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+
+        EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
+
+        let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
+            start_aeron_archive_with_config("purge_test", 9900)?;
+
+        let archive = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?
+            .poll_blocking(Duration::from_secs(20))
+            .expect("failed to connect to archive");
+
+        let channel = "aeron:ipc";
+        let stream_id = 5001;
+        archive.start_recording(
+            &channel.into_c_string(),
+            stream_id,
+            SOURCE_LOCATION_LOCAL,
+            true,
+        )?;
+
+        let publication = aeron_archive
+            .async_add_publication(&channel.into_c_string(), stream_id)?
+            .poll_blocking(Duration::from_secs(5))?;
+        for i in 0..100 {
+            let m = format!("msg-{i}");
+            while publication.offer(m.as_bytes(), Handlers::no_reserved_value_supplier_handler())
+                <= 0
+            {
+                sleep(Duration::from_millis(1));
+            }
+        }
+
+        // Resolve the recording id and wait for the recorder to flush what we published.
+        let session_id = publication.get_constants()?.session_id;
+        let counters = aeron_archive.counters_reader();
+        let counter_id = RecordingPos::find_counter_id_by_session(&counters, session_id);
+        let recording_id =
+            RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
+        let published_position = publication.position();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while counters.get_counter_value(counter_id) < published_position
+            && Instant::now() < deadline
+        {
+            sleep(Duration::from_millis(10));
+        }
+        info!("recording_id={recording_id} position={published_position}");
+
+        // Truncate/purge operate on a *stopped* recording. Close the stream, stop recording,
+        // then wait for the stop to take effect (stop_position becomes non-null) before
+        // truncating — otherwise the archive rejects it with "cannot truncate active recording".
+        drop(publication);
+        archive.stop_recording_channel_and_stream(&channel.into_c_string(), stream_id)?;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut stopped = false;
+        while !stopped && Instant::now() < deadline {
+            let mut count = 0;
+            archive.list_recordings_once(&mut count, recording_id, 1, |desc| {
+                if desc.recording_id() == recording_id && desc.stop_position() > 0 {
+                    stopped = true;
+                }
+            })?;
+            if !stopped {
+                sleep(Duration::from_millis(10));
+            }
+        }
+        assert!(stopped, "recording {recording_id} never stopped");
+
+        let halfway = published_position / 2;
+        archive.truncate_recording(recording_id, halfway)?;
+        info!("truncated {recording_id} to {halfway}");
+
+        // Purge deletes the recording entirely.
+        archive.purge_recording(recording_id)?;
+        info!("purged recording {recording_id}");
+
+        drop(archive);
+        drop(aeron_archive);
+        archive_error_handler.release();
+        Ok(())
+    }
 }

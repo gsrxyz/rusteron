@@ -26,6 +26,20 @@ use std::cell::Cell;
 use std::os::raw::c_int;
 use std::time::{Duration, Instant};
 
+/// Result codes returned by `AeronPublication::offer` / `try_claim` (Aeron `aeronc.h`). A positive
+/// value is the resulting log position; the negatives classify the failure.
+///
+/// **Fatal** (stop offering): [`PUBLICATION_CLOSED`], [`PUBLICATION_MAX_POSITION_EXCEEDED`],
+/// [`PUBLICATION_ERROR`]. **Transient** (retry): [`PUBLICATION_BACK_PRESSURED`],
+/// [`PUBLICATION_NOT_CONNECTED`], [`PUBLICATION_ADMIN_ACTION`].
+pub const PUBLICATION_NOT_CONNECTED: i64 = bindings::AERON_PUBLICATION_NOT_CONNECTED as i64;
+pub const PUBLICATION_BACK_PRESSURED: i64 = bindings::AERON_PUBLICATION_BACK_PRESSURED as i64;
+pub const PUBLICATION_ADMIN_ACTION: i64 = bindings::AERON_PUBLICATION_ADMIN_ACTION as i64;
+pub const PUBLICATION_CLOSED: i64 = bindings::AERON_PUBLICATION_CLOSED as i64;
+pub const PUBLICATION_MAX_POSITION_EXCEEDED: i64 =
+    bindings::AERON_PUBLICATION_MAX_POSITION_EXCEEDED as i64;
+pub const PUBLICATION_ERROR: i64 = bindings::AERON_PUBLICATION_ERROR as i64;
+
 pub mod testing;
 
 #[cfg(test)]
@@ -35,6 +49,46 @@ pub mod persistent_subscription_tests;
 
 include!(concat!(env!("OUT_DIR"), "/aeron.rs"));
 include!(concat!(env!("OUT_DIR"), "/aeron_custom.rs"));
+
+// Retryable / unrecoverable classification for Aeron errors. Lives in hand-written code rather
+// than the codegen `common.rs` because the generator drops methods that carry multi-line doc
+// comments. GenericError(-1) and Unknown(_) are intentionally neither — `-1` is Aeron's catch-all
+// and could mean anything, so the caller must decide (treat as fatal if unsure).
+impl AeronErrorType {
+    /// Transient — retry the operation (back off first): back-pressure, admin action, a full
+    /// client buffer, or a polling timeout.
+    pub fn is_retryable(&self) -> bool {
+        self == &AeronErrorType::PublicationBackPressured
+            || self == &AeronErrorType::PublicationAdminAction
+            || self == &AeronErrorType::ClientErrorBufferFull
+            || self == &AeronErrorType::TimedOut
+    }
+
+    /// Definitively terminal — retrying will not help: the publication is closed / exhausted /
+    /// errored, or the driver or client has timed out (effectively dead). Not exhaustive: an
+    /// ambiguous code (`GenericError` / `Unknown`) is neither retryable nor unrecoverable.
+    pub fn is_unrecoverable(&self) -> bool {
+        self == &AeronErrorType::PublicationClosed
+            || self == &AeronErrorType::PublicationMaxPositionExceeded
+            || self == &AeronErrorType::PublicationError
+            || self == &AeronErrorType::ClientErrorDriverTimeout
+            || self == &AeronErrorType::ClientErrorClientTimeout
+            || self == &AeronErrorType::ClientErrorConductorServiceTimeout
+    }
+}
+
+impl AeronCError {
+    /// Transient failure — retry the operation (back off first). See [`AeronErrorType::is_retryable`].
+    pub fn is_retryable(&self) -> bool {
+        self.kind().is_retryable()
+    }
+
+    /// Definitively terminal — abort the operation. See [`AeronErrorType::is_unrecoverable`].
+    /// Not exhaustive: ambiguous codes are neither retryable nor unrecoverable.
+    pub fn is_unrecoverable(&self) -> bool {
+        self.kind().is_unrecoverable()
+    }
+}
 
 pub type SourceLocation = bindings::aeron_archive_source_location_t;
 pub const SOURCE_LOCATION_LOCAL: aeron_archive_source_location_en =
@@ -136,26 +190,6 @@ impl RecordingPos {
         }
 
         Ok(recording_id)
-    }
-}
-
-unsafe extern "C" fn default_encoded_credentials(
-    _clientd: *mut std::os::raw::c_void,
-) -> *mut aeron_archive_encoded_credentials_t {
-    // Allocate a zeroed instance of `aeron_archive_encoded_credentials_t`
-    let empty_credentials = Box::new(aeron_archive_encoded_credentials_t {
-        data: std::ptr::null(),
-        length: 0,
-    });
-    Box::into_raw(empty_credentials)
-}
-
-unsafe extern "C" fn default_credentials_free(
-    credentials: *mut aeron_archive_encoded_credentials_t,
-    _clientd: *mut std::os::raw::c_void,
-) {
-    if !credentials.is_null() {
-        let _ = Box::from_raw(credentials);
     }
 }
 
@@ -470,29 +504,6 @@ impl AeronArchivePersistentSubscription {
     }
 }
 
-impl AeronArchiveContext {
-    #[deprecated(
-        since = "0.1.162",
-        note = "Aeron no longer requires explicitly installing a no-op credentials supplier"
-    )]
-    pub fn set_no_credentials_supplier(&self) -> Result<i32, AeronCError> {
-        let result = unsafe {
-            bindings::aeron_archive_context_set_credentials_supplier(
-                self.get_inner(),
-                Some(default_encoded_credentials),
-                None,
-                Some(default_credentials_free),
-                std::ptr::null_mut(),
-            )
-        };
-        if result < 0 {
-            Err(AeronCError::from_code(result))
-        } else {
-            Ok(result)
-        }
-    }
-}
-
 /// Sentinel for [`PersistentSubscriptionBuilder::start_position`]: replay from the
 /// beginning of the recording. Maps to Aeron's `AERON_ARCHIVE_PERSISTENT_SUBSCRIPTION_FROM_START`.
 pub const PERSISTENT_SUBSCRIPTION_FROM_START: i64 = -1;
@@ -508,14 +519,26 @@ pub fn persistent_subscription_builder() -> Result<PersistentSubscriptionBuilder
 
 /// Trait for persistent subscription event listeners.
 /// This provides a safe Rust alternative to using raw C function pointers.
+///
+/// In the poll loop, prefer the state queries `is_live()` / `is_replaying()` /
+/// `has_failed()` for control flow and treat this listener as observational
+/// (logging/metrics). See Aeron's `PersistentSubscriptionListener`.
 pub trait PersistentSubscriptionListener: Send + 'static {
-    /// Called when the persistent subscription has joined the live stream.
+    /// Called when the persistent subscription transitions to consuming from the
+    /// live stream. Can fire more than once: if the live image is lost the
+    /// subscription falls back to replay and this fires again on rejoin.
     fn on_live_joined(&self) {}
 
-    /// Called when the persistent subscription has left the live stream.
+    /// Called when the persistent subscription stops consuming from the live
+    /// stream (e.g. the live image closed). The subscription automatically falls
+    /// back to replay; no user action required. Can fire repeatedly.
     fn on_live_left(&self) {}
 
-    /// Called when an error occurs.
+    /// Called for **both** non-terminal and terminal errors. Non-terminal errors
+    /// (timeouts, transient resource unavailability) are retried automatically.
+    /// A terminal failure flips [`AeronArchivePersistentSubscription::has_failed`]
+    /// to true — check it in the poll loop and read the reason with
+    /// [`AeronArchivePersistentSubscription::get_failure_reason`].
     fn on_error(&self, error_code: i32, error_message: &str) {}
 }
 
@@ -602,6 +625,34 @@ impl PersistentSubscriptionBuilder {
         listener: L,
     ) -> Result<Self, AeronCError> {
         self.listener = Some(Box::new(listener));
+        Ok(self)
+    }
+
+    /// Pre-allocate the state counter so an external observer can read the PS state-machine
+    /// state. If unset the PS allocates one itself. Maps to Aeron's `Context.stateCounter`.
+    pub fn state_counter(self, counter: &AeronCounter) -> Result<Self, AeronCError> {
+        self.ctx.set_state_counter(counter)?;
+        Ok(self)
+    }
+
+    /// Counter holding the byte gap between replay and live when the live image is added.
+    /// Maps to Aeron's `Context.joinDifferenceCounter`.
+    pub fn join_difference_counter(self, counter: &AeronCounter) -> Result<Self, AeronCError> {
+        self.ctx.set_join_difference_counter(counter)?;
+        Ok(self)
+    }
+
+    /// Counter holding the number of times the PS has dropped off the live stream.
+    /// Maps to Aeron's `Context.liveLeftCounter`.
+    pub fn live_left_counter(self, counter: &AeronCounter) -> Result<Self, AeronCError> {
+        self.ctx.set_live_left_counter(counter)?;
+        Ok(self)
+    }
+
+    /// Counter holding the number of times the PS has switched to the live stream.
+    /// Maps to Aeron's `Context.liveJoinedCounter`.
+    pub fn live_joined_counter(self, counter: &AeronCounter) -> Result<Self, AeronCError> {
+        self.ctx.set_live_joined_counter(counter)?;
         Ok(self)
     }
 
@@ -997,7 +1048,6 @@ mod tests {
                 if Aeron::errmsg().len() > 0 && "no error" != Aeron::errmsg() {
                     panic!("{}", Aeron::errmsg());
                 }
-                archive.poll_for_recording_signals()?;
                 thread::sleep(Duration::from_millis(100));
             }
         }
@@ -1143,7 +1193,6 @@ mod tests {
                 ) <= 0
                 {
                     sleep(Duration::from_millis(50));
-                    archive.poll_for_recording_signals()?;
                     let err = archive.poll_for_error_response_as_string(4096)?;
                     if !err.is_empty() {
                         return Err(std::io::Error::other(err).into());
@@ -1228,7 +1277,6 @@ mod tests {
                         assert_eq!(copy.source_identity_length, d.source_identity_length);
                     },
                 )?;
-                archive.poll_for_recording_signals()?;
                 let err = archive.poll_for_error_response_as_string(4096)?;
                 if !err.is_empty() {
                     return Err(std::io::Error::other(err).into());

@@ -1389,22 +1389,27 @@ mod tests {
 
         // Drive the persistent subscription: keep the live stream active by
         // publishing, and poll so it replays then joins live. Aeron types are
-        // !Send, so this all happens on the test thread.
+        // !Send, so this all happens on the test thread. `ps.poll_once()` drives
+        // the archive client internally, so no `archive.poll_for_recording_signals()`.
         let mut i = 0;
         let start = Instant::now();
-        while joined.load(Ordering::SeqCst) == 0 && start.elapsed() < Duration::from_secs(30) {
-            let message = format!("Live-{}", i);
-            i += 1;
+        while !ps.is_live() && start.elapsed() < Duration::from_secs(30) {
+            if ps.has_failed() {
+                panic!(
+                    "persistent subscription failed: {:?}; listener errors: {:?}",
+                    ps.get_failure_reason(),
+                    errors.lock().unwrap().clone()
+                );
+            }
             let _ = publication.offer(
-                message.as_bytes(),
+                format!("Live-{i}").as_bytes(),
                 Handlers::no_reserved_value_supplier_handler(),
             );
-            ps.poll_once(|_buffer, _header| {}, 100)?;
-            archive.poll_for_recording_signals()?;
-            if let Some(last) = errors.lock().unwrap().last() {
-                info!("listener reported error, will keep trying: {:?}", last);
+            i += 1;
+            let fragments = ps.poll_once(|_buffer, _header| {}, 100)?;
+            if fragments == 0 {
+                sleep(Duration::from_millis(1));
             }
-            sleep(Duration::from_millis(10));
         }
 
         let join_count = joined.load(Ordering::SeqCst);
@@ -1423,6 +1428,174 @@ mod tests {
         );
         info!("on_live_joined fired {} time(s)", join_count);
 
+        Ok(())
+    }
+
+    /// Resilience: when the live image is lost the persistent subscription falls
+    /// back to replay, and when the stream returns it rejoins live — so
+    /// `on_live_joined` fires a second time. Mirrors Aeron's
+    /// `aeron_archive_persistent_subscription_resilience_test` fallback+recover
+    /// scenario. Aeron's test injects frame loss via a loss generator (not
+    /// available behind the Java archive harness), so here the live image is
+    /// dropped by tearing down and recreating an **exclusive** publication.
+    #[test]
+    #[serial]
+    fn test_persistent_subscription_fallback_and_recover() -> Result<(), Box<dyn Error>> {
+        crate::skip_unless_java!();
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+
+        EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
+
+        let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
+            start_aeron_archive_with_config("ps_resilience", 9800)?;
+
+        let archive_connector =
+            AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
+        let archive = archive_connector
+            .poll_blocking(Duration::from_secs(20))
+            .expect("failed to connect to archive");
+
+        let live_channel = "aeron:ipc";
+        let stream_id = 3101;
+        archive.start_recording(
+            &live_channel.into_c_string(),
+            stream_id,
+            SOURCE_LOCATION_LOCAL,
+            true,
+        )?;
+
+        // Exclusive publication so we can tear it down and re-add cleanly.
+        let mut publication = aeron_archive
+            .async_add_exclusive_publication(&live_channel.into_c_string(), stream_id)?
+            .poll_blocking(Duration::from_secs(5))?;
+        let start = Instant::now();
+        while !publication.is_connected() && start.elapsed() < Duration::from_secs(5) {
+            sleep(Duration::from_millis(10));
+        }
+        for i in 0..10 {
+            let m = format!("Seed-{i}");
+            while publication.offer(m.as_bytes(), Handlers::no_reserved_value_supplier_handler())
+                <= 0
+            {
+                sleep(Duration::from_millis(1));
+            }
+        }
+        let session_id = publication.get_constants()?.session_id;
+        let counters_reader = aeron_archive.counters_reader();
+        let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
+        let recording_id = RecordingPos::get_recording_id_block(
+            &counters_reader,
+            counter_id,
+            Duration::from_secs(5),
+        )?;
+
+        struct ResilienceListener {
+            joined: Arc<AtomicUsize>,
+            left: Arc<AtomicUsize>,
+            errors: Arc<Mutex<Vec<(i32, String)>>>,
+        }
+        impl PersistentSubscriptionListener for ResilienceListener {
+            fn on_live_joined(&self) {
+                self.joined.fetch_add(1, Ordering::SeqCst);
+                info!(
+                    "on_live_joined (total {})",
+                    self.joined.load(Ordering::SeqCst)
+                );
+            }
+            fn on_live_left(&self) {
+                self.left.fetch_add(1, Ordering::SeqCst);
+                info!("on_live_left (total {})", self.left.load(Ordering::SeqCst));
+            }
+            fn on_error(&self, code: i32, msg: &str) {
+                self.errors.lock().unwrap().push((code, msg.into()));
+            }
+        }
+        let joined = Arc::new(AtomicUsize::new(0));
+        let left = Arc::new(AtomicUsize::new(0));
+        let errors: Arc<Mutex<Vec<(i32, String)>>> = Arc::new(Mutex::new(Vec::new()));
+
+        let ps = persistent_subscription_builder()?
+            .aeron(&aeron_archive)?
+            .archive_context(&archive_context)?
+            .live_channel(live_channel)?
+            .live_stream_id(stream_id)?
+            .replay_channel("aeron:udp?endpoint=localhost:0")?
+            .replay_stream_id(stream_id + 1)?
+            .start_from_beginning()?
+            .recording_id(recording_id)?
+            .listener(ResilienceListener {
+                joined: joined.clone(),
+                left: left.clone(),
+                errors: errors.clone(),
+            })?
+            .build()?;
+
+        let poll_drive = |ps: &AeronArchivePersistentSubscription,
+                          pub_ref: &AeronExclusivePublication| {
+            let _ = pub_ref.offer(b"live-beat", Handlers::no_reserved_value_supplier_handler());
+            ps.poll_once(|_buf, _hdr| {}, 100)
+        };
+
+        // Phase 1: drive until live (on_live_joined fires once).
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !ps.is_live() && Instant::now() < deadline {
+            assert!(!ps.has_failed(), "ps failed: {:?}", ps.get_failure_reason());
+            poll_drive(&ps, &publication)?;
+            sleep(Duration::from_millis(1));
+        }
+        assert!(
+            joined.load(Ordering::SeqCst) >= 1,
+            "never went live initially"
+        );
+
+        // Phase 2: tear down the exclusive publication -> live image is lost ->
+        // PS falls back to replay (on_live_left fires, is_replaying() becomes true).
+        drop(publication);
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while ps.is_live() && Instant::now() < deadline {
+            assert!(
+                !ps.has_failed(),
+                "ps failed after loss: {:?}",
+                ps.get_failure_reason()
+            );
+            let _ = ps.poll_once(|_buf, _hdr| {}, 100)?;
+            sleep(Duration::from_millis(10));
+        }
+        assert!(
+            left.load(Ordering::SeqCst) >= 1,
+            "never left live; ps.is_live={} replaying={}",
+            ps.is_live(),
+            ps.is_replaying()
+        );
+
+        // Phase 3: restore the live stream -> PS rejoins live (on_live_joined again).
+        publication = aeron_archive
+            .async_add_exclusive_publication(&live_channel.into_c_string(), stream_id)?
+            .poll_blocking(Duration::from_secs(5))?;
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while joined.load(Ordering::SeqCst) < 2 && Instant::now() < deadline {
+            assert!(
+                !ps.has_failed(),
+                "ps failed on rejoin: {:?}",
+                ps.get_failure_reason()
+            );
+            poll_drive(&ps, &publication)?;
+            sleep(Duration::from_millis(1));
+        }
+
+        let joined_count = joined.load(Ordering::SeqCst);
+        ps.close()?;
+        drop(publication);
+        drop(archive);
+        drop(aeron_archive);
+        archive_error_handler.release();
+
+        assert!(
+            joined_count >= 2,
+            "did not rejoin live after recovery (joined {joined_count} time(s)); errors: {:?}",
+            errors.lock().unwrap().clone()
+        );
+        info!("resilience OK: joined live {joined_count} time(s)");
         Ok(())
     }
 }

@@ -100,7 +100,9 @@ To view all available commands, run `just` in the command line.
 <summary>Expand for usage example</summary>
 
 ```rust,no_run
-use rusteron_client::{Aeron, AeronContext, AeronHeader, Handlers, IntoCString};
+use rusteron_client::{
+    Aeron, AeronContext, AeronErrorHandlerLogger, AeronHeader, Handler, Handlers, IntoCString,
+};
 use rusteron_media_driver::{AeronDriver, AeronDriverContext};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -112,6 +114,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ctx = AeronContext::new()?;
     ctx.set_dir(&driver_ctx.get_dir().into_c_string())?;
+    // Reuse the built-in logger for async client errors (Aeron samples always set one).
+    let mut error_handler = Handler::leak(AeronErrorHandlerLogger);
+    ctx.set_error_handler(Some(&error_handler))?;
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
 
@@ -127,7 +132,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?
         .poll_blocking(Duration::from_secs(5))?;
 
-    publication.offer(b"Hello, Aeron!", Handlers::no_reserved_value_supplier_handler());
+    // offer() returns the log position (>0) or a negative code; retry until sent.
+    while publication.offer(b"Hello, Aeron!", Handlers::no_reserved_value_supplier_handler()) <= 0
+    {
+    }
 
     // `poll_once` runs the closure per fragment; use a fragment assembler for messages
     // larger than the MTU.
@@ -138,6 +146,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         10,
     )?;
 
+    error_handler.release();
     stop.store(true, Ordering::SeqCst);
     driver.join().ok();
     Ok(())

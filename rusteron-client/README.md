@@ -117,6 +117,9 @@ use rusteron_client::*;
 use std::time::Duration;
 
 let ctx = AeronContext::new()?;
+// Reuse the built-in logger for async client errors (Aeron samples always set one).
+let mut error_handler = Handler::leak(AeronErrorHandlerLogger);
+ctx.set_error_handler(Some(&error_handler))?;
 let aeron = Aeron::new(&ctx)?;
 aeron.start()?;
 
@@ -132,9 +135,43 @@ let subscription = aeron
     )?
     .poll_blocking(Duration::from_secs(5))?;
 
-publication.offer(b"hello", Handlers::no_reserved_value_supplier_handler());
+// offer() returns the log position (>0) or a negative code — see "Errors & offer results".
+while publication.offer(b"hello", Handlers::no_reserved_value_supplier_handler()) <= 0 {}
 subscription.poll_once(|buf: &[u8], _hdr: AeronHeader| println!("got {} bytes", buf.len()), 10)?;
+error_handler.release();
 ```
+
+## Errors & offer results
+
+- **Client errors**: install an error handler on the context (`ctx.set_error_handler(Some(&handler))`) so async errors aren't silently lost — Aeron's samples always do. Leaked handlers must be `release()`d.
+- **`offer()` / `try_claim()` results**: a positive value is the resulting log position; the negatives are classified by the `PUBLICATION_*` constants. `PUBLICATION_CLOSED`, `PUBLICATION_MAX_POSITION_EXCEEDED`, and `PUBLICATION_ERROR` are **fatal** (stop offering); `PUBLICATION_BACK_PRESSURED`, `PUBLICATION_NOT_CONNECTED`, and `PUBLICATION_ADMIN_ACTION` are **transient** (retry, ideally with an idle strategy). This mirrors Aeron's `BasicPublisher.checkResult`.
+  ```rust,ignore
+  let r = publication.offer(msg, Handlers::no_reserved_value_supplier_handler());
+  if r == PUBLICATION_CLOSED || r == PUBLICATION_MAX_POSITION_EXCEEDED {
+      return Err("publication gone".into());
+  }
+  ```
+- **Image handlers**: `Handlers::no_available_image_handler()` / `no_unavailable_image_handler()` are fine as a default, but real apps usually react to image availability (logging, synchronization) — Aeron's `Ping` sample uses one as a latch.
+
+## Idle strategies
+
+Poll loops should back off when a cycle does no work. Rusteron ports Aeron's `IdleStrategy`
+(`idle(work_count)` returns immediately when work was done, otherwise backs off):
+
+```rust,ignore
+use rusteron_client::{BackoffIdleStrategy, IdleStrategy};
+
+let mut idle = BackoffIdleStrategy::new(); // spin → yield → sleep, Aeron's default
+loop {
+    let fragments = subscription.poll(Some(&handler), 10)?;
+    if fragments == 0 { /* break when done */ }
+    idle.idle(fragments);
+}
+```
+
+Available: [`BusySpinIdleStrategy`] (lowest latency, pins a core), [`YieldingIdleStrategy`],
+[`SleepingIdleStrategy`] (fixed sleep), [`BackoffIdleStrategy`] (adaptive, general-purpose),
+[`NoOpIdleStrategy`]. Latency benchmarks should keep busy-spin.
 
 For recording, replay, and **persistent subscriptions** (replay history, then seamlessly join a live stream), see [`rusteron-archive`](../rusteron-archive/README.md#persistent-subscriptions).
 

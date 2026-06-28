@@ -150,22 +150,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
     println!("persistent subscription created, replaying then joining live...");
 
-    // 5. Drive it: keep publishing so the live image stays active, poll until joined.
+    // 5. Drive it: keep publishing so the live image stays active; poll until live.
+    //    `ps.poll_once()` runs the PS state machine (and drives the archive async client)
+    //    internally, so — unlike a manual replay loop — there is no need to call
+    //    `archive.poll_for_recording_signals()` here. Abort if the PS fails terminally.
     let deadline = Instant::now() + Duration::from_secs(30);
     let mut live_sent = 0;
-    while joined.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
+    while !ps.is_live() && Instant::now() < deadline {
+        if ps.has_failed() {
+            let (code, msg) = ps.get_failure_reason().unwrap_or((-1, "unknown".into()));
+            return Err(format!("persistent subscription failed ({code}): {msg}").into());
+        }
         live_sent += 1;
         let msg = format!("Live-{live_sent}");
         let _ = publication.offer(
             msg.as_bytes(),
             Handlers::no_reserved_value_supplier_handler(),
         );
-        ps.poll_once(
+        let fragments = ps.poll_once(
             |buf, _hdr| println!("  fragment ({} bytes)", buf.len()),
             100,
         )?;
-        archive.poll_for_recording_signals()?;
-        sleep(Duration::from_millis(10));
+        if fragments == 0 {
+            sleep(Duration::from_millis(1));
+        }
     }
 
     let joined_count = joined.load(Ordering::SeqCst);

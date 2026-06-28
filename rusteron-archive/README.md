@@ -235,14 +235,20 @@ let ps = persistent_subscription_builder()?
     .listener(MyListener { live_joined: live_joined.clone() })?
     .build()?;
 
-// Drive it: replay runs, then it joins live. Keep publishing so live stays active.
-while live_joined.load(Ordering::SeqCst) == 0 {
+// Drive it: replay runs, then it joins live. `ps.poll_once()` drives the archive
+// client internally, so no `archive.poll_for_recording_signals()` is needed. Check
+// `has_failed()` each iteration (terminal failure) and stop once `is_live()`.
+while !ps.is_live() {
+    if ps.has_failed() {
+        panic!("persistent subscription failed: {:?}", ps.get_failure_reason());
+    }
     let _ = publication.offer(b"live", Handlers::no_reserved_value_supplier_handler());
-    ps.poll_once(|buf, _hdr| { /* a replayed or live fragment */ }, 100)?;
-    archive.poll_for_recording_signals()?;
+    ps.poll_once(|buf, _hdr| { /* an assembled replayed or live message */ }, 100)?;
 }
 ps.close()?;
 ```
+
+**Polling & errors.** `ps.poll_once()` drives the PS state machine *and* the archive async client internally, so — unlike a manual replay loop — you do **not** call `archive.poll_for_recording_signals()` here. Drive the loop on `ps.is_live()` and check `ps.has_failed()` each iteration (read the reason with `ps.get_failure_reason()`); the listener's `on_error` fires for non-terminal errors too, and `on_live_left`/`on_live_joined` can fire repeatedly as it falls back to replay and rejoins. The poll handler receives **assembled** messages — do not wrap it in a fragment assembler.
 
 For a fully runnable version, see the example and integration tests:
 - [`examples/persistent_subscription.rs`](./examples/persistent_subscription.rs) — standalone demo (run with `cargo run --release --features "static precompile" --example persistent_subscription`)

@@ -22,9 +22,227 @@ pub mod bindings {
 }
 
 use bindings::*;
+use std::time::Duration;
+
+/// Result codes returned by [`AeronPublication::offer`] / `try_claim` (Aeron `aeronc.h`). A
+/// positive value is the resulting log position; the negatives classify the failure.
+///
+/// **Fatal** (stop offering): [`PUBLICATION_CLOSED`], [`PUBLICATION_MAX_POSITION_EXCEEDED`],
+/// [`PUBLICATION_ERROR`]. **Transient** (retry, ideally with an idle strategy):
+/// [`PUBLICATION_BACK_PRESSURED`], [`PUBLICATION_NOT_CONNECTED`], [`PUBLICATION_ADMIN_ACTION`].
+/// Mirrors how Aeron's own samples (`BasicPublisher` / `basic_publisher.c`) classify offer results.
+pub const PUBLICATION_NOT_CONNECTED: i64 = bindings::AERON_PUBLICATION_NOT_CONNECTED as i64;
+pub const PUBLICATION_BACK_PRESSURED: i64 = bindings::AERON_PUBLICATION_BACK_PRESSURED as i64;
+pub const PUBLICATION_ADMIN_ACTION: i64 = bindings::AERON_PUBLICATION_ADMIN_ACTION as i64;
+pub const PUBLICATION_CLOSED: i64 = bindings::AERON_PUBLICATION_CLOSED as i64;
+pub const PUBLICATION_MAX_POSITION_EXCEEDED: i64 =
+    bindings::AERON_PUBLICATION_MAX_POSITION_EXCEEDED as i64;
+pub const PUBLICATION_ERROR: i64 = bindings::AERON_PUBLICATION_ERROR as i64;
 
 include!(concat!(env!("OUT_DIR"), "/aeron.rs"));
 include!(concat!(env!("OUT_DIR"), "/aeron_custom.rs"));
+
+// Retryable / unrecoverable classification for Aeron errors (hand-written — the codegen drops
+// doc-commented methods from common.rs). GenericError(-1) and Unknown(_) are intentionally
+// neither: `-1` is Aeron's catch-all and could mean anything, so the caller must decide.
+impl AeronErrorType {
+    /// Transient — retry the operation (back off first): back-pressure, admin action, a full
+    /// client buffer, or a polling timeout.
+    pub fn is_retryable(&self) -> bool {
+        self == &AeronErrorType::PublicationBackPressured
+            || self == &AeronErrorType::PublicationAdminAction
+            || self == &AeronErrorType::ClientErrorBufferFull
+            || self == &AeronErrorType::TimedOut
+    }
+
+    /// Definitively terminal — retrying will not help. Not exhaustive: ambiguous codes
+    /// (`GenericError` / `Unknown`) are neither retryable nor unrecoverable.
+    pub fn is_unrecoverable(&self) -> bool {
+        self == &AeronErrorType::PublicationClosed
+            || self == &AeronErrorType::PublicationMaxPositionExceeded
+            || self == &AeronErrorType::PublicationError
+            || self == &AeronErrorType::ClientErrorDriverTimeout
+            || self == &AeronErrorType::ClientErrorClientTimeout
+            || self == &AeronErrorType::ClientErrorConductorServiceTimeout
+    }
+}
+
+impl AeronCError {
+    /// Transient failure — retry the operation (back off first). See [`AeronErrorType::is_retryable`].
+    pub fn is_retryable(&self) -> bool {
+        self.kind().is_retryable()
+    }
+
+    /// Definitively terminal — abort the operation. See [`AeronErrorType::is_unrecoverable`].
+    pub fn is_unrecoverable(&self) -> bool {
+        self.kind().is_unrecoverable()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Idle strategies for poll loops. Pure-Rust port of Aeron's `IdleStrategy`
+// (Java/C++): pass the work count from the last `poll` to `idle(work_count)`; it returns
+// immediately when work was done, otherwise backs off the CPU (spin / yield / sleep).
+// ---------------------------------------------------------------------------
+
+/// Back off a poll loop when the last cycle did no work. Mirrors Aeron's `IdleStrategy`:
+/// `idle(work_count)` returns immediately when `work_count > 0`, otherwise spins / yields /
+/// sleeps depending on the implementation.
+pub trait IdleStrategy {
+    /// Called with the work/fragment count from the last operation. Implementations return
+    /// immediately when `work_count > 0` (work was done) and back off otherwise.
+    fn idle(&mut self, work_count: i32);
+
+    /// Reset accumulated backoff state after a productive period. Default: no-op.
+    fn reset(&mut self) {}
+}
+
+/// Spin with a CPU pause hint. Lowest latency, pins a core. (Aeron `BusySpinIdleStrategy`.)
+pub struct BusySpinIdleStrategy;
+impl IdleStrategy for BusySpinIdleStrategy {
+    #[inline]
+    fn idle(&mut self, work_count: i32) {
+        if work_count > 0 {
+            return;
+        }
+        std::hint::spin_loop();
+    }
+}
+
+/// No-op — never yields the core. (Aeron `NoOpIdleStrategy`.)
+pub struct NoOpIdleStrategy;
+impl IdleStrategy for NoOpIdleStrategy {
+    #[inline]
+    fn idle(&mut self, _work_count: i32) {}
+}
+
+/// Yield the OS thread when idle. Lower CPU than busy-spin, slightly higher latency.
+/// (Aeron `YieldingIdleStrategy`.)
+pub struct YieldingIdleStrategy;
+impl IdleStrategy for YieldingIdleStrategy {
+    #[inline]
+    fn idle(&mut self, work_count: i32) {
+        if work_count > 0 {
+            return;
+        }
+        std::thread::yield_now();
+    }
+}
+
+/// Sleep for a fixed duration when idle. (Aeron `SleepingIdleStrategy`.)
+pub struct SleepingIdleStrategy {
+    duration: Duration,
+}
+impl SleepingIdleStrategy {
+    pub fn new(duration: Duration) -> Self {
+        Self { duration }
+    }
+}
+impl IdleStrategy for SleepingIdleStrategy {
+    #[inline]
+    fn idle(&mut self, work_count: i32) {
+        if work_count == 0 {
+            std::thread::sleep(self.duration);
+        }
+    }
+}
+
+/// Adaptive backoff: spin a few times, then yield a few times, then sleep with an exponentially
+/// growing park up to a max. A good general-purpose strategy. (Aeron `BackoffIdleStrategy`.)
+///
+/// Defaults match Aeron: `max_spins = 10`, `max_yields = 20`, `min_park = 1µs`, `max_park = 1ms`.
+pub struct BackoffIdleStrategy {
+    max_spins: i64,
+    max_yields: i64,
+    min_park: Duration,
+    max_park: Duration,
+    spins: i64,
+    yields: i64,
+    park: Duration,
+    state: u8,
+}
+
+const BACKOFF_NOT_IDLE: u8 = 0;
+const BACKOFF_SPINNING: u8 = 1;
+const BACKOFF_YIELDING: u8 = 2;
+const BACKOFF_PARKING: u8 = 3;
+
+impl BackoffIdleStrategy {
+    /// Defaults match Aeron: 10 spins, 20 yields, park 1µs..1ms.
+    pub fn new() -> Self {
+        Self::with(10, 20, Duration::from_micros(1), Duration::from_millis(1))
+    }
+
+    /// Full control over the backoff parameters.
+    pub fn with(max_spins: i64, max_yields: i64, min_park: Duration, max_park: Duration) -> Self {
+        Self {
+            max_spins,
+            max_yields,
+            min_park,
+            max_park,
+            spins: 0,
+            yields: 0,
+            park: min_park,
+            state: BACKOFF_NOT_IDLE,
+        }
+    }
+
+    #[inline]
+    fn idle_one(&mut self) {
+        match self.state {
+            BACKOFF_NOT_IDLE => {
+                self.state = BACKOFF_SPINNING;
+                self.spins += 1;
+            }
+            BACKOFF_SPINNING => {
+                std::hint::spin_loop();
+                self.spins += 1;
+                if self.spins > self.max_spins {
+                    self.state = BACKOFF_YIELDING;
+                    self.yields = 0;
+                }
+            }
+            BACKOFF_YIELDING => {
+                self.yields += 1;
+                if self.yields > self.max_yields {
+                    self.state = BACKOFF_PARKING;
+                    self.park = self.min_park;
+                } else {
+                    std::thread::yield_now();
+                }
+            }
+            _ => {
+                // PARKING — sleep then double the park period up to the max.
+                std::thread::sleep(self.park);
+                self.park = std::cmp::min(self.park.saturating_mul(2), self.max_park);
+            }
+        }
+    }
+}
+
+impl Default for BackoffIdleStrategy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl IdleStrategy for BackoffIdleStrategy {
+    #[inline]
+    fn idle(&mut self, work_count: i32) {
+        if work_count > 0 {
+            self.reset();
+        } else {
+            self.idle_one();
+        }
+    }
+
+    fn reset(&mut self) {
+        self.spins = 0;
+        self.yields = 0;
+        self.park = self.min_park;
+        self.state = BACKOFF_NOT_IDLE;
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -2807,5 +3025,59 @@ mod tests {
             error_handler.release();
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod idle_strategy_tests {
+    use super::*;
+
+    #[test]
+    fn busy_spin_and_yield_return_on_work() {
+        let mut s = BusySpinIdleStrategy;
+        s.idle(5); // work done -> must not block
+        s.idle(0); // no work -> just a pause hint, returns immediately
+
+        let mut y = YieldingIdleStrategy;
+        y.idle(3); // work done
+        y.idle(0); // yields once, returns
+    }
+
+    #[test]
+    fn no_op_never_blocks() {
+        let mut s = NoOpIdleStrategy;
+        for _ in 0..1000 {
+            s.idle(0);
+        }
+    }
+
+    #[test]
+    fn sleeping_idle_only_sleeps_when_idle() {
+        let mut s = SleepingIdleStrategy::new(Duration::from_micros(10));
+        let t = std::time::Instant::now();
+        s.idle(1); // work done -> no sleep
+        assert!(t.elapsed() < Duration::from_millis(1));
+
+        let t = std::time::Instant::now();
+        s.idle(0); // idle -> sleeps ~10µs
+        assert!(t.elapsed() >= Duration::from_micros(10));
+    }
+
+    #[test]
+    fn backoff_resets_on_work_and_progresses_to_park() {
+        let mut s =
+            BackoffIdleStrategy::with(2, 2, Duration::from_micros(1), Duration::from_millis(1));
+        // Work done -> resets state (no backoff progression).
+        s.idle(1);
+        assert_eq!(s.state, BACKOFF_NOT_IDLE);
+        assert_eq!(s.spins, 0);
+
+        // Spin a few, then yield, then park: driving it enough with 0 work must reach PARKING.
+        for _ in 0..1000 {
+            s.idle(0);
+        }
+        assert_eq!(s.state, BACKOFF_PARKING);
+        // Park period grows but is capped at max_park.
+        assert!(s.park <= Duration::from_millis(1));
     }
 }

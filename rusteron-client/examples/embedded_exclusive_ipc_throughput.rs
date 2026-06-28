@@ -28,6 +28,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let running_subscriber = Arc::clone(&running);
 
     let ctx = AeronContext::new()?;
+    let mut error_handler = Handler::leak(AeronErrorHandlerLogger);
+    ctx.set_error_handler(Some(&error_handler))?;
     let dir = std::env::var("AERON_DIR").expect("AERON_DIR must be set");
     ctx.set_dir(&dir.into_c_string())?;
     let aeron = Aeron::new(&ctx)?;
@@ -58,6 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .join()
         .expect("Subscriber thread failed")
         .unwrap();
+    error_handler.release();
 
     Ok(())
 }
@@ -81,11 +84,22 @@ impl Publisher {
         let buffer = vec![1u8; MESSAGE_LENGTH];
 
         while self.running.load(Ordering::Acquire) {
-            while self
-                .publication
-                .offer(&buffer, Handlers::no_reserved_value_supplier_handler())
-                < 0
-            {
+            loop {
+                let result = self
+                    .publication
+                    .offer(&buffer, Handlers::no_reserved_value_supplier_handler());
+                if result > 0 {
+                    break;
+                }
+                // Fatal -> publication gone; stop the benchmark instead of spinning.
+                if result == PUBLICATION_CLOSED
+                    || result == PUBLICATION_MAX_POSITION_EXCEEDED
+                    || result == PUBLICATION_ERROR
+                {
+                    eprintln!("publication closed (result {result}); stopping");
+                    self.running.store(false, Ordering::Release);
+                    break;
+                }
                 back_pressure_count += 1;
                 if !self.running.load(Ordering::Acquire) {
                     let back_pressure_ratio =
