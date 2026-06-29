@@ -56,9 +56,27 @@ pub fn format_with_rustfmt(code: &str) -> Result<String, std::io::Error> {
     }
 
     let output = rustfmt.wait_with_output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("rustfmt failed: {}", stderr),
+        ));
+    }
+
     let formatted_code = String::from_utf8_lossy(&output.stdout).to_string();
 
-    Ok(formatted_code)
+    // If the input was non-empty but the output is empty, that's an error
+    // But if the input was empty/whitespace only, empty output is fine
+    if !code.trim().is_empty() && formatted_code.trim().is_empty() {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "rustfmt produced empty output",
+        ))
+    } else {
+        Ok(formatted_code)
+    }
 }
 
 #[allow(dead_code)]
@@ -252,6 +270,146 @@ mod tests {
         append_to_file(&file, CUSTOM_AERON_CODE).unwrap();
         append_to_file(&file, "\npub fn main() {}\n").unwrap();
         t.pass(file)
+    }
+
+    /// Regenerate `aeron.rs` exactly as `build.rs` does (single rustfmt pass over
+    /// the whole stream, test-modules disabled) and assert it byte-matches the
+    /// committed `docs-rs/aeron.rs`. Catches "forgot to rebuild with
+    /// `COPY_BINDINGS=true`" drift as a CI failure instead of a stale docs.rs.
+    fn assert_aeron_rs_snapshot_matches(
+        bindings_file: &str,
+        snapshot_rel_path: &str,
+        skip_filter: fn(&str) -> bool,
+    ) {
+        if running_under_valgrind() {
+            return;
+        }
+
+        let bindings_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("bindings")
+            .join(bindings_file);
+        let snapshot_path =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(snapshot_rel_path);
+
+        let mut bindings = parse_bindings(&bindings_path);
+        // First pass: populate FnMut(...) names required by generate_rust_code.
+        let bindings_copy = bindings.clone();
+        for handler in bindings.handlers.iter_mut() {
+            let _ = crate::generate_handlers(handler, &bindings_copy);
+        }
+
+        // Mirror build.rs: build ONE stream, format in a single rustfmt pass.
+        let mut stream = TokenStream::new();
+        for (p, w) in bindings
+            .wrappers
+            .values()
+            .filter(|w| skip_filter(&w.type_name))
+            .enumerate()
+        {
+            let code = crate::generate_rust_code(
+                w,
+                &bindings.wrappers,
+                p == 0,
+                false, // build.rs uses `false` (no test modules) for the committed snapshot
+                true,
+                &bindings.handlers,
+            );
+            stream.extend(code);
+        }
+        let bindings_copy = bindings.clone();
+        for handler in bindings.handlers.iter_mut() {
+            let code = crate::generate_handlers(handler, &bindings_copy);
+            stream.extend(code);
+        }
+
+        let generated = format_with_rustfmt(&stream.to_string())
+            .unwrap_or_else(|_| panic!("rustfmt failed on regenerated {bindings_file}"));
+        let committed = fs::read_to_string(&snapshot_path)
+            .unwrap_or_else(|_| panic!("missing committed snapshot: {}", snapshot_path.display()));
+
+        // Normalise surrounding whitespace: build.rs writes the snapshot via
+        // `append_to_file`, which wraps content in `\n{}\n`, so leading/trailing
+        // blank lines are a write artifact, not content drift.
+        let norm = |s: &str| s.trim().to_string();
+        let (generated, committed) = (norm(&generated), norm(&committed));
+        if generated != committed {
+            // First diverging line gives a focused failure message.
+            let mut line_no = 0;
+            for (i, (g, c)) in generated.lines().zip(committed.lines()).enumerate() {
+                if g != c {
+                    line_no = i + 1;
+                    break;
+                }
+            }
+            if line_no == 0 {
+                line_no = generated.lines().count().min(committed.lines().count()) + 1;
+            }
+            panic!(
+                "docs-rs snapshot drift in {}: generated aeron.rs differs from committed \
+                 {} (first divergence near line {}). GENERATED first 3 lines:\n{}\n\
+                 COMMITTED first 3 lines:\n{}\nRebuild with `COPY_BINDINGS=true` \
+                 (e.g. `just build`) and commit the regenerated snapshot.",
+                bindings_file,
+                snapshot_path.display(),
+                line_no,
+                generated.lines().take(3).collect::<Vec<_>>().join("\n"),
+                committed.lines().take(3).collect::<Vec<_>>().join("\n"),
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn client_aeron_rs_matches_committed_snapshot() {
+        assert_aeron_rs_snapshot_matches(
+            "client.rs",
+            "../rusteron-client/docs-rs/aeron.rs",
+            |_| true,
+        );
+    }
+
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    fn archive_aeron_rs_matches_committed_snapshot() {
+        assert_aeron_rs_snapshot_matches(
+            "archive.rs",
+            "../rusteron-archive/docs-rs/aeron.rs",
+            |_| true,
+        );
+    }
+
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    fn media_driver_aeron_rs_matches_committed_snapshot() {
+        // Mirrors the media_driver trybuild test's filter.
+        assert_aeron_rs_snapshot_matches(
+            "media-driver.rs",
+            "../rusteron-media-driver/docs-rs/aeron.rs",
+            |t| !t.contains("_t_") && t != "in_addr",
+        );
+    }
+
+    /// `aeron_custom.rs` is a verbatim copy (not generated) into each crate's
+    /// `docs-rs/`. Assert the committed copies stay byte-identical to the source
+    /// of truth (`rusteron-code-gen/src/aeron_custom.rs`).
+    #[test]
+    fn aeron_custom_rs_snapshots_match_source() {
+        let source = CUSTOM_AERON_CODE.trim();
+        for crate_name in ["client", "archive", "media-driver"] {
+            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("../rusteron-{crate_name}/docs-rs/aeron_custom.rs"));
+            let committed = fs::read_to_string(&path).unwrap_or_else(|_| {
+                panic!("missing committed aeron_custom.rs: {}", path.display())
+            });
+            assert_eq!(
+                committed.trim(),
+                source,
+                "rusteron-{crate_name}/docs-rs/aeron_custom.rs drifted from \
+                 rusteron-code-gen/src/aeron_custom.rs. Rebuild with `COPY_BINDINGS=true`.",
+            );
+        }
     }
 
     fn write_to_file(rust_code: TokenStream, delete: bool, name: &str) -> String {

@@ -21,7 +21,7 @@ fi
 export RUSTERON_VALGRIND=1
 unset CARGO_BUILD_TARGET || true
 unset CARGO_ENCODED_RUSTFLAGS || true
-unset RUSTFLAGS || true
+export RUSTFLAGS="-C target-cpu=x86-64"
 
 echo "=== Phase 1: build test binaries ==="
 # --no-run builds but does not execute; --message-format=json lets us extract
@@ -74,7 +74,7 @@ for BIN in $BINARIES; do
       --error-exitcode=1 \
       --track-origins=yes \
       --leak-check=full \
-      --show-leak-kinds=all \
+      --show-leak-kinds=definite,possible,indirect \
       --errors-for-leak-kinds=definite,possible \
       --num-callers=30 \
       -s \

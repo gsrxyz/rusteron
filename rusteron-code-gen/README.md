@@ -19,6 +19,16 @@ By automating this step, we reduce maintenance cost and improve reliability when
 
 ---
 
+## Sponsored by GSR
+
+**Rusteron** is proudly sponsored and maintained by [GSR](https://www.gsr.io), a global leader in algorithmic trading and market making in digital assets.
+
+It powers mission-critical infrastructure in GSR's real-time trading stack and is now developed under the official GSR GitHub organization as part of our commitment to open-source excellence and community collaboration.
+
+We welcome contributions, feedback, and discussions. If you're interested in integrating or contributing, please open an issue or reach out directly.
+
+---
+
 ## Features
 
 - **Automated Code Generation** – Converts Aeron C headers into Rust-safe APIs.
@@ -37,3 +47,15 @@ This crate is used via internal tooling (e.g. in `just` scripts or CI pipelines)
 
 Generated code includes `unsafe` blocks where necessary to interface with Aeron’s low-level constructs.  
 While much of the generation is automated, occasional manual review and patching may be required to ensure correctness, especially when Aeron introduces API changes.
+
+---
+
+## License & Acknowledgments
+
+Dual-licensed under MIT or Apache-2.0. See the root [README](https://github.com/gsrxyz/rusteron#readme).
+
+Special thanks to:
+
+* [@mimran1980](https://github.com/mimran1980), a core low-latency developer at GSR and the original creator of Rusteron - your work made this possible!
+* [@bspeice](https://github.com/bspeice) for the original [`libaeron-sys`](https://github.com/bspeice/libaeron-sys)
+* The [Aeron](https://github.com/real-logic/aeron) community for open protocol excellence

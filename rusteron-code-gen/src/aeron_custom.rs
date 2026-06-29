@@ -2,17 +2,72 @@
 pub static AERON_IPC_STREAM: &std::ffi::CStr =
     unsafe { std::ffi::CStr::from_bytes_with_nul_unchecked(b"aeron:ipc\0") };
 
+// SAFETY (accepted unsoundness — latency trade-off):
+// These handle types wrap `Rc` (via `CResource::OwnedOnHeap`), so in principle
+// they are `!Send + !Sync`. We deliberately keep `Rc` (non-atomic refcount) for
+// latency — `Arc` is banned in this library. The idiomatic Aeron usage is to
+// MOVE a handle to a single owning thread and use it exclusively there, never
+// sharing `&Handle` across threads, so we retain `Send` to support that pattern.
+//
+// `Sync` is intentionally NOT implemented: sharing `&Handle` across threads
+// would let two threads `Rc::clone` the inner `Rc` concurrently → refcount data
+// race → UB. Nothing in this codebase shares `&Handle` across threads.
+//
+// Retaining `Send` over `Rc` is technically unsound (a non-atomic refcount
+// touched from >1 thread races), but per project policy "rather be unsound than
+// slow" this is documented and accepted. Do NOT clone these handles across
+// threads; do NOT use one handle from multiple threads concurrently.
 unsafe impl Send for AeronCountersReader {}
 unsafe impl Send for AeronSubscription {}
-unsafe impl Sync for AeronSubscription {}
 unsafe impl Send for AeronPublication {}
-unsafe impl Sync for AeronPublication {}
 unsafe impl Send for AeronCounter {}
-unsafe impl Sync for AeronCounter {}
+
+/// Map an Aeron publication position to a `Result`: a non-negative value is the
+/// new stream position (`Ok`); a negative value is a wire-level Aeron error code
+/// mapped to the matching [`AeronCError`] (e.g. back-pressure, closed,
+/// not-connected). This is the mapping consumers such as wingfoil/aerofoil have
+/// had to hand-roll on top of the raw-`i64` `offer`/`try_claim` returns.
+fn publication_position_to_result(position: i64) -> Result<i64, AeronCError> {
+    if position < 0 {
+        Err(AeronCError::from_code(position as i32))
+    } else {
+        Ok(position)
+    }
+}
+
+/// High-level connection state of a publication or subscription.
+///
+/// [`AeronPublication::status`] / [`AeronSubscription::status`] derive
+/// `Disconnected` / `Connected` / `Closed` from the handle's `is_closed` /
+/// `is_connected` flags. `BackPressured` is only observable at `offer` /
+/// `try_claim` time (via the returned error) and is surfaced by
+/// [`AeronStatus::from_error`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AeronStatus {
+    /// No publication/subscription image is currently connected.
+    Disconnected,
+    /// At least one image/publication is connected and the channel is usable.
+    Connected,
+    /// The publication is applying back-pressure; retry the offer shortly.
+    BackPressured,
+    /// The publication/subscription has been closed and is unusable.
+    Closed,
+}
+
+impl AeronStatus {
+    /// Derive a status from an `offer` / `try_claim` error when it corresponds
+    /// to a known transition (`BackPressured` / `Closed`). Returns `None` for
+    /// errors that are not status-like (e.g. `MaxPositionExceeded`).
+    pub fn from_error(error: &AeronCError) -> Option<Self> {
+        match error.kind() {
+            AeronErrorType::PublicationBackPressured => Some(Self::BackPressured),
+            AeronErrorType::PublicationClosed => Some(Self::Closed),
+            _ => None,
+        }
+    }
+}
 
 impl AeronCnc {
-    /// Note this allocates the rust component on stack but the C aeron_cnc_t struct is still on the heap,
-    /// as Aeron does the allocation.
     #[inline]
     pub fn read_on_partial_stack(
         aeron_dir: &std::ffi::CString,
@@ -40,7 +95,7 @@ impl AeronCnc {
     /// Try to use `read_on_partial_stack` which performs less allocations
     #[inline]
     pub fn new_on_heap(aeron_dir: &str) -> Result<AeronCnc, AeronCError> {
-        let c_string = std::ffi::CString::new(aeron_dir).expect("CString conversion failed");
+        let c_string = std::ffi::CString::new(aeron_dir).map_err(|_| AeronCError::from_code(-1))?;
         let resource = ManagedCResource::new(
             move |cnc| unsafe { aeron_cnc_init(cnc, c_string.as_ptr(), 0) },
             Some(Box::new(move |cnc| unsafe {
@@ -80,6 +135,45 @@ impl AeronHeader {
         } else {
             Some(AeronImage::from(ptr as *mut aeron_image_t))
         }
+    }
+
+    /// Session id of this fragment, or `None` if the underlying values lookup
+    /// failed. Collapses the `get_values().frame().session_id()` hop and never
+    /// panics on the fast path.
+    #[inline]
+    pub fn session_id(&self) -> Option<i32> {
+        self.get_values().ok().map(|v| v.frame().session_id())
+    }
+
+    /// Stream id of this fragment, or `None` if the underlying values lookup
+    /// failed. Collapses the `get_values().frame().stream_id()` hop and never
+    /// panics on the fast path.
+    #[inline]
+    pub fn stream_id(&self) -> Option<i32> {
+        self.get_values().ok().map(|v| v.frame().stream_id())
+    }
+
+    /// Reserved value of this fragment, or `None` if the underlying values
+    /// lookup failed. A sender can stamp a timestamp here (see
+    /// [`AeronPublication::offer_timestamped`]) so the receiver can measure
+    /// end-to-end latency.
+    #[inline]
+    pub fn reserved_value(&self) -> Option<i64> {
+        self.get_values().ok().map(|v| v.frame().reserved_value())
+    }
+
+    /// Term id of this fragment, or `None` if the underlying values lookup
+    /// failed.
+    #[inline]
+    pub fn term_id(&self) -> Option<i32> {
+        self.get_values().ok().map(|v| v.frame().term_id())
+    }
+
+    /// Term offset of this fragment, or `None` if the underlying values lookup
+    /// failed.
+    #[inline]
+    pub fn term_offset(&self) -> Option<i32> {
+        self.get_values().ok().map(|v| v.frame().term_offset())
     }
 }
 
@@ -227,7 +321,8 @@ impl AeronCncMetadata {
     #[inline]
     /// allocates on heap
     pub fn load_from_file(aeron_dir: &str) -> Result<Self, AeronCError> {
-        let aeron_dir = std::ffi::CString::new(aeron_dir).expect("CString::new failed");
+        let aeron_dir =
+            std::ffi::CString::new(aeron_dir).map_err(|_| AeronCError::from_code(-1))?;
         let mapped_file = std::rc::Rc::new(std::cell::RefCell::new(aeron_mapped_file_t {
             addr: std::ptr::null_mut(),
             length: 0,
@@ -297,55 +392,6 @@ impl AeronCncMetadata {
 }
 
 impl AeronSubscription {
-    pub fn close_with_no_args(&mut self) -> Result<(), AeronCError> {
-        self.close(Handlers::no_notification_handler())?;
-        Ok(())
-    }
-}
-
-impl AeronPublication {
-    pub fn close_with_no_args(&self) -> Result<(), AeronCError> {
-        self.close(Handlers::no_notification_handler())?;
-        Ok(())
-    }
-
-    /// sometimes when you first connect, is_connected = true, but you get backpressure as position is 0
-    /// this will check if both publication is connected and position > 0
-    #[inline]
-    pub fn is_ready(&self) -> bool {
-        self.is_connected() && self.position_limit() != 0
-    }
-}
-
-impl AeronExclusivePublication {
-    pub fn close_with_no_args(&self) -> Result<(), AeronCError> {
-        self.close(Handlers::no_notification_handler())?;
-        Ok(())
-    }
-
-    /// sometimes when you first connect, is_connected = true, but you get backpressure as position is 0
-    /// this will check if both publication is connected and position > 0
-    #[inline]
-    pub fn is_ready(&self) -> bool {
-        self.is_connected() && self.position_limit() != 0
-    }
-}
-
-impl AeronCounter {
-    pub fn close_with_no_args(&self) -> Result<(), AeronCError> {
-        self.close(Handlers::no_notification_handler())?;
-        Ok(())
-    }
-}
-
-impl AeronCounter {
-    #[inline]
-    pub fn addr_atomic(&self) -> &std::sync::atomic::AtomicI64 {
-        unsafe { std::sync::atomic::AtomicI64::from_ptr(self.addr()) }
-    }
-}
-
-impl AeronSubscription {
     pub fn async_add_destination(
         &mut self,
         client: &Aeron,
@@ -382,6 +428,58 @@ impl AeronSubscription {
         }
         log::error!("failed async poll for {:?} {:?}", destination, self);
         Err(AeronErrorType::TimedOut.into())
+    }
+
+    // ===== Spin-poll ergonomics =====
+
+    /// Ergonomic, allocation-free single-poll convenience that invokes a closure
+    /// for each message fragment received.
+    ///
+    /// This is a zero-allocation alternative to repeatedly calling `poll_once`
+    /// with manual handler state. It performs exactly one polling operation and
+    /// calls `f` for each fragment received (up to `max_per_poll` fragments).
+    ///
+    /// # Spin-poll idiom
+    /// For tight polling loops (common in latency-sensitive trading systems),
+    /// combine this with a bounded spin loop:
+    ///
+    /// ```ignore
+    /// let mut received = 0;
+    /// let max_iterations = 1000;
+    ///
+    /// for _ in 0..max_iterations {
+    ///     let fragments = subscription.for_each_fragment(10, |data, header| {
+    ///         // Process `data` (message payload) and `header` (metadata)
+    ///         received += 1;
+    ///     })?;
+    ///
+    ///     if fragments > 0 {
+    ///         break; // Got some messages, exit spin
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// # Parameters
+    /// - `max_per_poll`: Maximum number of fragments to process in this single poll
+    /// - `f`: Closure called for each fragment, receives `&[u8]` payload and `AeronHeader`
+    ///
+    /// # Returns
+    /// - `Ok(fragment_count)`: Number of fragments actually processed (0 if no messages)
+    /// - `Err(AeronCError)`: Aeron-level error (e.g., subscription closed)
+    ///
+    /// # Allocation guarantee
+    /// This method is allocation-free on the hot path (no heap allocations during
+    /// polling). The closure is called directly via FFI without intermediate boxing.
+    ///
+    /// # Thread safety
+    /// This is a synchronous, single-threaded API. Do not call the same subscription
+    /// from multiple threads concurrently.
+    #[inline]
+    pub fn for_each_fragment<F>(&self, max_per_poll: usize, f: F) -> Result<i32, AeronCError>
+    where
+        F: FnMut(&[u8], AeronHeader),
+    {
+        self.poll_once(f, max_per_poll)
     }
 }
 
@@ -474,7 +572,7 @@ impl std::str::FromStr for AeronUriStringBuilder {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let builder = AeronUriStringBuilder::default();
-        let s = std::ffi::CString::new(s).expect("CString::new failed");
+        let s = std::ffi::CString::new(s).map_err(|_| AeronCError::from_code(-1))?;
         builder.init_on_string(&s)?;
         Ok(builder)
     }
@@ -508,6 +606,30 @@ impl AeronCError {
         Aeron::errmsg()
     }
 }
+
+impl std::fmt::Debug for AeronCError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AeronCError")
+            .field("code", &self.code)
+            .field("kind", &self.kind())
+            .field("lastError", &self.get_last_err_message())
+            .finish()
+    }
+}
+
+impl std::fmt::Display for AeronCError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Aeron error {}: {:?} [lastError={}]",
+            self.code,
+            self.kind(),
+            self.get_last_err_message()
+        )
+    }
+}
+
+impl std::error::Error for AeronCError {}
 
 const PARSE_CSTR_ERROR_CODE: i32 = -132131;
 
@@ -835,6 +957,40 @@ impl AeronUriStringBuilder {
         self.sprint_into(dst)?;
         Ok(())
     }
+
+    /// Remove a key from the URI builder by setting it to null.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let builder = AeronUriStringBuilder::default();
+    /// builder.remove(std::ffi::CStr::from_bytes_until_nul(b"tags\0").unwrap())?;
+    /// ```
+    #[inline]
+    pub fn remove(&self, key: &std::ffi::CStr) -> Result<i32, AeronCError> {
+        unsafe {
+            let result =
+                aeron_uri_string_builder_put(self.get_inner(), key.as_ptr(), std::ptr::null());
+            if result < 0 {
+                Err(AeronCError::from_code(result))
+            } else {
+                Ok(result)
+            }
+        }
+    }
+
+    /// Remove a key from the URI builder by string slice.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let builder = AeronUriStringBuilder::default();
+    /// builder.remove_str("tags")?;
+    /// ```
+    #[inline]
+    pub fn remove_str(&self, key: &str) -> Result<i32, AeronCError> {
+        let key = std::ffi::CString::new(key)
+            .map_err(|_| AeronCError::from_code(PARSE_CSTR_ERROR_CODE))?;
+        self.remove(&key)
+    }
 }
 
 impl AeronCountersReader {
@@ -994,6 +1150,14 @@ impl<T: AeronControlledFragmentHandlerCallback> Handler<T> {
 }
 
 impl AeronBufferClaim {
+    /// Writable view over the claimed term-buffer region.
+    ///
+    /// # Safety contract ( upheld by construction )
+    /// Only sound on a **genuinely claimed** buffer (produced by a successful
+    /// `try_claim`). `length` and `data` come straight from the Aeron C claim
+    /// and are trusted; a default-constructed/null claim would be unsound to
+    /// dereference — the `debug_assert` guards that in debug builds only (no
+    /// release-build cost on this hot path).
     #[inline]
     pub fn data_mut(&self) -> &mut [u8] {
         debug_assert!(!self.data.is_null());
@@ -1002,7 +1166,239 @@ impl AeronBufferClaim {
 
     #[inline]
     pub fn frame_header_mut(&self) -> &mut aeron_header_values_frame_t {
+        debug_assert!(!self.frame_header.is_null());
         unsafe { &mut *self.frame_header.cast::<aeron_header_values_frame_t>() }
+    }
+}
+
+/// Zero-copy claim on a publication's term buffer with a RAII commit-or-abort
+/// lifecycle.
+///
+/// A `AeronClaim` that is dropped without being explicitly committed or aborted
+/// is **aborted** in [`Drop`], releasing the term-buffer slot immediately
+/// instead of waiting for `AERON_PUBLICATION_UNBLOCK_TIMEOUT_NS` (default 15s).
+/// [`AeronClaim::commit`] / [`AeronClaim::abort`] consume `self`, encoding
+/// Aeron's one-shot claim contract in the type system.
+///
+/// Construct via [`AeronPublication::try_claim_owned`] or
+/// [`AeronExclusivePublication::try_claim_owned`]; the claim is returned only on
+/// a successful `try_claim`, so its inner buffer is always a genuinely claimed
+/// slot (never a null zero-default).
+pub struct AeronClaim {
+    claim: AeronBufferClaim,
+    position: i64,
+    finalised: bool,
+}
+
+impl AeronClaim {
+    /// The writable claimed slice (zero-copy into the publication term buffer).
+    #[inline]
+    pub fn data(&mut self) -> &mut [u8] {
+        self.claim.data()
+    }
+
+    /// Length of the claimed slice in bytes.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.claim.length()
+    }
+
+    /// Whether the claimed slice is empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.claim.length() == 0
+    }
+
+    /// Stream position Aeron assigned to this claim.
+    #[inline]
+    pub fn position(&self) -> i64 {
+        self.position
+    }
+
+    /// Commit the claimed bytes, publishing them to subscribers. Consumes `self`.
+    pub fn commit(mut self) -> Result<i64, AeronCError> {
+        self.finalised = true;
+        self.claim.commit()?;
+        Ok(self.position)
+    }
+
+    /// Abort the claim, discarding the slot as padding for subscribers.
+    /// Consumes `self`.
+    pub fn abort(mut self) -> Result<(), AeronCError> {
+        self.finalised = true;
+        self.claim.abort()?;
+        Ok(())
+    }
+}
+
+impl Drop for AeronClaim {
+    fn drop(&mut self) {
+        if !self.finalised {
+            // Defensive backstop: abort so the term slot is released now rather
+            // than after the publication unblock timeout. The claim is always a
+            // genuine claimed slot (constructed only on a successful try_claim),
+            // so calling abort here is safe.
+            let _ = self.claim.abort();
+        }
+    }
+}
+
+impl AeronPublication {
+    /// Like [`AeronPublication::offer`](AeronPublication::offer) but maps a
+    /// negative Aeron code to a typed [`AeronCError`] (e.g. back-pressure,
+    /// closed, not-connected) instead of returning a raw `i64`.
+    #[inline]
+    pub fn offer_result<H: AeronReservedValueSupplierCallback>(
+        &self,
+        buffer: &[u8],
+        reserved_value_supplier: Option<&Handler<H>>,
+    ) -> Result<i64, AeronCError> {
+        publication_position_to_result(self.offer::<H>(buffer, reserved_value_supplier))
+    }
+
+    /// Convenience for [`AeronPublication::offer_result`](Self::offer_result)
+    /// with no reserved-value supplier.
+    #[inline]
+    pub fn offer_result_simple(&self, buffer: &[u8]) -> Result<i64, AeronCError> {
+        self.offer_result::<AeronReservedValueSupplierLogger>(
+            buffer,
+            Handlers::no_reserved_value_supplier_handler(),
+        )
+    }
+
+    /// Like [`AeronPublication::try_claim`](AeronPublication::try_claim) but
+    /// maps a negative Aeron code to a typed [`AeronCError`].
+    #[inline]
+    pub fn try_claim_result(
+        &self,
+        length: usize,
+        buffer_claim: &AeronBufferClaim,
+    ) -> Result<i64, AeronCError> {
+        publication_position_to_result(self.try_claim(length, buffer_claim))
+    }
+
+    /// Zero-copy claim returning a RAII [`AeronClaim`] that is auto-aborted on
+    /// drop unless explicitly committed or aborted.
+    pub fn try_claim_owned(&self, length: usize) -> Result<AeronClaim, AeronCError> {
+        let claim = AeronBufferClaim::new_zeroed_on_stack();
+        let position = publication_position_to_result(self.try_claim(length, &claim))?;
+        Ok(AeronClaim {
+            claim,
+            position,
+            finalised: false,
+        })
+    }
+
+    /// High-level connection state derived from the publication handle.
+    #[inline]
+    pub fn status(&self) -> AeronStatus {
+        if self.is_closed() {
+            AeronStatus::Closed
+        } else if self.is_connected() {
+            AeronStatus::Connected
+        } else {
+            AeronStatus::Disconnected
+        }
+    }
+}
+
+impl AeronExclusivePublication {
+    /// Like [`AeronExclusivePublication::offer`](AeronExclusivePublication::offer)
+    /// but maps a negative Aeron code to a typed [`AeronCError`].
+    #[inline]
+    pub fn offer_result<H: AeronReservedValueSupplierCallback>(
+        &self,
+        buffer: &[u8],
+        reserved_value_supplier: Option<&Handler<H>>,
+    ) -> Result<i64, AeronCError> {
+        publication_position_to_result(self.offer::<H>(buffer, reserved_value_supplier))
+    }
+
+    /// Convenience for
+    /// [`AeronExclusivePublication::offer_result`](Self::offer_result) with no
+    /// reserved-value supplier.
+    #[inline]
+    pub fn offer_result_simple(&self, buffer: &[u8]) -> Result<i64, AeronCError> {
+        self.offer_result::<AeronReservedValueSupplierLogger>(
+            buffer,
+            Handlers::no_reserved_value_supplier_handler(),
+        )
+    }
+
+    /// Like [`AeronExclusivePublication::try_claim`]
+    /// (AeronExclusivePublication::try_claim) but maps a negative Aeron code to
+    /// a typed [`AeronCError`].
+    #[inline]
+    pub fn try_claim_result(
+        &self,
+        length: usize,
+        buffer_claim: &AeronBufferClaim,
+    ) -> Result<i64, AeronCError> {
+        publication_position_to_result(self.try_claim(length, buffer_claim))
+    }
+
+    /// Zero-copy claim returning a RAII [`AeronClaim`] that is auto-aborted on
+    /// drop unless explicitly committed or aborted.
+    pub fn try_claim_owned(&self, length: usize) -> Result<AeronClaim, AeronCError> {
+        let claim = AeronBufferClaim::new_zeroed_on_stack();
+        let position = publication_position_to_result(self.try_claim(length, &claim))?;
+        Ok(AeronClaim {
+            claim,
+            position,
+            finalised: false,
+        })
+    }
+
+    /// High-level connection state derived from the publication handle.
+    #[inline]
+    pub fn status(&self) -> AeronStatus {
+        if self.is_closed() {
+            AeronStatus::Closed
+        } else if self.is_connected() {
+            AeronStatus::Connected
+        } else {
+            AeronStatus::Disconnected
+        }
+    }
+}
+
+impl AeronSubscription {
+    /// High-level connection state derived from the subscription handle.
+    #[inline]
+    pub fn status(&self) -> AeronStatus {
+        if self.is_closed() {
+            AeronStatus::Closed
+        } else if self.is_connected() {
+            AeronStatus::Connected
+        } else {
+            AeronStatus::Disconnected
+        }
+    }
+}
+
+impl AeronImage {
+    /// Instrumented wrapper around [`AeronImage::poll`] that adds tracing spans
+    /// when the `instrument-ops` feature is enabled.
+    #[inline]
+    pub fn poll_instrumented<AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback>(
+        &self,
+        handler: Option<&Handler<AeronFragmentHandlerHandlerImpl>>,
+        fragment_limit: usize,
+    ) -> Result<i32, AeronCError> {
+        self.poll(handler, fragment_limit)
+    }
+
+    /// Instrumented wrapper around [`AeronImage::poll_once`] that adds tracing spans
+    /// when the `instrument-ops` feature is enabled.
+    #[inline]
+    pub fn poll_once_instrumented<
+        AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> (),
+    >(
+        &self,
+        handler: AeronFragmentHandlerHandlerImpl,
+        fragment_limit: usize,
+    ) -> Result<i32, AeronCError> {
+        self.poll_once(handler, fragment_limit)
     }
 }
 
@@ -1035,7 +1431,15 @@ impl FnMutMessageHandler {
     }
 
     #[inline]
-    /// SAFETY: you must make sure ctx lives longer than when `call` method is invoked
+    /// Point this handler at `ctx` / `func` so the next [`call`](Self::call)
+    /// dispatches into them.
+    ///
+    /// # Lifetime contract (caller must uphold)
+    /// `ctx` is stored as a raw `*mut ()` that **escapes the borrow** — the
+    /// borrow checker does NOT keep it alive. The caller MUST ensure `ctx`
+    /// outlives every subsequent `call` (i.e. `ctx` is dropped only after this
+    /// handler is retired or re-`set`). Calling `call` after `ctx` is dropped is
+    /// use-after-free. `ctx` must also not be moved while borrowed.
     pub fn set<T>(&mut self, ctx: &mut T, func: fn(&mut T, &[u8], AeronHeader)) -> &mut Self {
         self.func = Self::wrap::<T>(func);
         self.ctx = ctx as *mut T as *mut ();
@@ -1107,7 +1511,14 @@ impl FnMutControlledMessageHandler {
     }
 
     #[inline]
-    /// SAFETY: caller must ensure `ctx` outlives any invocation of the provided function.
+    /// Point this handler at `ctx` / `func` so the next [`call`](Self::call)
+    /// dispatches into them.
+    ///
+    /// # Lifetime contract (caller must uphold)
+    /// Same as [`FnMutMessageHandler::set`](super::FnMutMessageHandler::set):
+    /// `ctx` is stored as a raw pointer that escapes the borrow. The caller MUST
+    /// keep `ctx` alive (and unmoved) until this handler is retired or re-`set`;
+    /// calling `call` after `ctx` is dropped is use-after-free.
     pub fn set<T>(
         &mut self,
         ctx: &mut T,
@@ -1185,26 +1596,494 @@ impl Drop for AeronControlledFragmentClosureAssembler {
     }
 }
 
-impl std::fmt::Display for AeronCError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Aeron error {}: {:?} - [lastErrMsg={}]",
-            self.code,
-            self.kind(),
-            Aeron::errmsg()
-        )
+/// Status transition tracker that emits only when the observed [`AeronStatus`]
+/// differs from the previously recorded state.
+///
+/// Mirrors the reactive side-channel pattern in wingfoil's `AeronStatusStream`,
+/// useful for driving application-level state machines (e.g. reconnect logic,
+/// UI indicators) that need to react to connection changes without polling.
+///
+/// # Example
+/// ```ignore
+/// // (illustrative — `publication.status()` needs a live handle; see the
+/// //  `aeron_custom_tests` unit tests for runnable pure-Rust assertions)
+/// let mut tracker = AeronStatusTracker::new();
+/// tracker.observe(publication.status()); // emits `Some(Disconnected)`
+/// // ... connection establishes ...
+/// tracker.observe(publication.status()); // emits `Some(Connected)`
+/// tracker.observe(publication.status()); // emits `None` (no change)
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AeronStatusTracker {
+    last_status: Option<AeronStatus>,
+}
+
+impl AeronStatusTracker {
+    /// Create a new tracker with no initial state.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { last_status: None }
+    }
+
+    /// Observe a status, returning `Some(status)` if this is a transition from
+    /// the previous state (or the first observation), `None` if the status is
+    /// unchanged.
+    pub fn observe(&mut self, status: AeronStatus) -> Option<AeronStatus> {
+        if self.last_status != Some(status) {
+            self.last_status = Some(status);
+            Some(status)
+        } else {
+            None
+        }
+    }
+
+    /// Reset the tracker, causing the next call to [`observe`](Self::observe)
+    /// to emit even if the status matches the previously-observed value.
+    pub fn reset(&mut self) {
+        self.last_status = None;
+    }
+
+    /// The most recent status observed, if any.
+    #[must_use]
+    pub const fn last_status(&self) -> Option<AeronStatus> {
+        self.last_status
     }
 }
 
-impl std::fmt::Debug for AeronCError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AeronCError")
-            .field("code", &self.code)
-            .field("kind", &self.kind())
-            .field("last_error_msg", &Aeron::errmsg())
-            .finish()
+impl Default for AeronStatusTracker {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-impl std::error::Error for AeronCError {}
+/// Validate a UDP channel URI endpoint (host:port) for use with Aeron.
+///
+/// This validates the shape and character set of endpoint strings passed to
+/// [`AeronUriStringBuilder::endpoint`] or used directly in channel URIs like
+/// `aeron:udp?endpoint=localhost:40123`. Aeron does not validate input upfront;
+/// this function catches malformed endpoints before they reach the C layer,
+/// providing clearer error messages than the generic C parse failures.
+///
+/// # Accepted forms
+/// - `hostname:port` — host is alphanumeric plus `-` and `.`, port 0-65535
+/// - `IPv4:port` — dotted decimal, port 0-65535
+/// - `[IPv6]:port` — bracketed IPv6 literal, port required
+///
+/// # Errors
+/// Returns `Err(AeronCError)` with code `-1` for any validation failure:
+/// - empty string or missing port separator
+/// - port not `0..=65535` or not a decimal integer
+/// - host contains characters outside the safe allowlist (alphanumeric,
+///   `-`, `.`, `:` for IPv4, `[]` for IPv6 bracketing)
+/// - URI separator characters (`?`, `=`, `:`, `/`) appear unescaped
+///
+/// # Example
+/// ```ignore
+/// // (illustrative — `aeron_custom.rs` is `include!`'d into multiple crates, so
+/// //  no single `use` path compiles across all of them; see the
+/// //  `aeron_custom_tests` module for runnable pure-Rust assertions)
+/// assert!(validate_endpoint_for_aeron_udp("localhost:40123").is_ok());
+/// assert!(validate_endpoint_for_aeron_udp("[::1]:40123").is_ok());
+/// assert!(validate_endpoint_for_aeron_udp("localhost:99999").is_err());
+/// assert!(validate_endpoint_for_aeron_udp("localhost?foo:8080").is_err());
+/// ```
+pub fn validate_endpoint_for_aeron_udp(endpoint: &str) -> Result<(), AeronCError> {
+    if endpoint.is_empty() {
+        return Err(AeronCError::from_code(-1));
+    }
+
+    // Reject URI separator characters that would break channel string parsing.
+    // These are safe in a full URI (e.g. `aeron:udp?endpoint=...`) but not in
+    // the endpoint value itself.
+    if endpoint.contains('?') || endpoint.contains('=') || endpoint.contains('/') {
+        return Err(AeronCError::from_code(-1));
+    }
+
+    // IPv6 addresses are bracketed: `[IPv6]:port`. Extract the host part.
+    if endpoint.starts_with('[') {
+        let end_bracket = endpoint
+            .find(']')
+            .ok_or_else(|| AeronCError::from_code(-1))?;
+        if end_bracket == 1 {
+            // Empty `[]` is invalid.
+            return Err(AeronCError::from_code(-1));
+        }
+        let host_part = &endpoint[1..end_bracket];
+        // Find the port separator colon AFTER the closing bracket.
+        let after_bracket = &endpoint[end_bracket..];
+        let colon_offset = after_bracket
+            .find(':')
+            .ok_or_else(|| AeronCError::from_code(-1))?;
+        let colon_pos = end_bracket + colon_offset;
+        if colon_offset != 1 || colon_pos + 1 >= endpoint.len() {
+            // Port must immediately follow `]` and be non-empty.
+            return Err(AeronCError::from_code(-1));
+        }
+        let port_str = &endpoint[colon_pos + 1..];
+        validate_ipv6(host_part)?;
+        validate_port(port_str)?;
+        return Ok(());
+    }
+
+    // Unbracketed form: `host:port`. Split on the last `:` (IPv4 has at most
+    // 3 colons for dotted decimals; we only want the port separator).
+    let colon_pos = endpoint
+        .rfind(':')
+        .ok_or_else(|| AeronCError::from_code(-1))?;
+    if colon_pos == 0 || colon_pos + 1 >= endpoint.len() {
+        // Require non-empty host and port.
+        return Err(AeronCError::from_code(-1));
+    }
+    let host = &endpoint[..colon_pos];
+    let port_str = &endpoint[colon_pos + 1..];
+
+    validate_host(host)?;
+    validate_port(port_str)?;
+    Ok(())
+}
+
+/// Validate an IPv6 address (without brackets). Returns `Err` if the string
+/// is not a valid IPv6 literal.
+fn validate_ipv6(addr: &str) -> Result<(), AeronCError> {
+    if addr.is_empty() {
+        return Err(AeronCError::from_code(-1));
+    }
+
+    // IPv6 allows: hexadecimal digits, `:` (single or `::` for compression).
+    // Minimal validation: ensure only valid characters and at least one colon.
+    let has_colon = addr.bytes().any(|b| b == b':');
+    if !has_colon {
+        return Err(AeronCError::from_code(-1));
+    }
+
+    for ch in addr.bytes() {
+        let is_hex = ch.is_ascii_hexdigit();
+        let is_colon = ch == b':';
+        if !(is_hex || is_colon) {
+            return Err(AeronCError::from_code(-1));
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate an Aeron UDP host identifier (hostname or IPv4). Returns `Err` if
+/// the host contains characters outside the safe allowlist, is empty, or looks
+/// like an unbracketed IPv6 address.
+fn validate_host(host: &str) -> Result<(), AeronCError> {
+    if host.is_empty() {
+        return Err(AeronCError::from_code(-1));
+    }
+
+    // Reject unbracketed IPv6 addresses (they must use `[IPv6]:port` form).
+    // IPv6 addresses have multiple consecutive colons or colons in positions
+    // that don't match IPv4 dotted decimal.
+    let colon_count = host.bytes().filter(|&b| b == b':').count();
+    if colon_count > 1 {
+        // Multiple colons means this is likely an IPv6 address without brackets.
+        return Err(AeronCError::from_code(-1));
+    }
+    if colon_count == 1 {
+        // Single colon: could be IPv4 (ok) or a short IPv6 form like `::1` (reject).
+        // If there's a colon adjacent to another colon or at the start, it's IPv6.
+        if host.contains("::") || host.starts_with(':') || host.ends_with(':') {
+            return Err(AeronCError::from_code(-1));
+        }
+    }
+
+    // Safe character set: alphanumeric, `-`, `.`, `:` (IPv4 has a single colon
+    // between octets; IPv6 brackets are handled by the caller).
+    for ch in host.bytes() {
+        let is_alnum = ch.is_ascii_alphanumeric();
+        let is_safe = matches!(ch, b'-' | b'.' | b':');
+        if !(is_alnum || is_safe) {
+            return Err(AeronCError::from_code(-1));
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate a TCP/UDP port number. Returns `Err` if the port is not a
+/// decimal integer in `0..=65535`.
+fn validate_port(port: &str) -> Result<(), AeronCError> {
+    if port.is_empty() {
+        return Err(AeronCError::from_code(-1));
+    }
+
+    // Port must be all digits (no leading `-` or `+`).
+    if !port.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(AeronCError::from_code(-1));
+    }
+
+    // Parse as u16; reject values that overflow 65535.
+    let port_num = port
+        .parse::<u32>()
+        .map_err(|_| AeronCError::from_code(-1))?;
+    if port_num > 65535 {
+        return Err(AeronCError::from_code(-1));
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod aeron_custom_tests {
+    use super::*;
+
+    #[test]
+    fn position_to_result_positive_is_ok_position() {
+        assert_eq!(super::publication_position_to_result(0), Ok(0));
+        assert_eq!(super::publication_position_to_result(12_345), Ok(12_345));
+    }
+
+    #[test]
+    fn position_to_result_back_pressure_is_minus_two() {
+        let err = super::publication_position_to_result(-2).expect_err("-2 is an error");
+        assert!(err.is_back_pressured());
+        assert_eq!(err.kind(), AeronErrorType::PublicationBackPressured);
+    }
+
+    #[test]
+    fn position_to_result_closed_is_minus_four() {
+        let err = super::publication_position_to_result(-4).expect_err("-4 is an error");
+        assert_eq!(err.kind(), AeronErrorType::PublicationClosed);
+    }
+
+    #[test]
+    fn position_to_result_not_connected_is_minus_one() {
+        let err = super::publication_position_to_result(-1).expect_err("-1 is an error");
+        assert_eq!(err.code, -1);
+        assert_eq!(err.kind(), AeronErrorType::GenericError);
+    }
+
+    #[test]
+    fn position_to_result_unknown_negative_preserves_code() {
+        let err = super::publication_position_to_result(-99).expect_err("-99 is an error");
+        assert_eq!(err.code, -99);
+        assert_eq!(err.kind(), AeronErrorType::Unknown(-99));
+    }
+
+    #[test]
+    fn status_from_error_maps_back_pressure_and_closed() {
+        assert_eq!(
+            AeronStatus::from_error(&AeronCError::from_code(-2)),
+            Some(AeronStatus::BackPressured)
+        );
+        assert_eq!(
+            AeronStatus::from_error(&AeronCError::from_code(-4)),
+            Some(AeronStatus::Closed)
+        );
+    }
+
+    #[test]
+    fn status_from_error_returns_none_for_non_status_errors() {
+        // PublicationMaxPositionExceeded (-5) is not a status-like transition.
+        assert_eq!(AeronStatus::from_error(&AeronCError::from_code(-5)), None);
+    }
+
+    #[test]
+    fn defused_claim_drops_without_invoking_ffi() {
+        // A zero-default `AeronBufferClaim` has a null inner pointer; calling
+        // abort/commit FFI on it would be unsound. With `finalised = true` the
+        // `Drop` backstop must skip the abort. Constructing directly is allowed
+        // because the test sits in the same module as the private fields. The
+        // mere fact that this drops without segfaulting is the assertion
+        // (mirrors wingfoil's defused-claim test). `position()` reads only the
+        // stored i64 field, so it is also FFI-free.
+        let claim = AeronClaim {
+            claim: AeronBufferClaim::default(),
+            position: 7,
+            finalised: true,
+        };
+        assert_eq!(claim.position(), 7);
+        drop(claim);
+    }
+
+    // --- AeronStatusTracker tests ---
+
+    #[test]
+    fn status_tracker_emits_on_first_observation() {
+        let mut tracker = AeronStatusTracker::new();
+        assert_eq!(
+            tracker.observe(AeronStatus::Disconnected),
+            Some(AeronStatus::Disconnected)
+        );
+    }
+
+    #[test]
+    fn status_tracker_emits_on_transition() {
+        let mut tracker = AeronStatusTracker::new();
+        tracker.observe(AeronStatus::Disconnected);
+        assert_eq!(
+            tracker.observe(AeronStatus::Connected),
+            Some(AeronStatus::Connected)
+        );
+    }
+
+    #[test]
+    fn status_tracker_does_not_emit_on_same_status() {
+        let mut tracker = AeronStatusTracker::new();
+        tracker.observe(AeronStatus::Connected);
+        assert_eq!(tracker.observe(AeronStatus::Connected), None);
+        assert_eq!(tracker.observe(AeronStatus::Connected), None);
+    }
+
+    #[test]
+    fn status_tracker_emits_again_after_reset() {
+        let mut tracker = AeronStatusTracker::new();
+        tracker.observe(AeronStatus::Connected);
+        assert_eq!(tracker.observe(AeronStatus::Connected), None);
+
+        tracker.reset();
+        assert_eq!(
+            tracker.observe(AeronStatus::Connected),
+            Some(AeronStatus::Connected)
+        );
+    }
+
+    #[test]
+    fn status_tracker_records_closed_transition() {
+        let mut tracker = AeronStatusTracker::new();
+        tracker.observe(AeronStatus::Connected);
+        assert_eq!(
+            tracker.observe(AeronStatus::Closed),
+            Some(AeronStatus::Closed)
+        );
+        // No further transitions from Closed.
+        assert_eq!(tracker.observe(AeronStatus::Closed), None);
+    }
+
+    #[test]
+    fn status_tracker_tracks_all_states() {
+        let mut tracker = AeronStatusTracker::new();
+
+        // Full lifecycle: Disconnected -> Connected -> BackPressured -> Connected -> Closed
+        assert_eq!(
+            tracker.observe(AeronStatus::Disconnected),
+            Some(AeronStatus::Disconnected)
+        );
+        assert_eq!(
+            tracker.observe(AeronStatus::Connected),
+            Some(AeronStatus::Connected)
+        );
+        assert_eq!(
+            tracker.observe(AeronStatus::BackPressured),
+            Some(AeronStatus::BackPressured)
+        );
+        assert_eq!(
+            tracker.observe(AeronStatus::Connected),
+            Some(AeronStatus::Connected)
+        );
+        assert_eq!(
+            tracker.observe(AeronStatus::Closed),
+            Some(AeronStatus::Closed)
+        );
+    }
+
+    // --- validate_endpoint_for_aeron_udp tests ---
+
+    #[test]
+    fn validate_endpoint_accepts_hostname_with_port() {
+        assert!(validate_endpoint_for_aeron_udp("localhost:40123").is_ok());
+        assert!(validate_endpoint_for_aeron_udp("localhost:0").is_ok());
+        assert!(validate_endpoint_for_aeron_udp("my-host.example.com:65535").is_ok());
+    }
+
+    #[test]
+    fn validate_endpoint_accepts_ipv4_with_port() {
+        assert!(validate_endpoint_for_aeron_udp("127.0.0.1:8080").is_ok());
+        assert!(validate_endpoint_for_aeron_udp("192.168.1.1:0").is_ok());
+        assert!(validate_endpoint_for_aeron_udp("10.0.0.1:65535").is_ok());
+    }
+
+    #[test]
+    fn validate_endpoint_accepts_ipv6_bracketed_with_port() {
+        assert!(validate_endpoint_for_aeron_udp("[::1]:8080").is_ok());
+        assert!(validate_endpoint_for_aeron_udp("[fe80::1]:9000").is_ok());
+        assert!(validate_endpoint_for_aeron_udp("[2001:db8::1]:0").is_ok());
+        assert!(validate_endpoint_for_aeron_udp("[2001:db8::1]:65535").is_ok());
+    }
+
+    #[test]
+    fn validate_endpoint_rejects_empty() {
+        assert!(validate_endpoint_for_aeron_udp("").is_err());
+    }
+
+    #[test]
+    fn validate_endpoint_rejects_missing_port() {
+        assert!(validate_endpoint_for_aeron_udp("localhost").is_err());
+        assert!(validate_endpoint_for_aeron_udp("127.0.0.1").is_err());
+        assert!(validate_endpoint_for_aeron_udp("[::1]").is_err());
+        assert!(validate_endpoint_for_aeron_udp("[::1]:").is_err());
+        assert!(validate_endpoint_for_aeron_udp(":8080").is_err()); // empty host
+    }
+
+    #[test]
+    fn validate_endpoint_rejects_port_out_of_range() {
+        assert!(validate_endpoint_for_aeron_udp("localhost:65536").is_err());
+        assert!(validate_endpoint_for_aeron_udp("localhost:99999").is_err());
+        assert!(validate_endpoint_for_aeron_udp("[::1]:65536").is_err());
+    }
+
+    #[test]
+    fn validate_endpoint_rejects_non_digit_port() {
+        assert!(validate_endpoint_for_aeron_udp("localhost:abc").is_err());
+        assert!(validate_endpoint_for_aeron_udp("localhost:80a0").is_err());
+        assert!(validate_endpoint_for_aeron_udp("localhost:-1").is_err());
+        assert!(validate_endpoint_for_aeron_udp("localhost:+8080").is_err());
+    }
+
+    #[test]
+    fn validate_endpoint_rejects_unsafe_characters() {
+        // URI separator characters.
+        assert!(validate_endpoint_for_aeron_udp("localhost?foo:8080").is_err());
+        assert!(validate_endpoint_for_aeron_udp("localhost=bar:8080").is_err());
+        assert!(validate_endpoint_for_aeron_udp("localhost/path:8080").is_err());
+
+        // Characters outside the safe allowlist.
+        assert!(validate_endpoint_for_aeron_udp("local_host:8080").is_err()); // underscore
+        assert!(validate_endpoint_for_aeron_udp("local host:8080").is_err()); // space
+        assert!(validate_endpoint_for_aeron_udp("local$host:8080").is_err()); // $
+    }
+
+    #[test]
+    fn validate_endpoint_rejects_malformed_ipv6() {
+        // Missing closing bracket.
+        assert!(validate_endpoint_for_aeron_udp("[::1:8080").is_err());
+
+        // Empty brackets.
+        assert!(validate_endpoint_for_aeron_udp("[]:8080").is_err());
+
+        // Port missing after bracket.
+        assert!(validate_endpoint_for_aeron_udp("[::1]").is_err());
+
+        // Host after bracket (port must immediately follow `]`).
+        assert!(validate_endpoint_for_aeron_udp("[::1]x:8080").is_err());
+
+        // Bracket without colon in the right place.
+        assert!(validate_endpoint_for_aeron_udp("[::1]8080").is_err());
+    }
+
+    #[test]
+    fn validate_endpoint_rejects_colon_in_wrong_position() {
+        // Unbracketed with multiple colons is invalid (IPv4 has at most 3 colons,
+        // but we require host:port, so only the last colon is the separator).
+        assert!(validate_endpoint_for_aeron_udp("::1:8080").is_err());
+
+        // Colon at start is invalid (empty host).
+        assert!(validate_endpoint_for_aeron_udp(":8080").is_err());
+    }
+
+    #[test]
+    fn validate_endpoint_accepts_hyphenated_hostname() {
+        assert!(validate_endpoint_for_aeron_udp("my-host-name:8080").is_ok());
+        assert!(validate_endpoint_for_aeron_udp("host-1:40123").is_ok());
+    }
+
+    #[test]
+    fn validate_endpoint_accepts_dotted_hostname() {
+        assert!(validate_endpoint_for_aeron_udp("host.sub.example.com:8080").is_ok());
+        assert!(validate_endpoint_for_aeron_udp("a.b.c.d:40123").is_ok());
+    }
+}

@@ -1,4 +1,4 @@
-**WARNING:** This page has not been updated since the initial first commit; implementation, configuration, and performance characteristics have changed. Treat all results below as stale. Rerun the benchmarks with the current codebase before citing, and feel free to submit PRs with updated, reproducible benchmark data.
+**Note:** These benchmarks are environment-sensitive. Rust IPC throughput was re-measured 2026-06-27 on an Apple M1 Pro (10-core) — see [Apple M1 Pro (re-measured)](#apple-m1-pro-10-core--re-measured-2026-06-27) below. The original M1/EPYC and Java figures are retained for comparison; rerun locally for your own hardware.
 
 # Aeron IPC Throughput Benchmarks: Java vs. rusteron (Rust)
 
@@ -40,6 +40,23 @@ just benchmark-ipc-throughput-rust
 Throughput: 36,859,281 msgs/sec, 1,179,496,981 bytes/sec
 ...
 ```
+
+### Apple M1 Pro (10-core) — re-measured 2026-06-27
+
+Rust, 32-byte IPC, SHARED client threading + DEDICATED media driver, steady-state per-second samples.
+
+**Rust**: \~32–51 million msgs/sec (typically \~36–40M, peak \~51M)
+
+**Example (Rust)**:
+
+```
+Throughput: 39,248,311 msgs/sec, 1,255,945,944 bytes/sec
+Throughput: 50,859,457 msgs/sec, 1,627,502,615 bytes/sec
+Throughput: 36,694,513 msgs/sec, 1,174,224,425 bytes/sec
+...
+```
+
+(Java was not re-measured in this run; the M1 Java figure above is a reasonable reference.)
 
 ### AMD EPYC 7R32 (48-core)
 
@@ -84,10 +101,11 @@ max: 650.641ms
 
 ## Summary
 
-| Platform   | Java (msgs/sec) | Rust (msgs/sec) | Speedup |
-| ---------- | --------------- | --------------- | ------- |
-| M1 MacBook | \~28M           | \~36–38M        | \~1.3x  |
-| EPYC 7R32  | \~11M           | \~38–39M        | \~3.5x  |
+| Platform             | Java (msgs/sec) | Rust (msgs/sec) | Speedup |
+| -------------------- | --------------- | --------------- | ------- |
+| M1 MacBook           | \~28M           | \~36–38M        | \~1.3x  |
+| M1 Pro (2026-06-27)  | \~28M (ref)     | \~37M (32–51M)  | \~1.3x  |
+| EPYC 7R32            | \~11M           | \~38–39M        | \~3.5x  |
 
 * Rust's `rusteron-client` shows strong throughput advantages, especially on high-core servers.
 * Ping Pong (UDP) latencies are comparable between Rust and Java.

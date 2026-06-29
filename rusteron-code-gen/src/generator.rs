@@ -460,9 +460,13 @@ pub struct CWrapper {
 /// This lets the generator skip auto-generating methods that have hand-written overrides.
 pub fn parse_custom_methods(src: &str) -> HashMap<String, BTreeSet<String>> {
     let mut result: HashMap<String, BTreeSet<String>> = HashMap::new();
-    let Ok(file) = syn::parse_file(src) else {
-        return result;
-    };
+    let file = syn::parse_file(src).unwrap_or_else(|e| {
+        panic!(
+            "rusteron codegen: failed to parse aeron_custom.rs while extracting custom method \
+             names (this would silently empty the generator skip-list and emit duplicate \
+             methods): {e}"
+        )
+    });
     for item in &file.items {
         if let Item::Impl(impl_block) = item {
             // Only plain `impl TypeName { ... }` — no trait impls
@@ -1704,6 +1708,159 @@ impl CWrapper {
     }
 }
 
+#[cfg(test)]
+mod parse_custom_methods_tests {
+    use super::parse_custom_methods;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn extracts_method_names_from_inherent_impls() {
+        let src = r#"
+            impl AeronPublication {
+                pub fn offer_result(&self) -> i64 { 0 }
+                pub fn status(&self) -> u8 { 0 }
+            }
+            impl AeronSubscription {
+                pub fn status(&self) -> u8 { 0 }
+            }
+        "#;
+        let map = parse_custom_methods(src);
+        assert_eq!(
+            map.get("AeronPublication"),
+            Some(
+                &["offer_result", "status"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect::<BTreeSet<_>>()
+            )
+        );
+        assert!(map
+            .get("AeronSubscription")
+            .map_or(false, |s| s.contains("status")));
+    }
+
+    #[test]
+    fn ignores_trait_impls() {
+        // `impl Display for X` and `impl<T> Trait for Y` must not be treated as
+        // inherent method sources (they'd add bogus skip entries).
+        let src = r#"
+            impl std::fmt::Display for AeronCError {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { Ok(()) }
+            }
+        "#;
+        let map = parse_custom_methods(src);
+        assert!(
+            !map.contains_key("AeronCError"),
+            "trait impls must not appear in the skip-list"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "failed to parse aeron_custom.rs")]
+    fn panics_loudly_on_malformed_input() {
+        // Previously this returned an empty map → duplicate-method emission.
+        let _ = parse_custom_methods("impl { not valid rust }}}");
+    }
+
+    #[test]
+    fn empty_input_yields_empty_map() {
+        assert!(parse_custom_methods("").is_empty());
+    }
+
+    #[test]
+    fn self_type_keyed_by_plain_token_stream() {
+        let src = r#"
+            impl AeronPublication { pub fn offer_result(&self) -> i64 { 0 } }
+        "#;
+        let map = parse_custom_methods(src);
+        // Exact plain-name key — no surrounding whitespace, no path qualifiers.
+        assert_eq!(map.len(), 1);
+        assert!(map.contains_key("AeronPublication"));
+    }
+}
+
+#[cfg(test)]
+mod arg_classification_tests {
+    use super::{Arg, ArgProcessing};
+
+    fn arg(c_type: &str) -> Arg {
+        Arg {
+            name: "x".to_string(),
+            c_type: c_type.to_string(),
+            processing: ArgProcessing::Default,
+        }
+    }
+
+    #[test]
+    fn classifies_c_strings() {
+        assert!(arg("* const :: std :: os :: raw :: c_char").is_c_string());
+        assert!(arg("* const :: std :: os :: raw :: c_char").is_c_string_any());
+        assert!(arg("* mut :: std :: os :: raw :: c_char").is_mut_c_string());
+        assert!(arg("* mut :: std :: os :: raw :: c_char").is_c_string_any());
+        // Not a C string:
+        assert!(!arg("* const u8").is_c_string());
+        assert!(!arg("i32").is_c_string_any());
+    }
+
+    #[test]
+    fn classifies_byte_arrays() {
+        assert!(arg("* const u8").is_byte_array());
+        assert!(arg("* mut u8").is_byte_array());
+        assert!(arg("* mut u8").is_mut_byte_array());
+        assert!(!arg("* const u8").is_mut_byte_array());
+        assert!(!arg("* const :: std :: os :: raw :: c_char").is_byte_array());
+    }
+
+    #[test]
+    fn classifies_raw_int_return() {
+        assert!(arg(":: std :: os :: raw :: c_int").is_c_raw_int());
+        assert!(!arg("i32").is_c_raw_int());
+    }
+
+    #[test]
+    fn classifies_void_pointer() {
+        assert!(arg("* mut :: std :: os :: raw :: c_void").is_c_void());
+        assert!(!arg("* mut u8").is_c_void());
+    }
+
+    #[test]
+    fn classifies_mut_pointers_single_vs_double() {
+        // Single `*mut`:
+        assert!(arg("* mut i32").is_mut_pointer());
+        assert!(arg("* mut i32").is_single_mut_pointer());
+        assert!(!arg("* mut i32").is_double_mut_pointer());
+        // Double `*mut *mut` (output param / handle out):
+        assert!(arg("* mut * mut aeron_foo_t").is_mut_pointer());
+        assert!(arg("* mut * mut aeron_foo_t").is_double_mut_pointer());
+        assert!(!arg("* mut * mut aeron_foo_t").is_single_mut_pointer());
+        // `*const` is not a mut pointer:
+        assert!(!arg("* const i32").is_mut_pointer());
+    }
+
+    #[test]
+    fn classifies_primitives() {
+        for ty in [
+            "i64", "u64", "f32", "f64", "i32", "i16", "u32", "u16", "bool", "usize", "isize",
+        ] {
+            assert!(arg(ty).is_primitive(), "{ty} should be primitive");
+        }
+        // NOTE: `is_primitive` is a SUFFIX match (`c_type.ends_with(primitive)`),
+        // so a pointer-to-primitive like `* mut i32` also returns true. This is
+        // the contract the generator relies on (it composes this with the
+        // `is_single_mut_pointer` check elsewhere), so pin it here.
+        assert!(arg("* mut i32").is_primitive());
+        // But a pointer to a non-primitive (a C struct) is not primitive:
+        assert!(!arg("* mut aeron_foo_t").is_primitive());
+    }
+
+    #[test]
+    fn classifies_any_pointer() {
+        assert!(arg("* const i32").is_any_pointer());
+        assert!(arg("* mut i32").is_any_pointer());
+        assert!(!arg("i32").is_any_pointer());
+    }
+}
+
 fn get_docs(
     docs: &BTreeSet<String>,
     wrappers: &BTreeMap<String, CWrapper>,
@@ -1761,6 +1918,80 @@ fn get_docs(
         .collect()
 }
 
+fn generate_stateless_handler_code(handler: &CHandler) -> TokenStream {
+    let type_name_ident = format_ident!("{}", handler.type_name);
+    let callback_fn_name = format_ident!("{}_callback", handler.type_name);
+    let closure_type_name = format_ident!("{}Callback", snake_to_pascal_case(&handler.type_name));
+    let logger_type_name = format_ident!("{}Logger", snake_to_pascal_case(&handler.type_name));
+    let handle_method_name = format_ident!(
+        "handle_{}",
+        &handler.type_name[..handler.type_name.len() - 2]
+    );
+    let closure_return_type = handler.return_type.as_type();
+
+    // For stateless callbacks, the FnMut signature takes no args (other than &mut self)
+    let (fn_mut_args, trait_args): (Vec<TokenStream>, Vec<TokenStream>) = handler
+        .args
+        .iter()
+        .enumerate()
+        .map(|(i, arg)| {
+            let return_type = ReturnType::new(arg.clone(), BTreeMap::new());
+            let type_name = return_type.get_new_return_type(false, false);
+            let arg_name = format_ident!("arg_{}", i);
+
+            let fn_mut_arg = if arg.is_single_mut_pointer() && arg.is_primitive() {
+                let owned_type: Type =
+                    parse_str(arg.c_type.split_whitespace().last().unwrap()).unwrap();
+                quote! { #owned_type }
+            } else {
+                quote! { #type_name }
+            };
+
+            let trait_arg = if type_name.is_empty() {
+                quote! {}
+            } else if arg.is_single_mut_pointer() && arg.is_primitive() {
+                let owned_type: Type =
+                    parse_str(arg.c_type.split_whitespace().last().unwrap()).unwrap();
+                quote! { #arg_name: #owned_type }
+            } else {
+                quote! { #arg_name: #type_name }
+            };
+
+            (fn_mut_arg, trait_arg)
+        })
+        .filter(|(fn_mut, trait_)| !fn_mut.is_empty() && !trait_.is_empty())
+        .unzip();
+
+    // Store the FnMut signature for use in wrapper code
+    let fn_mut_sig = quote! {
+       FnMut(#(#fn_mut_args),*) -> #closure_return_type
+    };
+
+    quote! {
+        pub trait #closure_type_name {
+            fn #handle_method_name(&mut self, #(#trait_args),*) -> #closure_return_type;
+        }
+
+        pub struct #logger_type_name;
+        impl #closure_type_name for #logger_type_name {
+            fn #handle_method_name(&mut self, #(#trait_args),*) -> #closure_return_type {
+                log::info!(
+                    "{}({}\n)",
+                    stringify!(#handle_method_name),
+                    ""
+                );
+                unimplemented!()
+            }
+        }
+
+        // Stub callback function for stateless handlers - panics when called
+        #[allow(dead_code)]
+        unsafe extern "C" fn #callback_fn_name<F: #closure_type_name>(#(#trait_args),*) -> #closure_return_type {
+            unimplemented!("Stateless handler callback called - not supported")
+        }
+    }
+}
+
 pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenStream {
     if handler
         .args
@@ -1768,6 +1999,42 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
         .any(|arg| arg.is_primitive() && arg.is_mut_pointer())
     {
         return quote! {};
+    }
+
+    // Check for stateless callbacks (no c_void parameter)
+    // These cannot use closure pattern as there's no clientd to pass the closure through
+    // Generate only the trait and logger, not the closure infrastructure
+    let has_c_void_param = handler.args.iter().any(|a| a.is_c_void());
+    let is_stateless = !has_c_void_param;
+
+    if is_stateless {
+        let closure_type_name =
+            format_ident!("{}Callback", snake_to_pascal_case(&handler.type_name));
+        // Set the FnMut signature for stateless handlers (needed by wrapper code generation)
+        let fn_mut_args: Vec<TokenStream> = handler
+            .args
+            .iter()
+            .map(|arg| {
+                let return_type = ReturnType::new(arg.clone(), bindings.wrappers.clone());
+                let type_name = return_type.get_new_return_type(false, false);
+                if arg.is_single_mut_pointer() && arg.is_primitive() {
+                    let owned_type: Type =
+                        parse_str(arg.c_type.split_whitespace().last().unwrap()).unwrap();
+                    quote! { #owned_type }
+                } else {
+                    quote! { #type_name }
+                }
+            })
+            .filter(|t| !t.is_empty())
+            .collect();
+        let closure_return_type = handler.return_type.as_type();
+        handler.fn_mut_signature = quote! {
+           FnMut(#(#fn_mut_args),*) -> #closure_return_type
+        };
+        handler.closure_type_name = quote! {
+           #closure_type_name
+        };
+        return generate_stateless_handler_code(handler);
     }
 
     let fn_name = format_ident!("{}_callback", handler.type_name);
@@ -1783,9 +2050,8 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
         .args
         .iter()
         .find(|a| a.is_c_void())
-        .unwrap()
-        .name
-        .clone();
+        .map(|a| a.name.clone())
+        .unwrap_or_else(|| "state".to_string());
     let closure_name = format_ident!("{}", closure);
     let closure_type_name = format_ident!("{}Callback", snake_to_pascal_case(&handler.type_name));
     let closure_return_type = handler.return_type.as_type();
@@ -1831,11 +2097,13 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
         .filter_map(|arg| {
             let name = &arg.name;
             let arg_name = arg.as_ident();
-            if name != &closure {
+            // Skip closure argument - it's only used to get the closure reference
+            // All other args (including other c_void args) are passed to the handler
+            if name == &closure {
+                None
+            } else {
                 let return_type = ReturnType::new(arg.clone(), bindings.wrappers.clone());
                 Some(return_type.handle_c_to_rs_return(quote! {#arg_name}, false, false))
-            } else {
-                None
             }
         })
         .filter(|t| !t.is_empty())
@@ -2424,12 +2692,81 @@ pub fn generate_rust_code(
     if let Some(close_method) = wrapper.get_close_method() {
         if !wrapper.methods.iter().any(|m| m.fn_name.contains("_init")) {
             let close_method_call = if close_method.arguments.len() > 1 {
-                let ident = format_ident!("close_with_no_args");
-                quote! {#ident}
+                // Check if close method has handler callbacks (which are handled by no_notification_handler)
+                let has_handler_callbacks = close_method
+                    .arguments
+                    .iter()
+                    .skip(1)
+                    .any(|arg| arg.name.contains("clientd") || arg.name.starts_with("on_"));
+
+                if has_handler_callbacks {
+                    // The close method takes handler callbacks, use no_notification_handler()
+                    additional_impls.push(quote! {
+                        impl #class_name {
+                            pub fn close_with_no_args(&self) -> Result<(), AeronCError> {
+                                self.close(Handlers::no_notification_handler())?;
+                                Ok(())
+                            }
+                        }
+                    });
+
+                    let ident = format_ident!("close_with_no_args");
+                    quote! {#ident}
+                } else {
+                    // Pass through non-handler parameters if any exist
+                    let close_method_args = close_method
+                        .arguments
+                        .iter()
+                        .skip(1)
+                        .map(|arg| {
+                            let arg_name = arg.as_ident();
+                            if arg.c_type == "()" {
+                                quote! {}
+                            } else {
+                                quote! { #arg_name }
+                            }
+                        })
+                        .collect::<Vec<_>>();
+
+                    additional_impls.push(quote! {
+                        impl #class_name {
+                            pub fn close_with_no_args(&self) -> Result<(), AeronCError> {
+                                self.close(Handlers::no_notification_handler(), #(#close_method_args),*)?;
+                                Ok(())
+                            }
+                        }
+                    });
+
+                    let ident = format_ident!("close_with_no_args");
+                    quote! {#ident}
+                }
             } else {
                 let ident = format_ident!("{}", close_method.struct_method_name);
                 quote! {#ident}
             };
+
+            // Generate additional methods for specific types
+            if wrapper.type_name == "aeron_counter_t" {
+                additional_impls.push(quote! {
+                    impl #class_name {
+                        #[inline]
+                        pub fn addr_atomic(&self) -> &std::sync::atomic::AtomicI64 {
+                            unsafe { std::sync::atomic::AtomicI64::from_ptr(self.addr()) }
+                        }
+                    }
+                });
+            } else if wrapper.type_name == "aeron_publication_t"
+                || wrapper.type_name == "aeron_exclusive_publication_t"
+            {
+                additional_impls.push(quote! {
+                    impl #class_name {
+                        #[inline]
+                        pub fn is_ready(&self) -> bool {
+                            self.is_connected() && self.position_limit() != 0
+                        }
+                    }
+                });
+            }
             let is_closed_method = if wrapper.get_is_closed_method().is_some() {
                 quote! { self.is_closed() }
             } else {

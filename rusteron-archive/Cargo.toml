@@ -30,8 +30,8 @@ exclude = [
 ]
 
 [dependencies]
-log   = { workspace = true }
-regex = { workspace = true }
+log     = { workspace = true }
+regex   = { workspace = true }
 
 [build-dependencies]
 bindgen           = { workspace = true, optional = true }

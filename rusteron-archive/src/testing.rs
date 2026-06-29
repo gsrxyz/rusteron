@@ -361,6 +361,34 @@ impl Drop for EmbeddedArchiveMediaDriverProcess {
     }
 }
 
+/// True if a `java` executable is resolvable on `PATH`.
+///
+/// The embedded archive media driver is a Java process, so the
+/// persistent-subscription tests use this to **skip themselves** when Java
+/// isn't installed — instead of being blanket `#[ignore]`d. With Java present
+/// they run normally under `cargo test`; without it they no-op and pass.
+pub fn java_available() -> bool {
+    Command::new("java")
+        .arg("-version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok()
+}
+
+/// Place at the top of any test that needs the Java archive. Skips the test
+/// (early-returns `Ok(())`) when `java` is not on `PATH`. Requires the test to
+/// return a `Result<(), _>`.
+#[macro_export]
+macro_rules! skip_unless_java {
+    () => {
+        if !$crate::testing::java_available() {
+            eprintln!("skipping: java not available on PATH");
+            return Ok(());
+        }
+    };
+}
+
 pub fn set_panic_hook() {
     panic::set_hook(Box::new(|info| {
         // Get the backtrace

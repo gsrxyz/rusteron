@@ -7,13 +7,18 @@ use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 pub enum CResource<T> {
     OwnedOnHeap(std::rc::Rc<ManagedCResource<T>>),
-    /// stored on stack, unsafe, use with care
+    /// Always initialised by construction (zeroed or `new(v)`). Never store
+    /// `uninit()` — `Clone` and `get()` assume it's valid.
     OwnedOnStack(std::mem::MaybeUninit<T>),
     Borrowed(*mut T),
 }
 
 impl<T: Clone> Clone for CResource<T> {
     fn clone(&self) -> Self {
+        // SAFETY: each branch only dereferences pointers/references that are
+        // valid by construction. `OwnedOnStack` upholds the initialised-by-
+        // construction invariant documented on the variant, so `assume_init_ref`
+        // is sound.
         unsafe {
             match self {
                 CResource::OwnedOnHeap(r) => CResource::OwnedOnHeap(r.clone()),
@@ -98,10 +103,9 @@ pub struct ManagedCResource<T> {
     auto_close: std::cell::Cell<bool>,
     /// indicates if the underlying resource has already been handed off and should not be re-polled
     resource_released: std::cell::Cell<bool>,
-    /// to prevent the dependencies from being dropped as you have a copy here,
-    /// for example, you want to have a dependency to aeron for any async jobs so aeron doesnt get dropped first
-    /// when you have a publication/subscription
-    /// Note empty vec does not allocate on heap
+    /// Keeps deps alive (e.g. the Aeron client while a pub/sub exists).
+    /// Mutated only at construction from the owning thread — no locking,
+    /// same Send-over-Rc unsoundness stance. Empty vec doesn't allocate.
     dependencies: UnsafeCell<Vec<std::rc::Rc<dyn std::any::Any>>>,
 }
 
@@ -395,8 +399,13 @@ impl AeronCError {
                 let backtrace = Backtrace::capture();
                 let backtrace = format!("{:?}", backtrace);
 
-                let re =
-                    regex::Regex::new(r#"fn: "([^"]+)", file: "([^"]+)", line: (\d+)"#).unwrap();
+                // Compile the backtrace-parsing regex ONCE, not per error.
+                // `from_code` sits on the error path; re-compiling the regex on
+                // every Aeron error (including back-pressure retries) is wasteful.
+                static BACKTRACE_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+                let re = BACKTRACE_RE.get_or_init(|| {
+                    regex::Regex::new(r#"fn: "([^"]+)", file: "([^"]+)", line: (\d+)"#).unwrap()
+                });
                 let mut lines = String::new();
                 re.captures_iter(&backtrace).for_each(|cap| {
                     let function = &cap[1];
@@ -493,6 +502,12 @@ impl<T> Handler<T> {
                 log::info!("dropping handler {:?}", self.raw_ptr);
                 let _ = Box::from_raw(self.raw_ptr as *mut T);
                 self.should_drop = false;
+                // Null the pointer so a subsequent `Deref`/`DerefMut`/`is_none()`
+                // cannot reach freed memory. Without this, `release()` left
+                // `raw_ptr` dangling (freed-but-not-nulled) and any later deref
+                // would be use-after-free. `Drop` only acts when `should_drop`,
+                // which we already cleared, so the null is safe.
+                self.raw_ptr = std::ptr::null_mut();
             }
         }
     }
@@ -515,6 +530,10 @@ impl<T> Drop for Handler<T> {
                 self.raw_ptr,
                 std::mem::size_of::<T>(),
             );
+            // Actually free the memory to prevent Valgrind leaks
+            unsafe {
+                let _ = Box::from_raw(self.raw_ptr as *mut T);
+            }
         }
     }
 }
@@ -722,5 +741,45 @@ impl IntoCString for String {
         log::info!("created c string on heap: {:?}", self);
 
         std::ffi::CString::new(self).expect("failed to create CString")
+    }
+}
+
+#[cfg(test)]
+mod handler_tests {
+    use super::*;
+
+    #[test]
+    fn release_nulls_pointer_so_is_none_is_true() {
+        let mut handler = Handler::leak(42u32);
+        // Boxed value lives on the heap before release.
+        assert!(
+            !handler.is_none(),
+            "freshly leaked handler must be non-null"
+        );
+
+        handler.release();
+
+        // After release the inner pointer is nulled, not dangling — so a later
+        // Deref/is_none cannot reach freed memory.
+        assert!(handler.is_none(), "release() must null raw_ptr (was a UAF)");
+    }
+
+    #[test]
+    fn release_is_idempotent_no_double_free() {
+        let mut handler = Handler::leak(99u64);
+        handler.release();
+        // A second release must be a no-op: the guard `should_drop && !null`
+        // is false, so Box::from_raw is not called again (no double-free).
+        handler.release();
+        assert!(handler.is_none());
+    }
+
+    #[test]
+    fn release_then_drop_is_silent() {
+        // After release, should_drop is false and raw_ptr is null, so Drop must
+        // not log the "memory leak" warning nor touch freed memory.
+        let mut handler = Handler::leak(7u16);
+        handler.release();
+        drop(handler);
     }
 }

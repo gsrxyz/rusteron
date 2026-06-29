@@ -54,6 +54,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn run_pong(running_pong: Arc<AtomicBool>) -> Result<(), Box<dyn std::error::Error>> {
     let context = AeronContext::new()?;
+    let mut error_handler = Handler::leak(AeronErrorHandlerLogger);
+    context.set_error_handler(Some(&error_handler))?;
     let dir = std::env::var("AERON_DIR").expect("AERON_DIR must be set");
     context.set_dir(&dir.into_c_string())?;
     context.set_idle_sleep_duration_ns(0)?;
@@ -87,7 +89,19 @@ fn run_pong(running_pong: Arc<AtomicBool>) -> Result<(), Box<dyn std::error::Err
             header.values(&self.header_values).unwrap();
             let flags = self.header_values.frame.flags;
 
-            while self.publisher.try_claim(buffer.len(), &self.buffer_claim) < 0 {}
+            loop {
+                let result = self.publisher.try_claim(buffer.len(), &self.buffer_claim);
+                if result >= 0 {
+                    break;
+                }
+                // Fatal -> publication gone; abandon this fragment rather than spin forever.
+                if result == PUBLICATION_CLOSED
+                    || result == PUBLICATION_MAX_POSITION_EXCEEDED
+                    || result == PUBLICATION_ERROR
+                {
+                    return;
+                }
+            }
             self.buffer_claim.frame_header_mut().flags = flags;
             self.buffer_claim.data_mut().copy_from_slice(buffer);
             self.buffer_claim.commit().unwrap();
@@ -103,6 +117,7 @@ fn run_pong(running_pong: Arc<AtomicBool>) -> Result<(), Box<dyn std::error::Err
         let _ = pong_subscription.poll(Some(&handler), FRAGMENT_COUNT_LIMIT);
     }
     println!("Shutting down pong thread");
+    error_handler.release();
     Ok(())
 }
 
@@ -111,6 +126,8 @@ fn run_ping(
     pong_thread: JoinHandle<()>,
 ) -> Result<Histogram<u64>, Box<dyn Error>> {
     let context = AeronContext::new()?;
+    let mut error_handler = Handler::leak(AeronErrorHandlerLogger);
+    context.set_error_handler(Some(&error_handler))?;
     let dir = std::env::var("AERON_DIR").expect("AERON_DIR must be set");
     println!("idle sleep {}", context.get_idle_sleep_duration_ns());
     context.set_idle_sleep_duration_ns(0)?;
@@ -164,6 +181,7 @@ fn run_ping(
     running.store(false, Ordering::SeqCst);
     pong_thread.join().expect("Failed to join pong thread");
 
+    error_handler.release();
     let hist = &inner_handler.histogram;
     Ok(hist.clone())
 }
@@ -198,7 +216,19 @@ fn record_rtt(
 ) {
     let now = Aeron::nano_clock();
     write_i64(buffer, &now);
-    while pong_publication.offer(buffer, Handlers::no_reserved_value_supplier_handler()) < 0 {}
+    loop {
+        let result = pong_publication.offer(buffer, Handlers::no_reserved_value_supplier_handler());
+        if result > 0 {
+            break;
+        }
+        // Fatal -> publication gone; stop trying to send this ping.
+        if result == PUBLICATION_CLOSED
+            || result == PUBLICATION_MAX_POSITION_EXCEEDED
+            || result == PUBLICATION_ERROR
+        {
+            return;
+        }
+    }
 
     while ping_subscription
         .poll(Some(handler), FRAGMENT_COUNT_LIMIT)

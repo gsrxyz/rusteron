@@ -68,6 +68,7 @@ To view all available commands, run `just` in the command line.
 
 * **Stream Recording** – Record Aeron streams for replay or archival.
 * **Replay Handling** – Replay previously recorded messages.
+* **Persistent Subscriptions** – Replay recorded history, then seamlessly join the live stream (Aeron Archive 1.51.0). See [below](#persistent-subscriptions).
 * **Publication/Subscription** – Publish to and subscribe from Aeron channels.
 * **Callbacks** – Receive events such as new publications, subscriptions, and errors.
 * **Automatic Resource Management** (via `new()` only) – Constructors automatically call `*_init` and clean up with `*_close` or `*_destroy` when dropped.
@@ -192,6 +193,67 @@ The `AeronCError` struct exposes these enums alongside descriptive messages.
 5. **Locate the Recording** using archive queries.
 6. **Replay Setup**: Configure replay target/channel.
 7. **Subscribe and Receive** replayed messages.
+
+---
+
+## Persistent Subscriptions
+
+A **persistent subscription** replays a recording from a start position, then seamlessly merges into the live stream — so a consumer catches up on history without missing new messages and without a gap at the handover. Introduced in Aeron Archive 1.51.0.
+
+- **What it is**: [Aeron — Persistent Subscriptions (replay-to-live)](https://aeron.io/software-release/persistent-subscriptions-replay-to-live-transitions/)
+- **How it works**: [Aeron Wiki — Persistent Subscriptions](https://github.com/aeron-io/aeron/wiki/Persistent-Subscriptions)
+- **Background on publications/subscriptions**: [Aeron docs](https://aeron.io/docs/aeron/publications-subscriptions/)
+
+Rusteron exposes it via `persistent_subscription_builder()` and the `PersistentSubscriptionListener` trait — a 1:1 wrapper over the Aeron C API (`aeron_archive_persistent_subscription_*`), mirroring Aeron's `PersistentSubscription.Context` field-for-field.
+
+```rust,ignore
+use rusteron_archive::*;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
+// `archive` is a connected AeronArchive; record + publish history first, then resolve recording_id.
+let live_channel = "aeron:ipc";
+let stream_id = 1001;
+
+struct MyListener { live_joined: Arc<AtomicUsize> }
+impl PersistentSubscriptionListener for MyListener {
+    fn on_live_joined(&self) { self.live_joined.fetch_add(1, Ordering::SeqCst); }
+    fn on_live_left(&self)  { /* fell back to replay */ }
+    fn on_error(&self, code: i32, msg: &str) { eprintln!("ps error {code}: {msg}"); }
+}
+let live_joined = Arc::new(AtomicUsize::new(0));
+
+let ps = persistent_subscription_builder()?
+    .aeron(&aeron)?
+    .archive_context(&archive_context)?
+    .live_channel(live_channel)?        // the live stream to join
+    .live_stream_id(stream_id)?
+    .replay_channel("aeron:udp?endpoint=localhost:0")?  // scratch channel for the replay
+    .replay_stream_id(stream_id + 1)?
+    .start_from_beginning()?            // replay from the start (or .start_from_live())
+    .recording_id(recording_id)?        // which recording to replay
+    .listener(MyListener { live_joined: live_joined.clone() })?
+    .build()?;
+
+// Drive it: replay runs, then it joins live. `ps.poll_once()` drives the archive
+// client internally, so no `archive.poll_for_recording_signals()` is needed. Check
+// `has_failed()` each iteration (terminal failure) and stop once `is_live()`.
+while !ps.is_live() {
+    if ps.has_failed() {
+        panic!("persistent subscription failed: {:?}", ps.get_failure_reason());
+    }
+    let _ = publication.offer(b"live", Handlers::no_reserved_value_supplier_handler());
+    ps.poll_once(|buf, _hdr| { /* an assembled replayed or live message */ }, 100)?;
+}
+ps.close()?;
+```
+
+**Polling & errors.** `ps.poll_once()` drives the PS state machine *and* the archive async client internally, so — unlike a manual replay loop — you do **not** call `archive.poll_for_recording_signals()` here. Drive the loop on `ps.is_live()` and check `ps.has_failed()` each iteration (read the reason with `ps.get_failure_reason()`); the listener's `on_error` fires for non-terminal errors too, and `on_live_left`/`on_live_joined` can fire repeatedly as it falls back to replay and rejoins. The poll handler receives **assembled** messages — do not wrap it in a fragment assembler.
+
+For a fully runnable version, see the example and integration tests:
+- [`examples/persistent_subscription.rs`](./examples/persistent_subscription.rs) — standalone demo (run with `cargo run --release --features "static precompile" --example persistent_subscription`)
+- `persistent_subscription_tests::test_persistent_subscription_listener_live_joined` (callback wiring)
+- `persistent_subscription_integration::test_end_to_end_persistent_subscription` (record → replay → live)
 
 ---
 

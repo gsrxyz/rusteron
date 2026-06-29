@@ -15,8 +15,7 @@
    fun:_ZN4test16test_main_static*
 }
 
-# Fallback for Rust test runner spawned test-thread bookkeeping that can appear as
-# "possibly lost" with toolchain-dependent symbol paths.
+# Fallback for Rust test-thread bookkeeping (toolchain-dependent symbol paths).
 {
    rust_test_thread_spawn_possible_leak
    Memcheck:Leak
@@ -55,6 +54,58 @@
    fun:malloc
    ...
    fun:*stack_overflow*thread_info*set_current_info*
+   ...
+   fun:*lang_start_internal*
+   fun:main
+}
+
+# Rust runtime ThreadInfo allocations persisting to exit (all leak kinds).
+{
+   rust_runtime_thread_info_all_leak_kinds
+   Memcheck:Leak
+   match-leak-kinds: definite,indirect,possible,reachable
+   fun:malloc
+   fun:_ZN3std3sys5alloc4unix81_$LT$impl$u20$core..alloc..global..GlobalAlloc$u20$for$u20$std..alloc..System$GT$5alloc*
+   fun:_ZN100_$LT$rusteron_archive..test_alloc..TrackingAllocator$u20$as$u20$core..alloc..global..GlobalAlloc$GT$5alloc*
+   fun:_RNvCsj4CZ6flxxfE_7___rustc12___rust_alloc
+   fun:alloc
+   fun:alloc_impl
+   fun:allocate
+   fun:try_new_uninit_in*
+   ...
+   fun:*thread_info*set_current_info*
+   ...
+   fun:*lang_start_internal*
+   fun:main
+}
+
+# Same, different allocator chain in the trace.
+{
+   rust_runtime_thread_info_all_leak_kinds_alt
+   Memcheck:Leak
+   match-leak-kinds: definite,indirect,possible,reachable
+   fun:malloc
+   ...
+   fun:*thread_info*set_current_info*
+   fun:init
+   fun:init
+   fun:init
+   fun:{closure#0}
+   fun:do_call*
+   fun:catch_unwind*
+   fun:*lang_start_internal*
+   fun:main
+}
+
+# ThreadInfo allocations, any allocator chain.
+{
+   rust_runtime_thread_info_general
+   Memcheck:Leak
+   match-leak-kinds: definite,indirect,possible,reachable
+   fun:malloc
+   ...
+   fun:new*ThreadInfo*
+   fun:*thread_info*set_current_info*
    ...
    fun:*lang_start_internal*
    fun:main
@@ -111,8 +162,7 @@
    fun:run_test_in_process
 }
 
-# Archive replay-merge test can leave an Aeron async publication allocation as reachable
-# at process exit under Valgrind. Scope this suppression tightly to that test path.
+# Archive replay-merge test leaves an async-publication allocation reachable at exit.
 {
    archive_reply_merge_async_add_publication_reachable
    Memcheck:Leak
@@ -246,9 +296,7 @@
    ...
 }
 
-# Upstream Aeron C shutdown race: conductor idle strategy may read sleeping state
-# after context close frees it. This is a real memory-safety pattern, but it is
-# outside rusteron's Rust-owned lifecycle control, so it stays suppressed here.
+# Upstream Aeron C shutdown race (idle strategy read after context close frees it); outside rusteron's lifecycle.
 {
    aeron_idle_strategy_sleeping_after_context_close
    Memcheck:Addr8
@@ -258,8 +306,7 @@
    fun:clone
 }
 
-# Aeron client conductor can report "possibly lost" allocations at process exit
-# when teardown races with async publication/subscription/image flows.
+# Aeron client conductor "possibly lost" at exit (teardown races async pub/sub/image flows).
 {
    aeron_client_conductor_image_create_possible
    Memcheck:Leak
@@ -447,6 +494,156 @@
    fun:*test_main_static*
 }
 
+# Thread TLS allocation retained at exit (GLIBC TLS allocation)
+{
+   rust_test_thread_tls_allocation_possible_leak
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:calloc
+   ...
+   fun:allocate_dtv
+   fun:_dl_allocate_tls
+   ...
+   fun:allocate_stack
+   fun:pthread_create*
+   ...
+   fun:*Thread*::new
+   ...
+   fun:spawn_unchecked*
+   fun:*test::run_test*
+}
+
+# Thread stack allocation retained at exit
+{
+   rust_test_thread_stack_allocation_possible_leak
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:calloc
+   ...
+   fun:allocate_stack
+   fun:pthread_create*
+   ...
+   fun:*sys::thread::unix::Thread::*::new
+   ...
+   fun:*thread::lifecycle::spawn_unchecked*
+   ...
+   fun:*test::run_test*
+}
+
+# serial_test HashMap/Table allocations during test execution
+{
+   serial_test_hashmap_allocation_possible_leak
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   ...
+   fun:*hashbrown::raw::RawTableInner::new_uninitialized
+   ...
+   fun:*hashbrown::raw::RawTable*::reserve_rehash
+   ...
+   fun:*hashbrown::raw::RawTable*::reserve
+   ...
+   fun:reserve<alloc::string::String, serial_test::code_lock::UniqueReentrantMutex, std::hash::random::RandomState, alloc::alloc::Global>
+   ...
+   fun:*serial_test::code_lock::LockMap::get_or_insert
+   ...
+   fun:*serial_test::code_lock::check_new_key
+   ...
+   fun:*test::run_test*
+}
+
+{
+   serial_test_hashtable_allocation_possible_leak
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   ...
+   fun:*hashbrown::raw::RawTableInner::new_uninitialized
+   ...
+   fun:*hashbrown::raw::RawTable*::reserve_rehash
+   ...
+   fun:*hashbrown::raw::RawTable*::reserve
+   ...
+   fun:reserve<alloc::string::String, serial_test::code_lock::UniqueReentrantMutex, std::hash::random::RandomState, alloc::alloc::Global>
+   ...
+   fun:*serial_test::code_lock::LockMap::get_or_insert
+   ...
+   fun:*serial_test::code_lock::check_new_key
+   ...
+   fun:*test::run_test*
+}
+
+# Aeron client test allocations that remain reachable at test exit
+{
+   aeron_client_test_allocation_possible_leak
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   ...
+   fun:aeron_alloc
+   fun:aeron_client_conductor_async_add_publication
+   ...
+   fun:*AeronAsyncAddPublication::new
+   ...
+   fun:*Aeron::add_publication
+   ...
+   fun:*tests::try_claim
+}
+
+{
+   aeron_client_subscription_allocation_possible_leak
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   ...
+   fun:aeron_alloc
+   fun:aeron_client_conductor_async_add_subscription
+   ...
+   fun:*AeronAsyncAddSubscription::new
+   ...
+   fun:*Aeron::add_subscription
+   ...
+   fun:*tests::try_claim
+}
+
+# Aeron client managed resource test allocations
+{
+   aeron_client_managed_resource_test_possible_leak
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   ...
+   fun:aeron_alloc
+   ...
+   fun:*ManagedCResource*::initialise
+   ...
+   fun:*ManagedCResource*::new
+   ...
+   fun:*tests::try_claim
+}
+
+# Aeron archive hash table allocations during test execution
+{
+   aeron_archive_hashtable_allocation_possible_leak
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   ...
+   fun:*hashbrown::raw::RawTableInner::new_uninitialized
+   ...
+   fun:*hashbrown::raw::RawTable*::reserve_rehash
+   ...
+   fun:*hashbrown::raw::RawTable*::reserve
+   ...
+   fun:reserve<alloc::string::String, serial_test::code_lock::UniqueReentrantMutex, std::hash::random::RandomState, alloc::alloc::Global>
+   ...
+   fun:*serial_test::code_lock::LockMap::get_or_insert
+   ...
+   fun:*serial_test::code_lock::check_new_key
+   ...
+   fun:*test::run_test*
+}
+
 # Same stack-overflow thread-info allocation with the codegen crate's allocator symbols
 {
    rust_runtime_stack_overflow_thread_info_reachable_codegen
@@ -497,4 +694,82 @@
    fun:*lang_start_internal*
    fun:*lang_start*
    fun:main
+}
+# Small Rust test-harness/runtime bookkeeping false positives ("possibly lost").
+{
+   rust_test_runtime_small_possible_leaks
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   ...
+   fun:*thread::lifecycle::spawn_unchecked*
+   fun:*test::run_test*
+}
+
+# NOTE: the ListenerHolder definite leak is FIXED (reclaimed via an add_dependency on
+# Box<ListenerHolder> — the generated close() bypasses cleanup closures, but a field drops).
+# It was a real leak, not a false positive — do NOT re-add a suppression for it.
+
+# glibc pthread TLS (DTV) false positive: glibc frees the test-thread's TLS only at
+# exit. NOT a rusteron leak. NB: `*Thread::new` won't match the demangled `<...Thread>::new`
+# — the `...` bridge is why.
+{
+   rust_test_thread_tls_possible_leak
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:calloc
+   ...
+   fun:allocate_dtv
+   fun:_dl_allocate_tls
+   fun:allocate_stack
+   fun:pthread_create*
+   ...
+   fun:*spawn_unchecked<test::run_test*
+   ...
+   fun:*test*run_test*
+}
+
+# Same glibc pthread-TLS false positive, for rusteron-spawned threads (embedded media
+# driver). Anchored on the glibc chain alone — trace truncates before the runner
+# frames, so no trailing run_test frame.
+{
+   pthread_create_tls_possible_leak
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:calloc
+   ...
+   fun:allocate_dtv
+   fun:_dl_allocate_tls
+   fun:allocate_stack
+   fun:pthread_create*
+}
+
+# Rust test harness CompletedTest allocation false positive.
+{
+   rust_test_harness_completed_test_possible_leak
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:calloc
+   ...
+   fun:alloc_zeroed
+   ...
+   fun:*new_zeroed_in<std::sync::mpmc::list::Block<test::event::CompletedTest>*
+   ...
+   fun:*start_send<test::event::CompletedTest>*
+   fun:*send<test::event::CompletedTest>
+   ...
+   fun:run_test_in_process
+   fun:*test::run_test*
+}
+
+# `serial_test` process-global `code_lock::LockMap` — intentionally never freed, reclaimed
+# by the OS at exit. Third-party false positive, not a rusteron leak. Anchored on code_lock
+# frames only (trace truncates before the runner frames).
+{
+   serial_test_code_lock_global_map_possible_leak
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   ...
+   fun:*serial_test*code_lock*check_new_key*
 }

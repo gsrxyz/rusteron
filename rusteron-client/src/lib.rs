@@ -22,9 +22,227 @@ pub mod bindings {
 }
 
 use bindings::*;
+use std::time::Duration;
+
+/// Result codes returned by [`AeronPublication::offer`] / `try_claim` (Aeron `aeronc.h`). A
+/// positive value is the resulting log position; the negatives classify the failure.
+///
+/// **Fatal** (stop offering): [`PUBLICATION_CLOSED`], [`PUBLICATION_MAX_POSITION_EXCEEDED`],
+/// [`PUBLICATION_ERROR`]. **Transient** (retry, ideally with an idle strategy):
+/// [`PUBLICATION_BACK_PRESSURED`], [`PUBLICATION_NOT_CONNECTED`], [`PUBLICATION_ADMIN_ACTION`].
+/// Mirrors how Aeron's own samples (`BasicPublisher` / `basic_publisher.c`) classify offer results.
+pub const PUBLICATION_NOT_CONNECTED: i64 = bindings::AERON_PUBLICATION_NOT_CONNECTED as i64;
+pub const PUBLICATION_BACK_PRESSURED: i64 = bindings::AERON_PUBLICATION_BACK_PRESSURED as i64;
+pub const PUBLICATION_ADMIN_ACTION: i64 = bindings::AERON_PUBLICATION_ADMIN_ACTION as i64;
+pub const PUBLICATION_CLOSED: i64 = bindings::AERON_PUBLICATION_CLOSED as i64;
+pub const PUBLICATION_MAX_POSITION_EXCEEDED: i64 =
+    bindings::AERON_PUBLICATION_MAX_POSITION_EXCEEDED as i64;
+pub const PUBLICATION_ERROR: i64 = bindings::AERON_PUBLICATION_ERROR as i64;
 
 include!(concat!(env!("OUT_DIR"), "/aeron.rs"));
 include!(concat!(env!("OUT_DIR"), "/aeron_custom.rs"));
+
+// Retryable / unrecoverable classification for Aeron errors (hand-written — the codegen drops
+// doc-commented methods from common.rs). GenericError(-1) and Unknown(_) are intentionally
+// neither: `-1` is Aeron's catch-all and could mean anything, so the caller must decide.
+impl AeronErrorType {
+    /// Transient — retry the operation (back off first): back-pressure, admin action, a full
+    /// client buffer, or a polling timeout.
+    pub fn is_retryable(&self) -> bool {
+        self == &AeronErrorType::PublicationBackPressured
+            || self == &AeronErrorType::PublicationAdminAction
+            || self == &AeronErrorType::ClientErrorBufferFull
+            || self == &AeronErrorType::TimedOut
+    }
+
+    /// Definitively terminal — retrying will not help. Not exhaustive: ambiguous codes
+    /// (`GenericError` / `Unknown`) are neither retryable nor unrecoverable.
+    pub fn is_unrecoverable(&self) -> bool {
+        self == &AeronErrorType::PublicationClosed
+            || self == &AeronErrorType::PublicationMaxPositionExceeded
+            || self == &AeronErrorType::PublicationError
+            || self == &AeronErrorType::ClientErrorDriverTimeout
+            || self == &AeronErrorType::ClientErrorClientTimeout
+            || self == &AeronErrorType::ClientErrorConductorServiceTimeout
+    }
+}
+
+impl AeronCError {
+    /// Transient failure — retry the operation (back off first). See [`AeronErrorType::is_retryable`].
+    pub fn is_retryable(&self) -> bool {
+        self.kind().is_retryable()
+    }
+
+    /// Definitively terminal — abort the operation. See [`AeronErrorType::is_unrecoverable`].
+    pub fn is_unrecoverable(&self) -> bool {
+        self.kind().is_unrecoverable()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Idle strategies for poll loops. Pure-Rust port of Aeron's `IdleStrategy`
+// (Java/C++): pass the work count from the last `poll` to `idle(work_count)`; it returns
+// immediately when work was done, otherwise backs off the CPU (spin / yield / sleep).
+// ---------------------------------------------------------------------------
+
+/// Back off a poll loop when the last cycle did no work. Mirrors Aeron's `IdleStrategy`:
+/// `idle(work_count)` returns immediately when `work_count > 0`, otherwise spins / yields /
+/// sleeps depending on the implementation.
+pub trait IdleStrategy {
+    /// Called with the work/fragment count from the last operation. Implementations return
+    /// immediately when `work_count > 0` (work was done) and back off otherwise.
+    fn idle(&mut self, work_count: i32);
+
+    /// Reset accumulated backoff state after a productive period. Default: no-op.
+    fn reset(&mut self) {}
+}
+
+/// Spin with a CPU pause hint. Lowest latency, pins a core. (Aeron `BusySpinIdleStrategy`.)
+pub struct BusySpinIdleStrategy;
+impl IdleStrategy for BusySpinIdleStrategy {
+    #[inline]
+    fn idle(&mut self, work_count: i32) {
+        if work_count > 0 {
+            return;
+        }
+        std::hint::spin_loop();
+    }
+}
+
+/// No-op — never yields the core. (Aeron `NoOpIdleStrategy`.)
+pub struct NoOpIdleStrategy;
+impl IdleStrategy for NoOpIdleStrategy {
+    #[inline]
+    fn idle(&mut self, _work_count: i32) {}
+}
+
+/// Yield the OS thread when idle. Lower CPU than busy-spin, slightly higher latency.
+/// (Aeron `YieldingIdleStrategy`.)
+pub struct YieldingIdleStrategy;
+impl IdleStrategy for YieldingIdleStrategy {
+    #[inline]
+    fn idle(&mut self, work_count: i32) {
+        if work_count > 0 {
+            return;
+        }
+        std::thread::yield_now();
+    }
+}
+
+/// Sleep for a fixed duration when idle. (Aeron `SleepingIdleStrategy`.)
+pub struct SleepingIdleStrategy {
+    duration: Duration,
+}
+impl SleepingIdleStrategy {
+    pub fn new(duration: Duration) -> Self {
+        Self { duration }
+    }
+}
+impl IdleStrategy for SleepingIdleStrategy {
+    #[inline]
+    fn idle(&mut self, work_count: i32) {
+        if work_count == 0 {
+            std::thread::sleep(self.duration);
+        }
+    }
+}
+
+/// Adaptive backoff: spin a few times, then yield a few times, then sleep with an exponentially
+/// growing park up to a max. A good general-purpose strategy. (Aeron `BackoffIdleStrategy`.)
+///
+/// Defaults match Aeron: `max_spins = 10`, `max_yields = 20`, `min_park = 1µs`, `max_park = 1ms`.
+pub struct BackoffIdleStrategy {
+    max_spins: i64,
+    max_yields: i64,
+    min_park: Duration,
+    max_park: Duration,
+    spins: i64,
+    yields: i64,
+    park: Duration,
+    state: u8,
+}
+
+const BACKOFF_NOT_IDLE: u8 = 0;
+const BACKOFF_SPINNING: u8 = 1;
+const BACKOFF_YIELDING: u8 = 2;
+const BACKOFF_PARKING: u8 = 3;
+
+impl BackoffIdleStrategy {
+    /// Defaults match Aeron: 10 spins, 20 yields, park 1µs..1ms.
+    pub fn new() -> Self {
+        Self::with(10, 20, Duration::from_micros(1), Duration::from_millis(1))
+    }
+
+    /// Full control over the backoff parameters.
+    pub fn with(max_spins: i64, max_yields: i64, min_park: Duration, max_park: Duration) -> Self {
+        Self {
+            max_spins,
+            max_yields,
+            min_park,
+            max_park,
+            spins: 0,
+            yields: 0,
+            park: min_park,
+            state: BACKOFF_NOT_IDLE,
+        }
+    }
+
+    #[inline]
+    fn idle_one(&mut self) {
+        match self.state {
+            BACKOFF_NOT_IDLE => {
+                self.state = BACKOFF_SPINNING;
+                self.spins += 1;
+            }
+            BACKOFF_SPINNING => {
+                std::hint::spin_loop();
+                self.spins += 1;
+                if self.spins > self.max_spins {
+                    self.state = BACKOFF_YIELDING;
+                    self.yields = 0;
+                }
+            }
+            BACKOFF_YIELDING => {
+                self.yields += 1;
+                if self.yields > self.max_yields {
+                    self.state = BACKOFF_PARKING;
+                    self.park = self.min_park;
+                } else {
+                    std::thread::yield_now();
+                }
+            }
+            _ => {
+                // PARKING — sleep then double the park period up to the max.
+                std::thread::sleep(self.park);
+                self.park = std::cmp::min(self.park.saturating_mul(2), self.max_park);
+            }
+        }
+    }
+}
+
+impl Default for BackoffIdleStrategy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl IdleStrategy for BackoffIdleStrategy {
+    #[inline]
+    fn idle(&mut self, work_count: i32) {
+        if work_count > 0 {
+            self.reset();
+        } else {
+            self.idle_one();
+        }
+    }
+
+    fn reset(&mut self) {
+        self.spins = 0;
+        self.yields = 0;
+        self.park = self.min_park;
+        self.state = BACKOFF_NOT_IDLE;
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -203,6 +421,622 @@ mod tests {
         Ok(())
     }
 
+    /// Exercises the additive ergonomics API end-to-end:
+    /// `offer_result_simple`, `try_claim_owned` + `commit`, the `session_id` /
+    /// `stream_id` header accessors, and `status()` on publication/subscription.
+    #[test]
+    #[serial]
+    fn offer_result_and_claim_roundtrip_with_header_accessors() -> Result<(), Box<dyn error::Error>>
+    {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+
+        let media_driver_ctx = AeronDriverContext::new()?;
+        media_driver_ctx.set_dir_delete_on_shutdown(true)?;
+        media_driver_ctx.set_dir_delete_on_start(true)?;
+        media_driver_ctx.set_dir(
+            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
+        )?;
+        let (stop, driver_handle) =
+            rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
+
+        let ctx = AeronContext::new()?;
+        ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+        let mut error_handler = Handler::leak(ErrorCount::default());
+        ctx.set_error_handler(Some(&error_handler))?;
+        let aeron = Aeron::new(&ctx)?;
+        aeron.start()?;
+
+        let channel = String::from("aeron:ipc");
+        let stream_id: i32 = 9123;
+        let pub_poller =
+            aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
+        let sub_poller = aeron.async_add_subscription(
+            &channel.into_c_string(),
+            stream_id,
+            Handlers::no_available_image_handler(),
+            Handlers::no_unavailable_image_handler(),
+        )?;
+
+        let mut publication: Option<AeronPublication> = None;
+        let mut subscription: Option<AeronSubscription> = None;
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(2) {
+            if publication.is_none() {
+                if let Ok(Some(p)) = pub_poller.poll() {
+                    publication = Some(p);
+                }
+            }
+            if subscription.is_none() {
+                if let Ok(Some(s)) = sub_poller.poll() {
+                    subscription = Some(s);
+                }
+            }
+            if publication.is_some() && subscription.is_some() {
+                break;
+            }
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+
+        let (publisher, subscription) = match (publication, subscription) {
+            (Some(p), Some(s)) => (p, s),
+            _ => panic!("publication/subscription did not come up"),
+        };
+
+        // Wait for the IPC images to connect before asserting status.
+        let conn_start = Instant::now();
+        while !publisher.is_connected() && conn_start.elapsed() < Duration::from_secs(2) {
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        assert_eq!(publisher.status(), AeronStatus::Connected);
+
+        // 1) Publish via the Result-returning offer variant.
+        let payload = b"hello-result";
+        let offer_start = Instant::now();
+        let mut offered = false;
+        while offer_start.elapsed() < Duration::from_secs(2) {
+            if let Ok(pos) = publisher.offer_result_simple(payload) {
+                if pos >= payload.len() as i64 {
+                    offered = true;
+                    break;
+                }
+            }
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        assert!(offered, "offer_result_simple never succeeded");
+
+        // 2) Publish via the RAII claim: write into the claimed buffer and commit.
+        let claim_payload = b"hello-claim";
+        let claim_start = Instant::now();
+        let mut committed = false;
+        while claim_start.elapsed() < Duration::from_secs(2) {
+            if let Ok(mut claim) = publisher.try_claim_owned(claim_payload.len()) {
+                claim.data()[..claim_payload.len()].copy_from_slice(claim_payload);
+                if claim.commit().is_ok() {
+                    committed = true;
+                    break;
+                }
+            }
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        assert!(committed, "try_claim_owned + commit never succeeded");
+
+        // 3) Receive both and assert the header accessors.
+        let received_offer = std::cell::Cell::new(false);
+        let received_claim = std::cell::Cell::new(false);
+        let header_ids = std::cell::Cell::new(Option::<(i32, i32)>::None);
+        let read_start = Instant::now();
+        while read_start.elapsed() < Duration::from_secs(2)
+            && !(received_offer.get() && received_claim.get())
+        {
+            let _ = subscription.poll_once(
+                |msg, header| {
+                    header_ids.set(Some((
+                        header.session_id().unwrap_or(0),
+                        header.stream_id().unwrap_or(0),
+                    )));
+                    if msg == payload {
+                        received_offer.set(true);
+                    }
+                    if msg == claim_payload {
+                        received_claim.set(true);
+                    }
+                },
+                1024,
+            );
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        assert!(received_offer.get(), "did not receive offer_result message");
+        assert!(received_claim.get(), "did not receive claim message");
+        let (session_id, recv_stream_id) = header_ids.get().expect("no header captured");
+        assert_eq!(recv_stream_id, stream_id, "header stream_id should match");
+        assert_ne!(session_id, 0, "session_id should be populated");
+
+        assert_eq!(subscription.status(), AeronStatus::Connected);
+
+        // Shutdown
+        drop(subscription);
+        drop(publisher);
+        drop(sub_poller);
+        drop(pub_poller);
+        drop(aeron);
+        stop.store(true, Ordering::SeqCst);
+        let _ = driver_handle.join().unwrap();
+        error_handler.release();
+        Ok(())
+    }
+    /// C5: test AeronClaim RAII lifecycle — commit round-trip is received.
+    /// Exercises the explicit commit path and position() accessor.
+    #[test]
+    #[serial]
+    fn aeron_claim_commit_roundtrip_is_received() -> Result<(), Box<dyn error::Error>> {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+
+        let media_driver_ctx = AeronDriverContext::new()?;
+        media_driver_ctx.set_dir_delete_on_shutdown(true)?;
+        media_driver_ctx.set_dir_delete_on_start(true)?;
+        media_driver_ctx.set_dir(
+            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
+        )?;
+        let (stop, driver_handle) =
+            rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
+
+        let ctx = AeronContext::new()?;
+        ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+        let mut error_handler = Handler::leak(ErrorCount::default());
+        ctx.set_error_handler(Some(&error_handler))?;
+        let aeron = Aeron::new(&ctx)?;
+        aeron.start()?;
+
+        let channel = String::from("aeron:ipc");
+        let stream_id: i32 = 9124;
+        let pub_poller =
+            aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
+        let sub_poller = aeron.async_add_subscription(
+            &channel.into_c_string(),
+            stream_id,
+            Handlers::no_available_image_handler(),
+            Handlers::no_unavailable_image_handler(),
+        )?;
+
+        let mut publication: Option<AeronPublication> = None;
+        let mut subscription: Option<AeronSubscription> = None;
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(2) {
+            if publication.is_none() {
+                if let Ok(Some(p)) = pub_poller.poll() {
+                    publication = Some(p);
+                }
+            }
+            if subscription.is_none() {
+                if let Ok(Some(s)) = sub_poller.poll() {
+                    subscription = Some(s);
+                }
+            }
+            if publication.is_some() && subscription.is_some() {
+                break;
+            }
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+
+        let (publisher, subscription) = match (publication, subscription) {
+            (Some(p), Some(s)) => (p, s),
+            _ => panic!("publication/subscription did not come up"),
+        };
+
+        // Wait for the IPC images to connect before asserting status.
+        let conn_start = Instant::now();
+        while !publisher.is_connected() && conn_start.elapsed() < Duration::from_secs(2) {
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        assert_eq!(publisher.status(), AeronStatus::Connected);
+
+        // Claim a buffer, write into it, and commit.
+        let claim_payload = b"claim-commit-test";
+        let claim_start = Instant::now();
+        let mut committed_pos = None;
+        while claim_start.elapsed() < Duration::from_secs(2) {
+            if let Ok(mut claim) = publisher.try_claim_owned(claim_payload.len()) {
+                claim.data()[..claim_payload.len()].copy_from_slice(claim_payload);
+                let pos = claim.position();
+                let commit_pos = claim.commit()?;
+                committed_pos = Some((commit_pos, pos));
+                break;
+            }
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        let (commit_pos, claim_pos) =
+            committed_pos.expect("try_claim_owned + commit never succeeded");
+        assert_eq!(
+            commit_pos, claim_pos,
+            "commit() return should match claim.position()"
+        );
+
+        // Receive the committed message and assert the exact bytes.
+        let received = std::cell::Cell::new(false);
+        let read_start = Instant::now();
+        while read_start.elapsed() < Duration::from_secs(2) && !received.get() {
+            let _ = subscription.poll_once(
+                |msg, _header| {
+                    if msg == claim_payload {
+                        received.set(true);
+                    }
+                },
+                1024,
+            );
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        assert!(received.get(), "did not receive claim message");
+
+        assert_eq!(subscription.status(), AeronStatus::Connected);
+
+        // Shutdown
+        drop(subscription);
+        drop(publisher);
+        drop(sub_poller);
+        drop(pub_poller);
+        drop(aeron);
+        stop.store(true, Ordering::SeqCst);
+        let _ = driver_handle.join().unwrap();
+        error_handler.release();
+        Ok(())
+    }
+
+    /// C6: test AeronClaim RAII lifecycle — dropped without commit is aborted.
+    /// Verifies that a dropped claim is not delivered and the publication remains usable.
+    #[test]
+    #[serial]
+    fn aeron_claim_dropped_without_commit_is_aborted() -> Result<(), Box<dyn error::Error>> {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+
+        let media_driver_ctx = AeronDriverContext::new()?;
+        media_driver_ctx.set_dir_delete_on_shutdown(true)?;
+        media_driver_ctx.set_dir_delete_on_start(true)?;
+        media_driver_ctx.set_dir(
+            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
+        )?;
+        let (stop, driver_handle) =
+            rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
+
+        let ctx = AeronContext::new()?;
+        ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+        let mut error_handler = Handler::leak(ErrorCount::default());
+        ctx.set_error_handler(Some(&error_handler))?;
+        let aeron = Aeron::new(&ctx)?;
+        aeron.start()?;
+
+        let channel = String::from("aeron:ipc");
+        let stream_id: i32 = 9125;
+        let pub_poller =
+            aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
+        let sub_poller = aeron.async_add_subscription(
+            &channel.into_c_string(),
+            stream_id,
+            Handlers::no_available_image_handler(),
+            Handlers::no_unavailable_image_handler(),
+        )?;
+
+        let mut publication: Option<AeronPublication> = None;
+        let mut subscription: Option<AeronSubscription> = None;
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(2) {
+            if publication.is_none() {
+                if let Ok(Some(p)) = pub_poller.poll() {
+                    publication = Some(p);
+                }
+            }
+            if subscription.is_none() {
+                if let Ok(Some(s)) = sub_poller.poll() {
+                    subscription = Some(s);
+                }
+            }
+            if publication.is_some() && subscription.is_some() {
+                break;
+            }
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+
+        let (publisher, subscription) = match (publication, subscription) {
+            (Some(p), Some(s)) => (p, s),
+            _ => panic!("publication/subscription did not come up"),
+        };
+
+        // Wait for the IPC images to connect.
+        let conn_start = Instant::now();
+        while !publisher.is_connected() && conn_start.elapsed() < Duration::from_secs(2) {
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        assert_eq!(publisher.status(), AeronStatus::Connected);
+
+        // Claim a buffer, write into it, then DROP without commit/abort.
+        let dropped_payload = b"dropped-claim-payload";
+        let claim_start = Instant::now();
+        let mut claimed = false;
+        while claim_start.elapsed() < Duration::from_secs(2) && !claimed {
+            if let Ok(mut claim) = publisher.try_claim_owned(dropped_payload.len()) {
+                claim.data()[..dropped_payload.len()].copy_from_slice(dropped_payload);
+                // Explicitly drop the claim here — it should be aborted, not committed.
+                drop(claim);
+                claimed = true;
+            }
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        assert!(claimed, "try_claim_owned never succeeded");
+
+        // Publish a second, different message via the standard offer path.
+        let marker_payload = b"marker-after-dropped-claim";
+        let offer_start = Instant::now();
+        let mut offered = false;
+        while offer_start.elapsed() < Duration::from_secs(2) && !offered {
+            if let Ok(pos) = publisher.offer_result_simple(marker_payload) {
+                if pos >= marker_payload.len() as i64 {
+                    offered = true;
+                }
+            }
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        assert!(
+            offered,
+            "offer_result_simple never succeeded after dropped claim"
+        );
+
+        // Receive only the marker — the dropped claim should have been aborted.
+        let received_dropped = std::cell::Cell::new(false);
+        let received_marker = std::cell::Cell::new(false);
+        let read_start = Instant::now();
+        while read_start.elapsed() < Duration::from_secs(2)
+            && !(received_marker.get() || received_dropped.get())
+        {
+            let _ = subscription.poll_once(
+                |msg, _header| {
+                    if msg == dropped_payload {
+                        received_dropped.set(true);
+                    }
+                    if msg == marker_payload {
+                        received_marker.set(true);
+                    }
+                },
+                1024,
+            );
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        assert!(
+            !received_dropped.get(),
+            "dropped claim was erroneously delivered"
+        );
+        assert!(
+            received_marker.get(),
+            "marker message was not received after dropped claim"
+        );
+
+        // Confirm the publication is still usable by offering one more message.
+        let final_payload = b"final-after-all";
+        let final_start = Instant::now();
+        let mut final_offered = false;
+        while final_start.elapsed() < Duration::from_secs(2) && !final_offered {
+            if let Ok(pos) = publisher.offer_result_simple(final_payload) {
+                if pos >= final_payload.len() as i64 {
+                    final_offered = true;
+                }
+            }
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        assert!(
+            final_offered,
+            "publication became unusable after dropped claim"
+        );
+
+        assert_eq!(subscription.status(), AeronStatus::Connected);
+
+        // Shutdown
+        drop(subscription);
+        drop(publisher);
+        drop(sub_poller);
+        drop(pub_poller);
+        drop(aeron);
+        stop.store(true, Ordering::SeqCst);
+        let _ = driver_handle.join().unwrap();
+        error_handler.release();
+        Ok(())
+    }
+
+    /// C7: test try_claim_owned failure path — oversized request returns Err cleanly.
+    /// Verifies the error path does not construct an AeronClaim or call abort.
+    #[test]
+    #[serial]
+    fn try_claim_owned_failure_is_clean() -> Result<(), Box<dyn error::Error>> {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+
+        let media_driver_ctx = AeronDriverContext::new()?;
+        media_driver_ctx.set_dir_delete_on_shutdown(true)?;
+        media_driver_ctx.set_dir_delete_on_start(true)?;
+        media_driver_ctx.set_dir(
+            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
+        )?;
+        let (stop, driver_handle) =
+            rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
+
+        let ctx = AeronContext::new()?;
+        ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+        let mut error_handler = Handler::leak(ErrorCount::default());
+        ctx.set_error_handler(Some(&error_handler))?;
+        let aeron = Aeron::new(&ctx)?;
+        aeron.start()?;
+
+        let channel = String::from("aeron:ipc");
+        let stream_id: i32 = 9126;
+        let pub_poller =
+            aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
+        let sub_poller = aeron.async_add_subscription(
+            &channel.into_c_string(),
+            stream_id,
+            Handlers::no_available_image_handler(),
+            Handlers::no_unavailable_image_handler(),
+        )?;
+
+        let mut publication: Option<AeronPublication> = None;
+        let mut subscription: Option<AeronSubscription> = None;
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(2) {
+            if publication.is_none() {
+                if let Ok(Some(p)) = pub_poller.poll() {
+                    publication = Some(p);
+                }
+            }
+            if subscription.is_none() {
+                if let Ok(Some(s)) = sub_poller.poll() {
+                    subscription = Some(s);
+                }
+            }
+            if publication.is_some() && subscription.is_some() {
+                break;
+            }
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+
+        let (publisher, _subscription) = match (publication, subscription) {
+            (Some(p), Some(s)) => (p, s),
+            _ => panic!("publication/subscription did not come up"),
+        };
+
+        // Wait for the IPC images to connect.
+        let conn_start = Instant::now();
+        while !publisher.is_connected() && conn_start.elapsed() < Duration::from_secs(2) {
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        assert_eq!(publisher.status(), AeronStatus::Connected);
+
+        // Get the max_message_length and attempt to claim more than that.
+        let constants = publisher.get_constants().expect("publication constants");
+        let max_len = constants.max_message_length;
+        assert!(max_len > 0, "max_message_length should be positive");
+
+        // Try to claim an absurdly large length — should return Err without panicking.
+        let oversized_claim = publisher.try_claim_owned(usize::MAX);
+        assert!(
+            oversized_claim.is_err(),
+            "try_claim_owned(usize::MAX) should return Err"
+        );
+
+        // Try to claim exactly one byte over the limit — should also return Err.
+        let over_limit_claim = publisher.try_claim_owned(max_len as usize + 1);
+        assert!(
+            over_limit_claim.is_err(),
+            "try_claim_owned(max_len + 1) should return Err"
+        );
+
+        // Verify the publication is still usable after the failed claims.
+        let valid_payload = b"valid-after-failed-claim";
+        let offer_start = Instant::now();
+        let mut offered = false;
+        while offer_start.elapsed() < Duration::from_secs(2) && !offered {
+            if let Ok(pos) = publisher.offer_result_simple(valid_payload) {
+                if pos >= valid_payload.len() as i64 {
+                    offered = true;
+                }
+            }
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        assert!(
+            offered,
+            "publication became unusable after failed try_claim_owned"
+        );
+
+        // Shutdown
+        drop(_subscription);
+        drop(publisher);
+        drop(sub_poller);
+        drop(pub_poller);
+        drop(aeron);
+        stop.store(true, Ordering::SeqCst);
+        let _ = driver_handle.join().unwrap();
+        error_handler.release();
+        Ok(())
+    }
+
+    /// C4: regression guard for the latency prime directive — a tight loop on the
+    /// publish hot path (`offer` with the static no-op reserved-value supplier)
+    /// must stay allocation-free. If a future change adds a stray `to_string` /
+    /// `Vec` / clone on the offer path, this fails CI.
+    #[test]
+    #[serial]
+    fn publish_hot_path_is_allocation_free() -> Result<(), Box<dyn error::Error>> {
+        let media_driver_ctx = AeronDriverContext::new()?;
+        media_driver_ctx.set_dir_delete_on_shutdown(true)?;
+        media_driver_ctx.set_dir_delete_on_start(true)?;
+        media_driver_ctx
+            .set_dir(&format!("{}alloc-guard", media_driver_ctx.get_dir()).into_c_string())?;
+        let (stop, driver_handle) =
+            rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
+
+        let ctx = AeronContext::new()?;
+        ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+        let mut error_handler = Handler::leak(ErrorCount::default());
+        ctx.set_error_handler(Some(&error_handler))?;
+        let aeron = Aeron::new(&ctx)?;
+        aeron.start()?;
+
+        let channel = String::from("aeron:ipc");
+        let stream_id: i32 = 7777;
+        let pub_poller =
+            aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
+
+        // Bring the publication up + connected before measuring.
+        let publisher: AeronPublication = {
+            let start = Instant::now();
+            loop {
+                if let Ok(Some(p)) = pub_poller.poll() {
+                    let conn_start = Instant::now();
+                    while !p.is_connected() && conn_start.elapsed() < Duration::from_secs(2) {
+                        #[cfg(debug_assertions)]
+                        sleep(Duration::from_millis(10));
+                    }
+                    break p;
+                }
+                if start.elapsed() > Duration::from_secs(3) {
+                    panic!("publication did not come up");
+                }
+                #[cfg(debug_assertions)]
+                sleep(Duration::from_millis(10));
+            }
+        };
+
+        let payload = b"alloc-guard-payload";
+        // Warm up (first offer may touch lazy publication state).
+        let _ = publisher.offer(payload, Handlers::no_reserved_value_supplier_handler());
+
+        // Assert a tight offer loop is allocation-free (publish hot path).
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..200 {
+                let _ = publisher.offer(payload, Handlers::no_reserved_value_supplier_handler());
+            }
+        });
+
+        drop(publisher);
+        drop(aeron);
+        stop.store(true, Ordering::SeqCst);
+        let _ = driver_handle.join().unwrap();
+        error_handler.release();
+        Ok(())
+    }
+
     #[test]
     #[serial]
     fn async_pub_sub_invalid_endpoint_create_drop_stress() -> Result<(), Box<dyn error::Error>> {
@@ -308,7 +1142,6 @@ mod tests {
 
     #[test]
     #[serial]
-    // // #[ignore] // TODO FIXME broken test
     fn async_subscription_invalid_interface_poll_then_drop() -> Result<(), Box<dyn error::Error>> {
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
 
@@ -1716,6 +2549,405 @@ mod tests {
         Ok((media_driver_ctx, stop, driver_handle))
     }
 
+    /// C1: exercise the generated `AeronExclusivePublication` surface (the
+    /// `offer_result` / `try_claim_owned` parity added for non-exclusive pubs)
+    /// plus the generated `AeronPublicationConstants` accessors — a slice of the
+    /// generated API that no other test touches end-to-end.
+    #[test]
+    #[serial]
+    fn exclusive_publication_result_variants_and_constants() -> Result<(), Box<dyn error::Error>> {
+        let (media_driver_ctx, stop, _driver_handle) = start_media_driver(8)?;
+        let (_ctx, aeron) = create_client(&media_driver_ctx)?;
+
+        let stream_id: i32 = 4321;
+        let exclusive =
+            aeron.add_exclusive_publication(AERON_IPC_STREAM, stream_id, Duration::from_secs(5))?;
+
+        // Add a matching subscription so the IPC image connects and offers succeed.
+        let sub_poller = aeron.async_add_subscription(
+            &"aeron:ipc".to_string().into_c_string(),
+            stream_id,
+            Handlers::no_available_image_handler(),
+            Handlers::no_unavailable_image_handler(),
+        )?;
+        let mut subscription: Option<AeronSubscription> = None;
+        let sub_start = Instant::now();
+        while sub_start.elapsed() < Duration::from_secs(2) && subscription.is_none() {
+            if let Ok(Some(s)) = sub_poller.poll() {
+                subscription = Some(s);
+            }
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        let _subscription = subscription.expect("subscription did not come up");
+
+        let conn = Instant::now();
+        while !exclusive.is_connected() && conn.elapsed() < Duration::from_secs(2) {
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        assert_eq!(exclusive.status(), AeronStatus::Connected);
+
+        // 1) offer_result_simple (typed Result variant on the exclusive pub).
+        let payload = b"exclusive-result";
+        let mut offered_pos = None;
+        let offer_start = Instant::now();
+        while offer_start.elapsed() < Duration::from_secs(2) && offered_pos.is_none() {
+            if let Ok(pos) = exclusive.offer_result_simple(payload) {
+                offered_pos = Some(pos);
+            }
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        let pos = offered_pos.expect("exclusive offer_result_simple never succeeded");
+        assert!(pos >= payload.len() as i64);
+
+        // 2) RAII zero-copy claim on the exclusive pub.
+        let claim_payload = b"exclusive-claim";
+        let mut committed = false;
+        let claim_start = Instant::now();
+        while claim_start.elapsed() < Duration::from_secs(2) && !committed {
+            if let Ok(mut claim) = exclusive.try_claim_owned(claim_payload.len()) {
+                claim.data()[..claim_payload.len()].copy_from_slice(claim_payload);
+                committed = claim.commit().is_ok();
+            }
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        assert!(
+            committed,
+            "exclusive try_claim_owned + commit never succeeded"
+        );
+
+        // 3) Generated constants accessors return sane, consistent values.
+        let constants = exclusive.get_constants().expect("publication constants");
+        assert_eq!(constants.stream_id, stream_id);
+        // channel is a *const c_char into the C struct; just assert it's a valid C string.
+        assert!(!constants.channel.is_null());
+        assert_eq!(
+            unsafe { std::ffi::CStr::from_ptr(constants.channel) }
+                .to_str()
+                .unwrap(),
+            "aeron:ipc"
+        );
+        assert!(constants.max_possible_position > 0);
+        assert!(constants.term_buffer_length > 0);
+        assert!(constants.max_message_length > 0);
+        assert!(constants.max_payload_length > 0);
+        // position() advances with the offers.
+        assert!(exclusive.position() >= pos);
+
+        drop(exclusive);
+        drop(aeron);
+        stop.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    /// C2: property tests for the pure-Rust (no driver) logic. Fast and
+    /// deterministic — they fuzz the invariants the unit tests only sample.
+    mod property_tests {
+        use crate::{
+            publication_position_to_result, validate_endpoint_for_aeron_udp, AeronCError,
+            AeronErrorType, AeronStatus, AeronStatusTracker,
+        };
+        use proptest::prelude::*;
+
+        /// Fuzz: arbitrary endpoint strings must never panic — only Ok/Err.
+        #[test]
+        fn validate_endpoint_never_panics_on_arbitrary_input() {
+            proptest!(|(s in ".{0,40}")| {
+                let _ = validate_endpoint_for_aeron_udp(&s);
+            });
+        }
+
+        /// Any hostname/IPv4 + port in 0..=65535 is accepted.
+        #[test]
+        fn validate_endpoint_accepts_well_formed_host_port() {
+            let host = "[a-z][a-z0-9-]{0,20}(\\.[a-z0-9-]{1,20}){0,3}";
+            proptest!(|(host in host, port in 0u16..=65535)| {
+                let ep = format!("{host}:{port}");
+                prop_assert!(
+                    validate_endpoint_for_aeron_udp(&ep).is_ok(),
+                    "expected ok for {ep}"
+                );
+            });
+        }
+
+        /// Any valid-looking host with a port > 65535 is rejected.
+        #[test]
+        fn validate_endpoint_rejects_out_of_range_port() {
+            proptest!(|(port in 65536u32..=200_000)| {
+                let ep = format!("localhost:{port}");
+                prop_assert!(validate_endpoint_for_aeron_udp(&ep).is_err());
+            });
+        }
+
+        /// Tracker emits iff the status differs from the previous one, and
+        /// `last_status` is always the most recently observed.
+        #[test]
+        fn tracker_emits_iff_transition_and_tracks_last() {
+            let status = prop::sample::select(vec![
+                AeronStatus::Disconnected,
+                AeronStatus::Connected,
+                AeronStatus::BackPressured,
+                AeronStatus::Closed,
+            ]);
+            proptest!(|(seq in prop::collection::vec(status, 0..40))| {
+                let mut t = AeronStatusTracker::new();
+                let mut prev: Option<AeronStatus> = None;
+                for &s in &seq {
+                    let emitted = t.observe(s);
+                    let expected_emits = prev != Some(s);
+                    prop_assert_eq!(emitted.is_some(), expected_emits);
+                    if let Some(e) = emitted {
+                        prop_assert_eq!(e, s);
+                    }
+                    prev = Some(s);
+                }
+                prop_assert_eq!(t.last_status(), seq.last().copied());
+            });
+        }
+
+        /// `position_to_result`: non-negative → Ok(position); negative → Err whose
+        /// code is preserved. `from_code` round-trips every known code and keeps
+        /// the code for unknown negatives.
+        #[test]
+        fn position_to_result_and_error_codes_are_consistent() {
+            proptest!(|(pos in -1_000_000i64..=1_000_000)| {
+                match publication_position_to_result(pos) {
+                    Ok(p) => prop_assert!(p >= 0 && p == pos),
+                    Err(e) => {
+                        prop_assert!(pos < 0);
+                        prop_assert_eq!(e.code, pos as i32);
+                        // from_code round-trips the code.
+                        prop_assert_eq!(AeronErrorType::from_code(e.code).code(), e.code);
+                    }
+                }
+            });
+        }
+
+        /// Sanity: every documented Aeron error code maps back to itself.
+        #[test]
+        fn known_error_codes_round_trip() {
+            for code in [-1, -2, -3, -4, -5, -6, -1000, -1001, -1002, -1003] {
+                let err = AeronCError::from_code(code);
+                assert_eq!(err.code, code);
+                assert_eq!(AeronErrorType::from_code(code).code(), code);
+            }
+        }
+    }
+
     #[doc = include_str!("../../README.md")]
     mod readme_tests {}
+
+    #[cfg(test)]
+    mod spin_poll_tests {
+        use super::*;
+        use crate::test_alloc::assert_no_allocation;
+        use rusteron_media_driver::AeronDriverContext;
+        use serial_test::serial;
+
+        /// Tests the `for_each_fragment` ergonomic helper on `AeronSubscription`.
+        /// Verifies that the new helper receives all published messages without
+        /// allocations on the hot path.
+        #[test]
+        #[serial]
+        fn for_each_fragment_receives_all_messages_no_alloc() -> Result<(), Box<dyn error::Error>> {
+            rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+
+            let media_driver_ctx = AeronDriverContext::new()?;
+            media_driver_ctx.set_dir_delete_on_shutdown(true)?;
+            media_driver_ctx.set_dir_delete_on_start(true)?;
+            media_driver_ctx.set_dir(
+                &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
+            )?;
+            let (stop, driver_handle) = rusteron_media_driver::AeronDriver::launch_embedded(
+                media_driver_ctx.clone(),
+                false,
+            );
+
+            let ctx = AeronContext::new()?;
+            ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+            let mut error_handler = Handler::leak(ErrorCount::default());
+            ctx.set_error_handler(Some(&error_handler))?;
+            let aeron = Aeron::new(&ctx)?;
+            aeron.start()?;
+
+            let channel = String::from("aeron:ipc");
+            let stream_id: i32 = 9999;
+
+            let pub_poller =
+                aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
+            let sub_poller = aeron.async_add_subscription(
+                &channel.into_c_string(),
+                stream_id,
+                Handlers::no_available_image_handler(),
+                Handlers::no_unavailable_image_handler(),
+            )?;
+
+            let mut publication: Option<AeronPublication> = None;
+            let mut subscription: Option<AeronSubscription> = None;
+            let start = Instant::now();
+            while start.elapsed() < Duration::from_secs(2) {
+                if publication.is_none() {
+                    if let Ok(Some(p)) = pub_poller.poll() {
+                        publication = Some(p);
+                    }
+                }
+                if subscription.is_none() {
+                    if let Ok(Some(s)) = sub_poller.poll() {
+                        subscription = Some(s);
+                    }
+                }
+                if publication.is_some() && subscription.is_some() {
+                    break;
+                }
+                #[cfg(debug_assertions)]
+                sleep(Duration::from_millis(10));
+            }
+
+            let (publisher, subscription) = match (publication, subscription) {
+                (Some(p), Some(s)) => (p, s),
+                _ => panic!("publication/subscription did not come up"),
+            };
+
+            // Wait for IPC images to connect
+            let conn_start = Instant::now();
+            while !publisher.is_connected() && conn_start.elapsed() < Duration::from_secs(2) {
+                #[cfg(debug_assertions)]
+                sleep(Duration::from_millis(10));
+            }
+
+            // Publish N distinct messages
+            const NUM_MESSAGES: usize = 10;
+            let payloads: Vec<Vec<u8>> = (0..NUM_MESSAGES)
+                .map(|i| format!("message-{}", i).into_bytes())
+                .collect();
+
+            for payload in &payloads {
+                let offer_start = Instant::now();
+                let mut offered = false;
+                while offer_start.elapsed() < Duration::from_secs(2) {
+                    if let Ok(pos) = publisher.offer_result_simple(payload) {
+                        if pos >= payload.len() as i64 {
+                            offered = true;
+                            break;
+                        }
+                    }
+                    #[cfg(debug_assertions)]
+                    sleep(Duration::from_millis(10));
+                }
+                assert!(offered, "Failed to offer message");
+            }
+
+            // Use for_each_fragment to receive all messages (spin-poll pattern)
+            let mut received_count = 0;
+            let max_iterations = 1000;
+
+            for _ in 0..max_iterations {
+                let fragments = subscription.for_each_fragment(1024, |data, _header| {
+                    received_count += 1;
+                    info!("Received fragment {} bytes", data.len());
+                })?;
+
+                if fragments > 0 {
+                    // Got some messages, exit spin
+                    break;
+                }
+
+                #[cfg(debug_assertions)]
+                sleep(Duration::from_micros(100));
+            }
+
+            assert_eq!(
+                received_count, NUM_MESSAGES,
+                "Expected to receive {} messages, got {}",
+                NUM_MESSAGES, received_count
+            );
+
+            // Now test that the hot path is allocation-free
+            let alloc_before = current_allocs();
+
+            let mut alloc_free_count = 0;
+            let spin_alloc_test = || {
+                for _ in 0..10 {
+                    let _ = subscription.for_each_fragment(1024, |data, _header| {
+                        alloc_free_count += 1;
+                    });
+                }
+            };
+
+            assert_no_allocation(spin_alloc_test);
+
+            let alloc_after = current_allocs();
+            assert!(
+                (alloc_after - alloc_before).abs() < 10,
+                "Expected no net allocation in for_each_fragment hot path"
+            );
+
+            // Cleanup
+            drop(sub_poller);
+            drop(pub_poller);
+            drop(aeron);
+            stop.store(true, Ordering::SeqCst);
+            let _ = driver_handle.join().unwrap();
+            error_handler.release();
+
+            Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod idle_strategy_tests {
+    use super::*;
+
+    #[test]
+    fn busy_spin_and_yield_return_on_work() {
+        let mut s = BusySpinIdleStrategy;
+        s.idle(5); // work done -> must not block
+        s.idle(0); // no work -> just a pause hint, returns immediately
+
+        let mut y = YieldingIdleStrategy;
+        y.idle(3); // work done
+        y.idle(0); // yields once, returns
+    }
+
+    #[test]
+    fn no_op_never_blocks() {
+        let mut s = NoOpIdleStrategy;
+        for _ in 0..1000 {
+            s.idle(0);
+        }
+    }
+
+    #[test]
+    fn sleeping_idle_only_sleeps_when_idle() {
+        let mut s = SleepingIdleStrategy::new(Duration::from_micros(10));
+        let t = std::time::Instant::now();
+        s.idle(1); // work done -> no sleep
+        assert!(t.elapsed() < Duration::from_millis(1));
+
+        let t = std::time::Instant::now();
+        s.idle(0); // idle -> sleeps ~10µs
+        assert!(t.elapsed() >= Duration::from_micros(10));
+    }
+
+    #[test]
+    fn backoff_resets_on_work_and_progresses_to_park() {
+        let mut s =
+            BackoffIdleStrategy::with(2, 2, Duration::from_micros(1), Duration::from_millis(1));
+        // Work done -> resets state (no backoff progression).
+        s.idle(1);
+        assert_eq!(s.state, BACKOFF_NOT_IDLE);
+        assert_eq!(s.spins, 0);
+
+        // Spin a few, then yield, then park: driving it enough with 0 work must reach PARKING.
+        for _ in 0..1000 {
+            s.idle(0);
+        }
+        assert_eq!(s.state, BACKOFF_PARKING);
+        // Park period grows but is capped at max_park.
+        assert!(s.park <= Duration::from_millis(1));
+    }
 }

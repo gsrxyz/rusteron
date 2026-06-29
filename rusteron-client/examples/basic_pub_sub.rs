@@ -10,6 +10,11 @@ pub fn main() -> Result<(), Box<dyn error::Error>> {
     // set the directory
     // ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
 
+    // Install the built-in error logger so async client errors are surfaced (Aeron samples
+    // always set an error handler on the context). Keep it alive for the run, then release.
+    let mut error_handler = Handler::leak(AeronErrorHandlerLogger);
+    ctx.set_error_handler(Some(&error_handler))?;
+
     println!("creating client");
     let aeron = Aeron::new(&ctx)?;
     println!("starting client");
@@ -19,6 +24,11 @@ pub fn main() -> Result<(), Box<dyn error::Error>> {
     let publisher = aeron
         .async_add_publication(AERON_IPC_STREAM, 123)?
         .poll_blocking(Duration::from_secs(5))?;
+    // Wait for a subscriber before offering (Aeron's BasicPublisher checks is_connected()).
+    let conn_start = std::time::Instant::now();
+    while !publisher.is_connected() && conn_start.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(10));
+    }
     println!("created publisher");
 
     let subscription = aeron
@@ -37,12 +47,20 @@ pub fn main() -> Result<(), Box<dyn error::Error>> {
 
     let _publisher_handler = {
         std::thread::spawn(move || loop {
-            if publisher.offer(
+            let result = publisher.offer(
                 "1".repeat(large_string_len).as_bytes(),
                 Handlers::no_reserved_value_supplier_handler(),
-            ) < 1
+            );
+            // Fatal codes -> stop the publisher; transient negatives -> keep trying.
+            if result == PUBLICATION_CLOSED
+                || result == PUBLICATION_MAX_POSITION_EXCEEDED
+                || result == PUBLICATION_ERROR
             {
-                error!("failed to send message");
+                error!("publication closed (result {result}); stopping publisher thread");
+                break;
+            }
+            if result < 1 {
+                error!("failed to send message (result {result})");
             }
         })
     };
@@ -73,14 +91,19 @@ pub fn main() -> Result<(), Box<dyn error::Error>> {
         large_string_len,
     })?;
 
+    // Back off the poll loop when there's no work — Aeron's samples drive their loops with an
+    // `IdleStrategy` (idle(fragments)) instead of a bare tight loop.
+    let mut idle = BackoffIdleStrategy::new();
     loop {
         if _inner.count.get() > 100 {
             break;
         }
-        subscription.poll(Some(&closure), 1024)?;
+        let fragments = subscription.poll(Some(&closure), 1024)?;
+        idle.idle(fragments);
     }
 
     println!("stopping client");
+    error_handler.release();
 
     Ok(())
 }

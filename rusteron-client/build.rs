@@ -222,6 +222,11 @@ fn build_from_source(docs_rs: &Path) {
     } else {
         config.profile("Debug");
     }
+    // Support for custom GRADLE_WRAPPER path
+    // This allows static builds to use a different gradlew script, useful for isolated network environments
+    if let Ok(gradle_wrapper) = std::env::var("GRADLE_WRAPPER") {
+        config.define("GRADLE_WRAPPER", gradle_wrapper);
+    }
     let cmake_output = config
         .define("BUILD_AERON_DRIVER", "OFF")
         .define("BUILD_AERON_ARCHIVE_API", "OFF")
