@@ -562,7 +562,7 @@ impl CWrapper {
                     }
                     // This is the byte array argument - show name, type, and length
                     arg_names_for_logging.push(quote! {
-                        format!("{}: {} (len={})", #arg_name_str, stringify!(#arg_type), #arg_ident.len()) 
+                        format!("{}: {} (len={})", #arg_name_str, stringify!(#arg_type), #arg_ident.len())
                     });
                     arg_names_idx += 2;
                 }
@@ -2241,6 +2241,9 @@ pub fn generate_rust_code(
                     let var_name =
                         format_ident!("{}", e.to_string().split_whitespace().next().unwrap());
                     quote! {
+                        if let Some(__owner) = #var_name.inner.as_owned() {
+                            result.inner.add_dependency(__owner.closed_indicator());
+                        }
                         result.inner.add_dependency(#var_name.clone());
                     }
                 })
@@ -2440,14 +2443,24 @@ pub fn generate_rust_code(
                 impl Drop for #class_name {
                     fn drop(&mut self) {
                         if let Some(inner) = self.inner.as_owned() {
-                            if (inner.cleanup.is_none() ) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
-                                if inner.auto_close.get() {
-                                    log::info!("auto closing {self:?}");
-                                    let result = self.#close_method_call();
-                                    log::debug!("result {:?}", result);
-                                } else {
-                                    #[cfg(feature = "extra-logging")]
-                                    log::warn!("{} not closed", stringify!(#class_name));
+                            if (inner.cleanup.is_none() ) && std::rc::Rc::strong_count(inner) == 1 {
+                                if inner.owner_already_closed() {
+                                    // The owning client has already been closed, which in the
+                                    // Aeron C client also frees this resource. Calling our own
+                                    // close fn (or even reading the C pointer via the
+                                    // is-closed accessor) would be a double free / use-after-free.
+                                    // Just flip our rust-side flag so ManagedCResource::drop is a
+                                    // no-op and we never touch the freed pointer.
+                                    inner.close_already_called.set(true);
+                                } else if !inner.is_closed_already_called() {
+                                    if inner.auto_close.get() {
+                                        log::info!("auto closing {self:?}");
+                                        let result = self.#close_method_call();
+                                        log::debug!("result {:?}", result);
+                                    } else {
+                                        #[cfg(feature = "extra-logging")]
+                                        log::warn!("{} not closed", stringify!(#class_name));
+                                    }
                                 }
                             }
                         }

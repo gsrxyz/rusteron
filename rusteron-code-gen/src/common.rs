@@ -81,6 +81,24 @@ impl<T> std::fmt::Debug for CResource<T> {
     }
 }
 
+/// A type-erased, allocation-free handle to an *owning* client's "close already called"
+/// flag.
+///
+/// The Aeron C client owns every publication/subscription/counter it creates and frees
+/// them all when the client itself is closed. To avoid a double free / use-after-free,
+/// each child resource carries one of these (as a dependency) pointing at its owning
+/// client's flag. On drop the child can then cheaply ask "has my owner already been
+/// closed?" via [`ManagedCResource::owner_already_closed`] without dereferencing its own
+/// (by then freed) C pointer.
+///
+/// The pointer aliases the `close_already_called` [`std::cell::Cell`] living inside the
+/// owner's [`ManagedCResource`]. It is kept valid because the same child also holds an
+/// `Rc` dependency on the owning client (added alongside this handle), so the owner's
+/// `ManagedCResource` — and therefore the `Cell` — outlives this handle. It is only ever
+/// read from the child's `drop`, while those dependencies are still alive.
+#[derive(Clone)]
+pub struct OwnerClosed(pub *const std::cell::Cell<bool>);
+
 /// A custom struct for managing C resources with automatic cleanup.
 ///
 /// It handles initialisation and clean-up of the resource and ensures that resources
@@ -209,6 +227,30 @@ impl<T> ManagedCResource<T> {
                 .iter()
                 .filter_map(|x| x.as_ref().downcast_ref::<V>().cloned())
                 .next()
+        }
+    }
+
+    /// Returns an allocation-free handle to this resource's "close already called" flag so
+    /// it can be shared with child resources (see [`OwnerClosed`]). All clones of a wrapper
+    /// share the same underlying [`ManagedCResource`], hence the same flag, so closing the
+    /// client through any handle is observed by every child.
+    #[inline]
+    pub fn closed_indicator(&self) -> OwnerClosed {
+        OwnerClosed(&self.close_already_called as *const std::cell::Cell<bool>)
+    }
+
+    /// Returns `true` if an owning client (registered as an [`OwnerClosed`] dependency)
+    /// has already been closed. When the owning Aeron/Archive client closes it frees this
+    /// resource's underlying C memory, so the resource must neither call its own C close
+    /// fn again nor read its C pointer. This check only reads rust-side flags and never
+    /// touches the C resource, so it is safe even after the owner has freed it.
+    #[inline]
+    pub fn owner_already_closed(&self) -> bool {
+        unsafe {
+            (*self.dependencies.get())
+                .iter()
+                .filter_map(|d| d.as_ref().downcast_ref::<OwnerClosed>())
+                .any(|owner| !owner.0.is_null() && (*owner.0).get())
         }
     }
 

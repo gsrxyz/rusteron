@@ -967,6 +967,60 @@ mod tests {
         test_result
     }
 
+    /// Archive-side regression test for the close-then-drop double-free / use-after-free.
+    ///
+    /// In the archive crate the publications / exclusive publications / subscriptions /
+    /// counters are owned by the underlying `Aeron` client exactly as in the plain client
+    /// crate, so the same ownership/ordering bug applied: closing the `Aeron` client (which
+    /// in C frees every registered resource) while a resource handle was still alive used
+    /// to double-free / use-after-free when that handle dropped.
+    ///
+    /// Asserts the process survives closing the client BEFORE dropping the handles.
+    #[test]
+    #[serial]
+    pub fn archive_close_client_then_drop_resources_does_not_double_free(
+    ) -> Result<(), Box<dyn error::Error>> {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+        EmbeddedArchiveMediaDriverProcess::kill_all_java_processes()
+            .expect("failed to kill all java processes");
+
+        let (aeron, _archive_context, media_driver, mut pub_error_frame_handler, mut error_handler) =
+            start_aeron_archive()?;
+
+        let test_result: Result<(), Box<dyn error::Error>> = (|| {
+            // Acquire one of every client-owned resource type and keep the handles alive.
+            let publication =
+                aeron.add_publication(AERON_IPC_STREAM, 1001, Duration::from_secs(10))?;
+            let exclusive_publication =
+                aeron.add_exclusive_publication(AERON_IPC_STREAM, 1002, Duration::from_secs(10))?;
+            let subscription = aeron.add_subscription(
+                AERON_IPC_STREAM,
+                1003,
+                Handlers::no_available_image_handler(),
+                Handlers::no_unavailable_image_handler(),
+                Duration::from_secs(10),
+            )?;
+            let counter =
+                aeron.add_counter(101, &[1, 2, 3, 4], "test-counter", Duration::from_secs(10))?;
+
+            // Close the client FIRST; in C this frees every resource above.
+            aeron.close()?;
+
+            // Dropping the still-alive handles must NOT free them again.
+            drop(publication);
+            drop(exclusive_publication);
+            drop(subscription);
+            drop(counter);
+            Ok(())
+        })();
+
+        drop(aeron);
+        drop(media_driver);
+        pub_error_frame_handler.release();
+        error_handler.release();
+        test_result
+    }
+
     #[test]
     #[serial]
     fn test_invalid_recording_channel() -> Result<(), Box<dyn Error>> {

@@ -259,6 +259,9 @@ impl AeronAsyncAddCounter {
         let result = Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_async)),
         };
+        if let Some(__owner) = client.inner.as_owned() {
+            result.inner.add_dependency(__owner.closed_indicator());
+        }
         result.inner.add_dependency(client.clone());
         Ok(result)
     }
@@ -384,6 +387,23 @@ impl<T> std::fmt::Debug for CResource<T> {
         }
     }
 }
+#[doc = " A type-erased, allocation-free handle to an *owning* client's \"close already called\""]
+#[doc = " flag."]
+#[doc = ""]
+#[doc = " The Aeron C client owns every publication/subscription/counter it creates and frees"]
+#[doc = " them all when the client itself is closed. To avoid a double free / use-after-free,"]
+#[doc = " each child resource carries one of these (as a dependency) pointing at its owning"]
+#[doc = " client's flag. On drop the child can then cheaply ask \"has my owner already been"]
+#[doc = " closed?\" via [`ManagedCResource::owner_already_closed`] without dereferencing its own"]
+#[doc = " (by then freed) C pointer."]
+#[doc = ""]
+#[doc = " The pointer aliases the `close_already_called` [`std::cell::Cell`] living inside the"]
+#[doc = " owner's [`ManagedCResource`]. It is kept valid because the same child also holds an"]
+#[doc = " `Rc` dependency on the owning client (added alongside this handle), so the owner's"]
+#[doc = " `ManagedCResource` — and therefore the `Cell` — outlives this handle. It is only ever"]
+#[doc = " read from the child's `drop`, while those dependencies are still alive."]
+#[derive(Clone)]
+pub struct OwnerClosed(pub *const std::cell::Cell<bool>);
 #[doc = " A custom struct for managing C resources with automatic cleanup."]
 #[doc = ""]
 #[doc = " It handles initialisation and clean-up of the resource and ensures that resources"]
@@ -500,6 +520,28 @@ impl<T> ManagedCResource<T> {
                 .iter()
                 .filter_map(|x| x.as_ref().downcast_ref::<V>().cloned())
                 .next()
+        }
+    }
+    #[doc = " Returns an allocation-free handle to this resource's \"close already called\" flag so"]
+    #[doc = " it can be shared with child resources (see [`OwnerClosed`]). All clones of a wrapper"]
+    #[doc = " share the same underlying [`ManagedCResource`], hence the same flag, so closing the"]
+    #[doc = " client through any handle is observed by every child."]
+    #[inline]
+    pub fn closed_indicator(&self) -> OwnerClosed {
+        OwnerClosed(&self.close_already_called as *const std::cell::Cell<bool>)
+    }
+    #[doc = " Returns `true` if an owning client (registered as an [`OwnerClosed`] dependency)"]
+    #[doc = " has already been closed. When the owning Aeron/Archive client closes it frees this"]
+    #[doc = " resource's underlying C memory, so the resource must neither call its own C close"]
+    #[doc = " fn again nor read its C pointer. This check only reads rust-side flags and never"]
+    #[doc = " touches the C resource, so it is safe even after the owner has freed it."]
+    #[inline]
+    pub fn owner_already_closed(&self) -> bool {
+        unsafe {
+            (*self.dependencies.get())
+                .iter()
+                .filter_map(|d| d.as_ref().downcast_ref::<OwnerClosed>())
+                .any(|owner| !owner.0.is_null() && (*owner.0).get())
         }
     }
     #[inline]
@@ -1234,6 +1276,9 @@ impl AeronAsyncAddExclusivePublication {
         let result = Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_async)),
         };
+        if let Some(__owner) = client.inner.as_owned() {
+            result.inner.add_dependency(__owner.closed_indicator());
+        }
         result.inner.add_dependency(client.clone());
         Ok(result)
     }
@@ -1544,6 +1589,9 @@ impl AeronAsyncAddPublication {
         let result = Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_async)),
         };
+        if let Some(__owner) = client.inner.as_owned() {
+            result.inner.add_dependency(__owner.closed_indicator());
+        }
         result.inner.add_dependency(client.clone());
         Ok(result)
     }
@@ -1922,6 +1970,9 @@ impl AeronAsyncAddSubscription {
         let result = Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_async)),
         };
+        if let Some(__owner) = client.inner.as_owned() {
+            result.inner.add_dependency(__owner.closed_indicator());
+        }
         result.inner.add_dependency(client.clone());
         Ok(result)
     }
@@ -6612,17 +6663,18 @@ impl From<aeron_counter_t> for AeronCounter {
 impl Drop for AeronCounter {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none())
-                && std::rc::Rc::strong_count(inner) == 1
-                && !inner.is_closed_already_called()
-            {
-                if inner.auto_close.get() {
-                    log::info!("auto closing {self:?}");
-                    let result = self.close_with_no_args();
-                    log::debug!("result {:?}", result);
-                } else {
-                    #[cfg(feature = "extra-logging")]
-                    log::warn!("{} not closed", stringify!(AeronCounter));
+            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 {
+                if inner.owner_already_closed() {
+                    inner.close_already_called.set(true);
+                } else if !inner.is_closed_already_called() {
+                    if inner.auto_close.get() {
+                        log::info!("auto closing {self:?}");
+                        let result = self.close_with_no_args();
+                        log::debug!("result {:?}", result);
+                    } else {
+                        #[cfg(feature = "extra-logging")]
+                        log::warn!("{} not closed", stringify!(AeronCounter));
+                    }
                 }
             }
         }
@@ -9221,17 +9273,18 @@ impl From<aeron_exclusive_publication_t> for AeronExclusivePublication {
 impl Drop for AeronExclusivePublication {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none())
-                && std::rc::Rc::strong_count(inner) == 1
-                && !inner.is_closed_already_called()
-            {
-                if inner.auto_close.get() {
-                    log::info!("auto closing {self:?}");
-                    let result = self.close_with_no_args();
-                    log::debug!("result {:?}", result);
-                } else {
-                    #[cfg(feature = "extra-logging")]
-                    log::warn!("{} not closed", stringify!(AeronExclusivePublication));
+            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 {
+                if inner.owner_already_closed() {
+                    inner.close_already_called.set(true);
+                } else if !inner.is_closed_already_called() {
+                    if inner.auto_close.get() {
+                        log::info!("auto closing {self:?}");
+                        let result = self.close_with_no_args();
+                        log::debug!("result {:?}", result);
+                    } else {
+                        #[cfg(feature = "extra-logging")]
+                        log::warn!("{} not closed", stringify!(AeronExclusivePublication));
+                    }
                 }
             }
         }
@@ -17045,17 +17098,18 @@ impl From<aeron_publication_t> for AeronPublication {
 impl Drop for AeronPublication {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none())
-                && std::rc::Rc::strong_count(inner) == 1
-                && !inner.is_closed_already_called()
-            {
-                if inner.auto_close.get() {
-                    log::info!("auto closing {self:?}");
-                    let result = self.close_with_no_args();
-                    log::debug!("result {:?}", result);
-                } else {
-                    #[cfg(feature = "extra-logging")]
-                    log::warn!("{} not closed", stringify!(AeronPublication));
+            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 {
+                if inner.owner_already_closed() {
+                    inner.close_already_called.set(true);
+                } else if !inner.is_closed_already_called() {
+                    if inner.auto_close.get() {
+                        log::info!("auto closing {self:?}");
+                        let result = self.close_with_no_args();
+                        log::debug!("result {:?}", result);
+                    } else {
+                        #[cfg(feature = "extra-logging")]
+                        log::warn!("{} not closed", stringify!(AeronPublication));
+                    }
                 }
             }
         }
@@ -20488,17 +20542,18 @@ impl From<aeron_subscription_t> for AeronSubscription {
 impl Drop for AeronSubscription {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none())
-                && std::rc::Rc::strong_count(inner) == 1
-                && !inner.is_closed_already_called()
-            {
-                if inner.auto_close.get() {
-                    log::info!("auto closing {self:?}");
-                    let result = self.close_with_no_args();
-                    log::debug!("result {:?}", result);
-                } else {
-                    #[cfg(feature = "extra-logging")]
-                    log::warn!("{} not closed", stringify!(AeronSubscription));
+            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 {
+                if inner.owner_already_closed() {
+                    inner.close_already_called.set(true);
+                } else if !inner.is_closed_already_called() {
+                    if inner.auto_close.get() {
+                        log::info!("auto closing {self:?}");
+                        let result = self.close_with_no_args();
+                        log::debug!("result {:?}", result);
+                    } else {
+                        #[cfg(feature = "extra-logging")]
+                        log::warn!("{} not closed", stringify!(AeronSubscription));
+                    }
                 }
             }
         }
@@ -24249,17 +24304,18 @@ impl From<aeron_uri_t> for AeronUri {
 impl Drop for AeronUri {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none())
-                && std::rc::Rc::strong_count(inner) == 1
-                && !inner.is_closed_already_called()
-            {
-                if inner.auto_close.get() {
-                    log::info!("auto closing {self:?}");
-                    let result = self.close();
-                    log::debug!("result {:?}", result);
-                } else {
-                    #[cfg(feature = "extra-logging")]
-                    log::warn!("{} not closed", stringify!(AeronUri));
+            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 {
+                if inner.owner_already_closed() {
+                    inner.close_already_called.set(true);
+                } else if !inner.is_closed_already_called() {
+                    if inner.auto_close.get() {
+                        log::info!("auto closing {self:?}");
+                        let result = self.close();
+                        log::debug!("result {:?}", result);
+                    } else {
+                        #[cfg(feature = "extra-logging")]
+                        log::warn!("{} not closed", stringify!(AeronUri));
+                    }
                 }
             }
         }
