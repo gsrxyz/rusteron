@@ -1186,6 +1186,122 @@ mod tests {
         Ok(())
     }
 
+    /// Regression test for the double-free / use-after-free that occurred when an Aeron
+    /// client was closed while child resources (publication / exclusive publication /
+    /// subscription / counter) handles were still alive.
+    ///
+    /// The Aeron C client owns every registered resource and frees them all on
+    /// `aeron_close`. Previously rusteron would *also* free each resource when its Rust
+    /// handle dropped, so the `close()`-then-`drop()` ordering triggered a double free
+    /// (Linux: `free(): double free detected`; macOS: SIGSEGV/SIGABRT).
+    ///
+    /// This test asserts the process survives BOTH orderings:
+    ///   1. close the client first, then drop the handles (the previously crashing case);
+    ///   2. drop the handles first, then close the client (the always-worked case, which
+    ///      must still close everything exactly once and not leak).
+    #[test]
+    #[serial]
+    fn close_client_then_drop_resources_does_not_double_free(
+    ) -> Result<(), Box<dyn error::Error>> {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+
+        // --- ordering 1: close the client FIRST, then drop the resource handles ---
+        {
+            let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
+            media_driver_ctx.set_dir_delete_on_shutdown(true)?;
+            media_driver_ctx.set_dir_delete_on_start(true)?;
+            media_driver_ctx.set_dir(
+                &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
+            )?;
+            let (stop, driver_handle) =
+                rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
+
+            let ctx = AeronContext::new()?;
+            ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+            let mut error_handler = Handler::leak(ErrorCount::default());
+            ctx.set_error_handler(Some(&error_handler))?;
+            let aeron = Aeron::new(&ctx)?;
+            aeron.start()?;
+
+            // Acquire one of every client-owned resource type and keep the handles alive.
+            let publication =
+                aeron.add_publication(&"aeron:ipc".into_c_string(), 1001, Duration::from_secs(10))?;
+            let exclusive_publication = aeron.add_exclusive_publication(
+                &"aeron:ipc".into_c_string(),
+                1002,
+                Duration::from_secs(10),
+            )?;
+            let subscription = aeron.add_subscription(
+                &"aeron:ipc".into_c_string(),
+                1003,
+                Handlers::no_available_image_handler(),
+                Handlers::no_unavailable_image_handler(),
+                Duration::from_secs(10),
+            )?;
+            let counter = aeron.add_counter(101, &[1, 2, 3, 4], "test-counter", Duration::from_secs(10))?;
+
+            // Close the client FIRST. In the C client this frees every resource above.
+            aeron.close()?;
+
+            // Dropping the still-alive handles must NOT free the (already freed) resources
+            // again. Before the fix this double-freed / used freed memory and crashed.
+            drop(publication);
+            drop(exclusive_publication);
+            drop(subscription);
+            drop(counter);
+            drop(aeron);
+
+            stop.store(true, Ordering::SeqCst);
+            let _ = driver_handle.join().unwrap();
+            error_handler.release();
+        }
+
+        // --- ordering 2: drop the resource handles FIRST, then close the client ---
+        // This is the path that always worked; it must keep working and close exactly once.
+        {
+            let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
+            media_driver_ctx.set_dir_delete_on_shutdown(true)?;
+            media_driver_ctx.set_dir_delete_on_start(true)?;
+            media_driver_ctx.set_dir(
+                &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
+            )?;
+            let (stop, driver_handle) =
+                rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
+
+            let ctx = AeronContext::new()?;
+            ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+            let mut error_handler = Handler::leak(ErrorCount::default());
+            ctx.set_error_handler(Some(&error_handler))?;
+            let aeron = Aeron::new(&ctx)?;
+            aeron.start()?;
+
+            let publication =
+                aeron.add_publication(&"aeron:ipc".into_c_string(), 2001, Duration::from_secs(10))?;
+            let subscription = aeron.add_subscription(
+                &"aeron:ipc".into_c_string(),
+                2003,
+                Handlers::no_available_image_handler(),
+                Handlers::no_unavailable_image_handler(),
+                Duration::from_secs(10),
+            )?;
+
+            // The publication closes itself here (auto_close), exactly once.
+            assert!(!publication.is_closed());
+            drop(publication);
+            drop(subscription);
+
+            // Then the client closes; the resources are already deregistered in C.
+            aeron.close()?;
+            drop(aeron);
+
+            stop.store(true, Ordering::SeqCst);
+            let _ = driver_handle.join().unwrap();
+            error_handler.release();
+        }
+
+        Ok(())
+    }
+
     #[test]
     #[serial]
     fn blocking_add_subscription_invalid_interface_timeout() -> Result<(), Box<dyn error::Error>> {
