@@ -530,10 +530,6 @@ impl<T> Drop for Handler<T> {
                 self.raw_ptr,
                 std::mem::size_of::<T>(),
             );
-            // Actually free the memory to prevent Valgrind leaks
-            unsafe {
-                let _ = Box::from_raw(self.raw_ptr as *mut T);
-            }
         }
     }
 }
