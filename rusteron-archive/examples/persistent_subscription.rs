@@ -56,29 +56,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let archive_context = AeronArchiveContext::new()?;
     archive_context.set_aeron(&aeron)?;
-    archive_context.set_control_request_channel(
-        &format!("aeron:udp?endpoint=localhost:{req_port}").into_c_string(),
-    )?;
-    archive_context.set_control_response_channel(
-        &format!("aeron:udp?endpoint=localhost:{resp_port}").into_c_string(),
-    )?;
-    archive_context.set_recording_events_channel(
-        &format!("aeron:udp?endpoint=localhost:{events_port}").into_c_string(),
-    )?;
+    archive_context.set_control_request_channel(&format!("aeron:udp?endpoint=localhost:{req_port}").into_c_string())?;
+    archive_context
+        .set_control_response_channel(&format!("aeron:udp?endpoint=localhost:{resp_port}").into_c_string())?;
+    archive_context
+        .set_recording_events_channel(&format!("aeron:udp?endpoint=localhost:{events_port}").into_c_string())?;
 
-    let archive = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?
-        .poll_blocking(Duration::from_secs(20))?;
+    let archive =
+        AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?.poll_blocking(Duration::from_secs(20))?;
     println!("connected to archive");
 
     // 1. Record a live IPC stream and seed it with a little history.
     let live_channel = "aeron:ipc";
     let stream_id = 1001;
-    archive.start_recording(
-        &live_channel.into_c_string(),
-        stream_id,
-        SOURCE_LOCATION_LOCAL,
-        true,
-    )?;
+    archive.start_recording(&live_channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
 
     let publication = aeron
         .async_add_publication(&live_channel.into_c_string(), stream_id)?
@@ -88,11 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     for i in 0..10 {
         let msg = format!("History-{i}");
-        while publication.offer(
-            msg.as_bytes(),
-            Handlers::no_reserved_value_supplier_handler(),
-        ) <= 0
-        {
+        while publication.offer(msg.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
             sleep(Duration::from_millis(1));
         }
     }
@@ -102,8 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let session_id = publication.get_constants()?.session_id;
     let counters = aeron.counters_reader();
     let counter_id = RecordingPos::find_counter_id_by_session(&counters, session_id);
-    let recording_id =
-        RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
+    let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
     let published_position = publication.position();
     let deadline = Instant::now() + Duration::from_secs(5);
     while counters.get_counter_value(counter_id) < published_position && Instant::now() < deadline {
@@ -163,14 +149,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         live_sent += 1;
         let msg = format!("Live-{live_sent}");
-        let _ = publication.offer(
-            msg.as_bytes(),
-            Handlers::no_reserved_value_supplier_handler(),
-        );
-        let fragments = ps.poll_once(
-            |buf, _hdr| println!("  fragment ({} bytes)", buf.len()),
-            100,
-        )?;
+        let _ = publication.offer(msg.as_bytes(), Handlers::no_reserved_value_supplier_handler());
+        let fragments = ps.poll_once(|buf, _hdr| println!("  fragment ({} bytes)", buf.len()), 100)?;
         if fragments == 0 {
             sleep(Duration::from_millis(1));
         }

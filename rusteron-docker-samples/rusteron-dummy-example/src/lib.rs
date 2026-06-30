@@ -72,9 +72,7 @@ pub async fn download_ws(
 }
 
 pub fn init_logger() {
-    env_logger::Builder::new()
-        .filter_level(log::LevelFilter::Info)
-        .init()
+    env_logger::Builder::new().filter_level(log::LevelFilter::Info).init()
 }
 
 pub fn archive_connect() -> Result<(AeronArchive, Aeron), io::Error> {
@@ -95,51 +93,42 @@ pub fn archive_connect() -> Result<(AeronArchive, Aeron), io::Error> {
                     .unwrap();
 
                 match Aeron::new(&aeron_context) {
-                    Ok(aeron) => match aeron.start() {
-                        Ok(_) => {
-                            info!(
+                    Ok(aeron) => {
+                        match aeron.start() {
+                            Ok(_) => {
+                                info!(
                             "Successfully connected to aeron client, now trying to connect to archive... [aeronVersion={}, errors={:?}, closed={}]",
                             Aeron::version_full(),
                             Aeron::errmsg(),
                             aeron.is_closed()
                         );
 
-                            match AeronArchiveContext::new() {
-                                Ok(archive_context) => {
-                                    if let Err(e) = archive_context.set_aeron(&aeron) {
-                                        error!("Failed to set Aeron on archive context: {e:?}");
-                                        continue;
-                                    }
-                                    if let Err(e) = archive_context.set_control_request_channel(
-                                        &request_control_channel.as_str().into_c_string(),
-                                    ) {
-                                        error!(
-                                            "Failed to set archive control request channel: {e:?}"
-                                        );
-                                        continue;
-                                    }
-                                    if let Err(e) = archive_context.set_control_response_channel(
-                                        &response_control_channel.as_str().into_c_string(),
-                                    ) {
-                                        error!(
-                                            "Failed to set archive control response channel: {e:?}"
-                                        );
-                                        continue;
-                                    }
-                                    if let Err(e) = archive_context.set_recording_events_channel(
-                                        &recording_events_channel.as_str().into_c_string(),
-                                    ) {
-                                        error!(
-                                            "Failed to set archive recording events channel: {e:?}"
-                                        );
-                                        continue;
-                                    }
-                                    match AeronArchiveAsyncConnect::new_with_aeron(
-                                        &archive_context,
-                                        &aeron,
-                                    ) {
-                                        Ok(connect) => {
-                                            match connect.poll_blocking(Duration::from_secs(10)) {
+                                match AeronArchiveContext::new() {
+                                    Ok(archive_context) => {
+                                        if let Err(e) = archive_context.set_aeron(&aeron) {
+                                            error!("Failed to set Aeron on archive context: {e:?}");
+                                            continue;
+                                        }
+                                        if let Err(e) = archive_context.set_control_request_channel(
+                                            &request_control_channel.as_str().into_c_string(),
+                                        ) {
+                                            error!("Failed to set archive control request channel: {e:?}");
+                                            continue;
+                                        }
+                                        if let Err(e) = archive_context.set_control_response_channel(
+                                            &response_control_channel.as_str().into_c_string(),
+                                        ) {
+                                            error!("Failed to set archive control response channel: {e:?}");
+                                            continue;
+                                        }
+                                        if let Err(e) = archive_context.set_recording_events_channel(
+                                            &recording_events_channel.as_str().into_c_string(),
+                                        ) {
+                                            error!("Failed to set archive recording events channel: {e:?}");
+                                            continue;
+                                        }
+                                        match AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron) {
+                                            Ok(connect) => match connect.poll_blocking(Duration::from_secs(10)) {
                                                 Ok(archive) => {
                                                     let i = archive.get_archive_id();
                                                     assert!(i > 0);
@@ -149,21 +138,21 @@ pub fn archive_connect() -> Result<(AeronArchive, Aeron), io::Error> {
                                                 Err(e) => {
                                                     error!("Failed to poll and connect to Aeron archive: {e:?}");
                                                 }
+                                            },
+                                            Err(e) => {
+                                                error!("Failed to create AeronArchiveAsyncConnect with the given context - {e:?}");
                                             }
                                         }
-                                        Err(e) => {
-                                            error!("Failed to create AeronArchiveAsyncConnect with the given context - {e:?}");
-                                        }
                                     }
+                                    Err(c) => error!("failed to create aeron context: {c:?}"),
                                 }
-                                Err(c) => error!("failed to create aeron context: {c:?}"),
+                            }
+                            Err(e) => {
+                                error!("error creating archive context: {e:?}");
+                                error!("aeron error: {}", Aeron::errmsg());
                             }
                         }
-                        Err(e) => {
-                            error!("error creating archive context: {e:?}");
-                            error!("aeron error: {}", Aeron::errmsg());
-                        }
-                    },
+                    }
                     Err(e) => {
                         error!(
                             "error creating aeron client [aeron_dir={:?}, error={:?}]",
@@ -192,9 +181,7 @@ pub fn archive_connect() -> Result<(AeronArchive, Aeron), io::Error> {
         "failed to start up aeron media driver"
     );
 
-    Err(std::io::Error::other(
-        "unable to start up aeron media driver client",
-    ))
+    Err(std::io::Error::other("unable to start up aeron media driver client"))
 }
 
 pub fn register_exit_signals() -> websocket_lite::Result<Arc<AtomicBool>> {

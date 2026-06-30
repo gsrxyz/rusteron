@@ -49,17 +49,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .poll_blocking(Duration::from_secs(5))?;
 
     let subscriber_thread = thread::spawn(move || {
-        let mut image_rate_subscriber =
-            ImageRateSubscriber::new(running_subscriber, subscription, MESSAGE_LENGTH);
+        let mut image_rate_subscriber = ImageRateSubscriber::new(running_subscriber, subscription, MESSAGE_LENGTH);
         image_rate_subscriber.run();
         Ok::<_, AeronCError>(())
     });
 
     Publisher::new(running_publisher, publication).run();
-    subscriber_thread
-        .join()
-        .expect("Subscriber thread failed")
-        .unwrap();
+    subscriber_thread.join().expect("Subscriber thread failed").unwrap();
     error_handler.release();
 
     Ok(())
@@ -72,10 +68,7 @@ struct Publisher {
 
 impl Publisher {
     fn new(running: Arc<AtomicBool>, publication: AeronExclusivePublication) -> Self {
-        Publisher {
-            running,
-            publication,
-        }
+        Publisher { running, publication }
     }
 
     fn run(&self) {
@@ -102,8 +95,7 @@ impl Publisher {
                 }
                 back_pressure_count += 1;
                 if !self.running.load(Ordering::Acquire) {
-                    let back_pressure_ratio =
-                        back_pressure_count as f64 / total_message_count as f64;
+                    let back_pressure_ratio = back_pressure_count as f64 / total_message_count as f64;
                     println!("Publisher back pressure ratio: {back_pressure_ratio:.6}");
                     return;
                 }
@@ -135,11 +127,7 @@ impl AeronFragmentHandlerCallback for MsgCount {
 }
 
 impl ImageRateSubscriber {
-    fn new(
-        running: Arc<AtomicBool>,
-        subscription: AeronSubscription,
-        message_length: usize,
-    ) -> Self {
+    fn new(running: Arc<AtomicBool>, subscription: AeronSubscription, message_length: usize) -> Self {
         let poll_handler = Handler::leak(MsgCount { message_count: 0 });
         ImageRateSubscriber {
             running,
@@ -157,9 +145,7 @@ impl ImageRateSubscriber {
                 .poll(Some(&self.poll_handler), MESSAGE_LENGTH)
                 .unwrap();
 
-            if self.poll_handler.message_count >= next_check
-                && self.start_time.elapsed() >= Duration::from_secs(1)
-            {
+            if self.poll_handler.message_count >= next_check && self.start_time.elapsed() >= Duration::from_secs(1) {
                 next_check += BURST_LENGTH;
                 let elapsed = self.start_time.elapsed().as_secs_f64();
                 let rate = self.poll_handler.message_count as f64 / elapsed;

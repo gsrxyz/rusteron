@@ -65,10 +65,7 @@ impl AeronDriver {
             let aeron_driver = AeronDriver::new(&aeron_context)?;
             aeron_driver.start(true)?;
 
-            info!(
-                "Aeron driver started [dir={}]",
-                aeron_driver.context().get_dir()
-            );
+            info!("Aeron driver started [dir={}]", aeron_driver.context().get_dir());
 
             started2.store(true, Ordering::SeqCst);
 
@@ -101,8 +98,7 @@ impl AeronDriver {
             let cnc_file = Path::new(aeron_context.get_dir()).join("cnc.dat");
 
             if cnc_file.exists() {
-                let timeout = Duration::from_millis(aeron_context.get_driver_timeout_ms() * 2)
-                    .as_nanos() as i64;
+                let timeout = Duration::from_millis(aeron_context.get_driver_timeout_ms() * 2).as_nanos() as i64;
 
                 let mut duration = timeout;
 
@@ -118,7 +114,9 @@ impl AeronDriver {
 
                 if delay > 0 {
                     let sleep_duration = Duration::from_nanos((delay + 1_000_000) as u64);
-                    info!("cnc file already exists, will need to wait {sleep_duration:?} for timeout [file={cnc_file:?}]");
+                    info!(
+                        "cnc file already exists, will need to wait {sleep_duration:?} for timeout [file={cnc_file:?}]"
+                    );
                     sleep(sleep_duration);
                 }
             }
@@ -217,8 +215,7 @@ mod tests {
         assert!(Aeron::epoch_clock() > 0);
         assert!(Aeron::nano_clock() > 0);
 
-        let counter_async =
-            AeronAsyncAddCounter::new(&client, 2543543, "12312312".as_bytes(), "abcd")?;
+        let counter_async = AeronAsyncAddCounter::new(&client, 2543543, "12312312".as_bytes(), "abcd")?;
 
         let counter = counter_async.poll_blocking(Duration::from_secs(15))?;
         unsafe {

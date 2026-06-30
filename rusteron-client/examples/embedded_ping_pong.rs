@@ -121,10 +121,7 @@ fn run_pong(running_pong: Arc<AtomicBool>) -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
-fn run_ping(
-    running: Arc<AtomicBool>,
-    pong_thread: JoinHandle<()>,
-) -> Result<Histogram<u64>, Box<dyn Error>> {
+fn run_ping(running: Arc<AtomicBool>, pong_thread: JoinHandle<()>) -> Result<Histogram<u64>, Box<dyn Error>> {
     let context = AeronContext::new()?;
     let mut error_handler = Handler::leak(AeronErrorHandlerLogger);
     context.set_error_handler(Some(&error_handler))?;
@@ -152,29 +149,18 @@ fn run_ping(
 
     let mut buffer = vec![0u8; MESSAGE_LENGTH];
 
-    let (mut handler, mut inner_handler) =
-        Handler::leak_with_fragment_assembler(PingRoundTripHandler {
-            histogram: Histogram::new(3)?,
-        })
-        .unwrap();
+    let (mut handler, mut inner_handler) = Handler::leak_with_fragment_assembler(PingRoundTripHandler {
+        histogram: Histogram::new(3)?,
+    })
+    .unwrap();
     sleep(Duration::from_secs(1));
     for _ in 0..WARMUP_NUMBER_OF_MESSAGES {
-        record_rtt(
-            &pong_publication,
-            &ping_subscription,
-            &mut buffer,
-            &mut handler,
-        );
+        record_rtt(&pong_publication, &ping_subscription, &mut buffer, &mut handler);
     }
     println!("warmed up");
     inner_handler.histogram.reset();
     for _ in 0..NUMBER_OF_MESSAGES {
-        record_rtt(
-            &pong_publication,
-            &ping_subscription,
-            &mut buffer,
-            &mut handler,
-        );
+        record_rtt(&pong_publication, &ping_subscription, &mut buffer, &mut handler);
     }
 
     println!("finished sending all pings");
@@ -200,11 +186,7 @@ impl AeronFragmentHandlerCallback for PingRoundTripHandler {
 }
 
 fn read_i64(buffer: &[u8]) -> i64 {
-    i64::from_le_bytes(
-        buffer[0..8]
-            .try_into()
-            .expect("Slice with incorrect length"),
-    )
+    i64::from_le_bytes(buffer[0..8].try_into().expect("Slice with incorrect length"))
 }
 
 #[inline]
@@ -222,10 +204,7 @@ fn record_rtt(
             break;
         }
         // Fatal -> publication gone; stop trying to send this ping.
-        if result == PUBLICATION_CLOSED
-            || result == PUBLICATION_MAX_POSITION_EXCEEDED
-            || result == PUBLICATION_ERROR
-        {
+        if result == PUBLICATION_CLOSED || result == PUBLICATION_MAX_POSITION_EXCEEDED || result == PUBLICATION_ERROR {
             return;
         }
     }

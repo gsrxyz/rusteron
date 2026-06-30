@@ -2,8 +2,8 @@ use log::{error, info, warn};
 use rusteron_archive::*;
 use rusteron_dummy_example::model::Subscribe;
 use rusteron_dummy_example::{
-    archive_connect, download_ws, init_logger, register_exit_signals, JsonMesssageHandler,
-    TICKER_CHANNEL, TICKER_STREAM_ID,
+    archive_connect, download_ws, init_logger, register_exit_signals, JsonMesssageHandler, TICKER_CHANNEL,
+    TICKER_STREAM_ID,
 };
 use std::sync::atomic::Ordering;
 use std::thread::sleep;
@@ -91,20 +91,16 @@ impl AeronRecorder {
 
         info!(
             "attempting to starting recording {} streamId={} [archive={archive:?}, aeronError={}, aeronClosed={}]",
-            channel, stream_id,
+            channel,
+            stream_id,
             Aeron::errmsg(),
             archive.aeron().is_closed(),
         );
-        let subscription_id = archive.start_recording(
-            &channel.into_c_string(),
-            stream_id,
-            SOURCE_LOCATION_REMOTE,
-            true,
-        )?;
+        let subscription_id =
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_REMOTE, true)?;
         info!("started recording ticker stream [subscriptionId={subscription_id}]");
 
-        let publication =
-            aeron.add_publication(&channel.into_c_string(), stream_id, Duration::from_secs(60))?;
+        let publication = aeron.add_publication(&channel.into_c_string(), stream_id, Duration::from_secs(60))?;
 
         info!(
             "created ticker publication [sessionId={}]",
@@ -121,20 +117,18 @@ impl AeronRecorder {
 
 impl JsonMesssageHandler for AeronRecorder {
     fn on_msg(&mut self, msg: &str) {
-        let mut result = self.publication.offer(
-            msg.as_bytes(),
-            Handlers::no_reserved_value_supplier_handler(),
-        );
+        let mut result = self
+            .publication
+            .offer(msg.as_bytes(), Handlers::no_reserved_value_supplier_handler());
         if result <= 0 {
             // this is poor way to handle back pressure, just for simple example
             let duration = Duration::from_millis(100);
             let start = Instant::now();
 
             while start.elapsed() < duration && result <= 0 {
-                result = self.publication.offer(
-                    msg.as_bytes(),
-                    Handlers::no_reserved_value_supplier_handler(),
-                );
+                result = self
+                    .publication
+                    .offer(msg.as_bytes(), Handlers::no_reserved_value_supplier_handler());
             }
 
             if result <= 0 {
@@ -148,11 +142,7 @@ impl JsonMesssageHandler for AeronRecorder {
                     let stream_id = TICKER_STREAM_ID;
                     self.publication = self
                         .aeron
-                        .add_publication(
-                            &channel.into_c_string(),
-                            stream_id,
-                            Duration::from_secs(60),
-                        )
+                        .add_publication(&channel.into_c_string(), stream_id, Duration::from_secs(60))
                         .expect("failed to add exclusive publication");
 
                     info!(

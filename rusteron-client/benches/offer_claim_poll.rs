@@ -82,10 +82,10 @@ fn bench_offer(c: &mut Criterion) {
         let mut g = c.benchmark_group("offer");
         g.bench_function("raw_offer_i64", |b| {
             b.iter(|| {
-                let _ = black_box(h.publisher.offer(
-                    black_box(&payload),
-                    Handlers::no_reserved_value_supplier_handler(),
-                ));
+                let _ = black_box(
+                    h.publisher
+                        .offer(black_box(&payload), Handlers::no_reserved_value_supplier_handler()),
+                );
             });
         });
         g.bench_function("offer_result_simple", |b| {

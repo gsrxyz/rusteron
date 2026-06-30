@@ -70,30 +70,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     aeron.start()?;
     let archive_context = AeronArchiveContext::new()?;
     archive_context.set_aeron(&aeron)?;
-    archive_context.set_control_request_channel(
-        &format!("aeron:udp?endpoint=localhost:{req_port}").into_c_string(),
-    )?;
-    archive_context.set_control_response_channel(
-        &format!("aeron:udp?endpoint=localhost:{resp_port}").into_c_string(),
-    )?;
-    archive_context.set_recording_events_channel(
-        &format!("aeron:udp?endpoint=localhost:{events_port}").into_c_string(),
-    )?;
+    archive_context.set_control_request_channel(&format!("aeron:udp?endpoint=localhost:{req_port}").into_c_string())?;
+    archive_context
+        .set_control_response_channel(&format!("aeron:udp?endpoint=localhost:{resp_port}").into_c_string())?;
+    archive_context
+        .set_recording_events_channel(&format!("aeron:udp?endpoint=localhost:{events_port}").into_c_string())?;
     let archive = retry_transient(Instant::now() + Duration::from_secs(20), || {
-        AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?
-            .poll_blocking(Duration::from_secs(5))
+        AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?.poll_blocking(Duration::from_secs(5))
     })?;
     println!("connected to archive");
 
     // 3. Start recording an IPC stream and publish a small batch.
     let channel = "aeron:ipc";
     let stream_id = 4001;
-    archive.start_recording(
-        &channel.into_c_string(),
-        stream_id,
-        SOURCE_LOCATION_LOCAL,
-        true,
-    )?;
+    archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
     let publication = retry_transient(Instant::now() + Duration::from_secs(10), || {
         aeron
             .async_add_publication(&channel.into_c_string(), stream_id)?
@@ -110,17 +100,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if Instant::now() > deadline {
                 return Err("timed out offering a message".into());
             }
-            let r = publication.offer(
-                msg.as_bytes(),
-                Handlers::no_reserved_value_supplier_handler(),
-            );
+            let r = publication.offer(msg.as_bytes(), Handlers::no_reserved_value_supplier_handler());
             if r > 0 {
                 break;
             }
-            if r == PUBLICATION_CLOSED
-                || r == PUBLICATION_MAX_POSITION_EXCEEDED
-                || r == PUBLICATION_ERROR
-            {
+            if r == PUBLICATION_CLOSED || r == PUBLICATION_MAX_POSITION_EXCEEDED || r == PUBLICATION_ERROR {
                 return Err(format!("publication gone (offer returned {r})").into());
             }
             sleep(Duration::from_millis(1));
@@ -132,8 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let session_id = publication.get_constants()?.session_id;
     let counters = aeron.counters_reader();
     let counter_id = RecordingPos::find_counter_id_by_session(&counters, session_id);
-    let recording_id =
-        RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
+    let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
     let published_position = publication.position();
     let deadline = Instant::now() + Duration::from_secs(5);
     while counters.get_counter_value(counter_id) < published_position && Instant::now() < deadline {
@@ -143,14 +126,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 5. Replay the recording from the start onto a scratch stream and consume it.
     let replay_stream_id = 4002;
     let replay_params = AeronArchiveReplayParams::new(-1, i32::MAX, 0, i64::MAX, 0, 0)?;
-    let replay_session_id = archive.start_replay(
-        recording_id,
-        &channel.into_c_string(),
-        replay_stream_id,
-        &replay_params,
-    )?;
-    let replay_channel =
-        format!("{channel}?session-id={}", replay_session_id as i32).into_c_string();
+    let replay_session_id =
+        archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)?;
+    let replay_channel = format!("{channel}?session-id={}", replay_session_id as i32).into_c_string();
     let replay_sub = retry_transient(Instant::now() + Duration::from_secs(10), || {
         aeron
             .async_add_subscription(

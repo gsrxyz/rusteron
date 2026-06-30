@@ -35,7 +35,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
+          toolchain: 1.95.0
 
       - name: Install dependencies on Ubuntu
         if: runner.os == 'Linux'

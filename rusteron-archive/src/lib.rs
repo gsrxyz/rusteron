@@ -36,8 +36,7 @@ pub const PUBLICATION_NOT_CONNECTED: i64 = bindings::AERON_PUBLICATION_NOT_CONNE
 pub const PUBLICATION_BACK_PRESSURED: i64 = bindings::AERON_PUBLICATION_BACK_PRESSURED as i64;
 pub const PUBLICATION_ADMIN_ACTION: i64 = bindings::AERON_PUBLICATION_ADMIN_ACTION as i64;
 pub const PUBLICATION_CLOSED: i64 = bindings::AERON_PUBLICATION_CLOSED as i64;
-pub const PUBLICATION_MAX_POSITION_EXCEEDED: i64 =
-    bindings::AERON_PUBLICATION_MAX_POSITION_EXCEEDED as i64;
+pub const PUBLICATION_MAX_POSITION_EXCEEDED: i64 = bindings::AERON_PUBLICATION_MAX_POSITION_EXCEEDED as i64;
 pub const PUBLICATION_ERROR: i64 = bindings::AERON_PUBLICATION_ERROR as i64;
 
 pub mod testing;
@@ -91,34 +90,17 @@ impl AeronCError {
 }
 
 pub type SourceLocation = bindings::aeron_archive_source_location_t;
-pub const SOURCE_LOCATION_LOCAL: aeron_archive_source_location_en =
-    SourceLocation::AERON_ARCHIVE_SOURCE_LOCATION_LOCAL;
+pub const SOURCE_LOCATION_LOCAL: aeron_archive_source_location_en = SourceLocation::AERON_ARCHIVE_SOURCE_LOCATION_LOCAL;
 pub const SOURCE_LOCATION_REMOTE: aeron_archive_source_location_en =
     SourceLocation::AERON_ARCHIVE_SOURCE_LOCATION_REMOTE;
 
 pub struct RecordingPos;
 impl RecordingPos {
-    pub fn find_counter_id_by_session(
-        counter_reader: &AeronCountersReader,
-        session_id: i32,
-    ) -> i32 {
-        unsafe {
-            aeron_archive_recording_pos_find_counter_id_by_session_id(
-                counter_reader.get_inner(),
-                session_id,
-            )
-        }
+    pub fn find_counter_id_by_session(counter_reader: &AeronCountersReader, session_id: i32) -> i32 {
+        unsafe { aeron_archive_recording_pos_find_counter_id_by_session_id(counter_reader.get_inner(), session_id) }
     }
-    pub fn find_counter_id_by_recording_id(
-        counter_reader: &AeronCountersReader,
-        recording_id: i64,
-    ) -> i32 {
-        unsafe {
-            aeron_archive_recording_pos_find_counter_id_by_recording_id(
-                counter_reader.get_inner(),
-                recording_id,
-            )
-        }
+    pub fn find_counter_id_by_recording_id(counter_reader: &AeronCountersReader, recording_id: i64) -> i32 {
+        unsafe { aeron_archive_recording_pos_find_counter_id_by_recording_id(counter_reader.get_inner(), recording_id) }
     }
 
     /// Return the recordingId embedded in the key of the given counter
@@ -142,10 +124,7 @@ impl RecordingPos {
 
     /// Return the recordingId embedded in the key of the given counter
     /// if it is indeed a "recording position" counter. Otherwise return -1.
-    pub fn get_recording_id(
-        counters_reader: &AeronCountersReader,
-        counter_id: i32,
-    ) -> Result<i64, AeronCError> {
+    pub fn get_recording_id(counters_reader: &AeronCountersReader, counter_id: i32) -> Result<i64, AeronCError> {
         /// The type id for an Aeron Archive recording position counter.
         /// In Aeron Java, this is AeronCounters.ARCHIVE_RECORDING_POSITION_TYPE_ID (which is typically 100).
         pub const RECORDING_POSITION_TYPE_ID: i32 = 100;
@@ -200,10 +179,7 @@ impl AeronArchive {
 
     /// Find the latest recording matching a predicate.
     /// Returns the recording with the highest recording_id that matches the predicate.
-    pub fn find_recording<F>(
-        &self,
-        mut predicate: F,
-    ) -> Result<Option<RecordingDescriptor>, AeronCError>
+    pub fn find_recording<F>(&self, mut predicate: F) -> Result<Option<RecordingDescriptor>, AeronCError>
     where
         F: FnMut(&RecordingDescriptor) -> bool,
     {
@@ -229,18 +205,12 @@ impl AeronArchive {
     }
 
     /// Find the latest recording for a given stream ID.
-    pub fn find_recording_for_stream(
-        &self,
-        stream_id: i32,
-    ) -> Result<Option<RecordingDescriptor>, AeronCError> {
+    pub fn find_recording_for_stream(&self, stream_id: i32) -> Result<Option<RecordingDescriptor>, AeronCError> {
         self.find_recording(|desc| desc.stream_id == stream_id)
     }
 
     /// Collect all recordings matching a predicate.
-    pub fn collect_recordings<F>(
-        &self,
-        mut predicate: F,
-    ) -> Result<Vec<RecordingDescriptor>, AeronCError>
+    pub fn collect_recordings<F>(&self, mut predicate: F) -> Result<Vec<RecordingDescriptor>, AeronCError>
     where
         F: FnMut(&RecordingDescriptor) -> bool,
     {
@@ -306,10 +276,7 @@ macro_rules! impl_archive_position_methods {
 
             /// Retrieves the current active live archive position using the provided counter reader.
             /// Returns an error if not found.
-            pub fn get_archive_position_with(
-                &self,
-                counters: &AeronCountersReader,
-            ) -> Result<i64, AeronCError> {
+            pub fn get_archive_position_with(&self, counters: &AeronCountersReader) -> Result<i64, AeronCError> {
                 let session_id = self.get_constants()?.session_id();
                 let counter_id = RecordingPos::find_counter_id_by_session(counters, session_id);
                 if counter_id < 0 {
@@ -438,8 +405,7 @@ impl AeronArchivePersistentSubscription {
 
         let mut raw_ptr: *mut aeron_archive_persistent_subscription_t = std::ptr::null_mut();
         unsafe {
-            let result =
-                aeron_archive_persistent_subscription_create(&mut raw_ptr, ctx.get_inner());
+            let result = aeron_archive_persistent_subscription_create(&mut raw_ptr, ctx.get_inner());
             if result < 0 {
                 return Err(AeronCError::from_code(result));
             }
@@ -620,10 +586,7 @@ impl PersistentSubscriptionBuilder {
     }
 
     /// Set the listener for events.
-    pub fn listener<L: PersistentSubscriptionListener>(
-        mut self,
-        listener: L,
-    ) -> Result<Self, AeronCError> {
+    pub fn listener<L: PersistentSubscriptionListener>(mut self, listener: L) -> Result<Self, AeronCError> {
         self.listener = Some(Box::new(listener));
         Ok(self)
     }
@@ -693,8 +656,7 @@ mod tests {
 
     pub const ARCHIVE_CONTROL_REQUEST: &str = "aeron:udp?endpoint=localhost:8010";
     pub const ARCHIVE_CONTROL_RESPONSE: &str = "aeron:udp?endpoint=localhost:8011";
-    pub const ARCHIVE_RECORDING_EVENTS: &str =
-        "aeron:udp?control-mode=dynamic|control=localhost:8012";
+    pub const ARCHIVE_RECORDING_EVENTS: &str = "aeron:udp?control-mode=dynamic|control=localhost:8012";
 
     #[test]
     fn test_uri_string_builder() -> Result<(), AeronCError> {
@@ -706,7 +668,10 @@ mod tests {
             .mtu_length(1024 * 64)?
             .set_initial_position(127424949617280, 1182294755, 65536)?;
         let uri = builder.build(1024)?;
-        assert_eq!("aeron:udp?term-id=-1168322114|term-length=65536|mtu=65536|init-term-id=1182294755|term-offset=33408", uri);
+        assert_eq!(
+            "aeron:udp?term-id=-1168322114|term-length=65536|mtu=65536|init-term-id=1182294755|term-offset=33408",
+            uri
+        );
 
         builder.init_new()?;
         let uri = builder
@@ -717,7 +682,10 @@ mod tests {
             .endpoint("localhost:1235")?
             .control("localhost:1234")?
             .build(1024)?;
-        assert_eq!("aeron:udp?ttl=2|control-mode=dynamic|endpoint=localhost:1235|control=localhost:1234|reliable=false", uri);
+        assert_eq!(
+            "aeron:udp?ttl=2|control-mode=dynamic|endpoint=localhost:1235|control=localhost:1234|reliable=false",
+            uri
+        );
 
         let uri = AeronUriStringBuilder::from_str("aeron:udp?endpoint=localhost:8010")?
             .ttl(5)?
@@ -750,8 +718,7 @@ mod tests {
 
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
 
-        EmbeddedArchiveMediaDriverProcess::kill_all_java_processes()
-            .expect("failed to kill all java processes");
+        EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().expect("failed to kill all java processes");
 
         assert!(is_udp_port_available(23265));
         assert!(is_udp_port_available(23266));
@@ -781,8 +748,7 @@ mod tests {
         info!("connected to archive, adding publication");
         assert!(!aeron.is_closed());
 
-        let (session_id, publisher_thread) =
-            reply_merge_publisher(&archive, aeron.clone(), running.clone())?;
+        let (session_id, publisher_thread) = reply_merge_publisher(&archive, aeron.clone(), running.clone())?;
 
         {
             let context = AeronContext::new()?;
@@ -799,25 +765,18 @@ mod tests {
                 let aeron_archive_context = AeronArchiveContext::new()?;
                 aeron_archive_context.set_aeron(&aeron)?;
                 aeron_archive_context.set_control_request_channel(
-                    &source_archive_context
-                        .get_control_request_channel()
-                        .into_c_string(),
+                    &source_archive_context.get_control_request_channel().into_c_string(),
                 )?;
                 aeron_archive_context.set_control_response_channel(
-                    &source_archive_context
-                        .get_control_response_channel()
-                        .into_c_string(),
+                    &source_archive_context.get_control_response_channel().into_c_string(),
                 )?;
                 aeron_archive_context.set_recording_events_channel(
-                    &source_archive_context
-                        .get_recording_events_channel()
-                        .into_c_string(),
+                    &source_archive_context.get_recording_events_channel().into_c_string(),
                 )?;
                 aeron_archive_context.set_message_timeout_ns(60_000_000_000)?;
                 aeron_archive_context.set_error_handler(Some(&error_handler))?;
-                let merge_archive =
-                    AeronArchiveAsyncConnect::new_with_aeron(&aeron_archive_context, &aeron)?
-                        .poll_blocking(Duration::from_secs(60))?;
+                let merge_archive = AeronArchiveAsyncConnect::new_with_aeron(&aeron_archive_context, &aeron)?
+                    .poll_blocking(Duration::from_secs(60))?;
                 replay_merge_subscription(&merge_archive, aeron.clone(), session_id)?;
                 Ok(())
             })();
@@ -842,8 +801,7 @@ mod tests {
     ) -> Result<(i32, JoinHandle<()>), AeronCError> {
         let publication = aeron.add_publication(
             // &format!("aeron:udp?control={CONTROL_ENDPOINT}|control-mode=dynamic|term-length=65536|fc=tagged,g:99901/1,t:5s"),
-            &format!("aeron:udp?control={CONTROL_ENDPOINT}|control-mode=dynamic|term-length=65536")
-                .into_c_string(),
+            &format!("aeron:udp?control={CONTROL_ENDPOINT}|control-mode=dynamic|term-length=65536").into_c_string(),
             STREAM_ID,
             Duration::from_secs(5),
         )?;
@@ -880,11 +838,7 @@ mod tests {
 
             while running.load(Ordering::Acquire) {
                 let message = format!("{}{}", MESSAGE_PREFIX, message_count);
-                while publication.offer(
-                    message.as_bytes(),
-                    Handlers::no_reserved_value_supplier_handler(),
-                ) <= 0
-                {
+                while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                     thread::sleep(Duration::from_millis(10));
                 }
                 message_count += 1;
@@ -913,11 +867,7 @@ mod tests {
         Ok((session_id, publisher_thread))
     }
 
-    fn replay_merge_subscription(
-        archive: &AeronArchive,
-        aeron: Aeron,
-        session_id: i32,
-    ) -> Result<(), AeronCError> {
+    fn replay_merge_subscription(archive: &AeronArchive, aeron: Aeron, session_id: i32) -> Result<(), AeronCError> {
         // let replay_channel = format!("aeron:udp?control-mode=manual|session-id={session_id}");
         let replay_channel = format!("aeron:udp?session-id={session_id}").into_c_string();
         info!("replay channel {:?}", replay_channel);
@@ -925,9 +875,7 @@ mod tests {
         let replay_destination = format!("aeron:udp?endpoint={REPLAY_ENDPOINT}").into_c_string();
         info!("replay destination {:?}", replay_destination);
 
-        let live_destination =
-            format!("aeron:udp?endpoint={LIVE_ENDPOINT}|control={CONTROL_ENDPOINT}")
-                .into_c_string();
+        let live_destination = format!("aeron:udp?endpoint={LIVE_ENDPOINT}|control={CONTROL_ENDPOINT}").into_c_string();
         info!("live destination {:?}", live_destination);
 
         let counters_reader = aeron.counters_reader();
@@ -969,14 +917,10 @@ mod tests {
         // let recording_id = recording_id.get();
         // let start_position = start_position.get();
         let start_position = 0;
-        let recording_id = RecordingPos::get_recording_id_block(
-            &aeron.counters_reader(),
-            counter_id,
-            Duration::from_secs(5),
-        )?;
+        let recording_id =
+            RecordingPos::get_recording_id_block(&aeron.counters_reader(), counter_id, Duration::from_secs(5))?;
 
-        let subscribe_channel =
-            format!("aeron:udp?control-mode=manual|session-id={session_id}").into_c_string();
+        let subscribe_channel = format!("aeron:udp?control-mode=manual|session-id={session_id}").into_c_string();
         info!("subscribe channel {:?}", subscribe_channel);
         let subscription = aeron.add_subscription(
             &subscribe_channel,
@@ -1093,12 +1037,10 @@ mod tests {
 
         let request_port = find_unused_udp_port(8000).expect("Could not find port");
         let response_port = find_unused_udp_port(request_port + 1).expect("Could not find port");
-        let recording_event_port =
-            find_unused_udp_port(response_port + 1).expect("Could not find port");
+        let recording_event_port = find_unused_udp_port(response_port + 1).expect("Could not find port");
         let request_control_channel = &format!("aeron:udp?endpoint=localhost:{}", request_port);
         let response_control_channel = &format!("aeron:udp?endpoint=localhost:{}", response_port);
-        let recording_events_channel =
-            &format!("aeron:udp?endpoint=localhost:{}", recording_event_port);
+        let recording_events_channel = &format!("aeron:udp?endpoint=localhost:{}", recording_event_port);
         assert_ne!(request_control_channel, response_control_channel);
 
         let archive_media_driver = EmbeddedArchiveMediaDriverProcess::build_and_start(
@@ -1124,12 +1066,9 @@ mod tests {
             aeron.start()?;
             let archive_context = AeronArchiveContext::new()?;
             archive_context.set_aeron(&aeron)?;
-            archive_context
-                .set_control_request_channel(&request_control_channel.as_str().into_c_string())?;
-            archive_context
-                .set_control_response_channel(&response_control_channel.as_str().into_c_string())?;
-            archive_context
-                .set_recording_events_channel(&recording_events_channel.as_str().into_c_string())?;
+            archive_context.set_control_request_channel(&request_control_channel.as_str().into_c_string())?;
+            archive_context.set_control_response_channel(&response_control_channel.as_str().into_c_string())?;
+            archive_context.set_recording_events_channel(&recording_events_channel.as_str().into_c_string())?;
             archive_context.set_error_handler(Some(&error_handler))?;
             Ok((aeron, archive_context))
         })();
@@ -1154,8 +1093,7 @@ mod tests {
     #[serial]
     pub fn test_aeron_archive() -> Result<(), Box<dyn error::Error>> {
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
-        EmbeddedArchiveMediaDriverProcess::kill_all_java_processes()
-            .expect("failed to kill all java processes");
+        EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().expect("failed to kill all java processes");
 
         let (aeron, archive_context, media_driver, mut pub_error_frame_handler, mut error_handler) =
             start_aeron_archive()?;
@@ -1165,8 +1103,7 @@ mod tests {
 
             info!("connected to aeron");
 
-            let archive_connector =
-                AeronArchiveAsyncConnect::new_with_aeron(&archive_context.clone(), &aeron)?;
+            let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context.clone(), &aeron)?;
             let archive = archive_connector
                 .poll_blocking(Duration::from_secs(30))
                 .expect("failed to connect to aeron archive media driver");
@@ -1176,8 +1113,7 @@ mod tests {
             let channel = AERON_IPC_STREAM;
             let stream_id = 10;
 
-            let subscription_id =
-                archive.start_recording(channel, stream_id, SOURCE_LOCATION_LOCAL, true)?;
+            let subscription_id = archive.start_recording(channel, stream_id, SOURCE_LOCATION_LOCAL, true)?;
 
             assert!(subscription_id >= 0);
             info!("subscription id {}", subscription_id);
@@ -1187,11 +1123,7 @@ mod tests {
                 .poll_blocking(Duration::from_secs(5))?;
 
             for i in 0..11 {
-                while publication.offer(
-                    "123456".as_bytes(),
-                    Handlers::no_reserved_value_supplier_handler(),
-                ) <= 0
-                {
+                while publication.offer("123456".as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                     sleep(Duration::from_millis(50));
                     let err = archive.poll_for_error_response_as_string(4096)?;
                     if !err.is_empty() {
@@ -1284,28 +1216,17 @@ mod tests {
             }
             assert!(start.elapsed() < Duration::from_secs(5));
             info!("start replay");
-            let params = AeronArchiveReplayParams::new(
-                0,
-                i32::MAX,
-                start_pos.get(),
-                end_pos.get() - start_pos.get(),
-                0,
-                0,
-            )?;
+            let params =
+                AeronArchiveReplayParams::new(0, i32::MAX, start_pos.get(), end_pos.get() - start_pos.get(), 0, 0)?;
             info!("replay params {:#?}", params);
             let replay_stream_id = 45;
-            let replay_session_id = archive.start_replay(
-                found_recording_id.get(),
-                channel,
-                replay_stream_id,
-                &params,
-            )?;
+            let replay_session_id =
+                archive.start_replay(found_recording_id.get(), channel, replay_stream_id, &params)?;
             let session_id = replay_session_id as i32;
 
             info!("replay session id {}", replay_session_id);
             info!("session id {}", session_id);
-            let channel_replay =
-                format!("{}?session-id={}", channel.to_str().unwrap(), session_id).into_c_string();
+            let channel_replay = format!("{}?session-id={}", channel.to_str().unwrap(), session_id).into_c_string();
             info!("archive id: {}", archive.get_archive_id());
 
             info!("add subscription {:?}", channel_replay);
@@ -1327,11 +1248,7 @@ mod tests {
                 }
 
                 impl AeronFragmentHandlerCallback for FragmentHandler {
-                    fn handle_aeron_fragment_handler(
-                        &mut self,
-                        buffer: &[u8],
-                        _header: AeronHeader,
-                    ) {
+                    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: AeronHeader) {
                         assert_eq!(buffer, "123456".as_bytes());
 
                         // Update count (using Cell for interior mutability)
@@ -1343,9 +1260,7 @@ mod tests {
                 let poll_result: Result<(), Box<dyn error::Error>> = (|| {
                     let wait_timeout = Duration::from_secs(30);
                     let start = Instant::now();
-                    while start.elapsed() < wait_timeout
-                        && subscription.poll(Some(&poll), 100)? <= 0
-                    {
+                    while start.elapsed() < wait_timeout && subscription.poll(Some(&poll), 100)? <= 0 {
                         let err = archive.poll_for_error_response_as_string(4096)?;
                         if !err.is_empty() {
                             return Err(std::io::Error::other(err).into());
@@ -1353,11 +1268,7 @@ mod tests {
                     }
 
                     if start.elapsed() >= wait_timeout {
-                        return Err(std::io::Error::other(format!(
-                            "messages not received {:?}",
-                            poll.count
-                        ))
-                        .into());
+                        return Err(std::io::Error::other(format!("messages not received {:?}", poll.count)).into());
                     }
 
                     info!("aeron {:?}", aeron);
@@ -1396,15 +1307,13 @@ mod tests {
     fn test_invalid_recording_channel() -> Result<(), Box<dyn Error>> {
         let (aeron, archive_context, media_driver, mut pub_error_frame_handler, mut error_handler) =
             start_aeron_archive()?;
-        let archive_connector =
-            AeronArchiveAsyncConnect::new_with_aeron(&archive_context.clone(), &aeron)?;
+        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context.clone(), &aeron)?;
         let archive = archive_connector
             .poll_blocking(Duration::from_secs(30))
             .expect("failed to connect to archive");
 
         let invalid_channel = "invalid:channel".into_c_string();
-        let result =
-            archive.start_recording(&invalid_channel, STREAM_ID, SOURCE_LOCATION_LOCAL, true);
+        let result = archive.start_recording(&invalid_channel, STREAM_ID, SOURCE_LOCATION_LOCAL, true);
         assert!(
             result.is_err(),
             "Expected error when starting recording with an invalid channel"
@@ -1422,8 +1331,7 @@ mod tests {
     fn test_stop_recording_on_nonexistent_channel() -> Result<(), Box<dyn Error>> {
         let (aeron, archive_context, media_driver, mut pub_error_frame_handler, mut error_handler) =
             start_aeron_archive()?;
-        let archive_connector =
-            AeronArchiveAsyncConnect::new_with_aeron(&archive_context.clone(), &aeron)?;
+        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context.clone(), &aeron)?;
         let archive = archive_connector
             .poll_blocking(Duration::from_secs(30))
             .expect("failed to connect to archive");
@@ -1447,8 +1355,7 @@ mod tests {
     fn test_replay_with_invalid_recording_id() -> Result<(), Box<dyn Error>> {
         let (aeron, archive_context, media_driver, mut pub_error_frame_handler, mut error_handler) =
             start_aeron_archive()?;
-        let archive_connector =
-            AeronArchiveAsyncConnect::new_with_aeron(&archive_context.clone(), &aeron)?;
+        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context.clone(), &aeron)?;
         let archive = archive_connector
             .poll_blocking(Duration::from_secs(30))
             .expect("failed to connect to archive");
@@ -1478,8 +1385,7 @@ mod tests {
     fn test_archive_reconnect_after_close() -> Result<(), Box<dyn std::error::Error>> {
         let (aeron, archive_context, media_driver, mut pub_error_frame_handler, mut error_handler) =
             start_aeron_archive()?;
-        let archive_connector =
-            AeronArchiveAsyncConnect::new_with_aeron(&archive_context.clone(), &aeron)?;
+        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context.clone(), &aeron)?;
         let archive = archive_connector
             .poll_blocking(Duration::from_secs(30))
             .expect("failed to connect to archive");

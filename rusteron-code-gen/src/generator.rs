@@ -155,19 +155,13 @@ impl ReturnType {
         }
     }
 
-    pub fn get_new_return_type(
-        &self,
-        convert_errors: bool,
-        use_ref_for_cwrapper: bool,
-    ) -> TokenStream {
+    pub fn get_new_return_type(&self, convert_errors: bool, use_ref_for_cwrapper: bool) -> TokenStream {
         if let ArgProcessing::Handler(_) = self.original.processing {
             if self.original.name.len() > 0 {
                 if !self.original.is_mut_pointer() {
-                    let new_type = parse_str::<Type>(&format!(
-                        "{}HandlerImpl",
-                        snake_to_pascal_case(&self.original.c_type)
-                    ))
-                    .expect("Invalid class name in wrapper");
+                    let new_type =
+                        parse_str::<Type>(&format!("{}HandlerImpl", snake_to_pascal_case(&self.original.c_type)))
+                            .expect("Invalid class name in wrapper");
                     return quote! { Option<&Handler<#new_type>> };
                 } else {
                     return quote! {};
@@ -200,8 +194,7 @@ impl ReturnType {
         if self.original.is_single_mut_pointer() {
             let type_name = self.original.split(" ").last().unwrap();
             if let Some(wrapper) = self.wrappers.get(type_name) {
-                let new_type =
-                    parse_str::<Type>(&wrapper.class_name).expect("Invalid class name in wrapper");
+                let new_type = parse_str::<Type>(&wrapper.class_name).expect("Invalid class name in wrapper");
                 if use_ref_for_cwrapper {
                     return quote! { &#new_type };
                 } else {
@@ -210,8 +203,7 @@ impl ReturnType {
             }
         }
         if let Some(wrapper) = self.wrappers.get(&self.original.c_type) {
-            let new_type =
-                parse_str::<Type>(&wrapper.class_name).expect("Invalid class name in wrapper");
+            let new_type = parse_str::<Type>(&wrapper.class_name).expect("Invalid class name in wrapper");
             return quote! { #new_type };
         }
         if convert_errors && self.original.is_c_raw_int() {
@@ -227,24 +219,14 @@ impl ReturnType {
         }
         let return_type: Type = parse_str(&self.original).expect("Invalid return type");
         if self.original.is_single_mut_pointer() && self.original.is_primitive() {
-            let mut_type: Type = parse_str(
-                &return_type
-                    .to_token_stream()
-                    .to_string()
-                    .replace("* mut ", "&mut "),
-            )
-            .unwrap();
+            let mut_type: Type =
+                parse_str(&return_type.to_token_stream().to_string().replace("* mut ", "&mut ")).unwrap();
             return quote! { #mut_type };
         }
         quote! { #return_type }
     }
 
-    pub fn handle_c_to_rs_return(
-        &self,
-        result: TokenStream,
-        convert_errors: bool,
-        use_self: bool,
-    ) -> TokenStream {
+    pub fn handle_c_to_rs_return(&self, result: TokenStream, convert_errors: bool, use_self: bool) -> TokenStream {
         if let ArgProcessing::StringWithLength(_) = &self.original.processing {
             if !self.original.is_c_string_any() {
                 return quote! {};
@@ -301,16 +283,10 @@ impl ReturnType {
         if let ArgProcessing::Handler(handler_client) = &self.original.processing {
             if !self.original.is_mut_pointer() {
                 let handler = handler_client.get(0).unwrap();
-                let new_type = parse_str::<Type>(&format!(
-                    "{}HandlerImpl",
-                    snake_to_pascal_case(&handler.c_type)
-                ))
-                .expect("Invalid class name in wrapper");
-                let new_handler = parse_str::<Type>(&format!(
-                    "{}Callback",
-                    snake_to_pascal_case(&handler.c_type)
-                ))
-                .expect("Invalid class name in wrapper");
+                let new_type = parse_str::<Type>(&format!("{}HandlerImpl", snake_to_pascal_case(&handler.c_type)))
+                    .expect("Invalid class name in wrapper");
+                let new_handler = parse_str::<Type>(&format!("{}Callback", snake_to_pascal_case(&handler.c_type)))
+                    .expect("Invalid class name in wrapper");
                 return Some(quote! {
                     #new_type: #new_handler
                 });
@@ -323,11 +299,8 @@ impl ReturnType {
         if let ArgProcessing::Handler(handler_client) = &self.original.processing {
             if !self.original.is_mut_pointer() {
                 let handler = handler_client.get(0).unwrap();
-                let new_type = parse_str::<Type>(&format!(
-                    "{}HandlerImpl",
-                    snake_to_pascal_case(&handler.c_type)
-                ))
-                .expect("Invalid class name in wrapper");
+                let new_type = parse_str::<Type>(&format!("{}HandlerImpl", snake_to_pascal_case(&handler.c_type)))
+                    .expect("Invalid class name in wrapper");
                 return Some(quote! {
                     #new_type
                 });
@@ -336,11 +309,7 @@ impl ReturnType {
         None
     }
 
-    pub fn handle_rs_to_c_return(
-        &self,
-        result: TokenStream,
-        include_field_name: bool,
-    ) -> TokenStream {
+    pub fn handle_rs_to_c_return(&self, result: TokenStream, include_field_name: bool) -> TokenStream {
         if let ArgProcessing::Handler(handler_client) = &self.original.processing {
             if !self.original.is_mut_pointer() {
                 let handler = handler_client.get(0).unwrap();
@@ -348,11 +317,9 @@ impl ReturnType {
                 let handler_type = handler.as_type();
                 let clientd_name = handler_client.get(1).unwrap().as_ident();
                 let method_name = format_ident!("{}_callback", handler.c_type);
-                let new_type = parse_str::<Type>(&format!(
-                    "{}HandlerImpl",
-                    snake_to_pascal_case(&self.original.c_type)
-                ))
-                .expect("Invalid class name in wrapper");
+                let new_type =
+                    parse_str::<Type>(&format!("{}HandlerImpl", snake_to_pascal_case(&self.original.c_type)))
+                        .expect("Invalid class name in wrapper");
                 if include_field_name {
                     return quote! {
                         #handler_name: { let callback: #handler_type = if #handler_name.is_none() { None } else { Some(#method_name::<#new_type>) }; callback },
@@ -566,7 +533,7 @@ impl CWrapper {
                     }
                     // This is the byte array argument - show name, type, and length
                     arg_names_for_logging.push(quote! {
-                        format!("{}: {} (len={})", #arg_name_str, stringify!(#arg_type), #arg_ident.len()) 
+                        format!("{}: {} (len={})", #arg_name_str, stringify!(#arg_type), #arg_ident.len())
                     });
                     arg_names_idx += 2;
                 }
@@ -880,10 +847,8 @@ impl CWrapper {
 
             for c in closure_handlers.iter() {
                 if !c.closure_type_name.is_empty() {
-                    where_clause = where_clause.replace(
-                        &c.closure_type_name.to_string(),
-                        &c.fn_mut_signature.to_string(),
-                    );
+                    where_clause =
+                        where_clause.replace(&c.closure_type_name.to_string(), &c.fn_mut_signature.to_string());
                 }
             }
             let where_clause = parse_str::<TokenStream>(&where_clause).unwrap();
@@ -1003,14 +968,14 @@ impl CWrapper {
                 .take_while(|t| !t.to_string().contains(" Parameter"))
                 .collect_vec();
             additional_methods.push(quote! {
-                        #[inline]
-                        #(#method_docs)*
-                        pub fn #getter_method #where_clause(#possible_self) -> Result<#return_type, AeronCError> {
-                            let result = #return_type::new_zeroed_on_stack();
-                            self.#fn_name(&result)?;
-                            Ok(result)
-                        }
-                    });
+                #[inline]
+                #(#method_docs)*
+                pub fn #getter_method #where_clause(#possible_self) -> Result<#return_type, AeronCError> {
+                    let result = #return_type::new_zeroed_on_stack();
+                    self.#fn_name(&result)?;
+                    Ok(result)
+                }
+            });
             debug_fields.push(quote! {
                 .field(stringify!(#fn_name), &self.#getter_method() )
             });
@@ -1082,11 +1047,7 @@ impl CWrapper {
         self.fields
             .iter()
             .filter(|arg| {
-                !arg.name.starts_with("_")
-                    && !self
-                        .methods
-                        .iter()
-                        .any(|m| m.struct_method_name.as_str() == arg.name)
+                !arg.name.starts_with("_") && !self.methods.iter().any(|m| m.struct_method_name.as_str() == arg.name)
             })
             .map(|arg| {
                 let field_name = &arg.name;
@@ -1122,8 +1083,7 @@ impl CWrapper {
                     || cwrappers.contains_key(&rt.original.c_type)
                 {
                     if !rt.original.is_any_pointer() || rt.original.is_c_string_any() {
-                        debug_fields
-                            .push(quote! { .field(stringify!(#fn_name), &self.#fn_name()) });
+                        debug_fields.push(quote! { .field(stringify!(#fn_name), &self.#fn_name()) });
                     }
                 }
 
@@ -1148,7 +1108,7 @@ impl CWrapper {
         let constructors = self
             .methods
             .iter()
-            .filter(|m| m.arguments.iter().any(|arg| arg.is_double_mut_pointer() ))
+            .filter(|m| m.arguments.iter().any(|arg| arg.is_double_mut_pointer()))
             .map(|method| {
                 let init_fn = format_ident!("{}", method.fn_name);
                 let close_method = self.find_close_method(method);
@@ -1196,26 +1156,15 @@ impl CWrapper {
                         })
                         .filter(|t| !t.is_empty())
                         .collect();
-                    let lets: Vec<TokenStream> =
-                        Self::lets_for_copying_arguments(wrappers, &method.arguments, true);
+                    let lets: Vec<TokenStream> = Self::lets_for_copying_arguments(wrappers, &method.arguments, true);
 
                     constructor_fields.clear();
-                    constructor_fields.extend(Self::constructor_fields(
-                        wrappers,
-                        &method.arguments,
-                        &self.class_name,
-                    ));
+                    constructor_fields.extend(Self::constructor_fields(wrappers, &method.arguments, &self.class_name));
 
-                    let new_ref_args =
-                        Self::new_args(wrappers, &method.arguments, &self.class_name, false);
+                    let new_ref_args = Self::new_args(wrappers, &method.arguments, &self.class_name, false);
 
                     new_ref_set_none.clear();
-                    new_ref_set_none.extend(Self::new_args(
-                        wrappers,
-                        &method.arguments,
-                        &self.class_name,
-                        true,
-                    ));
+                    new_ref_set_none.extend(Self::new_args(wrappers, &method.arguments, &self.class_name, true));
 
                     let new_args: Vec<TokenStream> = method
                         .arguments
@@ -1226,8 +1175,8 @@ impl CWrapper {
                                 None
                             } else {
                                 let arg_name = arg.as_ident();
-                                let arg_type = ReturnType::new(arg.clone(), wrappers.clone())
-                                    .get_new_return_type(false, true);
+                                let arg_type =
+                                    ReturnType::new(arg.clone(), wrappers.clone()).get_new_return_type(false, true);
                                 if arg_type.clone().into_token_stream().is_empty() {
                                     None
                                 } else {
@@ -1261,8 +1210,7 @@ impl CWrapper {
                         quote! { <#(#generic_types),*> }
                     };
 
-                    let method_docs: Vec<TokenStream> =
-                        get_docs(&method.docs, wrappers, Some(&new_args));
+                    let method_docs: Vec<TokenStream> = get_docs(&method.docs, wrappers, Some(&new_args));
 
                     // Generate logging expression token stream (will be evaluated in closure)
                     let init_log_expr_tokens = Self::generate_arg_logging(&method.arguments, &init_args);
@@ -1312,12 +1260,7 @@ impl CWrapper {
             })
             .collect_vec();
 
-        let no_constructor = constructors
-            .iter()
-            .map(|x| x.to_string())
-            .join("")
-            .trim()
-            .is_empty();
+        let no_constructor = constructors.iter().map(|x| x.to_string()).join("").trim().is_empty();
         if no_constructor {
             let type_name = format_ident!("{}", self.type_name);
             let is_closed_method = self.get_is_closed_method_quote();
@@ -1364,8 +1307,7 @@ impl CWrapper {
                     .iter()
                     .filter_map(|arg| {
                         let arg_name = arg.as_ident();
-                        let arg_type = ReturnType::new(arg.clone(), wrappers.clone())
-                            .get_new_return_type(false, true);
+                        let arg_type = ReturnType::new(arg.clone(), wrappers.clone()).get_new_return_type(false, true);
                         if arg_type.is_empty() {
                             None
                         } else {
@@ -1407,8 +1349,7 @@ impl CWrapper {
                     .filter(|a| a.processing == ArgProcessing::Default)
                     .cloned()
                     .collect_vec();
-                let lets: Vec<TokenStream> =
-                    Self::lets_for_copying_arguments(wrappers, &cloned_fields, false);
+                let lets: Vec<TokenStream> = Self::lets_for_copying_arguments(wrappers, &cloned_fields, false);
 
                 let is_closed_method = self.get_is_closed_method_quote();
 
@@ -1473,8 +1414,7 @@ impl CWrapper {
 
                     let return_type = ReturnType::new(arg.clone(), wrappers.clone());
 
-                    if let ArgProcessing::StringWithLength(_args)
-                    | ArgProcessing::ByteArrayWithLength(_args) =
+                    if let ArgProcessing::StringWithLength(_args) | ArgProcessing::ByteArrayWithLength(_args) =
                         &return_type.original.processing
                     {
                         return None;
@@ -1608,10 +1548,7 @@ impl CWrapper {
                     .replace("_create", name)
                     .replace("_add_", "_remove_")
             );
-            let method = self
-                .methods
-                .iter()
-                .find(|m| close_fn.to_string().contains(&m.fn_name));
+            let method = self.methods.iter().find(|m| close_fn.to_string().contains(&m.fn_name));
             if method.is_some() {
                 close_method = method;
                 break;
@@ -1623,15 +1560,12 @@ impl CWrapper {
     fn has_default_method(&self) -> bool {
         // AeronUriStringBuilder does not follow the normal convention so have additional check arg.is_single_mut_pointer() && m.fn_name.contains("_init_")
         let no_init_method = !self.methods.iter().any(|m| {
-            m.arguments.iter().any(|arg| {
-                arg.is_double_mut_pointer()
-                    || (arg.is_single_mut_pointer() && m.fn_name.contains("_init_"))
-            })
+            m.arguments
+                .iter()
+                .any(|arg| arg.is_double_mut_pointer() || (arg.is_single_mut_pointer() && m.fn_name.contains("_init_")))
         });
 
-        no_init_method
-            && !self.fields.iter().any(|arg| arg.name.starts_with("_"))
-            && !self.fields.is_empty()
+        no_init_method && !self.fields.iter().any(|arg| arg.name.starts_with("_")) && !self.fields.is_empty()
     }
 
     fn generate_allocation_test(&self) -> TokenStream {
@@ -1734,9 +1668,7 @@ mod parse_custom_methods_tests {
                     .collect::<BTreeSet<_>>()
             )
         );
-        assert!(map
-            .get("AeronSubscription")
-            .map_or(false, |s| s.contains("status")));
+        assert!(map.get("AeronSubscription").map_or(false, |s| s.contains("status")));
     }
 
     #[test]
@@ -1873,12 +1805,10 @@ fn get_docs(
             arguments.is_none()
                 || !s.contains("@param")
                 || (s.contains("@param")
-                    && arguments.unwrap().iter().any(|a| {
-                        s.contains(
-                            format!(" {}", a.to_string().split_whitespace().next().unwrap())
-                                .as_str(),
-                        )
-                    }))
+                    && arguments
+                        .unwrap()
+                        .iter()
+                        .any(|a| s.contains(format!(" {}", a.to_string().split_whitespace().next().unwrap()).as_str())))
         })
         .map(|doc| {
             let mut doc = doc.to_string();
@@ -1900,9 +1830,9 @@ fn get_docs(
                 .replace("<p>", "\n")
                 .replace("</p>", "\n");
 
-            doc = wrappers.values().fold(doc, |acc, v| {
-                acc.replace(&v.type_name, &format!("`{}`", v.class_name))
-            });
+            doc = wrappers
+                .values()
+                .fold(doc, |acc, v| acc.replace(&v.type_name, &format!("`{}`", v.class_name)));
 
             if doc.contains("@deprecated") {
                 quote! {
@@ -1923,10 +1853,7 @@ fn generate_stateless_handler_code(handler: &CHandler) -> TokenStream {
     let callback_fn_name = format_ident!("{}_callback", handler.type_name);
     let closure_type_name = format_ident!("{}Callback", snake_to_pascal_case(&handler.type_name));
     let logger_type_name = format_ident!("{}Logger", snake_to_pascal_case(&handler.type_name));
-    let handle_method_name = format_ident!(
-        "handle_{}",
-        &handler.type_name[..handler.type_name.len() - 2]
-    );
+    let handle_method_name = format_ident!("handle_{}", &handler.type_name[..handler.type_name.len() - 2]);
     let closure_return_type = handler.return_type.as_type();
 
     // For stateless callbacks, the FnMut signature takes no args (other than &mut self)
@@ -1940,8 +1867,7 @@ fn generate_stateless_handler_code(handler: &CHandler) -> TokenStream {
             let arg_name = format_ident!("arg_{}", i);
 
             let fn_mut_arg = if arg.is_single_mut_pointer() && arg.is_primitive() {
-                let owned_type: Type =
-                    parse_str(arg.c_type.split_whitespace().last().unwrap()).unwrap();
+                let owned_type: Type = parse_str(arg.c_type.split_whitespace().last().unwrap()).unwrap();
                 quote! { #owned_type }
             } else {
                 quote! { #type_name }
@@ -1950,8 +1876,7 @@ fn generate_stateless_handler_code(handler: &CHandler) -> TokenStream {
             let trait_arg = if type_name.is_empty() {
                 quote! {}
             } else if arg.is_single_mut_pointer() && arg.is_primitive() {
-                let owned_type: Type =
-                    parse_str(arg.c_type.split_whitespace().last().unwrap()).unwrap();
+                let owned_type: Type = parse_str(arg.c_type.split_whitespace().last().unwrap()).unwrap();
                 quote! { #arg_name: #owned_type }
             } else {
                 quote! { #arg_name: #type_name }
@@ -2008,8 +1933,7 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
     let is_stateless = !has_c_void_param;
 
     if is_stateless {
-        let closure_type_name =
-            format_ident!("{}Callback", snake_to_pascal_case(&handler.type_name));
+        let closure_type_name = format_ident!("{}Callback", snake_to_pascal_case(&handler.type_name));
         // Set the FnMut signature for stateless handlers (needed by wrapper code generation)
         let fn_mut_args: Vec<TokenStream> = handler
             .args
@@ -2018,8 +1942,7 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
                 let return_type = ReturnType::new(arg.clone(), bindings.wrappers.clone());
                 let type_name = return_type.get_new_return_type(false, false);
                 if arg.is_single_mut_pointer() && arg.is_primitive() {
-                    let owned_type: Type =
-                        parse_str(arg.c_type.split_whitespace().last().unwrap()).unwrap();
+                    let owned_type: Type = parse_str(arg.c_type.split_whitespace().last().unwrap()).unwrap();
                     quote! { #owned_type }
                 } else {
                     quote! { #type_name }
@@ -2058,10 +1981,7 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
 
     let logger_type_name = format_ident!("{}Logger", snake_to_pascal_case(&handler.type_name));
 
-    let handle_method_name = format_ident!(
-        "handle_{}",
-        &handler.type_name[..handler.type_name.len() - 2]
-    );
+    let handle_method_name = format_ident!("handle_{}", &handler.type_name[..handler.type_name.len() - 2]);
 
     let no_method_name = format_ident!(
         "no_{}_handler",
@@ -2148,9 +2068,9 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
             if type_name.is_empty() {
                 None
             } else {
-                log_field_names.push({
-                    Some(quote! { format!("{} : {:?}", stringify!(#field_name), #field_name) })
-                });
+                log_field_names.push(Some(
+                    quote! { format!("{} : {:?}", stringify!(#field_name), #field_name) },
+                ));
 
                 Some(quote! {
                     #field_name: #type_name
@@ -2176,8 +2096,7 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
             let return_type = ReturnType::new(arg.clone(), bindings.wrappers.clone());
             let type_name = return_type.get_new_return_type(false, false);
             if arg.is_single_mut_pointer() && arg.is_primitive() {
-                let owned_type: Type =
-                    parse_str(arg.c_type.split_whitespace().last().unwrap()).unwrap();
+                let owned_type: Type = parse_str(arg.c_type.split_whitespace().last().unwrap()).unwrap();
                 return Some(quote! { #owned_type });
             } else {
                 return Some(quote! {
@@ -2213,8 +2132,7 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
             }
 
             let field_name = format_ident!("{}", name);
-            let return_type = ReturnType::new(arg.clone(), bindings.wrappers.clone())
-                .get_new_return_type(false, false);
+            let return_type = ReturnType::new(arg.clone(), bindings.wrappers.clone()).get_new_return_type(false, false);
             if return_type.is_empty() {
                 None
             } else {
@@ -2330,22 +2248,15 @@ pub fn generate_rust_code(
     let tests = wrapper.generate_allocation_test();
     let mut constructor_fields = vec![];
     let mut new_ref_set_none = vec![];
-    let constructor =
-        wrapper.generate_constructor(wrappers, &mut constructor_fields, &mut new_ref_set_none);
+    let constructor = wrapper.generate_constructor(wrappers, &mut constructor_fields, &mut new_ref_set_none);
 
     let async_impls = if wrapper.type_name.starts_with("aeron_async_")
         || wrapper.type_name.starts_with("aeron_archive_async_")
     {
-        let new_method = wrapper
-            .methods
-            .iter()
-            .find(|m| m.fn_name == wrapper.without_name);
+        let new_method = wrapper.methods.iter().find(|m| m.fn_name == wrapper.without_name);
 
         if let Some(new_method) = new_method {
-            let main_type = &wrapper
-                .type_name
-                .replace("_async_", "_")
-                .replace("_add_", "_");
+            let main_type = &wrapper.type_name.replace("_async_", "_").replace("_add_", "_");
             let main = get_possible_wrappers(main_type)
                 .iter()
                 .filter_map(|f| wrappers.get(f))
@@ -2418,8 +2329,7 @@ pub fn generate_rust_code(
                         None
                     } else {
                         let arg_name = arg.as_ident();
-                        let arg_type = ReturnType::new(arg.clone(), wrappers.clone())
-                            .get_new_return_type(false, true);
+                        let arg_type = ReturnType::new(arg.clone(), wrappers.clone()).get_new_return_type(false, true);
                         if arg_type.clone().into_token_stream().is_empty() {
                             None
                         } else {
@@ -2448,8 +2358,7 @@ pub fn generate_rust_code(
                 .collect();
 
             // Generate logging for async new method arguments (as token stream)
-            let async_log_expr_tokens =
-                CWrapper::generate_arg_logging(&new_method.arguments, &async_init_args);
+            let async_log_expr_tokens = CWrapper::generate_arg_logging(&new_method.arguments, &async_init_args);
 
             let generic_types: Vec<TokenStream> = new_method
                 .arguments
@@ -2488,8 +2397,7 @@ pub fn generate_rust_code(
                         None
                     } else {
                         let arg_name = arg.as_ident();
-                        let arg_type = ReturnType::new(arg.clone(), wrappers.clone())
-                            .get_new_return_type(false, true);
+                        let arg_type = ReturnType::new(arg.clone(), wrappers.clone()).get_new_return_type(false, true);
                         if arg_type.clone().into_token_stream().is_empty() {
                             None
                         } else {
@@ -2502,12 +2410,9 @@ pub fn generate_rust_code(
 
             let async_dependancies = async_new_args
                 .iter()
-                .filter(|a| {
-                    a.to_string().contains(" : Aeron") || a.to_string().contains(" : & Aeron")
-                })
+                .filter(|a| a.to_string().contains(" : Aeron") || a.to_string().contains(" : & Aeron"))
                 .map(|e| {
-                    let var_name =
-                        format_ident!("{}", e.to_string().split_whitespace().next().unwrap());
+                    let var_name = format_ident!("{}", e.to_string().split_whitespace().next().unwrap());
                     quote! {
                         result.inner.add_dependency(#var_name.clone());
                     }
@@ -2525,8 +2430,7 @@ pub fn generate_rust_code(
                         None
                     } else {
                         let arg_name = arg.as_ident();
-                        let arg_type = ReturnType::new(arg.clone(), wrappers.clone())
-                            .get_new_return_type(false, false);
+                        let arg_type = ReturnType::new(arg.clone(), wrappers.clone()).get_new_return_type(false, false);
                         if arg_type.clone().into_token_stream().is_empty() {
                             None
                         } else {
@@ -2538,8 +2442,7 @@ pub fn generate_rust_code(
                 .collect();
 
             // Generate logging for poll method arguments (as token stream)
-            let poll_log_expr_tokens =
-                CWrapper::generate_arg_logging(&poll_method.arguments, &init_args);
+            let poll_log_expr_tokens = CWrapper::generate_arg_logging(&poll_method.arguments, &init_args);
             let is_closed_method = main.get_is_closed_method_quote();
 
             quote! {
@@ -2755,8 +2658,7 @@ pub fn generate_rust_code(
                         }
                     }
                 });
-            } else if wrapper.type_name == "aeron_publication_t"
-                || wrapper.type_name == "aeron_exclusive_publication_t"
+            } else if wrapper.type_name == "aeron_publication_t" || wrapper.type_name == "aeron_exclusive_publication_t"
             {
                 additional_impls.push(quote! {
                     impl #class_name {
@@ -2838,51 +2740,45 @@ pub fn generate_rust_code(
 
     let fields = wrapper.generate_fields(&wrappers, &mut debug_fields);
 
-    let default_impl = if wrapper.has_default_method()
-        && !constructor
-            .iter()
-            .map(|x| x.to_string())
-            .join("")
-            .trim()
-            .is_empty()
-    {
-        // let default_method_call = if wrapper.has_any_methods() {
-        //     quote! {
-        //         #class_name::new_zeroed_on_heap()
-        //     }
-        //  } else {
-        //     quote! {
-        //         #class_name::new_zeroed_on_stack()
-        //     }
-        // };
+    let default_impl =
+        if wrapper.has_default_method() && !constructor.iter().map(|x| x.to_string()).join("").trim().is_empty() {
+            // let default_method_call = if wrapper.has_any_methods() {
+            //     quote! {
+            //         #class_name::new_zeroed_on_heap()
+            //     }
+            //  } else {
+            //     quote! {
+            //         #class_name::new_zeroed_on_stack()
+            //     }
+            // };
 
-        quote! {
-            /// This will create an instance where the struct is zeroed, use with care
-            impl Default for #class_name {
-                fn default() -> Self {
-                    #class_name::new_zeroed_on_heap()
+            quote! {
+                /// This will create an instance where the struct is zeroed, use with care
+                impl Default for #class_name {
+                    fn default() -> Self {
+                        #class_name::new_zeroed_on_heap()
+                    }
+                }
+
+                impl #class_name {
+                    /// Regular clone just increases the reference count of underlying count.
+                    /// `clone_struct` shallow copies the content of the underlying struct on heap.
+                    ///
+                    /// NOTE: if the struct has references to other structs these will not be copied
+                    ///
+                    /// Must be only used on structs which has no init/clean up methods.
+                    /// So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription
+                    /// More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)
+                    pub fn clone_struct(&self) -> Self {
+                        let copy = Self::default();
+                        copy.get_inner_mut().clone_from(self.deref());
+                        copy
+                    }
                 }
             }
-
-            impl #class_name {
-                /// Regular clone just increases the reference count of underlying count.
-                /// `clone_struct` shallow copies the content of the underlying struct on heap.
-                ///
-                /// NOTE: if the struct has references to other structs these will not be copied
-                ///
-                /// Must be only used on structs which has no init/clean up methods.
-                /// So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription
-                /// More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)
-                pub fn clone_struct(&self) -> Self {
-                    let copy = Self::default();
-                    copy.get_inner_mut().clone_from(self.deref());
-                    copy
-                }
-            }
-        }
-    } else {
-        quote! {}
-    };
+        } else {
+            quote! {}
+        };
 
     let is_closed_method = wrapper.get_is_closed_method_quote();
 

@@ -57,13 +57,11 @@ mod tests {
 
         let request_port = find_unused_udp_port(start_port).expect("Could not find port");
         let response_port = find_unused_udp_port(request_port + 1).expect("Could not find port");
-        let recording_event_port =
-            find_unused_udp_port(response_port + 1).expect("Could not find port");
+        let recording_event_port = find_unused_udp_port(response_port + 1).expect("Could not find port");
 
         let request_control_channel = format!("aeron:udp?endpoint=localhost:{}", request_port);
         let response_control_channel = format!("aeron:udp?endpoint=localhost:{}", response_port);
-        let recording_events_channel =
-            format!("aeron:udp?endpoint=localhost:{}", recording_event_port);
+        let recording_events_channel = format!("aeron:udp?endpoint=localhost:{}", recording_event_port);
 
         let archive_media_driver = EmbeddedArchiveMediaDriverProcess::build_and_start(
             &aeron_dir,
@@ -87,20 +85,15 @@ mod tests {
             aeron.start()?;
             let archive_context = AeronArchiveContext::new()?;
             archive_context.set_aeron(&aeron)?;
-            archive_context
-                .set_control_request_channel(&request_control_channel.as_str().into_c_string())?;
-            archive_context
-                .set_control_response_channel(&response_control_channel.as_str().into_c_string())?;
-            archive_context
-                .set_recording_events_channel(&recording_events_channel.as_str().into_c_string())?;
+            archive_context.set_control_request_channel(&request_control_channel.as_str().into_c_string())?;
+            archive_context.set_control_response_channel(&response_control_channel.as_str().into_c_string())?;
+            archive_context.set_recording_events_channel(&recording_events_channel.as_str().into_c_string())?;
             archive_context.set_error_handler(Some(&error_handler))?;
             Ok((aeron, archive_context))
         })();
 
         match inner {
-            Ok((aeron, archive_context)) => {
-                Ok((aeron, archive_context, archive_media_driver, error_handler))
-            }
+            Ok((aeron, archive_context)) => Ok((aeron, archive_context, archive_media_driver, error_handler)),
             Err(e) => {
                 error_handler.release();
                 Err(e)
@@ -130,19 +123,14 @@ mod tests {
         let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
             start_aeron_archive_with_config("archive", 8000)?;
 
-        let archive_connector =
-            AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
+        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
         let archive = archive_connector
             .poll_blocking(Duration::from_secs(30))
             .expect("failed to connect to archive");
 
         // 2. Start Subscriber Driver
-        let (
-            aeron_subscriber,
-            _subscriber_archive_context,
-            _media_driver_subscriber,
-            mut subscriber_error_handler,
-        ) = start_aeron_archive_with_config("subscriber", 9000)?;
+        let (aeron_subscriber, _subscriber_archive_context, _media_driver_subscriber, mut subscriber_error_handler) =
+            start_aeron_archive_with_config("subscriber", 9000)?;
 
         let recording_port = find_unused_udp_port(20121).unwrap();
         let control_port = find_unused_udp_port(recording_port + 1).unwrap();
@@ -161,12 +149,8 @@ mod tests {
         let stream_id = 1001;
 
         // Start recording on Archive Driver
-        let subscription_id = archive.start_recording(
-            &channel.clone().into_c_string(),
-            stream_id,
-            source_location,
-            true,
-        )?;
+        let subscription_id =
+            archive.start_recording(&channel.clone().into_c_string(), stream_id, source_location, true)?;
         info!("Started recording subscription_id={}", subscription_id);
 
         // Create publication on Archive Driver
@@ -204,10 +188,7 @@ mod tests {
             let mut seq = 0u64;
             while running_clone.load(Ordering::Acquire) {
                 let message = seq.to_le_bytes();
-                while publication_clone
-                    .offer(&message, Handlers::no_reserved_value_supplier_handler())
-                    <= 0
-                {
+                while publication_clone.offer(&message, Handlers::no_reserved_value_supplier_handler()) <= 0 {
                     if !running_clone.load(Ordering::Acquire) {
                         break;
                     }
@@ -246,8 +227,7 @@ mod tests {
 
         // 4. Resolve the port
         let mut buffer = [0u8; 4096];
-        let len = subscription
-            .try_resolve_channel_endpoint_port(buffer.as_mut_ptr() as *mut i8, buffer.len())?;
+        let len = subscription.try_resolve_channel_endpoint_port(buffer.as_mut_ptr() as *mut i8, buffer.len())?;
         let resolved_channel = String::from_utf8_lossy(&buffer[..len as usize]).to_string();
         info!("Resolved subscription channel: {}", resolved_channel);
 
@@ -274,10 +254,7 @@ mod tests {
             fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: AeronHeader) {
                 let received_seq = u64::from_le_bytes(buffer.try_into().unwrap());
                 if received_seq != self.expected_seq {
-                    error!(
-                        "Gap detected! Expected {} but got {}",
-                        self.expected_seq, received_seq
-                    );
+                    error!("Gap detected! Expected {} but got {}", self.expected_seq, received_seq);
                     self.gaps += 1;
                     self.expected_seq = received_seq + 1; // Reset expectation to next
                 } else {
@@ -351,21 +328,13 @@ mod tests {
     #[ignore]
     #[serial]
     fn test_slow_consumer_replay_gtag_local_max() -> Result<(), Box<dyn Error>> {
-        run_slow_consumer_test(
-            "|control-mode=dynamic|fc=tagged,g:123",
-            SOURCE_LOCATION_LOCAL,
-            i64::MAX,
-        )
+        run_slow_consumer_test("|control-mode=dynamic|fc=tagged,g:123", SOURCE_LOCATION_LOCAL, i64::MAX)
     }
 
     #[test]
     #[ignore]
     #[serial]
     fn test_slow_consumer_replay_gtag_remote_neg1() -> Result<(), Box<dyn Error>> {
-        run_slow_consumer_test(
-            "|control-mode=dynamic|fc=tagged,g:123",
-            SOURCE_LOCATION_REMOTE,
-            -1,
-        )
+        run_slow_consumer_test("|control-mode=dynamic|fc=tagged,g:123", SOURCE_LOCATION_REMOTE, -1)
     }
 }

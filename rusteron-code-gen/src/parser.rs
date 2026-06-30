@@ -184,11 +184,7 @@ pub fn get_possible_wrappers(fn_name: &str) -> Vec<String> {
         .collect_vec()
 }
 
-fn process_type(
-    wrappers: &mut BTreeMap<String, CWrapper>,
-    handlers: &mut Vec<CHandler>,
-    ty: &ItemType,
-) {
+fn process_type(wrappers: &mut BTreeMap<String, CWrapper>, handlers: &mut Vec<CHandler>, ty: &ItemType) {
     // Handle type definitions and get docs
     let docs = get_doc_comments(&ty.attrs);
 
@@ -212,9 +208,7 @@ fn process_type(
             if let Some(segment) = type_path.path.segments.last() {
                 if segment.ident.to_string() == "Option" {
                     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                        if let Some(syn::GenericArgument::Type(syn::Type::BareFn(bare_fn))) =
-                            args.args.first()
-                        {
+                        if let Some(syn::GenericArgument::Type(syn::Type::BareFn(bare_fn))) = args.args.first() {
                             let args: Vec<Arg> = bare_fn
                                 .inputs
                                 .iter()
@@ -292,11 +286,7 @@ fn is_struct_typedef(ty: &syn::Type) -> bool {
     false
 }
 
-fn process_struct(
-    wrappers: &mut BTreeMap<String, CWrapper>,
-    s: &ItemStruct,
-    handler_names: &BTreeSet<String>,
-) {
+fn process_struct(wrappers: &mut BTreeMap<String, CWrapper>, s: &ItemStruct, handler_names: &BTreeSet<String>) {
     // Print the struct name and its doc comments
     let docs = get_doc_comments(&s.attrs);
     let type_name = s.ident.to_string().replace("_stct", "_t");
@@ -327,10 +317,7 @@ fn process_struct(
     w.fields = process_types(fields, Some(handler_names));
 }
 
-fn process_types(
-    mut name_and_type: Vec<Arg>,
-    handler_names: Option<&BTreeSet<String>>,
-) -> Vec<Arg> {
+fn process_types(mut name_and_type: Vec<Arg>, handler_names: Option<&BTreeSet<String>>) -> Vec<Arg> {
     // now mark arguments which can be reduced
     for i in 1..name_and_type.len() {
         let param1 = &name_and_type[i - 1];
@@ -366,8 +353,7 @@ fn process_types(
         {
             //         key_buffer: *const u8,
             //         key_buffer_length: usize,
-            let processing =
-                ArgProcessing::ByteArrayWithLength(vec![param1.clone(), param2.clone()]);
+            let processing = ArgProcessing::ByteArrayWithLength(vec![param1.clone(), param2.clone()]);
             name_and_type[i - 1].processing = processing.clone();
             name_and_type[i].processing = processing.clone();
         }
@@ -422,9 +408,7 @@ pub fn snake_to_pascal_case(mut snake: &str) -> String {
 }
 
 // Helper function to extract function arguments as Rust code
-fn extract_function_arguments(
-    inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::token::Comma>,
-) -> Vec<Arg> {
+fn extract_function_arguments(inputs: &syn::punctuated::Punctuated<syn::FnArg, syn::token::Comma>) -> Vec<Arg> {
     inputs
         .iter()
         .map(|arg| match arg {

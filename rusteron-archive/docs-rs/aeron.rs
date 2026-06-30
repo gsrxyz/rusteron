@@ -1,3 +1,4 @@
+
 type aeron_client_registering_resource_t = aeron_client_registering_resource_stct;
 #[derive(Clone)]
 pub struct DarwinPthreadHandlerRec {
@@ -148,9 +149,7 @@ impl<T: Clone> Clone for CResource<T> {
         unsafe {
             match self {
                 CResource::OwnedOnHeap(r) => CResource::OwnedOnHeap(r.clone()),
-                CResource::OwnedOnStack(r) => {
-                    CResource::OwnedOnStack(MaybeUninit::new(r.assume_init_ref().clone()))
-                }
+                CResource::OwnedOnStack(r) => CResource::OwnedOnStack(MaybeUninit::new(r.assume_init_ref().clone())),
                 CResource::Borrowed(r) => CResource::Borrowed(r.clone()),
             }
         }
@@ -232,16 +231,11 @@ impl<T> std::fmt::Debug for ManagedCResource<T> {
         let mut debug_struct = f.debug_struct("ManagedCResource");
         if !self.close_already_called.get()
             && !self.resource.is_null()
-            && !self
-                .check_for_is_closed
-                .as_ref()
-                .map_or(false, |f| f(self.resource))
+            && !self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource))
         {
             debug_struct.field("resource", &self.resource);
         }
-        debug_struct
-            .field("type", &std::any::type_name::<T>())
-            .finish()
+        debug_struct.field("type", &std::any::type_name::<T>()).finish()
     }
 }
 impl<T> ManagedCResource<T> {
@@ -272,9 +266,7 @@ impl<T> ManagedCResource<T> {
         log::info!("created c resource: {:?}", result);
         Ok(result)
     }
-    pub fn initialise(
-        init: impl FnOnce(*mut *mut T) -> i32 + Sized,
-    ) -> Result<*mut T, AeronCError> {
+    pub fn initialise(init: impl FnOnce(*mut *mut T) -> i32 + Sized) -> Result<*mut T, AeronCError> {
         let mut resource: *mut T = std::ptr::null_mut();
         let result = init(&mut resource);
         if result < 0 || resource.is_null() {
@@ -285,10 +277,7 @@ impl<T> ManagedCResource<T> {
     pub fn is_closed_already_called(&self) -> bool {
         self.close_already_called.get()
             || self.resource.is_null()
-            || self
-                .check_for_is_closed
-                .as_ref()
-                .map_or(false, |f| f(self.resource))
+            || self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource))
     }
     #[doc = " Gets a raw pointer to the resource."]
     #[inline(always)]
@@ -301,9 +290,7 @@ impl<T> ManagedCResource<T> {
     }
     #[inline]
     pub fn add_dependency<D: std::any::Any>(&self, dep: D) {
-        if let Some(dep) =
-            (&dep as &dyn std::any::Any).downcast_ref::<std::rc::Rc<dyn std::any::Any>>()
-        {
+        if let Some(dep) = (&dep as &dyn std::any::Any).downcast_ref::<std::rc::Rc<dyn std::any::Any>>() {
             unsafe {
                 (*self.dependencies.get()).push(dep.clone());
             }
@@ -338,10 +325,7 @@ impl<T> ManagedCResource<T> {
             return Ok(());
         }
         self.close_already_called.set(true);
-        let already_closed = self
-            .check_for_is_closed
-            .as_ref()
-            .map_or(false, |f| f(self.resource));
+        let already_closed = self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource));
         if let Some(mut cleanup) = self.cleanup.take() {
             if !self.resource.is_null() {
                 if !already_closed {
@@ -360,10 +344,7 @@ impl<T> Drop for ManagedCResource<T> {
     fn drop(&mut self) {
         if !self.resource.is_null() {
             let already_closed = self.close_already_called.get()
-                || self
-                    .check_for_is_closed
-                    .as_ref()
-                    .map_or(false, |f| f(self.resource));
+                || self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource));
             let resource = if already_closed {
                 self.resource
             } else {
@@ -452,9 +433,7 @@ impl AeronErrorType {
             AeronErrorType::GenericError => "Generic Error",
             AeronErrorType::ClientErrorDriverTimeout => "Client Error Driver Timeout",
             AeronErrorType::ClientErrorClientTimeout => "Client Error Client Timeout",
-            AeronErrorType::ClientErrorConductorServiceTimeout => {
-                "Client Error Conductor Service Timeout"
-            }
+            AeronErrorType::ClientErrorConductorServiceTimeout => "Client Error Conductor Service Timeout",
             AeronErrorType::ClientErrorBufferFull => "Client Error Buffer Full",
             AeronErrorType::PublicationBackPressured => "Publication Back Pressured",
             AeronErrorType::PublicationAdminAction => "Publication Admin Action",
@@ -485,9 +464,8 @@ impl AeronCError {
                 let backtrace = Backtrace::capture();
                 let backtrace = format!("{:?}", backtrace);
                 static BACKTRACE_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-                let re = BACKTRACE_RE.get_or_init(|| {
-                    regex::Regex::new(r#"fn: "([^"]+)", file: "([^"]+)", line: (\d+)"#).unwrap()
-                });
+                let re = BACKTRACE_RE
+                    .get_or_init(|| regex::Regex::new(r#"fn: "([^"]+)", file: "([^"]+)", line: (\d+)"#).unwrap());
                 let mut lines = String::new();
                 re.captures_iter(&backtrace).for_each(|cap| {
                     let function = &cap[1];
@@ -576,20 +554,19 @@ impl<T> Handler<T> {
         }
     }
     pub unsafe fn new(raw_ptr: *mut T, should_drop: bool) -> Self {
-        Self {
-            raw_ptr,
-            should_drop,
-        }
+        Self { raw_ptr, should_drop }
     }
 }
 impl<T> Drop for Handler<T> {
     fn drop(&mut self) {
         if self.should_drop && !self.raw_ptr.is_null() {
-            log :: error ! ("Handler<{}> at {:?} is being dropped but release() was never called — \
-                 memory leak: {} bytes. Call release() explicitly when the C side no longer holds the pointer." , std :: any :: type_name ::< T > () , self . raw_ptr , std :: mem :: size_of ::< T > () ,);
-            unsafe {
-                let _ = Box::from_raw(self.raw_ptr as *mut T);
-            }
+            log::error!(
+                "Handler<{}> at {:?} is being dropped but release() was never called — \
+                 memory leak: {} bytes. Call release() explicitly when the C side no longer holds the pointer.",
+                std::any::type_name::<T>(),
+                self.raw_ptr,
+                std::mem::size_of::<T>(),
+            );
         }
     }
 }
@@ -774,10 +751,7 @@ mod handler_tests {
     #[test]
     fn release_nulls_pointer_so_is_none_is_true() {
         let mut handler = Handler::leak(42u32);
-        assert!(
-            !handler.is_none(),
-            "freshly leaked handler must be non-null"
-        );
+        assert!(!handler.is_none(), "freshly leaked handler must be non-null");
         handler.release();
         assert!(handler.is_none(), "release() must null raw_ptr (was a UAF)");
     }
@@ -1439,21 +1413,11 @@ impl AeronArchive {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args = [
-                        concat!("aeron_archive", ": ", stringify!(*mut *mut aeron_archive_t))
-                            .to_string(),
-                        concat!(
-                            "async_",
-                            ": ",
-                            stringify!(*mut aeron_archive_async_connect_t)
-                        )
-                        .to_string(),
+                        concat!("aeron_archive", ": ", stringify!(*mut *mut aeron_archive_t)).to_string(),
+                        concat!("async_", ": ", stringify!(*mut aeron_archive_async_connect_t)).to_string(),
                     ]
                     .join(", ");
-                    log::info!(
-                        "{}({})",
-                        stringify!(aeron_archive_async_connect_poll),
-                        log_args
-                    );
+                    log::info!("{}({})", stringify!(aeron_archive_async_connect_poll), log_args);
                 }
                 aeron_archive_async_connect_poll(ctx_field, async_.into())
             },
@@ -1478,10 +1442,7 @@ impl AeronArchiveContext {
 }
 impl AeronArchiveContext {
     #[inline]
-    pub fn aeron_archive_connect(
-        &self,
-        timeout: std::time::Duration,
-    ) -> Result<AeronArchive, AeronCError> {
+    pub fn aeron_archive_connect(&self, timeout: std::time::Duration) -> Result<AeronArchive, AeronCError> {
         let start = std::time::Instant::now();
         loop {
             if let Ok(poller) = AeronArchiveAsyncConnect::new(self) {
@@ -1510,12 +1471,7 @@ impl AeronArchiveAsyncConnect {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args = [
-                        concat!(
-                            "async_",
-                            ": ",
-                            stringify!(*mut *mut aeron_archive_async_connect_t)
-                        )
-                        .to_string(),
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_archive_async_connect_t)).to_string(),
                         concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string(),
                     ]
                     .join(", ");
@@ -1593,10 +1549,7 @@ impl core::fmt::Debug for AeronArchiveContext {
         } else {
             f.debug_struct(stringify!(AeronArchiveContext))
                 .field("inner", &self.inner)
-                .field(
-                    stringify!(get_aeron_directory_name),
-                    &self.get_aeron_directory_name(),
-                )
+                .field(stringify!(get_aeron_directory_name), &self.get_aeron_directory_name())
                 .field(
                     stringify!(get_control_request_channel),
                     &self.get_control_request_channel(),
@@ -1623,11 +1576,7 @@ impl AeronArchiveContext {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args =
-                        [
-                            concat!("ctx", ": ", stringify!(*mut *mut aeron_archive_context_t))
-                                .to_string(),
-                        ]
-                        .join(", ");
+                        [concat!("ctx", ": ", stringify!(*mut *mut aeron_archive_context_t)).to_string()].join(", ");
                     log::info!("{}({})", stringify!(aeron_archive_context_init), log_args);
                 }
                 aeron_archive_context_init(ctx_field)
@@ -1635,10 +1584,8 @@ impl AeronArchiveContext {
             Some(Box::new(move |ctx_field| unsafe {
                 #[cfg(feature = "log-c-bindings")]
                 {
-                    let log_args = [
-                        concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string(),
-                    ]
-                    .join(", ");
+                    let log_args =
+                        [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ");
                     log::info!("{}({})", stringify!(aeron_archive_context_close), log_args);
                 }
                 aeron_archive_context_close(*ctx_field)
@@ -1662,8 +1609,7 @@ impl AeronArchiveContext {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_context_close),
-                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()]
-                    .join(", ")
+                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ")
             );
             let result = aeron_archive_context_close(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -1708,8 +1654,7 @@ impl AeronArchiveContext {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_context_get_aeron),
-                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()]
-                    .join(", ")
+                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ")
             );
             let result = aeron_archive_context_get_aeron(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -1731,10 +1676,7 @@ impl AeronArchiveContext {
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_context_set_owns_aeron_client(
-                self.get_inner(),
-                owns_aeron_client.into(),
-            );
+            let result = aeron_archive_context_set_owns_aeron_client(self.get_inner(), owns_aeron_client.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -1751,8 +1693,7 @@ impl AeronArchiveContext {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_context_get_owns_aeron_client),
-                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()]
-                    .join(", ")
+                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ")
             );
             let result = aeron_archive_context_get_owns_aeron_client(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -1762,10 +1703,7 @@ impl AeronArchiveContext {
     }
     #[inline]
     #[doc = "Specify the top level Aeron directory used for communication between the Aeron client and the Media Driver."]
-    pub fn set_aeron_directory_name(
-        &self,
-        aeron_directory_name: &std::ffi::CStr,
-    ) -> Result<i32, AeronCError> {
+    pub fn set_aeron_directory_name(&self, aeron_directory_name: &std::ffi::CStr) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -1773,19 +1711,12 @@ impl AeronArchiveContext {
                 stringify!(aeron_archive_context_set_aeron_directory_name),
                 [
                     concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string(),
-                    concat!(
-                        "aeron_directory_name",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string()
+                    concat!("aeron_directory_name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_context_set_aeron_directory_name(
-                self.get_inner(),
-                aeron_directory_name.as_ptr(),
-            );
+            let result =
+                aeron_archive_context_set_aeron_directory_name(self.get_inner(), aeron_directory_name.as_ptr());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -1802,8 +1733,7 @@ impl AeronArchiveContext {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_context_get_aeron_directory_name),
-                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()]
-                    .join(", ")
+                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ")
             );
             let result = aeron_archive_context_get_aeron_directory_name(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -1817,10 +1747,7 @@ impl AeronArchiveContext {
     }
     #[inline]
     #[doc = "Specify the channel used for sending requests to the Aeron Archive."]
-    pub fn set_control_request_channel(
-        &self,
-        control_request_channel: &std::ffi::CStr,
-    ) -> Result<i32, AeronCError> {
+    pub fn set_control_request_channel(&self, control_request_channel: &std::ffi::CStr) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -1837,10 +1764,8 @@ impl AeronArchiveContext {
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_context_set_control_request_channel(
-                self.get_inner(),
-                control_request_channel.as_ptr(),
-            );
+            let result =
+                aeron_archive_context_set_control_request_channel(self.get_inner(), control_request_channel.as_ptr());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -1857,8 +1782,7 @@ impl AeronArchiveContext {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_context_get_control_request_channel),
-                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()]
-                    .join(", ")
+                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ")
             );
             let result = aeron_archive_context_get_control_request_channel(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -1872,10 +1796,7 @@ impl AeronArchiveContext {
     }
     #[inline]
     #[doc = "Specify the stream used for sending requests to the Aeron Archive."]
-    pub fn set_control_request_stream_id(
-        &self,
-        control_request_stream_id: i32,
-    ) -> Result<i32, AeronCError> {
+    pub fn set_control_request_stream_id(&self, control_request_stream_id: i32) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -1883,17 +1804,12 @@ impl AeronArchiveContext {
                 stringify!(aeron_archive_context_set_control_request_stream_id),
                 [
                     concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string(),
-                    format!(
-                        "{} = {:?}",
-                        "control_request_stream_id", control_request_stream_id
-                    )
+                    format!("{} = {:?}", "control_request_stream_id", control_request_stream_id)
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_context_set_control_request_stream_id(
-                self.get_inner(),
-                control_request_stream_id.into(),
-            );
+            let result =
+                aeron_archive_context_set_control_request_stream_id(self.get_inner(), control_request_stream_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -1910,8 +1826,7 @@ impl AeronArchiveContext {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_context_get_control_request_stream_id),
-                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()]
-                    .join(", ")
+                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ")
             );
             let result = aeron_archive_context_get_control_request_stream_id(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -1921,10 +1836,7 @@ impl AeronArchiveContext {
     }
     #[inline]
     #[doc = "Specify the channel used for receiving responses from the Aeron Archive."]
-    pub fn set_control_response_channel(
-        &self,
-        control_response_channel: &std::ffi::CStr,
-    ) -> Result<i32, AeronCError> {
+    pub fn set_control_response_channel(&self, control_response_channel: &std::ffi::CStr) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -1941,10 +1853,8 @@ impl AeronArchiveContext {
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_context_set_control_response_channel(
-                self.get_inner(),
-                control_response_channel.as_ptr(),
-            );
+            let result =
+                aeron_archive_context_set_control_response_channel(self.get_inner(), control_response_channel.as_ptr());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -1961,8 +1871,7 @@ impl AeronArchiveContext {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_context_get_control_response_channel),
-                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()]
-                    .join(", ")
+                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ")
             );
             let result = aeron_archive_context_get_control_response_channel(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -1976,10 +1885,7 @@ impl AeronArchiveContext {
     }
     #[inline]
     #[doc = "Specify the stream used for receiving responses from the Aeron Archive."]
-    pub fn set_control_response_stream_id(
-        &self,
-        control_response_stream_id: i32,
-    ) -> Result<i32, AeronCError> {
+    pub fn set_control_response_stream_id(&self, control_response_stream_id: i32) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -1987,10 +1893,7 @@ impl AeronArchiveContext {
                 stringify!(aeron_archive_context_set_control_response_stream_id),
                 [
                     concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string(),
-                    format!(
-                        "{} = {:?}",
-                        "control_response_stream_id", control_response_stream_id
-                    )
+                    format!("{} = {:?}", "control_response_stream_id", control_response_stream_id)
                 ]
                 .join(", ")
             );
@@ -2014,8 +1917,7 @@ impl AeronArchiveContext {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_context_get_control_response_stream_id),
-                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()]
-                    .join(", ")
+                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ")
             );
             let result = aeron_archive_context_get_control_response_stream_id(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -2025,10 +1927,7 @@ impl AeronArchiveContext {
     }
     #[inline]
     #[doc = "Specify the channel used for receiving recording events from the Aeron Archive."]
-    pub fn set_recording_events_channel(
-        &self,
-        recording_events_channel: &std::ffi::CStr,
-    ) -> Result<i32, AeronCError> {
+    pub fn set_recording_events_channel(&self, recording_events_channel: &std::ffi::CStr) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -2045,10 +1944,8 @@ impl AeronArchiveContext {
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_context_set_recording_events_channel(
-                self.get_inner(),
-                recording_events_channel.as_ptr(),
-            );
+            let result =
+                aeron_archive_context_set_recording_events_channel(self.get_inner(), recording_events_channel.as_ptr());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -2065,8 +1962,7 @@ impl AeronArchiveContext {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_context_get_recording_events_channel),
-                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()]
-                    .join(", ")
+                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ")
             );
             let result = aeron_archive_context_get_recording_events_channel(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -2080,10 +1976,7 @@ impl AeronArchiveContext {
     }
     #[inline]
     #[doc = "Specify the stream id used for recording events channel."]
-    pub fn set_recording_events_stream_id(
-        &self,
-        recording_events_stream_id: i32,
-    ) -> Result<i32, AeronCError> {
+    pub fn set_recording_events_stream_id(&self, recording_events_stream_id: i32) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -2091,10 +1984,7 @@ impl AeronArchiveContext {
                 stringify!(aeron_archive_context_set_recording_events_stream_id),
                 [
                     concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string(),
-                    format!(
-                        "{} = {:?}",
-                        "recording_events_stream_id", recording_events_stream_id
-                    )
+                    format!("{} = {:?}", "recording_events_stream_id", recording_events_stream_id)
                 ]
                 .join(", ")
             );
@@ -2118,8 +2008,7 @@ impl AeronArchiveContext {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_context_get_recording_events_stream_id),
-                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()]
-                    .join(", ")
+                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ")
             );
             let result = aeron_archive_context_get_recording_events_stream_id(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -2141,10 +2030,7 @@ impl AeronArchiveContext {
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_context_set_message_timeout_ns(
-                self.get_inner(),
-                message_timeout_ns.into(),
-            );
+            let result = aeron_archive_context_set_message_timeout_ns(self.get_inner(), message_timeout_ns.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -2161,8 +2047,7 @@ impl AeronArchiveContext {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_context_get_message_timeout_ns),
-                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()]
-                    .join(", ")
+                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ")
             );
             let result = aeron_archive_context_get_message_timeout_ns(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -2172,10 +2057,7 @@ impl AeronArchiveContext {
     }
     #[inline]
     #[doc = "Specify the number of retry attempts when offering messages to the archive."]
-    pub fn set_message_retry_attempts(
-        &self,
-        message_retry_attempts: u32,
-    ) -> Result<i32, AeronCError> {
+    pub fn set_message_retry_attempts(&self, message_retry_attempts: u32) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -2183,17 +2065,12 @@ impl AeronArchiveContext {
                 stringify!(aeron_archive_context_set_message_retry_attempts),
                 [
                     concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string(),
-                    format!(
-                        "{} = {:?}",
-                        "message_retry_attempts", message_retry_attempts
-                    )
+                    format!("{} = {:?}", "message_retry_attempts", message_retry_attempts)
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_context_set_message_retry_attempts(
-                self.get_inner(),
-                message_retry_attempts.into(),
-            );
+            let result =
+                aeron_archive_context_set_message_retry_attempts(self.get_inner(), message_retry_attempts.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -2210,8 +2087,7 @@ impl AeronArchiveContext {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_context_get_message_retry_attempts),
-                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()]
-                    .join(", ")
+                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ")
             );
             let result = aeron_archive_context_get_message_retry_attempts(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -2221,10 +2097,7 @@ impl AeronArchiveContext {
     }
     #[inline]
     #[doc = "Specify the default term buffer length for the control request/response channels."]
-    pub fn set_control_term_buffer_length(
-        &self,
-        control_term_buffer_length: usize,
-    ) -> Result<i32, AeronCError> {
+    pub fn set_control_term_buffer_length(&self, control_term_buffer_length: usize) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -2232,10 +2105,7 @@ impl AeronArchiveContext {
                 stringify!(aeron_archive_context_set_control_term_buffer_length),
                 [
                     concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string(),
-                    format!(
-                        "{} = {:?}",
-                        "control_term_buffer_length", control_term_buffer_length
-                    )
+                    format!("{} = {:?}", "control_term_buffer_length", control_term_buffer_length)
                 ]
                 .join(", ")
             );
@@ -2259,8 +2129,7 @@ impl AeronArchiveContext {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_context_get_control_term_buffer_length),
-                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()]
-                    .join(", ")
+                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ")
             );
             let result = aeron_archive_context_get_control_term_buffer_length(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -2282,10 +2151,7 @@ impl AeronArchiveContext {
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_context_set_control_mtu_length(
-                self.get_inner(),
-                control_mtu_length.into(),
-            );
+            let result = aeron_archive_context_set_control_mtu_length(self.get_inner(), control_mtu_length.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -2302,8 +2168,7 @@ impl AeronArchiveContext {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_context_get_control_mtu_length),
-                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()]
-                    .join(", ")
+                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ")
             );
             let result = aeron_archive_context_get_control_mtu_length(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -2313,10 +2178,7 @@ impl AeronArchiveContext {
     }
     #[inline]
     #[doc = "Specify the default MTU length for the control request/response channels."]
-    pub fn set_control_term_buffer_sparse(
-        &self,
-        control_term_buffer_sparse: bool,
-    ) -> Result<i32, AeronCError> {
+    pub fn set_control_term_buffer_sparse(&self, control_term_buffer_sparse: bool) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -2324,10 +2186,7 @@ impl AeronArchiveContext {
                 stringify!(aeron_archive_context_set_control_term_buffer_sparse),
                 [
                     concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string(),
-                    format!(
-                        "{} = {:?}",
-                        "control_term_buffer_sparse", control_term_buffer_sparse
-                    )
+                    format!("{} = {:?}", "control_term_buffer_sparse", control_term_buffer_sparse)
                 ]
                 .join(", ")
             );
@@ -2351,8 +2210,7 @@ impl AeronArchiveContext {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_context_get_control_term_buffer_sparse),
-                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()]
-                    .join(", ")
+                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ")
             );
             let result = aeron_archive_context_get_control_term_buffer_sparse(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -2391,8 +2249,7 @@ impl AeronArchiveContext {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_context_get_client_name),
-                [concat!("context", ": ", stringify!(*mut aeron_archive_context_t)).to_string()]
-                    .join(", ")
+                [concat!("context", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ")
             );
             let result = aeron_archive_context_get_client_name(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -2417,12 +2274,7 @@ impl AeronArchiveContext {
                 stringify!(aeron_archive_context_set_idle_strategy),
                 [
                     concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string(),
-                    concat!(
-                        "idle_strategy_func",
-                        ": ",
-                        stringify!(aeron_idle_strategy_func_t)
-                    )
-                    .to_string()
+                    concat!("idle_strategy_func", ": ", stringify!(aeron_idle_strategy_func_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -2432,9 +2284,7 @@ impl AeronArchiveContext {
                     let callback: aeron_idle_strategy_func_t = if idle_strategy_func.is_none() {
                         None
                     } else {
-                        Some(
-                            aeron_idle_strategy_func_t_callback::<AeronIdleStrategyFuncHandlerImpl>,
-                        )
+                        Some(aeron_idle_strategy_func_t_callback::<AeronIdleStrategyFuncHandlerImpl>)
                     };
                     callback
                 },
@@ -2457,9 +2307,7 @@ impl AeronArchiveContext {
     #[doc = r""]
     #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
     #[doc = r"  use with care_"]
-    pub fn set_idle_strategy_once<
-        AeronIdleStrategyFuncHandlerImpl: FnMut(::std::os::raw::c_int) -> (),
-    >(
+    pub fn set_idle_strategy_once<AeronIdleStrategyFuncHandlerImpl: FnMut(::std::os::raw::c_int) -> ()>(
         &self,
         mut idle_strategy_func: AeronIdleStrategyFuncHandlerImpl,
     ) -> Result<i32, AeronCError> {
@@ -2470,22 +2318,13 @@ impl AeronArchiveContext {
                 stringify!(aeron_archive_context_set_idle_strategy),
                 [
                     concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string(),
-                    concat!(
-                        "idle_strategy_func",
-                        ": ",
-                        stringify!(aeron_idle_strategy_func_t)
-                    )
-                    .to_string()
+                    concat!("idle_strategy_func", ": ", stringify!(aeron_idle_strategy_func_t)).to_string()
                 ]
                 .join(", ")
             );
             let result = aeron_archive_context_set_idle_strategy(
                 self.get_inner(),
-                Some(
-                    aeron_idle_strategy_func_t_callback_for_once_closure::<
-                        AeronIdleStrategyFuncHandlerImpl,
-                    >,
-                ),
+                Some(aeron_idle_strategy_func_t_callback_for_once_closure::<AeronIdleStrategyFuncHandlerImpl>),
                 &mut idle_strategy_func as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -2526,12 +2365,7 @@ impl AeronArchiveContext {
                         stringify!(aeron_archive_credentials_challenge_supplier_func_t)
                     )
                     .to_string(),
-                    concat!(
-                        "on_free",
-                        ": ",
-                        stringify!(aeron_archive_credentials_free_func_t)
-                    )
-                    .to_string()
+                    concat!("on_free", ": ", stringify!(aeron_archive_credentials_free_func_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -2544,16 +2378,12 @@ impl AeronArchiveContext {
                         None
                     } else {
                         Some(
-                            aeron_archive_credentials_free_func_t_callback::<
-                                AeronArchiveCredentialsFreeFuncHandlerImpl,
-                            >,
+                            aeron_archive_credentials_free_func_t_callback::<AeronArchiveCredentialsFreeFuncHandlerImpl>,
                         )
                     };
                     callback
                 },
-                on_free
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                on_free.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -2597,12 +2427,7 @@ impl AeronArchiveContext {
                         stringify!(aeron_archive_credentials_challenge_supplier_func_t)
                     )
                     .to_string(),
-                    concat!(
-                        "on_free",
-                        ": ",
-                        stringify!(aeron_archive_credentials_free_func_t)
-                    )
-                    .to_string()
+                    concat!("on_free", ": ", stringify!(aeron_archive_credentials_free_func_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -2653,16 +2478,15 @@ impl AeronArchiveContext {
             let result = aeron_archive_context_set_recording_signal_consumer(
                 self.get_inner(),
                 {
-                    let callback: aeron_archive_recording_signal_consumer_func_t =
-                        if on_recording_signal.is_none() {
-                            None
-                        } else {
-                            Some(
-                                aeron_archive_recording_signal_consumer_func_t_callback::<
-                                    AeronArchiveRecordingSignalConsumerFuncHandlerImpl,
-                                >,
-                            )
-                        };
+                    let callback: aeron_archive_recording_signal_consumer_func_t = if on_recording_signal.is_none() {
+                        None
+                    } else {
+                        Some(
+                            aeron_archive_recording_signal_consumer_func_t_callback::<
+                                AeronArchiveRecordingSignalConsumerFuncHandlerImpl,
+                            >,
+                        )
+                    };
                     callback
                 },
                 on_recording_signal
@@ -2770,9 +2594,7 @@ impl AeronArchiveContext {
     #[doc = r""]
     #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
     #[doc = r"  use with care_"]
-    pub fn set_error_handler_once<
-        AeronErrorHandlerHandlerImpl: FnMut(::std::os::raw::c_int, &str) -> (),
-    >(
+    pub fn set_error_handler_once<AeronErrorHandlerHandlerImpl: FnMut(::std::os::raw::c_int, &str) -> ()>(
         &self,
         mut error_handler: AeronErrorHandlerHandlerImpl,
     ) -> Result<i32, AeronCError> {
@@ -2789,9 +2611,7 @@ impl AeronArchiveContext {
             );
             let result = aeron_archive_context_set_error_handler(
                 self.get_inner(),
-                Some(
-                    aeron_error_handler_t_callback_for_once_closure::<AeronErrorHandlerHandlerImpl>,
-                ),
+                Some(aeron_error_handler_t_callback_for_once_closure::<AeronErrorHandlerHandlerImpl>),
                 &mut error_handler as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -2832,16 +2652,15 @@ impl AeronArchiveContext {
             let result = aeron_archive_context_set_delegating_invoker(
                 self.get_inner(),
                 {
-                    let callback: aeron_archive_delegating_invoker_func_t =
-                        if delegating_invoker_func.is_none() {
-                            None
-                        } else {
-                            Some(
-                                aeron_archive_delegating_invoker_func_t_callback::<
-                                    AeronArchiveDelegatingInvokerFuncHandlerImpl,
-                                >,
-                            )
-                        };
+                    let callback: aeron_archive_delegating_invoker_func_t = if delegating_invoker_func.is_none() {
+                        None
+                    } else {
+                        Some(
+                            aeron_archive_delegating_invoker_func_t_callback::<
+                                AeronArchiveDelegatingInvokerFuncHandlerImpl,
+                            >,
+                        )
+                    };
                     callback
                 },
                 delegating_invoker_func
@@ -2865,9 +2684,7 @@ impl AeronArchiveContext {
     #[doc = r""]
     #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
     #[doc = r"  use with care_"]
-    pub fn set_delegating_invoker_once<
-        AeronArchiveDelegatingInvokerFuncHandlerImpl: FnMut() -> (),
-    >(
+    pub fn set_delegating_invoker_once<AeronArchiveDelegatingInvokerFuncHandlerImpl: FnMut() -> ()>(
         &self,
         mut delegating_invoker_func: AeronArchiveDelegatingInvokerFuncHandlerImpl,
     ) -> Result<i32, AeronCError> {
@@ -2986,20 +2803,14 @@ impl core::fmt::Debug for AeronArchiveControlResponsePoller {
                 .field(stringify!(recording_id), &self.recording_id())
                 .field(stringify!(subscription_id), &self.subscription_id())
                 .field(stringify!(position), &self.position())
-                .field(
-                    stringify!(recording_signal_code),
-                    &self.recording_signal_code(),
-                )
+                .field(stringify!(recording_signal_code), &self.recording_signal_code())
                 .field(stringify!(version), &self.version())
                 .field(stringify!(error_message), &self.error_message())
                 .field(
                     stringify!(error_message_malloced_len),
                     &self.error_message_malloced_len(),
                 )
-                .field(
-                    stringify!(encoded_challenge_buffer),
-                    &self.encoded_challenge_buffer(),
-                )
+                .field(stringify!(encoded_challenge_buffer), &self.encoded_challenge_buffer())
                 .field(
                     stringify!(encoded_challenge_buffer_malloced_len),
                     &self.encoded_challenge_buffer_malloced_len(),
@@ -3027,8 +2838,7 @@ impl AeronArchiveControlResponsePoller {
                     stringify!(aeron_archive_control_response_poller_t)
                 );
                 let inst: aeron_archive_control_response_poller_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_archive_control_response_poller_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_archive_control_response_poller_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -3107,11 +2917,7 @@ impl AeronArchiveControlResponsePoller {
         if self.error_message.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.error_message)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.error_message).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -3176,13 +2982,8 @@ impl AeronArchiveControlResponsePoller {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_control_response_poller_close),
-                [concat!(
-                    "poller",
-                    ": ",
-                    stringify!(*mut aeron_archive_control_response_poller_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("poller", ": ", stringify!(*mut aeron_archive_control_response_poller_t)).to_string()]
+                    .join(", ")
             );
             let result = aeron_archive_control_response_poller_close(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -3201,13 +3002,8 @@ impl AeronArchiveControlResponsePoller {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_control_response_poller_poll),
-                [concat!(
-                    "poller",
-                    ": ",
-                    stringify!(*mut aeron_archive_control_response_poller_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("poller", ": ", stringify!(*mut aeron_archive_control_response_poller_t)).to_string()]
+                    .join(", ")
             );
             let result = aeron_archive_control_response_poller_poll(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -3283,20 +3079,14 @@ impl From<aeron_archive_control_response_poller_t> for AeronArchiveControlRespon
 impl Drop for AeronArchiveControlResponsePoller {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none())
-                && std::rc::Rc::strong_count(inner) == 1
-                && !inner.is_closed_already_called()
-            {
+            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
                 if inner.auto_close.get() {
                     log::info!("auto closing {self:?}");
                     let result = self.close();
                     log::debug!("result {:?}", result);
                 } else {
                     #[cfg(feature = "extra-logging")]
-                    log::warn!(
-                        "{} not closed",
-                        stringify!(AeronArchiveControlResponsePoller)
-                    );
+                    log::warn!("{} not closed", stringify!(AeronArchiveControlResponsePoller));
                 }
             }
         }
@@ -3330,8 +3120,7 @@ impl AeronArchiveEncodedCredentials {
                     data: data.as_ptr(),
                     length: length.into(),
                 };
-                let inner_ptr: *mut aeron_archive_encoded_credentials_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_archive_encoded_credentials_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -3354,8 +3143,7 @@ impl AeronArchiveEncodedCredentials {
                     stringify!(aeron_archive_encoded_credentials_t)
                 );
                 let inst: aeron_archive_encoded_credentials_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_archive_encoded_credentials_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_archive_encoded_credentials_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -3626,10 +3414,7 @@ impl AeronArchivePersistentSubscriptionContext {
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_persistent_subscription_context_set_aeron(
-                self.get_inner(),
-                aeron.get_inner(),
-            );
+            let result = aeron_archive_persistent_subscription_context_set_aeron(self.get_inner(), aeron.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -3647,10 +3432,7 @@ impl AeronArchivePersistentSubscriptionContext {
     #[doc = ""]
     #[doc = "# Parameters\n \n - `aeron_directory_name` the Aeron directory name."]
     #[doc = " \n# Return\n 0 on success, -1 on error."]
-    pub fn set_aeron_directory_name(
-        &self,
-        aeron_directory_name: &std::ffi::CStr,
-    ) -> Result<i32, AeronCError> {
+    pub fn set_aeron_directory_name(&self, aeron_directory_name: &std::ffi::CStr) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -3663,12 +3445,7 @@ impl AeronArchivePersistentSubscriptionContext {
                         stringify!(*mut aeron_archive_persistent_subscription_context_t)
                     )
                     .to_string(),
-                    concat!(
-                        "aeron_directory_name",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string()
+                    concat!("aeron_directory_name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
             );
@@ -3690,10 +3467,7 @@ impl AeronArchivePersistentSubscriptionContext {
     #[doc = ""]
     #[doc = "# Parameters\n \n - `archive_context` the Aeron Archive client context to use."]
     #[doc = " \n# Return\n 0 on success, -1 on error."]
-    pub fn set_archive_context(
-        &self,
-        archive_context: &AeronArchiveContext,
-    ) -> Result<i32, AeronCError> {
+    pub fn set_archive_context(&self, archive_context: &AeronArchiveContext) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -3706,12 +3480,7 @@ impl AeronArchivePersistentSubscriptionContext {
                         stringify!(*mut aeron_archive_persistent_subscription_context_t)
                     )
                     .to_string(),
-                    concat!(
-                        "archive_context",
-                        ": ",
-                        stringify!(*mut aeron_archive_context_t)
-                    )
-                    .to_string()
+                    concat!("archive_context", ": ", stringify!(*mut aeron_archive_context_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -3750,10 +3519,8 @@ impl AeronArchivePersistentSubscriptionContext {
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_persistent_subscription_context_set_recording_id(
-                self.get_inner(),
-                recording_id.into(),
-            );
+            let result =
+                aeron_archive_persistent_subscription_context_set_recording_id(self.get_inner(), recording_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -3782,8 +3549,7 @@ impl AeronArchivePersistentSubscriptionContext {
                 .to_string()]
                 .join(", ")
             );
-            let result =
-                aeron_archive_persistent_subscription_context_get_recording_id(self.get_inner());
+            let result = aeron_archive_persistent_subscription_context_get_recording_id(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -3807,19 +3573,12 @@ impl AeronArchivePersistentSubscriptionContext {
                         stringify!(*mut aeron_archive_persistent_subscription_context_t)
                     )
                     .to_string(),
-                    concat!(
-                        "live_channel",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string()
+                    concat!("live_channel", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_persistent_subscription_context_set_live_channel(
-                self.get_inner(),
-                live_channel.as_ptr(),
-            );
+            let result =
+                aeron_archive_persistent_subscription_context_set_live_channel(self.get_inner(), live_channel.as_ptr());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -3848,8 +3607,7 @@ impl AeronArchivePersistentSubscriptionContext {
                 .to_string()]
                 .join(", ")
             );
-            let result =
-                aeron_archive_persistent_subscription_context_get_live_channel(self.get_inner());
+            let result = aeron_archive_persistent_subscription_context_get_live_channel(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result.is_null() {
@@ -3913,8 +3671,7 @@ impl AeronArchivePersistentSubscriptionContext {
                 .to_string()]
                 .join(", ")
             );
-            let result =
-                aeron_archive_persistent_subscription_context_get_live_stream_id(self.get_inner());
+            let result = aeron_archive_persistent_subscription_context_get_live_stream_id(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -3938,12 +3695,7 @@ impl AeronArchivePersistentSubscriptionContext {
                         stringify!(*mut aeron_archive_persistent_subscription_context_t)
                     )
                     .to_string(),
-                    concat!(
-                        "replay_channel",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string()
+                    concat!("replay_channel", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
             );
@@ -3979,8 +3731,7 @@ impl AeronArchivePersistentSubscriptionContext {
                 .to_string()]
                 .join(", ")
             );
-            let result =
-                aeron_archive_persistent_subscription_context_get_replay_channel(self.get_inner());
+            let result = aeron_archive_persistent_subscription_context_get_replay_channel(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result.is_null() {
@@ -4044,9 +3795,7 @@ impl AeronArchivePersistentSubscriptionContext {
                 .to_string()]
                 .join(", ")
             );
-            let result = aeron_archive_persistent_subscription_context_get_replay_stream_id(
-                self.get_inner(),
-            );
+            let result = aeron_archive_persistent_subscription_context_get_replay_stream_id(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -4107,8 +3856,7 @@ impl AeronArchivePersistentSubscriptionContext {
                 .to_string()]
                 .join(", ")
             );
-            let result =
-                aeron_archive_persistent_subscription_context_get_start_position(self.get_inner());
+            let result = aeron_archive_persistent_subscription_context_get_start_position(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -4144,10 +3892,7 @@ impl AeronArchivePersistentSubscriptionContext {
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_persistent_subscription_context_set_listener(
-                self.get_inner(),
-                listener.into(),
-            );
+            let result = aeron_archive_persistent_subscription_context_set_listener(self.get_inner(), listener.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -4179,10 +3924,8 @@ impl AeronArchivePersistentSubscriptionContext {
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_persistent_subscription_context_set_state_counter(
-                self.get_inner(),
-                counter.get_inner(),
-            );
+            let result =
+                aeron_archive_persistent_subscription_context_set_state_counter(self.get_inner(), counter.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -4211,8 +3954,7 @@ impl AeronArchivePersistentSubscriptionContext {
                 .to_string()]
                 .join(", ")
             );
-            let result =
-                aeron_archive_persistent_subscription_context_get_state_counter(self.get_inner());
+            let result = aeron_archive_persistent_subscription_context_get_state_counter(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -4230,9 +3972,7 @@ impl AeronArchivePersistentSubscriptionContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
-                stringify!(
-                    aeron_archive_persistent_subscription_context_set_join_difference_counter
-                ),
+                stringify!(aeron_archive_persistent_subscription_context_set_join_difference_counter),
                 [
                     concat!(
                         "context",
@@ -4267,9 +4007,7 @@ impl AeronArchivePersistentSubscriptionContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
-                stringify!(
-                    aeron_archive_persistent_subscription_context_get_join_difference_counter
-                ),
+                stringify!(aeron_archive_persistent_subscription_context_get_join_difference_counter),
                 [concat!(
                     "context",
                     ": ",
@@ -4278,9 +4016,7 @@ impl AeronArchivePersistentSubscriptionContext {
                 .to_string()]
                 .join(", ")
             );
-            let result = aeron_archive_persistent_subscription_context_get_join_difference_counter(
-                self.get_inner(),
-            );
+            let result = aeron_archive_persistent_subscription_context_get_join_difference_counter(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -4340,9 +4076,7 @@ impl AeronArchivePersistentSubscriptionContext {
                 .to_string()]
                 .join(", ")
             );
-            let result = aeron_archive_persistent_subscription_context_get_live_left_counter(
-                self.get_inner(),
-            );
+            let result = aeron_archive_persistent_subscription_context_get_live_left_counter(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -4402,9 +4136,7 @@ impl AeronArchivePersistentSubscriptionContext {
                 .to_string()]
                 .join(", ")
             );
-            let result = aeron_archive_persistent_subscription_context_get_live_joined_counter(
-                self.get_inner(),
-            );
+            let result = aeron_archive_persistent_subscription_context_get_live_joined_counter(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -4429,9 +4161,7 @@ impl std::ops::Deref for AeronArchivePersistentSubscriptionContext {
         self.get_inner_ref()
     }
 }
-impl From<*mut aeron_archive_persistent_subscription_context_t>
-    for AeronArchivePersistentSubscriptionContext
-{
+impl From<*mut aeron_archive_persistent_subscription_context_t> for AeronArchivePersistentSubscriptionContext {
     #[inline]
     fn from(value: *mut aeron_archive_persistent_subscription_context_t) -> Self {
         AeronArchivePersistentSubscriptionContext {
@@ -4439,45 +4169,33 @@ impl From<*mut aeron_archive_persistent_subscription_context_t>
         }
     }
 }
-impl From<AeronArchivePersistentSubscriptionContext>
-    for *mut aeron_archive_persistent_subscription_context_t
-{
+impl From<AeronArchivePersistentSubscriptionContext> for *mut aeron_archive_persistent_subscription_context_t {
     #[inline]
     fn from(value: AeronArchivePersistentSubscriptionContext) -> Self {
         value.get_inner()
     }
 }
-impl From<&AeronArchivePersistentSubscriptionContext>
-    for *mut aeron_archive_persistent_subscription_context_t
-{
+impl From<&AeronArchivePersistentSubscriptionContext> for *mut aeron_archive_persistent_subscription_context_t {
     #[inline]
     fn from(value: &AeronArchivePersistentSubscriptionContext) -> Self {
         value.get_inner()
     }
 }
-impl From<AeronArchivePersistentSubscriptionContext>
-    for aeron_archive_persistent_subscription_context_t
-{
+impl From<AeronArchivePersistentSubscriptionContext> for aeron_archive_persistent_subscription_context_t {
     #[inline]
     fn from(value: AeronArchivePersistentSubscriptionContext) -> Self {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_archive_persistent_subscription_context_t>
-    for AeronArchivePersistentSubscriptionContext
-{
+impl From<*const aeron_archive_persistent_subscription_context_t> for AeronArchivePersistentSubscriptionContext {
     #[inline]
     fn from(value: *const aeron_archive_persistent_subscription_context_t) -> Self {
         AeronArchivePersistentSubscriptionContext {
-            inner: CResource::Borrowed(
-                value as *mut aeron_archive_persistent_subscription_context_t,
-            ),
+            inner: CResource::Borrowed(value as *mut aeron_archive_persistent_subscription_context_t),
         }
     }
 }
-impl From<aeron_archive_persistent_subscription_context_t>
-    for AeronArchivePersistentSubscriptionContext
-{
+impl From<aeron_archive_persistent_subscription_context_t> for AeronArchivePersistentSubscriptionContext {
     #[inline]
     fn from(value: aeron_archive_persistent_subscription_context_t) -> Self {
         AeronArchivePersistentSubscriptionContext {
@@ -4506,12 +4224,8 @@ impl core::fmt::Debug for AeronArchivePersistentSubscriptionListener {
 impl AeronArchivePersistentSubscriptionListener {
     #[inline]
     pub fn new(
-        on_live_joined: ::std::option::Option<
-            unsafe extern "C" fn(clientd: *mut ::std::os::raw::c_void),
-        >,
-        on_live_left: ::std::option::Option<
-            unsafe extern "C" fn(clientd: *mut ::std::os::raw::c_void),
-        >,
+        on_live_joined: ::std::option::Option<unsafe extern "C" fn(clientd: *mut ::std::os::raw::c_void)>,
+        on_live_left: ::std::option::Option<unsafe extern "C" fn(clientd: *mut ::std::os::raw::c_void)>,
         on_error: ::std::option::Option<
             unsafe extern "C" fn(
                 clientd: *mut ::std::os::raw::c_void,
@@ -4529,8 +4243,7 @@ impl AeronArchivePersistentSubscriptionListener {
                     on_error: on_error.into(),
                     clientd: clientd.into(),
                 };
-                let inner_ptr: *mut aeron_archive_persistent_subscription_listener_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_archive_persistent_subscription_listener_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -4552,10 +4265,8 @@ impl AeronArchivePersistentSubscriptionListener {
                     "creating zeroed empty resource on heap {}",
                     stringify!(aeron_archive_persistent_subscription_listener_t)
                 );
-                let inst: aeron_archive_persistent_subscription_listener_t =
-                    unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_archive_persistent_subscription_listener_t =
-                    Box::into_raw(Box::new(inst));
+                let inst: aeron_archive_persistent_subscription_listener_t = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_archive_persistent_subscription_listener_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -4582,15 +4293,11 @@ impl AeronArchivePersistentSubscriptionListener {
         }
     }
     #[inline]
-    pub fn on_live_joined(
-        &self,
-    ) -> ::std::option::Option<unsafe extern "C" fn(clientd: *mut ::std::os::raw::c_void)> {
+    pub fn on_live_joined(&self) -> ::std::option::Option<unsafe extern "C" fn(clientd: *mut ::std::os::raw::c_void)> {
         self.on_live_joined.into()
     }
     #[inline]
-    pub fn on_live_left(
-        &self,
-    ) -> ::std::option::Option<unsafe extern "C" fn(clientd: *mut ::std::os::raw::c_void)> {
+    pub fn on_live_left(&self) -> ::std::option::Option<unsafe extern "C" fn(clientd: *mut ::std::os::raw::c_void)> {
         self.on_live_left.into()
     }
     #[inline]
@@ -4628,9 +4335,7 @@ impl std::ops::Deref for AeronArchivePersistentSubscriptionListener {
         self.get_inner_ref()
     }
 }
-impl From<*mut aeron_archive_persistent_subscription_listener_t>
-    for AeronArchivePersistentSubscriptionListener
-{
+impl From<*mut aeron_archive_persistent_subscription_listener_t> for AeronArchivePersistentSubscriptionListener {
     #[inline]
     fn from(value: *mut aeron_archive_persistent_subscription_listener_t) -> Self {
         AeronArchivePersistentSubscriptionListener {
@@ -4638,45 +4343,33 @@ impl From<*mut aeron_archive_persistent_subscription_listener_t>
         }
     }
 }
-impl From<AeronArchivePersistentSubscriptionListener>
-    for *mut aeron_archive_persistent_subscription_listener_t
-{
+impl From<AeronArchivePersistentSubscriptionListener> for *mut aeron_archive_persistent_subscription_listener_t {
     #[inline]
     fn from(value: AeronArchivePersistentSubscriptionListener) -> Self {
         value.get_inner()
     }
 }
-impl From<&AeronArchivePersistentSubscriptionListener>
-    for *mut aeron_archive_persistent_subscription_listener_t
-{
+impl From<&AeronArchivePersistentSubscriptionListener> for *mut aeron_archive_persistent_subscription_listener_t {
     #[inline]
     fn from(value: &AeronArchivePersistentSubscriptionListener) -> Self {
         value.get_inner()
     }
 }
-impl From<AeronArchivePersistentSubscriptionListener>
-    for aeron_archive_persistent_subscription_listener_t
-{
+impl From<AeronArchivePersistentSubscriptionListener> for aeron_archive_persistent_subscription_listener_t {
     #[inline]
     fn from(value: AeronArchivePersistentSubscriptionListener) -> Self {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_archive_persistent_subscription_listener_t>
-    for AeronArchivePersistentSubscriptionListener
-{
+impl From<*const aeron_archive_persistent_subscription_listener_t> for AeronArchivePersistentSubscriptionListener {
     #[inline]
     fn from(value: *const aeron_archive_persistent_subscription_listener_t) -> Self {
         AeronArchivePersistentSubscriptionListener {
-            inner: CResource::Borrowed(
-                value as *mut aeron_archive_persistent_subscription_listener_t,
-            ),
+            inner: CResource::Borrowed(value as *mut aeron_archive_persistent_subscription_listener_t),
         }
     }
 }
-impl From<aeron_archive_persistent_subscription_listener_t>
-    for AeronArchivePersistentSubscriptionListener
-{
+impl From<aeron_archive_persistent_subscription_listener_t> for AeronArchivePersistentSubscriptionListener {
     #[inline]
     fn from(value: aeron_archive_persistent_subscription_listener_t) -> Self {
         AeronArchivePersistentSubscriptionListener {
@@ -4757,8 +4450,7 @@ impl AeronArchivePersistentSubscription {
                     stringify!(aeron_archive_persistent_subscription_t)
                 );
                 let inst: aeron_archive_persistent_subscription_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_archive_persistent_subscription_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_archive_persistent_subscription_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -4856,9 +4548,7 @@ impl AeronArchivePersistentSubscription {
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
                 fragment_limit.into(),
             );
             #[cfg(feature = "log-c-bindings")]
@@ -4907,11 +4597,7 @@ impl AeronArchivePersistentSubscription {
             );
             let result = aeron_archive_persistent_subscription_poll(
                 self.get_inner(),
-                Some(
-                    aeron_fragment_handler_t_callback_for_once_closure::<
-                        AeronFragmentHandlerHandlerImpl,
-                    >,
-                ),
+                Some(aeron_fragment_handler_t_callback_for_once_closure::<AeronFragmentHandlerHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
                 fragment_limit.into(),
             );
@@ -4934,9 +4620,7 @@ impl AeronArchivePersistentSubscription {
     #[doc = " \n - `fragment_limit` maximum number of message fragments to read when polling."]
     #[doc = " \n# Return\n positive number if fragments have been read or the persistent subscription has done other work,"]
     #[doc = " 0 if no fragments have been read and no work has been done, negative on error."]
-    pub fn controlled_poll<
-        AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback,
-    >(
+    pub fn controlled_poll<AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback>(
         &self,
         handler: Option<&Handler<AeronControlledFragmentHandlerHandlerImpl>>,
         fragment_limit: usize,
@@ -4953,12 +4637,7 @@ impl AeronArchivePersistentSubscription {
                         stringify!(*mut aeron_archive_persistent_subscription_t)
                     )
                     .to_string(),
-                    concat!(
-                        "handler",
-                        ": ",
-                        stringify!(aeron_controlled_fragment_handler_t)
-                    )
-                    .to_string()
+                    concat!("handler", ": ", stringify!(aeron_controlled_fragment_handler_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -4968,17 +4647,11 @@ impl AeronArchivePersistentSubscription {
                     let callback: aeron_controlled_fragment_handler_t = if handler.is_none() {
                         None
                     } else {
-                        Some(
-                            aeron_controlled_fragment_handler_t_callback::<
-                                AeronControlledFragmentHandlerHandlerImpl,
-                            >,
-                        )
+                        Some(aeron_controlled_fragment_handler_t_callback::<AeronControlledFragmentHandlerHandlerImpl>)
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
                 fragment_limit.into(),
             );
             #[cfg(feature = "log-c-bindings")]
@@ -5023,12 +4696,7 @@ impl AeronArchivePersistentSubscription {
                         stringify!(*mut aeron_archive_persistent_subscription_t)
                     )
                     .to_string(),
-                    concat!(
-                        "handler",
-                        ": ",
-                        stringify!(aeron_controlled_fragment_handler_t)
-                    )
-                    .to_string()
+                    concat!("handler", ": ", stringify!(aeron_controlled_fragment_handler_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -5152,14 +4820,8 @@ impl AeronArchivePersistentSubscription {
                         stringify!(*mut aeron_archive_persistent_subscription_t)
                     )
                     .to_string(),
-                    concat!("out_errcode", ": ", stringify!(*mut ::std::os::raw::c_int))
-                        .to_string(),
-                    concat!(
-                        "out_message",
-                        ": ",
-                        stringify!(*mut *const ::std::os::raw::c_char)
-                    )
-                    .to_string()
+                    concat!("out_errcode", ": ", stringify!(*mut ::std::os::raw::c_int)).to_string(),
+                    concat!("out_message", ": ", stringify!(*mut *const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
             );
@@ -5237,20 +4899,14 @@ impl From<aeron_archive_persistent_subscription_t> for AeronArchivePersistentSub
 impl Drop for AeronArchivePersistentSubscription {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none())
-                && std::rc::Rc::strong_count(inner) == 1
-                && !inner.is_closed_already_called()
-            {
+            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
                 if inner.auto_close.get() {
                     log::info!("auto closing {self:?}");
                     let result = self.close();
                     log::debug!("result {:?}", result);
                 } else {
                     #[cfg(feature = "extra-logging")]
-                    log::warn!(
-                        "{} not closed",
-                        stringify!(AeronArchivePersistentSubscription)
-                    );
+                    log::warn!("{} not closed", stringify!(AeronArchivePersistentSubscription));
                 }
             }
         }
@@ -5285,20 +4941,14 @@ impl AeronArchiveProxy {
         let ctx_copy = ctx.clone();
         let ctx: *mut aeron_archive_context_t = ctx.into();
         let exclusive_publication_copy = exclusive_publication.clone();
-        let exclusive_publication: *mut aeron_exclusive_publication_t =
-            exclusive_publication.into();
+        let exclusive_publication: *mut aeron_exclusive_publication_t = exclusive_publication.into();
         let retry_attempts: ::std::os::raw::c_int = retry_attempts.into();
         let resource_constructor = ManagedCResource::new(
             move |ctx_field| unsafe {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args = [
-                        concat!(
-                            "archive_proxy",
-                            ": ",
-                            stringify!(*mut *mut aeron_archive_proxy_t)
-                        )
-                        .to_string(),
+                        concat!("archive_proxy", ": ", stringify!(*mut *mut aeron_archive_proxy_t)).to_string(),
                         concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string(),
                         concat!(
                             "exclusive_publication",
@@ -5306,8 +4956,7 @@ impl AeronArchiveProxy {
                             stringify!(*mut aeron_exclusive_publication_t)
                         )
                         .to_string(),
-                        concat!("retry_attempts", ": ", stringify!(::std::os::raw::c_int))
-                            .to_string(),
+                        concat!("retry_attempts", ": ", stringify!(::std::os::raw::c_int)).to_string(),
                     ]
                     .join(", ");
                     log::info!("{}({})", stringify!(aeron_archive_proxy_create), log_args);
@@ -5317,13 +4966,8 @@ impl AeronArchiveProxy {
             Some(Box::new(move |ctx_field| unsafe {
                 #[cfg(feature = "log-c-bindings")]
                 {
-                    let log_args = [concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string()]
-                    .join(", ");
+                    let log_args =
+                        [concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string()].join(", ");
                     log::info!("{}({})", stringify!(aeron_archive_proxy_delete), log_args);
                 }
                 aeron_archive_proxy_delete(*ctx_field)
@@ -5374,12 +5018,7 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_init),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string(),
                     concat!(
                         "exclusive_publication",
@@ -5414,20 +5053,12 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_set_control_session_id),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "control_session_id", control_session_id)
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_proxy_set_control_session_id(
-                self.get_inner(),
-                control_session_id.into(),
-            );
+            let result = aeron_archive_proxy_set_control_session_id(self.get_inner(), control_session_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -5447,13 +5078,7 @@ impl AeronArchiveProxy {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_proxy_close),
-                [concat!(
-                    "archive_proxy",
-                    ": ",
-                    stringify!(*mut aeron_archive_proxy_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string()].join(", ")
             );
             let result = aeron_archive_proxy_close(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -5472,13 +5097,7 @@ impl AeronArchiveProxy {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_proxy_delete),
-                [concat!(
-                    "archive_proxy",
-                    ": ",
-                    stringify!(*mut aeron_archive_proxy_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string()].join(", ")
             );
             let result = aeron_archive_proxy_delete(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -5504,22 +5123,14 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_try_connect),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     concat!(
                         "control_response_channel",
                         ": ",
                         stringify!(*const ::std::os::raw::c_char)
                     )
                     .to_string(),
-                    format!(
-                        "{} = {:?}",
-                        "control_response_stream_id", control_response_stream_id
-                    ),
+                    format!("{} = {:?}", "control_response_stream_id", control_response_stream_id),
                     concat!(
                         "encoded_credentials",
                         ": ",
@@ -5550,12 +5161,7 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_archive_id),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id)
                 ]
                 .join(", ")
@@ -5578,12 +5184,7 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_challenge_response),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     concat!(
                         "encoded_credentials",
                         ": ",
@@ -5611,13 +5212,7 @@ impl AeronArchiveProxy {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_proxy_close_session),
-                [concat!(
-                    "archive_proxy",
-                    ": ",
-                    stringify!(*mut aeron_archive_proxy_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string()].join(", ")
             );
             let result = aeron_archive_proxy_close_session(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -5640,18 +5235,8 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_start_recording),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
-                    concat!(
-                        "recording_channel",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
+                    concat!("recording_channel", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "recording_stream_id", recording_stream_id),
                     format!("{} = {:?}", "local_source", local_source),
                     format!("{} = {:?}", "auto_stop", auto_stop),
@@ -5680,12 +5265,7 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_get_recording_position),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "recording_id", recording_id)
                 ]
@@ -5709,22 +5289,14 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_get_start_position),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "recording_id", recording_id)
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_proxy_get_start_position(
-                self.get_inner(),
-                correlation_id.into(),
-                recording_id.into(),
-            );
+            let result =
+                aeron_archive_proxy_get_start_position(self.get_inner(), correlation_id.into(), recording_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -5738,22 +5310,14 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_get_stop_position),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "recording_id", recording_id)
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_proxy_get_stop_position(
-                self.get_inner(),
-                correlation_id.into(),
-                recording_id.into(),
-            );
+            let result =
+                aeron_archive_proxy_get_stop_position(self.get_inner(), correlation_id.into(), recording_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -5767,12 +5331,7 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_get_max_recorded_position),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "recording_id", recording_id)
                 ]
@@ -5789,24 +5348,14 @@ impl AeronArchiveProxy {
         }
     }
     #[inline]
-    pub fn stop_recording(
-        &self,
-        correlation_id: i64,
-        channel: &std::ffi::CStr,
-        stream_id: i32,
-    ) -> bool {
+    pub fn stop_recording(&self, correlation_id: i64, channel: &std::ffi::CStr, stream_id: i32) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_proxy_stop_recording),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     concat!("channel", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "stream_id", stream_id)
@@ -5832,12 +5381,7 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_stop_recording_subscription),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "subscription_id", subscription_id)
                 ]
@@ -5861,12 +5405,7 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_stop_recording_by_identity),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "recording_id", recording_id)
                 ]
@@ -5897,20 +5436,10 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_find_last_matching_recording),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "min_recording_id", min_recording_id),
-                    concat!(
-                        "channel_fragment",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
+                    concat!("channel_fragment", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "stream_id", stream_id),
                     format!("{} = {:?}", "session_id", session_id)
                 ]
@@ -5937,46 +5466,28 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_list_recording),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "recording_id", recording_id)
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_proxy_list_recording(
-                self.get_inner(),
-                correlation_id.into(),
-                recording_id.into(),
-            );
+            let result =
+                aeron_archive_proxy_list_recording(self.get_inner(), correlation_id.into(), recording_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
         }
     }
     #[inline]
-    pub fn list_recordings(
-        &self,
-        correlation_id: i64,
-        from_recording_id: i64,
-        record_count: i32,
-    ) -> bool {
+    pub fn list_recordings(&self, correlation_id: i64, from_recording_id: i64, record_count: i32) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_proxy_list_recordings),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "from_recording_id", from_recording_id),
                     format!("{} = {:?}", "record_count", record_count)
@@ -6009,21 +5520,11 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_list_recordings_for_uri),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "from_recording_id", from_recording_id),
                     format!("{} = {:?}", "record_count", record_count),
-                    concat!(
-                        "channel_fragment",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
+                    concat!("channel_fragment", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "stream_id", stream_id)
                 ]
                 .join(", ")
@@ -6056,27 +5557,12 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_replay),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "recording_id", recording_id),
-                    concat!(
-                        "replay_channel",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
+                    concat!("replay_channel", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "replay_stream_id", replay_stream_id),
-                    concat!(
-                        "params",
-                        ": ",
-                        stringify!(*mut aeron_archive_replay_params_t)
-                    )
-                    .to_string()
+                    concat!("params", ": ", stringify!(*mut aeron_archive_replay_params_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -6094,24 +5580,14 @@ impl AeronArchiveProxy {
         }
     }
     #[inline]
-    pub fn truncate_recording(
-        &self,
-        correlation_id: i64,
-        recording_id: i64,
-        position: i64,
-    ) -> bool {
+    pub fn truncate_recording(&self, correlation_id: i64, recording_id: i64, position: i64) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_proxy_truncate_recording),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "recording_id", recording_id),
                     format!("{} = {:?}", "position", position)
@@ -6137,22 +5613,14 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_stop_replay),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "replay_session_id", replay_session_id)
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_proxy_stop_replay(
-                self.get_inner(),
-                correlation_id.into(),
-                replay_session_id.into(),
-            );
+            let result =
+                aeron_archive_proxy_stop_replay(self.get_inner(), correlation_id.into(), replay_session_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -6166,22 +5634,14 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_stop_all_replays),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "recording_id", recording_id)
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_proxy_stop_all_replays(
-                self.get_inner(),
-                correlation_id.into(),
-                recording_id.into(),
-            );
+            let result =
+                aeron_archive_proxy_stop_all_replays(self.get_inner(), correlation_id.into(), recording_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -6203,21 +5663,11 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_list_recording_subscriptions),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "pseudo_index", pseudo_index),
                     format!("{} = {:?}", "subscription_count", subscription_count),
-                    concat!(
-                        "channel_fragment",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
+                    concat!("channel_fragment", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "stream_id", stream_id),
                     format!("{} = {:?}", "apply_stream_id", apply_stream_id)
                 ]
@@ -6245,22 +5695,14 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_purge_recording),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "recording_id", recording_id)
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_proxy_purge_recording(
-                self.get_inner(),
-                correlation_id.into(),
-                recording_id.into(),
-            );
+            let result =
+                aeron_archive_proxy_purge_recording(self.get_inner(), correlation_id.into(), recording_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -6282,19 +5724,9 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_extend_recording),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "recording_id", recording_id),
-                    concat!(
-                        "recording_channel",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
+                    concat!("recording_channel", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "recording_stream_id", recording_stream_id),
                     format!("{} = {:?}", "local_source", local_source),
                     format!("{} = {:?}", "auto_stop", auto_stop),
@@ -6331,27 +5763,12 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_replicate),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "src_recording_id", src_recording_id),
                     format!("{} = {:?}", "src_control_stream_id", src_control_stream_id),
-                    concat!(
-                        "src_control_channel",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
-                    concat!(
-                        "params",
-                        ": ",
-                        stringify!(*mut aeron_archive_replication_params_t)
-                    )
-                    .to_string()
+                    concat!("src_control_channel", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    concat!("params", ": ", stringify!(*mut aeron_archive_replication_params_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -6376,79 +5793,49 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_stop_replication),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "replication_id", replication_id)
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_proxy_stop_replication(
-                self.get_inner(),
-                correlation_id.into(),
-                replication_id.into(),
-            );
+            let result =
+                aeron_archive_proxy_stop_replication(self.get_inner(), correlation_id.into(), replication_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
         }
     }
     #[inline]
-    pub fn aeron_archive_request_replay_token(
-        &self,
-        correlation_id: i64,
-        recording_id: i64,
-    ) -> bool {
+    pub fn aeron_archive_request_replay_token(&self, correlation_id: i64, recording_id: i64) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_request_replay_token),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "recording_id", recording_id)
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_request_replay_token(
-                self.get_inner(),
-                correlation_id.into(),
-                recording_id.into(),
-            );
+            let result =
+                aeron_archive_request_replay_token(self.get_inner(), correlation_id.into(), recording_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
         }
     }
     #[inline]
-    pub fn detach_segments(
-        &self,
-        correlation_id: i64,
-        recording_id: i64,
-        new_start_position: i64,
-    ) -> bool {
+    pub fn detach_segments(&self, correlation_id: i64, recording_id: i64, new_start_position: i64) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_proxy_detach_segments),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "recording_id", recording_id),
                     format!("{} = {:?}", "new_start_position", new_start_position)
@@ -6474,12 +5861,7 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_delete_detached_segments),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "recording_id", recording_id)
                 ]
@@ -6496,24 +5878,14 @@ impl AeronArchiveProxy {
         }
     }
     #[inline]
-    pub fn purge_segments(
-        &self,
-        correlation_id: i64,
-        recording_id: i64,
-        new_start_position: i64,
-    ) -> bool {
+    pub fn purge_segments(&self, correlation_id: i64, recording_id: i64, new_start_position: i64) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_proxy_purge_segments),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "recording_id", recording_id),
                     format!("{} = {:?}", "new_start_position", new_start_position)
@@ -6539,46 +5911,28 @@ impl AeronArchiveProxy {
                 "{}({})",
                 stringify!(aeron_archive_proxy_attach_segments),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "recording_id", recording_id)
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_proxy_attach_segments(
-                self.get_inner(),
-                correlation_id.into(),
-                recording_id.into(),
-            );
+            let result =
+                aeron_archive_proxy_attach_segments(self.get_inner(), correlation_id.into(), recording_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
         }
     }
     #[inline]
-    pub fn migrate_segments(
-        &self,
-        correlation_id: i64,
-        src_recording_id: i64,
-        dst_recording_id: i64,
-    ) -> bool {
+    pub fn migrate_segments(&self, correlation_id: i64, src_recording_id: i64, dst_recording_id: i64) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_proxy_migrate_segments),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "src_recording_id", src_recording_id),
                     format!("{} = {:?}", "dst_recording_id", dst_recording_id)
@@ -6597,32 +5951,17 @@ impl AeronArchiveProxy {
         }
     }
     #[inline]
-    pub fn update_channel(
-        &self,
-        correlation_id: i64,
-        recording_id: i64,
-        new_channel: &std::ffi::CStr,
-    ) -> bool {
+    pub fn update_channel(&self, correlation_id: i64, recording_id: i64, new_channel: &std::ffi::CStr) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_proxy_update_channel),
                 [
-                    concat!(
-                        "archive_proxy",
-                        ": ",
-                        stringify!(*mut aeron_archive_proxy_t)
-                    )
-                    .to_string(),
+                    concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id),
                     format!("{} = {:?}", "recording_id", recording_id),
-                    concat!(
-                        "new_channel",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string()
+                    concat!("new_channel", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
             );
@@ -6720,14 +6059,8 @@ impl core::fmt::Debug for AeronArchiveRecordingDescriptorPoller {
                 .field(stringify!(control_session_id), &self.control_session_id())
                 .field(stringify!(error_on_fragment), &self.error_on_fragment())
                 .field(stringify!(correlation_id), &self.correlation_id())
-                .field(
-                    stringify!(remaining_record_count),
-                    &self.remaining_record_count(),
-                )
-                .field(
-                    stringify!(is_dispatch_complete),
-                    &self.is_dispatch_complete(),
-                )
+                .field(stringify!(remaining_record_count), &self.remaining_record_count())
+                .field(stringify!(is_dispatch_complete), &self.is_dispatch_complete())
                 .finish()
         }
     }
@@ -6743,10 +6076,8 @@ impl AeronArchiveRecordingDescriptorPoller {
                     "creating zeroed empty resource on heap {}",
                     stringify!(aeron_archive_recording_descriptor_poller_t)
                 );
-                let inst: aeron_archive_recording_descriptor_poller_t =
-                    unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_archive_recording_descriptor_poller_t =
-                    Box::into_raw(Box::new(inst));
+                let inst: aeron_archive_recording_descriptor_poller_t = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_archive_recording_descriptor_poller_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -6805,9 +6136,7 @@ impl AeronArchiveRecordingDescriptorPoller {
         self.remaining_record_count.into()
     }
     #[inline]
-    pub fn recording_descriptor_consumer(
-        &self,
-    ) -> aeron_archive_recording_descriptor_consumer_func_t {
+    pub fn recording_descriptor_consumer(&self) -> aeron_archive_recording_descriptor_consumer_func_t {
         self.recording_descriptor_consumer.into()
     }
     #[inline]
@@ -6853,9 +6182,7 @@ impl AeronArchiveRecordingDescriptorPoller {
         &self,
         correlation_id: i64,
         record_count: i32,
-        recording_descriptor_consumer: Option<
-            &Handler<AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl>,
-        >,
+        recording_descriptor_consumer: Option<&Handler<AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl>>,
     ) -> () {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -7002,9 +6329,7 @@ impl std::ops::Deref for AeronArchiveRecordingDescriptorPoller {
         self.get_inner_ref()
     }
 }
-impl From<*mut aeron_archive_recording_descriptor_poller_t>
-    for AeronArchiveRecordingDescriptorPoller
-{
+impl From<*mut aeron_archive_recording_descriptor_poller_t> for AeronArchiveRecordingDescriptorPoller {
     #[inline]
     fn from(value: *mut aeron_archive_recording_descriptor_poller_t) -> Self {
         AeronArchiveRecordingDescriptorPoller {
@@ -7012,17 +6337,13 @@ impl From<*mut aeron_archive_recording_descriptor_poller_t>
         }
     }
 }
-impl From<AeronArchiveRecordingDescriptorPoller>
-    for *mut aeron_archive_recording_descriptor_poller_t
-{
+impl From<AeronArchiveRecordingDescriptorPoller> for *mut aeron_archive_recording_descriptor_poller_t {
     #[inline]
     fn from(value: AeronArchiveRecordingDescriptorPoller) -> Self {
         value.get_inner()
     }
 }
-impl From<&AeronArchiveRecordingDescriptorPoller>
-    for *mut aeron_archive_recording_descriptor_poller_t
-{
+impl From<&AeronArchiveRecordingDescriptorPoller> for *mut aeron_archive_recording_descriptor_poller_t {
     #[inline]
     fn from(value: &AeronArchiveRecordingDescriptorPoller) -> Self {
         value.get_inner()
@@ -7034,9 +6355,7 @@ impl From<AeronArchiveRecordingDescriptorPoller> for aeron_archive_recording_des
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_archive_recording_descriptor_poller_t>
-    for AeronArchiveRecordingDescriptorPoller
-{
+impl From<*const aeron_archive_recording_descriptor_poller_t> for AeronArchiveRecordingDescriptorPoller {
     #[inline]
     fn from(value: *const aeron_archive_recording_descriptor_poller_t) -> Self {
         AeronArchiveRecordingDescriptorPoller {
@@ -7055,20 +6374,14 @@ impl From<aeron_archive_recording_descriptor_poller_t> for AeronArchiveRecording
 impl Drop for AeronArchiveRecordingDescriptorPoller {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none())
-                && std::rc::Rc::strong_count(inner) == 1
-                && !inner.is_closed_already_called()
-            {
+            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
                 if inner.auto_close.get() {
                     log::info!("auto closing {self:?}");
                     let result = self.close();
                     log::debug!("result {:?}", result);
                 } else {
                     #[cfg(feature = "extra-logging")]
-                    log::warn!(
-                        "{} not closed",
-                        stringify!(AeronArchiveRecordingDescriptorPoller)
-                    );
+                    log::warn!("{} not closed", stringify!(AeronArchiveRecordingDescriptorPoller));
                 }
             }
         }
@@ -7102,20 +6415,11 @@ impl core::fmt::Debug for AeronArchiveRecordingDescriptor {
                 .field(stringify!(session_id), &self.session_id())
                 .field(stringify!(stream_id), &self.stream_id())
                 .field(stringify!(stripped_channel), &self.stripped_channel())
-                .field(
-                    stringify!(stripped_channel_length),
-                    &self.stripped_channel_length(),
-                )
+                .field(stringify!(stripped_channel_length), &self.stripped_channel_length())
                 .field(stringify!(original_channel), &self.original_channel())
-                .field(
-                    stringify!(original_channel_length),
-                    &self.original_channel_length(),
-                )
+                .field(stringify!(original_channel_length), &self.original_channel_length())
                 .field(stringify!(source_identity), &self.source_identity())
-                .field(
-                    stringify!(source_identity_length),
-                    &self.source_identity_length(),
-                )
+                .field(stringify!(source_identity_length), &self.source_identity_length())
                 .finish()
         }
     }
@@ -7166,8 +6470,7 @@ impl AeronArchiveRecordingDescriptor {
                     source_identity: source_identity.into(),
                     source_identity_length: source_identity_length.into(),
                 };
-                let inner_ptr: *mut aeron_archive_recording_descriptor_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_archive_recording_descriptor_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -7190,8 +6493,7 @@ impl AeronArchiveRecordingDescriptor {
                     stringify!(aeron_archive_recording_descriptor_t)
                 );
                 let inst: aeron_archive_recording_descriptor_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_archive_recording_descriptor_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_archive_recording_descriptor_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -7274,11 +6576,7 @@ impl AeronArchiveRecordingDescriptor {
         if self.stripped_channel.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.stripped_channel)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.stripped_channel).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -7290,11 +6588,7 @@ impl AeronArchiveRecordingDescriptor {
         if self.original_channel.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.original_channel)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.original_channel).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -7306,11 +6600,7 @@ impl AeronArchiveRecordingDescriptor {
         if self.source_identity.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.source_identity)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.source_identity).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -7440,10 +6730,7 @@ impl core::fmt::Debug for AeronArchiveRecordingSignal {
                 .field(stringify!(recording_id), &self.recording_id())
                 .field(stringify!(subscription_id), &self.subscription_id())
                 .field(stringify!(position), &self.position())
-                .field(
-                    stringify!(recording_signal_code),
-                    &self.recording_signal_code(),
-                )
+                .field(stringify!(recording_signal_code), &self.recording_signal_code())
                 .finish()
         }
     }
@@ -7466,8 +6753,7 @@ impl AeronArchiveRecordingSignal {
                     position: position.into(),
                     recording_signal_code: recording_signal_code.into(),
                 };
-                let inner_ptr: *mut aeron_archive_recording_signal_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_archive_recording_signal_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -7490,8 +6776,7 @@ impl AeronArchiveRecordingSignal {
                     stringify!(aeron_archive_recording_signal_t)
                 );
                 let inst: aeron_archive_recording_signal_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_archive_recording_signal_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_archive_recording_signal_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -7649,28 +6934,21 @@ pub struct AeronArchiveRecordingSubscriptionDescriptorPoller {
 impl core::fmt::Debug for AeronArchiveRecordingSubscriptionDescriptorPoller {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.inner.get().is_null() {
-            f.debug_struct(stringify!(
-                AeronArchiveRecordingSubscriptionDescriptorPoller
-            ))
-            .field("inner", &"null")
-            .finish()
+            f.debug_struct(stringify!(AeronArchiveRecordingSubscriptionDescriptorPoller))
+                .field("inner", &"null")
+                .finish()
         } else {
-            f.debug_struct(stringify!(
-                AeronArchiveRecordingSubscriptionDescriptorPoller
-            ))
-            .field("inner", &self.inner)
-            .field(stringify!(control_session_id), &self.control_session_id())
-            .field(stringify!(error_on_fragment), &self.error_on_fragment())
-            .field(stringify!(correlation_id), &self.correlation_id())
-            .field(
-                stringify!(remaining_subscription_count),
-                &self.remaining_subscription_count(),
-            )
-            .field(
-                stringify!(is_dispatch_complete),
-                &self.is_dispatch_complete(),
-            )
-            .finish()
+            f.debug_struct(stringify!(AeronArchiveRecordingSubscriptionDescriptorPoller))
+                .field("inner", &self.inner)
+                .field(stringify!(control_session_id), &self.control_session_id())
+                .field(stringify!(error_on_fragment), &self.error_on_fragment())
+                .field(stringify!(correlation_id), &self.correlation_id())
+                .field(
+                    stringify!(remaining_subscription_count),
+                    &self.remaining_subscription_count(),
+                )
+                .field(stringify!(is_dispatch_complete), &self.is_dispatch_complete())
+                .finish()
         }
     }
 }
@@ -7685,8 +6963,7 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
                     "creating zeroed empty resource on heap {}",
                     stringify!(aeron_archive_recording_subscription_descriptor_poller_t)
                 );
-                let inst: aeron_archive_recording_subscription_descriptor_poller_t =
-                    unsafe { std::mem::zeroed() };
+                let inst: aeron_archive_recording_subscription_descriptor_poller_t = unsafe { std::mem::zeroed() };
                 let inner_ptr: *mut aeron_archive_recording_subscription_descriptor_poller_t =
                     Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
@@ -7753,11 +7030,8 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
         self.recording_subscription_descriptor_consumer.into()
     }
     #[inline]
-    pub fn recording_subscription_descriptor_consumer_clientd(
-        &self,
-    ) -> *mut ::std::os::raw::c_void {
-        self.recording_subscription_descriptor_consumer_clientd
-            .into()
+    pub fn recording_subscription_descriptor_consumer_clientd(&self) -> *mut ::std::os::raw::c_void {
+        self.recording_subscription_descriptor_consumer_clientd.into()
     }
     #[inline]
     pub fn is_dispatch_complete(&self) -> bool {
@@ -7781,8 +7055,7 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
                 .to_string()]
                 .join(", ")
             );
-            let result =
-                aeron_archive_recording_subscription_descriptor_poller_close(self.get_inner());
+            let result = aeron_archive_recording_subscription_descriptor_poller_close(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -7835,7 +7108,11 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
                         if recording_subscription_descriptor_consumer.is_none() {
                             None
                         } else {
-                            Some (aeron_archive_recording_subscription_descriptor_consumer_func_t_callback :: < AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl >)
+                            Some(
+                                aeron_archive_recording_subscription_descriptor_consumer_func_t_callback::<
+                                    AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl,
+                                >,
+                            )
                         };
                     callback
                 },
@@ -7884,7 +7161,17 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_recording_subscription_descriptor_poller_reset (self . get_inner () , correlation_id . into () , subscription_count . into () , Some (aeron_archive_recording_subscription_descriptor_consumer_func_t_callback_for_once_closure :: < AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl >) , & mut recording_subscription_descriptor_consumer as * mut _ as * mut std :: os :: raw :: c_void) ;
+            let result = aeron_archive_recording_subscription_descriptor_poller_reset(
+                self.get_inner(),
+                correlation_id.into(),
+                subscription_count.into(),
+                Some(
+                    aeron_archive_recording_subscription_descriptor_consumer_func_t_callback_for_once_closure::<
+                        AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl,
+                    >,
+                ),
+                &mut recording_subscription_descriptor_consumer as *mut _ as *mut std::os::raw::c_void,
+            );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -7905,8 +7192,7 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
                 .to_string()]
                 .join(", ")
             );
-            let result =
-                aeron_archive_recording_subscription_descriptor_poller_poll(self.get_inner());
+            let result = aeron_archive_recording_subscription_descriptor_poller_poll(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -7975,9 +7261,7 @@ impl From<*const aeron_archive_recording_subscription_descriptor_poller_t>
     #[inline]
     fn from(value: *const aeron_archive_recording_subscription_descriptor_poller_t) -> Self {
         AeronArchiveRecordingSubscriptionDescriptorPoller {
-            inner: CResource::Borrowed(
-                value as *mut aeron_archive_recording_subscription_descriptor_poller_t,
-            ),
+            inner: CResource::Borrowed(value as *mut aeron_archive_recording_subscription_descriptor_poller_t),
         }
     }
 }
@@ -7994,10 +7278,7 @@ impl From<aeron_archive_recording_subscription_descriptor_poller_t>
 impl Drop for AeronArchiveRecordingSubscriptionDescriptorPoller {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none())
-                && std::rc::Rc::strong_count(inner) == 1
-                && !inner.is_closed_already_called()
-            {
+            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
                 if inner.auto_close.get() {
                     log::info!("auto closing {self:?}");
                     let result = self.close();
@@ -8032,10 +7313,7 @@ impl core::fmt::Debug for AeronArchiveRecordingSubscriptionDescriptor {
                 .field(stringify!(subscription_id), &self.subscription_id())
                 .field(stringify!(stream_id), &self.stream_id())
                 .field(stringify!(stripped_channel), &self.stripped_channel())
-                .field(
-                    stringify!(stripped_channel_length),
-                    &self.stripped_channel_length(),
-                )
+                .field(stringify!(stripped_channel_length), &self.stripped_channel_length())
                 .finish()
         }
     }
@@ -8060,8 +7338,7 @@ impl AeronArchiveRecordingSubscriptionDescriptor {
                     stripped_channel: stripped_channel.into(),
                     stripped_channel_length: stripped_channel_length.into(),
                 };
-                let inner_ptr: *mut aeron_archive_recording_subscription_descriptor_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_archive_recording_subscription_descriptor_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -8083,10 +7360,8 @@ impl AeronArchiveRecordingSubscriptionDescriptor {
                     "creating zeroed empty resource on heap {}",
                     stringify!(aeron_archive_recording_subscription_descriptor_t)
                 );
-                let inst: aeron_archive_recording_subscription_descriptor_t =
-                    unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_archive_recording_subscription_descriptor_t =
-                    Box::into_raw(Box::new(inst));
+                let inst: aeron_archive_recording_subscription_descriptor_t = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_archive_recording_subscription_descriptor_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -8133,11 +7408,7 @@ impl AeronArchiveRecordingSubscriptionDescriptor {
         if self.stripped_channel.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.stripped_channel)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.stripped_channel).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -8163,9 +7434,7 @@ impl std::ops::Deref for AeronArchiveRecordingSubscriptionDescriptor {
         self.get_inner_ref()
     }
 }
-impl From<*mut aeron_archive_recording_subscription_descriptor_t>
-    for AeronArchiveRecordingSubscriptionDescriptor
-{
+impl From<*mut aeron_archive_recording_subscription_descriptor_t> for AeronArchiveRecordingSubscriptionDescriptor {
     #[inline]
     fn from(value: *mut aeron_archive_recording_subscription_descriptor_t) -> Self {
         AeronArchiveRecordingSubscriptionDescriptor {
@@ -8173,45 +7442,33 @@ impl From<*mut aeron_archive_recording_subscription_descriptor_t>
         }
     }
 }
-impl From<AeronArchiveRecordingSubscriptionDescriptor>
-    for *mut aeron_archive_recording_subscription_descriptor_t
-{
+impl From<AeronArchiveRecordingSubscriptionDescriptor> for *mut aeron_archive_recording_subscription_descriptor_t {
     #[inline]
     fn from(value: AeronArchiveRecordingSubscriptionDescriptor) -> Self {
         value.get_inner()
     }
 }
-impl From<&AeronArchiveRecordingSubscriptionDescriptor>
-    for *mut aeron_archive_recording_subscription_descriptor_t
-{
+impl From<&AeronArchiveRecordingSubscriptionDescriptor> for *mut aeron_archive_recording_subscription_descriptor_t {
     #[inline]
     fn from(value: &AeronArchiveRecordingSubscriptionDescriptor) -> Self {
         value.get_inner()
     }
 }
-impl From<AeronArchiveRecordingSubscriptionDescriptor>
-    for aeron_archive_recording_subscription_descriptor_t
-{
+impl From<AeronArchiveRecordingSubscriptionDescriptor> for aeron_archive_recording_subscription_descriptor_t {
     #[inline]
     fn from(value: AeronArchiveRecordingSubscriptionDescriptor) -> Self {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_archive_recording_subscription_descriptor_t>
-    for AeronArchiveRecordingSubscriptionDescriptor
-{
+impl From<*const aeron_archive_recording_subscription_descriptor_t> for AeronArchiveRecordingSubscriptionDescriptor {
     #[inline]
     fn from(value: *const aeron_archive_recording_subscription_descriptor_t) -> Self {
         AeronArchiveRecordingSubscriptionDescriptor {
-            inner: CResource::Borrowed(
-                value as *mut aeron_archive_recording_subscription_descriptor_t,
-            ),
+            inner: CResource::Borrowed(value as *mut aeron_archive_recording_subscription_descriptor_t),
         }
     }
 }
-impl From<aeron_archive_recording_subscription_descriptor_t>
-    for AeronArchiveRecordingSubscriptionDescriptor
-{
+impl From<aeron_archive_recording_subscription_descriptor_t> for AeronArchiveRecordingSubscriptionDescriptor {
     #[inline]
     fn from(value: aeron_archive_recording_subscription_descriptor_t) -> Self {
         AeronArchiveRecordingSubscriptionDescriptor {
@@ -8323,49 +7580,19 @@ impl AeronArchiveReplayMerge {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args = [
-                        concat!(
-                            "replay_merge",
-                            ": ",
-                            stringify!(*mut *mut aeron_archive_replay_merge_t)
-                        )
-                        .to_string(),
-                        concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                            .to_string(),
-                        concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t))
-                            .to_string(),
-                        concat!(
-                            "replay_channel",
-                            ": ",
-                            stringify!(*const ::std::os::raw::c_char)
-                        )
-                        .to_string(),
-                        concat!(
-                            "replay_destination",
-                            ": ",
-                            stringify!(*const ::std::os::raw::c_char)
-                        )
-                        .to_string(),
-                        concat!(
-                            "live_destination",
-                            ": ",
-                            stringify!(*const ::std::os::raw::c_char)
-                        )
-                        .to_string(),
+                        concat!("replay_merge", ": ", stringify!(*mut *mut aeron_archive_replay_merge_t)).to_string(),
+                        concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
+                        concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string(),
+                        concat!("replay_channel", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                        concat!("replay_destination", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                        concat!("live_destination", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                         format!("{} = {:?}", "recording_id", recording_id),
                         format!("{} = {:?}", "start_position", start_position),
-                        concat!("epoch_clock", ": ", stringify!(::std::os::raw::c_longlong))
-                            .to_string(),
-                        format!(
-                            "{} = {:?}",
-                            "merge_progress_timeout_ms", merge_progress_timeout_ms
-                        ),
+                        concat!("epoch_clock", ": ", stringify!(::std::os::raw::c_longlong)).to_string(),
+                        format!("{} = {:?}", "merge_progress_timeout_ms", merge_progress_timeout_ms),
                     ]
                     .join(", ");
-                    log::info!(
-                        "{}({})",
-                        stringify!(aeron_archive_replay_merge_init),
-                        log_args
-                    );
+                    log::info!("{}({})", stringify!(aeron_archive_replay_merge_init), log_args);
                 }
                 aeron_archive_replay_merge_init(
                     ctx_field,
@@ -8383,18 +7610,10 @@ impl AeronArchiveReplayMerge {
             Some(Box::new(move |ctx_field| unsafe {
                 #[cfg(feature = "log-c-bindings")]
                 {
-                    let log_args = [concat!(
-                        "replay_merge",
-                        ": ",
-                        stringify!(*mut aeron_archive_replay_merge_t)
-                    )
-                    .to_string()]
-                    .join(", ");
-                    log::info!(
-                        "{}({})",
-                        stringify!(aeron_archive_replay_merge_close),
-                        log_args
-                    );
+                    let log_args =
+                        [concat!("replay_merge", ": ", stringify!(*mut aeron_archive_replay_merge_t)).to_string()]
+                            .join(", ");
+                    log::info!("{}({})", stringify!(aeron_archive_replay_merge_close), log_args);
                 }
                 aeron_archive_replay_merge_close(*ctx_field)
             })),
@@ -8420,13 +7639,7 @@ impl AeronArchiveReplayMerge {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_replay_merge_close),
-                [concat!(
-                    "replay_merge",
-                    ": ",
-                    stringify!(*mut aeron_archive_replay_merge_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("replay_merge", ": ", stringify!(*mut aeron_archive_replay_merge_t)).to_string()].join(", ")
             );
             let result = aeron_archive_replay_merge_close(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -8450,14 +7663,8 @@ impl AeronArchiveReplayMerge {
                 "{}({})",
                 stringify!(aeron_archive_replay_merge_do_work),
                 [
-                    concat!("work_count_p", ": ", stringify!(*mut ::std::os::raw::c_int))
-                        .to_string(),
-                    concat!(
-                        "replay_merge",
-                        ": ",
-                        stringify!(*mut aeron_archive_replay_merge_t)
-                    )
-                    .to_string()
+                    concat!("work_count_p", ": ", stringify!(*mut ::std::os::raw::c_int)).to_string(),
+                    concat!("replay_merge", ": ", stringify!(*mut aeron_archive_replay_merge_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -8490,12 +7697,7 @@ impl AeronArchiveReplayMerge {
                 "{}({})",
                 stringify!(aeron_archive_replay_merge_poll),
                 [
-                    concat!(
-                        "replay_merge",
-                        ": ",
-                        stringify!(*mut aeron_archive_replay_merge_t)
-                    )
-                    .to_string(),
+                    concat!("replay_merge", ": ", stringify!(*mut aeron_archive_replay_merge_t)).to_string(),
                     concat!("handler", ": ", stringify!(aeron_fragment_handler_t)).to_string()
                 ]
                 .join(", ")
@@ -8510,9 +7712,7 @@ impl AeronArchiveReplayMerge {
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
                 fragment_limit.into(),
             );
             #[cfg(feature = "log-c-bindings")]
@@ -8547,23 +7747,14 @@ impl AeronArchiveReplayMerge {
                 "{}({})",
                 stringify!(aeron_archive_replay_merge_poll),
                 [
-                    concat!(
-                        "replay_merge",
-                        ": ",
-                        stringify!(*mut aeron_archive_replay_merge_t)
-                    )
-                    .to_string(),
+                    concat!("replay_merge", ": ", stringify!(*mut aeron_archive_replay_merge_t)).to_string(),
                     concat!("handler", ": ", stringify!(aeron_fragment_handler_t)).to_string()
                 ]
                 .join(", ")
             );
             let result = aeron_archive_replay_merge_poll(
                 self.get_inner(),
-                Some(
-                    aeron_fragment_handler_t_callback_for_once_closure::<
-                        AeronFragmentHandlerHandlerImpl,
-                    >,
-                ),
+                Some(aeron_fragment_handler_t_callback_for_once_closure::<AeronFragmentHandlerHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
                 fragment_limit.into(),
             );
@@ -8586,13 +7777,7 @@ impl AeronArchiveReplayMerge {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_replay_merge_image),
-                [concat!(
-                    "replay_merge",
-                    ": ",
-                    stringify!(*mut aeron_archive_replay_merge_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("replay_merge", ": ", stringify!(*mut aeron_archive_replay_merge_t)).to_string()].join(", ")
             );
             let result = aeron_archive_replay_merge_image(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -8610,13 +7795,7 @@ impl AeronArchiveReplayMerge {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_replay_merge_is_merged),
-                [concat!(
-                    "replay_merge",
-                    ": ",
-                    stringify!(*mut aeron_archive_replay_merge_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("replay_merge", ": ", stringify!(*mut aeron_archive_replay_merge_t)).to_string()].join(", ")
             );
             let result = aeron_archive_replay_merge_is_merged(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -8634,13 +7813,7 @@ impl AeronArchiveReplayMerge {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_replay_merge_has_failed),
-                [concat!(
-                    "replay_merge",
-                    ": ",
-                    stringify!(*mut aeron_archive_replay_merge_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("replay_merge", ": ", stringify!(*mut aeron_archive_replay_merge_t)).to_string()].join(", ")
             );
             let result = aeron_archive_replay_merge_has_failed(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -8658,13 +7831,7 @@ impl AeronArchiveReplayMerge {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_replay_merge_is_live_added),
-                [concat!(
-                    "replay_merge",
-                    ": ",
-                    stringify!(*mut aeron_archive_replay_merge_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("replay_merge", ": ", stringify!(*mut aeron_archive_replay_merge_t)).to_string()].join(", ")
             );
             let result = aeron_archive_replay_merge_is_live_added(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -8753,10 +7920,7 @@ impl core::fmt::Debug for AeronArchiveReplayParams {
         } else {
             f.debug_struct(stringify!(AeronArchiveReplayParams))
                 .field("inner", &self.inner)
-                .field(
-                    stringify!(bounding_limit_counter_id),
-                    &self.bounding_limit_counter_id(),
-                )
+                .field(stringify!(bounding_limit_counter_id), &self.bounding_limit_counter_id())
                 .field(stringify!(file_io_max_length), &self.file_io_max_length())
                 .field(stringify!(position), &self.position())
                 .field(stringify!(length), &self.length())
@@ -8870,13 +8034,7 @@ impl AeronArchiveReplayParams {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_replay_params_init),
-                [concat!(
-                    "params",
-                    ": ",
-                    stringify!(*mut aeron_archive_replay_params_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("params", ": ", stringify!(*mut aeron_archive_replay_params_t)).to_string()].join(", ")
             );
             let result = aeron_archive_replay_params_init(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -9011,17 +8169,11 @@ impl core::fmt::Debug for AeronArchiveReplicationParams {
                 .field(stringify!(dst_recording_id), &self.dst_recording_id())
                 .field(stringify!(live_destination), &self.live_destination())
                 .field(stringify!(replication_channel), &self.replication_channel())
-                .field(
-                    stringify!(src_response_channel),
-                    &self.src_response_channel(),
-                )
+                .field(stringify!(src_response_channel), &self.src_response_channel())
                 .field(stringify!(channel_tag_id), &self.channel_tag_id())
                 .field(stringify!(subscription_tag_id), &self.subscription_tag_id())
                 .field(stringify!(file_io_max_length), &self.file_io_max_length())
-                .field(
-                    stringify!(replication_session_id),
-                    &self.replication_session_id(),
-                )
+                .field(stringify!(replication_session_id), &self.replication_session_id())
                 .finish()
         }
     }
@@ -9055,8 +8207,7 @@ impl AeronArchiveReplicationParams {
                     replication_session_id: replication_session_id.into(),
                     encoded_credentials: encoded_credentials.into(),
                 };
-                let inner_ptr: *mut aeron_archive_replication_params_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_archive_replication_params_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -9079,8 +8230,7 @@ impl AeronArchiveReplicationParams {
                     stringify!(aeron_archive_replication_params_t)
                 );
                 let inst: aeron_archive_replication_params_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_archive_replication_params_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_archive_replication_params_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -9119,11 +8269,7 @@ impl AeronArchiveReplicationParams {
         if self.live_destination.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.live_destination)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.live_destination).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -9178,13 +8324,7 @@ impl AeronArchiveReplicationParams {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_replication_params_init),
-                [concat!(
-                    "params",
-                    ": ",
-                    stringify!(*mut aeron_archive_replication_params_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("params", ": ", stringify!(*mut aeron_archive_replication_params_t)).to_string()].join(", ")
             );
             let result = aeron_archive_replication_params_init(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -9332,10 +8472,7 @@ impl AeronArchive {
         let resource = ManagedCResource::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(aeron_archive_t)
-                );
+                log::info!("creating zeroed empty resource on heap {}", stringify!(aeron_archive_t));
                 let inst: aeron_archive_t = unsafe { std::mem::zeroed() };
                 let inner_ptr: *mut aeron_archive_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
@@ -9392,9 +8529,7 @@ impl AeronArchive {
         self.recording_descriptor_poller.into()
     }
     #[inline]
-    pub fn recording_subscription_descriptor_poller(
-        &self,
-    ) -> AeronArchiveRecordingSubscriptionDescriptorPoller {
+    pub fn recording_subscription_descriptor_poller(&self) -> AeronArchiveRecordingSubscriptionDescriptorPoller {
         self.recording_subscription_descriptor_poller.into()
     }
     #[inline]
@@ -9416,8 +8551,7 @@ impl AeronArchive {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_close),
-                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()]
-                    .join(", ")
+                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()].join(", ")
             );
             let result = aeron_archive_close(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -9437,8 +8571,7 @@ impl AeronArchive {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_get_archive_context),
-                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()]
-                    .join(", ")
+                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()].join(", ")
             );
             let result = aeron_archive_get_archive_context(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -9458,8 +8591,7 @@ impl AeronArchive {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_get_and_own_archive_context),
-                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()]
-                    .join(", ")
+                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()].join(", ")
             );
             let result = aeron_archive_get_and_own_archive_context(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -9475,8 +8607,7 @@ impl AeronArchive {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_get_archive_id),
-                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()]
-                    .join(", ")
+                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()].join(", ")
             );
             let result = aeron_archive_get_archive_id(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -9492,8 +8623,7 @@ impl AeronArchive {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_get_control_response_subscription),
-                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()]
-                    .join(", ")
+                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()].join(", ")
             );
             let result = aeron_archive_get_control_response_subscription(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -9513,8 +8643,7 @@ impl AeronArchive {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_get_and_own_control_response_subscription),
-                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()]
-                    .join(", ")
+                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()].join(", ")
             );
             let result = aeron_archive_get_and_own_control_response_subscription(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -9529,8 +8658,7 @@ impl AeronArchive {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_control_session_id),
-                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()]
-                    .join(", ")
+                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()].join(", ")
             );
             let result = aeron_archive_control_session_id(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -9557,8 +8685,7 @@ impl AeronArchive {
                 ]
                 .join(", ")
             );
-            let err_code =
-                aeron_archive_poll_for_recording_signals(&mut mut_result, self.get_inner());
+            let err_code = aeron_archive_poll_for_recording_signals(&mut mut_result, self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -9593,11 +8720,7 @@ impl AeronArchive {
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_poll_for_error_response(
-                self.get_inner(),
-                buffer.into(),
-                buffer_length.into(),
-            );
+            let result = aeron_archive_poll_for_error_response(self.get_inner(), buffer.into(), buffer_length.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -9615,10 +8738,7 @@ impl AeronArchive {
     #[doc = " If there was no error, the buffer will be an empty string."]
     #[doc = " \n"]
     #[doc = " -1 if an error occurs while attempting to read from the subscription."]
-    pub fn poll_for_error_response_as_string(
-        &self,
-        max_length: usize,
-    ) -> Result<String, AeronCError> {
+    pub fn poll_for_error_response_as_string(&self, max_length: usize) -> Result<String, AeronCError> {
         let mut result = String::with_capacity(max_length);
         self.poll_for_error_response_into(&mut result)?;
         Ok(result)
@@ -9632,10 +8752,7 @@ impl AeronArchive {
     #[doc = " \n"]
     #[doc = " -1 if an error occurs while attempting to read from the subscription."]
     #[doc = "NOTE: allocation friendly method, the string capacity must be set as it will truncate string to capacity it will never grow the string. So if you pass String::new() it will write 0 chars"]
-    pub fn poll_for_error_response_into(
-        &self,
-        dst_truncate_to_capacity: &mut String,
-    ) -> Result<i32, AeronCError> {
+    pub fn poll_for_error_response_into(&self, dst_truncate_to_capacity: &mut String) -> Result<i32, AeronCError> {
         unsafe {
             let capacity = dst_truncate_to_capacity.capacity();
             let vec = dst_truncate_to_capacity.as_mut_vec();
@@ -9668,8 +8785,7 @@ impl AeronArchive {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_check_for_error_response),
-                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()]
-                    .join(", ")
+                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()].join(", ")
             );
             let result = aeron_archive_check_for_error_response(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -9712,19 +8828,9 @@ impl AeronArchive {
                 [
                     concat!("subscription_id_p", ": ", stringify!(*mut i64)).to_string(),
                     concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string(),
-                    concat!(
-                        "recording_channel",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
+                    concat!("recording_channel", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "recording_stream_id", recording_stream_id),
-                    concat!(
-                        "source_location",
-                        ": ",
-                        stringify!(aeron_archive_source_location_t)
-                    )
-                    .to_string(),
+                    concat!("source_location", ": ", stringify!(aeron_archive_source_location_t)).to_string(),
                     format!("{} = {:?}", "auto_stop", auto_stop)
                 ]
                 .join(", ")
@@ -9768,11 +8874,7 @@ impl AeronArchive {
                 ]
                 .join(", ")
             );
-            let err_code = aeron_archive_get_recording_position(
-                &mut mut_result,
-                self.get_inner(),
-                recording_id.into(),
-            );
+            let err_code = aeron_archive_get_recording_position(&mut mut_result, self.get_inner(), recording_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -9804,11 +8906,7 @@ impl AeronArchive {
                 ]
                 .join(", ")
             );
-            let err_code = aeron_archive_get_start_position(
-                &mut mut_result,
-                self.get_inner(),
-                recording_id.into(),
-            );
+            let err_code = aeron_archive_get_start_position(&mut mut_result, self.get_inner(), recording_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -9840,11 +8938,7 @@ impl AeronArchive {
                 ]
                 .join(", ")
             );
-            let err_code = aeron_archive_get_stop_position(
-                &mut mut_result,
-                self.get_inner(),
-                recording_id.into(),
-            );
+            let err_code = aeron_archive_get_stop_position(&mut mut_result, self.get_inner(), recording_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -9876,11 +8970,8 @@ impl AeronArchive {
                 ]
                 .join(", ")
             );
-            let err_code = aeron_archive_get_max_recorded_position(
-                &mut mut_result,
-                self.get_inner(),
-                recording_id.into(),
-            );
+            let err_code =
+                aeron_archive_get_max_recorded_position(&mut mut_result, self.get_inner(), recording_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -9908,8 +8999,7 @@ impl AeronArchive {
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_archive_stop_recording_subscription(self.get_inner(), subscription_id.into());
+            let result = aeron_archive_stop_recording_subscription(self.get_inner(), subscription_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -9928,10 +9018,7 @@ impl AeronArchive {
 `stopped_p` out param indicating true if stopped, or false if the subscription is not currently active"]
     #[doc = " \n # Parameters
 - `subscription_id` the subscription id for the recording in the Aeron Archive"]
-    pub fn try_stop_recording_subscription(
-        &self,
-        subscription_id: i64,
-    ) -> Result<bool, AeronCError> {
+    pub fn try_stop_recording_subscription(&self, subscription_id: i64) -> Result<bool, AeronCError> {
         unsafe {
             let mut mut_result: bool = Default::default();
             #[cfg(feature = "log-c-bindings")]
@@ -9986,11 +9073,8 @@ impl AeronArchive {
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_stop_recording_channel_and_stream(
-                self.get_inner(),
-                channel.as_ptr(),
-                stream_id.into(),
-            );
+            let result =
+                aeron_archive_stop_recording_channel_and_stream(self.get_inner(), channel.as_ptr(), stream_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -10069,11 +9153,8 @@ impl AeronArchive {
                 ]
                 .join(", ")
             );
-            let err_code = aeron_archive_try_stop_recording_by_identity(
-                &mut mut_result,
-                self.get_inner(),
-                recording_id.into(),
-            );
+            let err_code =
+                aeron_archive_try_stop_recording_by_identity(&mut mut_result, self.get_inner(), recording_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -10088,10 +9169,7 @@ impl AeronArchive {
     #[doc = ""]
     #[doc = "# Parameters\n \n - `publication` the publication to stop recording"]
     #[doc = " \n# Return\n 0 for success, -1 for failure"]
-    pub fn stop_recording_publication(
-        &self,
-        publication: &AeronPublication,
-    ) -> Result<i32, AeronCError> {
+    pub fn stop_recording_publication(&self, publication: &AeronPublication) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -10103,8 +9181,7 @@ impl AeronArchive {
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_archive_stop_recording_publication(self.get_inner(), publication.get_inner());
+            let result = aeron_archive_stop_recording_publication(self.get_inner(), publication.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -10139,10 +9216,8 @@ impl AeronArchive {
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_stop_recording_exclusive_publication(
-                self.get_inner(),
-                exclusive_publication.get_inner(),
-            );
+            let result =
+                aeron_archive_stop_recording_exclusive_publication(self.get_inner(), exclusive_publication.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -10180,12 +9255,7 @@ impl AeronArchive {
                     concat!("recording_id_p", ": ", stringify!(*mut i64)).to_string(),
                     concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string(),
                     format!("{} = {:?}", "min_recording_id", min_recording_id),
-                    concat!(
-                        "channel_fragment",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
+                    concat!("channel_fragment", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "stream_id", stream_id),
                     format!("{} = {:?}", "session_id", session_id)
                 ]
@@ -10223,9 +9293,7 @@ impl AeronArchive {
     >(
         &self,
         recording_id: i64,
-        recording_descriptor_consumer: Option<
-            &Handler<AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl>,
-        >,
+        recording_descriptor_consumer: Option<&Handler<AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl>>,
     ) -> Result<i32, AeronCError> {
         unsafe {
             let mut mut_result: i32 = Default::default();
@@ -10351,9 +9419,7 @@ impl AeronArchive {
         &self,
         from_recording_id: i64,
         record_count: i32,
-        recording_descriptor_consumer: Option<
-            &Handler<AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl>,
-        >,
+        recording_descriptor_consumer: Option<&Handler<AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl>>,
     ) -> Result<i32, AeronCError> {
         unsafe {
             let mut mut_result: i32 = Default::default();
@@ -10489,9 +9555,7 @@ impl AeronArchive {
         record_count: i32,
         channel_fragment: &std::ffi::CStr,
         stream_id: i32,
-        recording_descriptor_consumer: Option<
-            &Handler<AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl>,
-        >,
+        recording_descriptor_consumer: Option<&Handler<AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl>>,
     ) -> Result<i32, AeronCError> {
         unsafe {
             let mut mut_result: i32 = Default::default();
@@ -10504,12 +9568,7 @@ impl AeronArchive {
                     concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string(),
                     format!("{} = {:?}", "from_recording_id", from_recording_id),
                     format!("{} = {:?}", "record_count", record_count),
-                    concat!(
-                        "channel_fragment",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
+                    concat!("channel_fragment", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "stream_id", stream_id),
                     concat!(
                         "recording_descriptor_consumer",
@@ -10589,12 +9648,7 @@ impl AeronArchive {
                     concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string(),
                     format!("{} = {:?}", "from_recording_id", from_recording_id),
                     format!("{} = {:?}", "record_count", record_count),
-                    concat!(
-                        "channel_fragment",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
+                    concat!("channel_fragment", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "stream_id", stream_id),
                     concat!(
                         "recording_descriptor_consumer",
@@ -10660,19 +9714,9 @@ impl AeronArchive {
                     concat!("replay_session_id_p", ": ", stringify!(*mut i64)).to_string(),
                     concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string(),
                     format!("{} = {:?}", "recording_id", recording_id),
-                    concat!(
-                        "replay_channel",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
+                    concat!("replay_channel", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "replay_stream_id", replay_stream_id),
-                    concat!(
-                        "params",
-                        ": ",
-                        stringify!(*mut aeron_archive_replay_params_t)
-                    )
-                    .to_string()
+                    concat!("params", ": ", stringify!(*mut aeron_archive_replay_params_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -10830,12 +9874,7 @@ impl AeronArchive {
                     concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string(),
                     format!("{} = {:?}", "pseudo_index", pseudo_index),
                     format!("{} = {:?}", "subscription_count", subscription_count),
-                    concat!(
-                        "channel_fragment",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
+                    concat!("channel_fragment", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "stream_id", stream_id),
                     format!("{} = {:?}", "apply_stream_id", apply_stream_id),
                     concat!(
@@ -10860,7 +9899,11 @@ impl AeronArchive {
                         if recording_subscription_descriptor_consumer.is_none() {
                             None
                         } else {
-                            Some (aeron_archive_recording_subscription_descriptor_consumer_func_t_callback :: < AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl >)
+                            Some(
+                                aeron_archive_recording_subscription_descriptor_consumer_func_t_callback::<
+                                    AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl,
+                                >,
+                            )
                         };
                     callback
                 },
@@ -10917,12 +9960,7 @@ impl AeronArchive {
                     concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string(),
                     format!("{} = {:?}", "pseudo_index", pseudo_index),
                     format!("{} = {:?}", "subscription_count", subscription_count),
-                    concat!(
-                        "channel_fragment",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
+                    concat!("channel_fragment", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "stream_id", stream_id),
                     format!("{} = {:?}", "apply_stream_id", apply_stream_id),
                     concat!(
@@ -10934,7 +9972,21 @@ impl AeronArchive {
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_list_recording_subscriptions (count_p as * mut _ , self . get_inner () , pseudo_index . into () , subscription_count . into () , channel_fragment . as_ptr () , stream_id . into () , apply_stream_id . into () , Some (aeron_archive_recording_subscription_descriptor_consumer_func_t_callback_for_once_closure :: < AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl >) , & mut recording_subscription_descriptor_consumer as * mut _ as * mut std :: os :: raw :: c_void) ;
+            let result = aeron_archive_list_recording_subscriptions(
+                count_p as *mut _,
+                self.get_inner(),
+                pseudo_index.into(),
+                subscription_count.into(),
+                channel_fragment.as_ptr(),
+                stream_id.into(),
+                apply_stream_id.into(),
+                Some(
+                    aeron_archive_recording_subscription_descriptor_consumer_func_t_callback_for_once_closure::<
+                        AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl,
+                    >,
+                ),
+                &mut recording_subscription_descriptor_consumer as *mut _ as *mut std::os::raw::c_void,
+            );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -10968,11 +10020,7 @@ impl AeronArchive {
                 ]
                 .join(", ")
             );
-            let err_code = aeron_archive_purge_recording(
-                &mut mut_result,
-                self.get_inner(),
-                recording_id.into(),
-            );
+            let err_code = aeron_archive_purge_recording(&mut mut_result, self.get_inner(), recording_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -11016,19 +10064,9 @@ impl AeronArchive {
                     concat!("subscription_id_p", ": ", stringify!(*mut i64)).to_string(),
                     concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string(),
                     format!("{} = {:?}", "recording_id", recording_id),
-                    concat!(
-                        "recording_channel",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
+                    concat!("recording_channel", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "recording_stream_id", recording_stream_id),
-                    concat!(
-                        "source_location",
-                        ": ",
-                        stringify!(aeron_archive_source_location_t)
-                    )
-                    .to_string(),
+                    concat!("source_location", ": ", stringify!(aeron_archive_source_location_t)).to_string(),
                     format!("{} = {:?}", "auto_stop", auto_stop)
                 ]
                 .join(", ")
@@ -11087,19 +10125,9 @@ impl AeronArchive {
                     concat!("replication_id_p", ": ", stringify!(*mut i64)).to_string(),
                     concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string(),
                     format!("{} = {:?}", "src_recording_id", src_recording_id),
-                    concat!(
-                        "src_control_channel",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
+                    concat!("src_control_channel", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "src_control_stream_id", src_control_stream_id),
-                    concat!(
-                        "params",
-                        ": ",
-                        stringify!(*mut aeron_archive_replication_params_t)
-                    )
-                    .to_string()
+                    concat!("params", ": ", stringify!(*mut aeron_archive_replication_params_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -11169,11 +10197,7 @@ impl AeronArchive {
                 ]
                 .join(", ")
             );
-            let err_code = aeron_archive_try_stop_replication(
-                &mut mut_result,
-                self.get_inner(),
-                replication_id.into(),
-            );
+            let err_code = aeron_archive_try_stop_replication(&mut mut_result, self.get_inner(), replication_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -11193,11 +10217,7 @@ impl AeronArchive {
     #[doc = "# Parameters\n \n - `recording_id` the id of an existing recording"]
     #[doc = " \n - `new_start_position` the new starting position for the recording after the segments are detached"]
     #[doc = " \n# Return\n 0 for success, -1 for failure"]
-    pub fn detach_segments(
-        &self,
-        recording_id: i64,
-        new_start_position: i64,
-    ) -> Result<i32, AeronCError> {
+    pub fn detach_segments(&self, recording_id: i64, new_start_position: i64) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -11210,11 +10230,8 @@ impl AeronArchive {
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_detach_segments(
-                self.get_inner(),
-                recording_id.into(),
-                new_start_position.into(),
-            );
+            let result =
+                aeron_archive_detach_segments(self.get_inner(), recording_id.into(), new_start_position.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -11246,11 +10263,8 @@ impl AeronArchive {
                 ]
                 .join(", ")
             );
-            let err_code = aeron_archive_delete_detached_segments(
-                &mut mut_result,
-                self.get_inner(),
-                recording_id.into(),
-            );
+            let err_code =
+                aeron_archive_delete_detached_segments(&mut mut_result, self.get_inner(), recording_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -11273,11 +10287,7 @@ impl AeronArchive {
     #[doc = " \n # Parameters
 - `recording_id` the id of an existing recording"]
     #[doc = " \n - `new_start_position` the new starting position for the recording after the segments are detached"]
-    pub fn purge_segments(
-        &self,
-        recording_id: i64,
-        new_start_position: i64,
-    ) -> Result<i64, AeronCError> {
+    pub fn purge_segments(&self, recording_id: i64, new_start_position: i64) -> Result<i64, AeronCError> {
         unsafe {
             let mut mut_result: i64 = Default::default();
             #[cfg(feature = "log-c-bindings")]
@@ -11331,11 +10341,7 @@ impl AeronArchive {
                 ]
                 .join(", ")
             );
-            let err_code = aeron_archive_attach_segments(
-                &mut mut_result,
-                self.get_inner(),
-                recording_id.into(),
-            );
+            let err_code = aeron_archive_attach_segments(&mut mut_result, self.get_inner(), recording_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -11360,11 +10366,7 @@ impl AeronArchive {
     #[doc = " \n # Parameters
 - `src_recording_id` the id of an existing recording from which segments will be migrated"]
     #[doc = " \n - `dst_recording_id` the id of an existing recording to which segments will be migrated"]
-    pub fn migrate_segments(
-        &self,
-        src_recording_id: i64,
-        dst_recording_id: i64,
-    ) -> Result<i64, AeronCError> {
+    pub fn migrate_segments(&self, src_recording_id: i64, dst_recording_id: i64) -> Result<i64, AeronCError> {
         unsafe {
             let mut mut_result: i64 = Default::default();
             #[cfg(feature = "log-c-bindings")]
@@ -11400,11 +10402,7 @@ impl AeronArchive {
     #[doc = "# Parameters\n \n - `recording_id` the id of the recording."]
     #[doc = " \n - `new_channel` to use in the catalogue."]
     #[doc = " \n# Return\n 0 for success, -1 for failure"]
-    pub fn update_channel(
-        &self,
-        recording_id: i64,
-        new_channel: &std::ffi::CStr,
-    ) -> Result<i32, AeronCError> {
+    pub fn update_channel(&self, recording_id: i64, new_channel: &std::ffi::CStr) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -11413,20 +10411,11 @@ impl AeronArchive {
                 [
                     concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string(),
                     format!("{} = {:?}", "recording_id", recording_id),
-                    concat!(
-                        "new_channel",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string()
+                    concat!("new_channel", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_update_channel(
-                self.get_inner(),
-                recording_id.into(),
-                new_channel.as_ptr(),
-            );
+            let result = aeron_archive_update_channel(self.get_inner(), recording_id.into(), new_channel.as_ptr());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -11483,8 +10472,7 @@ impl AeronArchive {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_idle),
-                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()]
-                    .join(", ")
+                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()].join(", ")
             );
             let result = aeron_archive_idle(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -11499,8 +10487,7 @@ impl AeronArchive {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_control_response_poller),
-                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()]
-                    .join(", ")
+                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()].join(", ")
             );
             let result = aeron_archive_control_response_poller(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -11515,8 +10502,7 @@ impl AeronArchive {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_proxy),
-                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()]
-                    .join(", ")
+                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()].join(", ")
             );
             let result = aeron_archive_proxy(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -11531,8 +10517,7 @@ impl AeronArchive {
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_next_correlation_id),
-                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()]
-                    .join(", ")
+                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()].join(", ")
             );
             let result = aeron_archive_next_correlation_id(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -11541,11 +10526,7 @@ impl AeronArchive {
         }
     }
     #[inline]
-    pub fn poll_for_response(
-        &self,
-        operation_name: &std::ffi::CStr,
-        correlation_id: i64,
-    ) -> Result<i64, AeronCError> {
+    pub fn poll_for_response(&self, operation_name: &std::ffi::CStr, correlation_id: i64) -> Result<i64, AeronCError> {
         unsafe {
             let mut mut_result: i64 = Default::default();
             #[cfg(feature = "log-c-bindings")]
@@ -11555,12 +10536,7 @@ impl AeronArchive {
                 [
                     concat!("relevant_id_p", ": ", stringify!(*mut i64)).to_string(),
                     concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string(),
-                    concat!(
-                        "operation_name",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
+                    concat!("operation_name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id)
                 ]
                 .join(", ")
@@ -11644,10 +10620,7 @@ impl From<aeron_archive_t> for AeronArchive {
 impl Drop for AeronArchive {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none())
-                && std::rc::Rc::strong_count(inner) == 1
-                && !inner.is_closed_already_called()
-            {
+            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
                 if inner.auto_close.get() {
                     log::info!("auto closing {self:?}");
                     let result = self.close();
@@ -11726,13 +10699,7 @@ impl AeronAsyncAddCounter {
             log::info!(
                 "{}({})",
                 stringify!(aeron_async_add_counter_get_registration_id),
-                [concat!(
-                    "add_counter",
-                    ": ",
-                    stringify!(*mut aeron_async_add_counter_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("add_counter", ": ", stringify!(*mut aeron_async_add_counter_t)).to_string()].join(", ")
             );
             let result = aeron_async_add_counter_get_registration_id(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -11810,8 +10777,7 @@ impl AeronCounter {
                 {
                     let log_args = [
                         concat!("counter", ": ", stringify!(*mut *mut aeron_counter_t)).to_string(),
-                        concat!("async_", ": ", stringify!(*mut aeron_async_add_counter_t))
-                            .to_string(),
+                        concat!("async_", ": ", stringify!(*mut aeron_async_add_counter_t)).to_string(),
                     ]
                     .join(", ");
                     log::info!("{}({})", stringify!(aeron_async_add_counter_poll), log_args);
@@ -11873,31 +10839,16 @@ impl Aeron {
 }
 impl AeronAsyncAddCounter {
     #[inline]
-    pub fn new(
-        client: &Aeron,
-        type_id: i32,
-        key_buffer: &[u8],
-        label_buffer: &str,
-    ) -> Result<Self, AeronCError> {
+    pub fn new(client: &Aeron, type_id: i32, key_buffer: &[u8], label_buffer: &str) -> Result<Self, AeronCError> {
         let resource_async = ManagedCResource::new(
             move |ctx_field| unsafe {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args = [
-                        concat!(
-                            "async_",
-                            ": ",
-                            stringify!(*mut *mut aeron_async_add_counter_t)
-                        )
-                        .to_string(),
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_add_counter_t)).to_string(),
                         concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
                         format!("{} = {:?}", "type_id", type_id),
-                        format!(
-                            "{}: {} (len={})",
-                            "key_buffer",
-                            stringify!(*const u8),
-                            key_buffer.len()
-                        ),
+                        format!("{}: {} (len={})", "key_buffer", stringify!(*const u8), key_buffer.len()),
                     ]
                     .join(", ");
                     log::info!("{}({})", stringify!(aeron_async_add_counter), log_args);
@@ -11998,8 +10949,7 @@ impl AeronAsyncAddExclusivePublication {
                     stringify!(aeron_async_add_exclusive_publication_t)
                 );
                 let inst: aeron_async_add_exclusive_publication_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_async_add_exclusive_publication_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_async_add_exclusive_publication_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -12046,9 +10996,7 @@ impl AeronAsyncAddExclusivePublication {
                 .to_string()]
                 .join(", ")
             );
-            let result = aeron_async_add_exclusive_exclusive_publication_get_registration_id(
-                self.get_inner(),
-            );
+            let result = aeron_async_add_exclusive_exclusive_publication_get_registration_id(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -12073,8 +11021,7 @@ impl AeronAsyncAddExclusivePublication {
                 .to_string()]
                 .join(", ")
             );
-            let result =
-                aeron_async_add_exclusive_publication_get_registration_id(self.get_inner());
+            let result = aeron_async_add_exclusive_publication_get_registration_id(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -12149,18 +11096,8 @@ impl AeronExclusivePublication {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args = [
-                        concat!(
-                            "publication",
-                            ": ",
-                            stringify!(*mut *mut aeron_exclusive_publication_t)
-                        )
-                        .to_string(),
-                        concat!(
-                            "async_",
-                            ": ",
-                            stringify!(*mut aeron_async_add_exclusive_publication_t)
-                        )
-                        .to_string(),
+                        concat!("publication", ": ", stringify!(*mut *mut aeron_exclusive_publication_t)).to_string(),
+                        concat!("async_", ": ", stringify!(*mut aeron_async_add_exclusive_publication_t)).to_string(),
                     ]
                     .join(", ");
                     log::info!(
@@ -12241,18 +11178,9 @@ impl AeronAsyncAddExclusivePublication {
                         format!("{} = {:?}", "stream_id", stream_id),
                     ]
                     .join(", ");
-                    log::info!(
-                        "{}({})",
-                        stringify!(aeron_async_add_exclusive_publication),
-                        log_args
-                    );
+                    log::info!("{}({})", stringify!(aeron_async_add_exclusive_publication), log_args);
                 }
-                aeron_async_add_exclusive_publication(
-                    ctx_field,
-                    client.into(),
-                    uri.as_ptr(),
-                    stream_id.into(),
-                )
+                aeron_async_add_exclusive_publication(ctx_field, client.into(), uri.as_ptr(), stream_id.into())
             },
             None,
             false,
@@ -12295,10 +11223,7 @@ impl AeronAsyncAddExclusivePublication {
             }
         }
     }
-    pub fn poll_blocking(
-        &self,
-        timeout: std::time::Duration,
-    ) -> Result<AeronExclusivePublication, AeronCError> {
+    pub fn poll_blocking(&self, timeout: std::time::Duration) -> Result<AeronExclusivePublication, AeronCError> {
         if let Some(result) = self.poll()? {
             return Ok(result);
         }
@@ -12380,13 +11305,8 @@ impl AeronAsyncAddPublication {
             log::info!(
                 "{}({})",
                 stringify!(aeron_async_add_publication_get_registration_id),
-                [concat!(
-                    "add_publication",
-                    ": ",
-                    stringify!(*mut aeron_async_add_publication_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("add_publication", ": ", stringify!(*mut aeron_async_add_publication_t)).to_string()]
+                    .join(", ")
             );
             let result = aeron_async_add_publication_get_registration_id(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -12463,25 +11383,11 @@ impl AeronPublication {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args = [
-                        concat!(
-                            "publication",
-                            ": ",
-                            stringify!(*mut *mut aeron_publication_t)
-                        )
-                        .to_string(),
-                        concat!(
-                            "async_",
-                            ": ",
-                            stringify!(*mut aeron_async_add_publication_t)
-                        )
-                        .to_string(),
+                        concat!("publication", ": ", stringify!(*mut *mut aeron_publication_t)).to_string(),
+                        concat!("async_", ": ", stringify!(*mut aeron_async_add_publication_t)).to_string(),
                     ]
                     .join(", ");
-                    log::info!(
-                        "{}({})",
-                        stringify!(aeron_async_add_publication_poll),
-                        log_args
-                    );
+                    log::info!("{}({})", stringify!(aeron_async_add_publication_poll), log_args);
                 }
                 aeron_async_add_publication_poll(ctx_field, async_.into())
             },
@@ -12544,12 +11450,7 @@ impl AeronAsyncAddPublication {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args = [
-                        concat!(
-                            "async_",
-                            ": ",
-                            stringify!(*mut *mut aeron_async_add_publication_t)
-                        )
-                        .to_string(),
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_add_publication_t)).to_string(),
                         concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
                         concat!("uri", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                         format!("{} = {:?}", "stream_id", stream_id),
@@ -12557,12 +11458,7 @@ impl AeronAsyncAddPublication {
                     .join(", ");
                     log::info!("{}({})", stringify!(aeron_async_add_publication), log_args);
                 }
-                aeron_async_add_publication(
-                    ctx_field,
-                    client.into(),
-                    uri.as_ptr(),
-                    stream_id.into(),
-                )
+                aeron_async_add_publication(ctx_field, client.into(), uri.as_ptr(), stream_id.into())
             },
             None,
             false,
@@ -12605,10 +11501,7 @@ impl AeronAsyncAddPublication {
             }
         }
     }
-    pub fn poll_blocking(
-        &self,
-        timeout: std::time::Duration,
-    ) -> Result<AeronPublication, AeronCError> {
+    pub fn poll_blocking(&self, timeout: std::time::Duration) -> Result<AeronPublication, AeronCError> {
         if let Some(result) = self.poll()? {
             return Ok(result);
         }
@@ -12773,25 +11666,11 @@ impl AeronSubscription {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args = [
-                        concat!(
-                            "subscription",
-                            ": ",
-                            stringify!(*mut *mut aeron_subscription_t)
-                        )
-                        .to_string(),
-                        concat!(
-                            "async_",
-                            ": ",
-                            stringify!(*mut aeron_async_add_subscription_t)
-                        )
-                        .to_string(),
+                        concat!("subscription", ": ", stringify!(*mut *mut aeron_subscription_t)).to_string(),
+                        concat!("async_", ": ", stringify!(*mut aeron_async_add_subscription_t)).to_string(),
                     ]
                     .join(", ");
-                    log::info!(
-                        "{}({})",
-                        stringify!(aeron_async_add_subscription_poll),
-                        log_args
-                    );
+                    log::info!("{}({})", stringify!(aeron_async_add_subscription_poll), log_args);
                 }
                 aeron_async_add_subscription_poll(ctx_field, async_.into())
             },
@@ -12885,12 +11764,7 @@ impl AeronAsyncAddSubscription {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args = [
-                        concat!(
-                            "async_",
-                            ": ",
-                            stringify!(*mut *mut aeron_async_add_subscription_t)
-                        )
-                        .to_string(),
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_add_subscription_t)).to_string(),
                         concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
                         concat!("uri", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                         format!("{} = {:?}", "stream_id", stream_id),
@@ -12910,14 +11784,10 @@ impl AeronAsyncAddSubscription {
                     uri.as_ptr(),
                     stream_id.into(),
                     {
-                        let callback: aeron_on_available_image_t = if on_available_image_handler
-                            .is_none()
-                        {
+                        let callback: aeron_on_available_image_t = if on_available_image_handler.is_none() {
                             None
                         } else {
-                            Some(
-                                aeron_on_available_image_t_callback::<AeronAvailableImageHandlerImpl>,
-                            )
+                            Some(aeron_on_available_image_t_callback::<AeronAvailableImageHandlerImpl>)
                         };
                         callback
                     },
@@ -12925,16 +11795,11 @@ impl AeronAsyncAddSubscription {
                         .map(|m| m.as_raw())
                         .unwrap_or_else(|| std::ptr::null_mut()),
                     {
-                        let callback: aeron_on_unavailable_image_t =
-                            if on_unavailable_image_handler.is_none() {
-                                None
-                            } else {
-                                Some(
-                                    aeron_on_unavailable_image_t_callback::<
-                                        AeronUnavailableImageHandlerImpl,
-                                    >,
-                                )
-                            };
+                        let callback: aeron_on_unavailable_image_t = if on_unavailable_image_handler.is_none() {
+                            None
+                        } else {
+                            Some(aeron_on_unavailable_image_t_callback::<AeronUnavailableImageHandlerImpl>)
+                        };
                         callback
                     },
                     on_unavailable_image_handler
@@ -12983,10 +11848,7 @@ impl AeronAsyncAddSubscription {
             }
         }
     }
-    pub fn poll_blocking(
-        &self,
-        timeout: std::time::Duration,
-    ) -> Result<AeronSubscription, AeronCError> {
+    pub fn poll_blocking(&self, timeout: std::time::Duration) -> Result<AeronSubscription, AeronCError> {
         if let Some(result) = self.poll()? {
             return Ok(result);
         }
@@ -13170,23 +12032,13 @@ impl AeronAsyncDestination {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args = [
-                        concat!(
-                            "async_",
-                            ": ",
-                            stringify!(*mut *mut aeron_async_destination_t)
-                        )
-                        .to_string(),
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_destination_t)).to_string(),
                         concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
-                        concat!("publication", ": ", stringify!(*mut aeron_publication_t))
-                            .to_string(),
+                        concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string(),
                         concat!("uri", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     ]
                     .join(", ");
-                    log::info!(
-                        "{}({})",
-                        stringify!(aeron_publication_async_add_destination),
-                        log_args
-                    );
+                    log::info!("{}({})", stringify!(aeron_publication_async_add_destination), log_args);
                 }
                 aeron_publication_async_add_destination(ctx_field, client, publication, uri)
             },
@@ -13194,15 +12046,9 @@ impl AeronAsyncDestination {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args = [
-                        concat!(
-                            "async_",
-                            ": ",
-                            stringify!(*mut *mut aeron_async_destination_t)
-                        )
-                        .to_string(),
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_destination_t)).to_string(),
                         concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
-                        concat!("publication", ": ", stringify!(*mut aeron_publication_t))
-                            .to_string(),
+                        concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string(),
                         concat!("uri", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     ]
                     .join(", ");
@@ -13212,12 +12058,7 @@ impl AeronAsyncDestination {
                         log_args
                     );
                 }
-                aeron_publication_async_remove_destination(
-                    ctx_field,
-                    client.into(),
-                    publication.into(),
-                    uri.into(),
-                )
+                aeron_publication_async_remove_destination(ctx_field, client.into(), publication.into(), uri.into())
             })),
             false,
             None,
@@ -13246,19 +12087,9 @@ impl AeronAsyncDestination {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args = [
-                        concat!(
-                            "async_",
-                            ": ",
-                            stringify!(*mut *mut aeron_async_destination_t)
-                        )
-                        .to_string(),
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_destination_t)).to_string(),
                         concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
-                        concat!(
-                            "publication",
-                            ": ",
-                            stringify!(*mut aeron_exclusive_publication_t)
-                        )
-                        .to_string(),
+                        concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
                         concat!("uri", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     ]
                     .join(", ");
@@ -13268,30 +12099,15 @@ impl AeronAsyncDestination {
                         log_args
                     );
                 }
-                aeron_exclusive_publication_async_add_destination(
-                    ctx_field,
-                    client,
-                    publication,
-                    uri,
-                )
+                aeron_exclusive_publication_async_add_destination(ctx_field, client, publication, uri)
             },
             Some(Box::new(move |ctx_field| unsafe {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args = [
-                        concat!(
-                            "async_",
-                            ": ",
-                            stringify!(*mut *mut aeron_async_destination_t)
-                        )
-                        .to_string(),
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_destination_t)).to_string(),
                         concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
-                        concat!(
-                            "publication",
-                            ": ",
-                            stringify!(*mut aeron_exclusive_publication_t)
-                        )
-                        .to_string(),
+                        concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
                         concat!("uri", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     ]
                     .join(", ");
@@ -13335,23 +12151,13 @@ impl AeronAsyncDestination {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args = [
-                        concat!(
-                            "async_",
-                            ": ",
-                            stringify!(*mut *mut aeron_async_destination_t)
-                        )
-                        .to_string(),
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_destination_t)).to_string(),
                         concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
-                        concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                            .to_string(),
+                        concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
                         concat!("uri", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     ]
                     .join(", ");
-                    log::info!(
-                        "{}({})",
-                        stringify!(aeron_subscription_async_add_destination),
-                        log_args
-                    );
+                    log::info!("{}({})", stringify!(aeron_subscription_async_add_destination), log_args);
                 }
                 aeron_subscription_async_add_destination(ctx_field, client, subscription, uri)
             },
@@ -13359,15 +12165,9 @@ impl AeronAsyncDestination {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args = [
-                        concat!(
-                            "async_",
-                            ": ",
-                            stringify!(*mut *mut aeron_async_destination_t)
-                        )
-                        .to_string(),
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_destination_t)).to_string(),
                         concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
-                        concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                            .to_string(),
+                        concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
                         concat!("uri", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     ]
                     .join(", ");
@@ -13377,12 +12177,7 @@ impl AeronAsyncDestination {
                         log_args
                     );
                 }
-                aeron_subscription_async_remove_destination(
-                    ctx_field,
-                    client.into(),
-                    subscription.into(),
-                    uri.into(),
-                )
+                aeron_subscription_async_remove_destination(ctx_field, client.into(), subscription.into(), uri.into())
             })),
             false,
             None,
@@ -13401,8 +12196,7 @@ impl AeronAsyncDestination {
             log::info!(
                 "{}({})",
                 stringify!(aeron_publication_async_destination_poll),
-                [concat!("async_", ": ", stringify!(*mut aeron_async_destination_t)).to_string()]
-                    .join(", ")
+                [concat!("async_", ": ", stringify!(*mut aeron_async_destination_t)).to_string()].join(", ")
             );
             let result = aeron_publication_async_destination_poll(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -13424,8 +12218,7 @@ impl AeronAsyncDestination {
             log::info!(
                 "{}({})",
                 stringify!(aeron_exclusive_publication_async_destination_poll),
-                [concat!("async_", ": ", stringify!(*mut aeron_async_destination_t)).to_string()]
-                    .join(", ")
+                [concat!("async_", ": ", stringify!(*mut aeron_async_destination_t)).to_string()].join(", ")
             );
             let result = aeron_exclusive_publication_async_destination_poll(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -13447,8 +12240,7 @@ impl AeronAsyncDestination {
             log::info!(
                 "{}({})",
                 stringify!(aeron_subscription_async_destination_poll),
-                [concat!("async_", ": ", stringify!(*mut aeron_async_destination_t)).to_string()]
-                    .join(", ")
+                [concat!("async_", ": ", stringify!(*mut aeron_async_destination_t)).to_string()].join(", ")
             );
             let result = aeron_subscription_async_destination_poll(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -13472,13 +12264,7 @@ impl AeronAsyncDestination {
             log::info!(
                 "{}({})",
                 stringify!(aeron_async_destination_get_registration_id),
-                [concat!(
-                    "async_destination",
-                    ": ",
-                    stringify!(*mut aeron_async_destination_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("async_destination", ": ", stringify!(*mut aeron_async_destination_t)).to_string()].join(", ")
             );
             let result = aeron_async_destination_get_registration_id(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -13575,10 +12361,8 @@ impl AeronAsyncGetNextAvailableSessionId {
                     "creating zeroed empty resource on heap {}",
                     stringify!(aeron_async_get_next_available_session_id_t)
                 );
-                let inst: aeron_async_get_next_available_session_id_t =
-                    unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_async_get_next_available_session_id_t =
-                    Box::into_raw(Box::new(inst));
+                let inst: aeron_async_get_next_available_session_id_t = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_async_get_next_available_session_id_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -13656,9 +12440,7 @@ impl std::ops::Deref for AeronAsyncGetNextAvailableSessionId {
         self.get_inner_ref()
     }
 }
-impl From<*mut aeron_async_get_next_available_session_id_t>
-    for AeronAsyncGetNextAvailableSessionId
-{
+impl From<*mut aeron_async_get_next_available_session_id_t> for AeronAsyncGetNextAvailableSessionId {
     #[inline]
     fn from(value: *mut aeron_async_get_next_available_session_id_t) -> Self {
         AeronAsyncGetNextAvailableSessionId {
@@ -13666,17 +12448,13 @@ impl From<*mut aeron_async_get_next_available_session_id_t>
         }
     }
 }
-impl From<AeronAsyncGetNextAvailableSessionId>
-    for *mut aeron_async_get_next_available_session_id_t
-{
+impl From<AeronAsyncGetNextAvailableSessionId> for *mut aeron_async_get_next_available_session_id_t {
     #[inline]
     fn from(value: AeronAsyncGetNextAvailableSessionId) -> Self {
         value.get_inner()
     }
 }
-impl From<&AeronAsyncGetNextAvailableSessionId>
-    for *mut aeron_async_get_next_available_session_id_t
-{
+impl From<&AeronAsyncGetNextAvailableSessionId> for *mut aeron_async_get_next_available_session_id_t {
     #[inline]
     fn from(value: &AeronAsyncGetNextAvailableSessionId) -> Self {
         value.get_inner()
@@ -13688,9 +12466,7 @@ impl From<AeronAsyncGetNextAvailableSessionId> for aeron_async_get_next_availabl
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_async_get_next_available_session_id_t>
-    for AeronAsyncGetNextAvailableSessionId
-{
+impl From<*const aeron_async_get_next_available_session_id_t> for AeronAsyncGetNextAvailableSessionId {
     #[inline]
     fn from(value: *const aeron_async_get_next_available_session_id_t) -> Self {
         AeronAsyncGetNextAvailableSessionId {
@@ -13812,11 +12588,7 @@ impl AeronBufferClaim {
             log::info!(
                 "{}({})",
                 stringify!(aeron_buffer_claim_commit),
-                [
-                    concat!("buffer_claim", ": ", stringify!(*mut aeron_buffer_claim_t))
-                        .to_string()
-                ]
-                .join(", ")
+                [concat!("buffer_claim", ": ", stringify!(*mut aeron_buffer_claim_t)).to_string()].join(", ")
             );
             let result = aeron_buffer_claim_commit(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -13838,11 +12610,7 @@ impl AeronBufferClaim {
             log::info!(
                 "{}({})",
                 stringify!(aeron_buffer_claim_abort),
-                [
-                    concat!("buffer_claim", ": ", stringify!(*mut aeron_buffer_claim_t))
-                        .to_string()
-                ]
-                .join(", ")
+                [concat!("buffer_claim", ": ", stringify!(*mut aeron_buffer_claim_t)).to_string()].join(", ")
             );
             let result = aeron_buffer_claim_abort(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -13988,8 +12756,7 @@ impl AeronClientRegisteringResource {
                     stringify!(aeron_client_registering_resource_t)
                 );
                 let inst: aeron_client_registering_resource_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_client_registering_resource_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_client_registering_resource_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -14104,14 +12871,8 @@ impl core::fmt::Debug for AeronCncConstants {
             f.debug_struct(stringify!(AeronCncConstants))
                 .field("inner", &self.inner)
                 .field(stringify!(cnc_version), &self.cnc_version())
-                .field(
-                    stringify!(to_driver_buffer_length),
-                    &self.to_driver_buffer_length(),
-                )
-                .field(
-                    stringify!(to_clients_buffer_length),
-                    &self.to_clients_buffer_length(),
-                )
+                .field(stringify!(to_driver_buffer_length), &self.to_driver_buffer_length())
+                .field(stringify!(to_clients_buffer_length), &self.to_clients_buffer_length())
                 .field(
                     stringify!(counter_metadata_buffer_length),
                     &self.counter_metadata_buffer_length(),
@@ -14120,14 +12881,8 @@ impl core::fmt::Debug for AeronCncConstants {
                     stringify!(counter_values_buffer_length),
                     &self.counter_values_buffer_length(),
                 )
-                .field(
-                    stringify!(error_log_buffer_length),
-                    &self.error_log_buffer_length(),
-                )
-                .field(
-                    stringify!(client_liveness_timeout),
-                    &self.client_liveness_timeout(),
-                )
+                .field(stringify!(error_log_buffer_length), &self.error_log_buffer_length())
+                .field(stringify!(client_liveness_timeout), &self.client_liveness_timeout())
                 .field(stringify!(start_timestamp), &self.start_timestamp())
                 .field(stringify!(pid), &self.pid())
                 .field(stringify!(file_page_size), &self.file_page_size())
@@ -14371,14 +13126,8 @@ impl core::fmt::Debug for AeronCncMetadata {
             f.debug_struct(stringify!(AeronCncMetadata))
                 .field("inner", &self.inner)
                 .field(stringify!(cnc_version), &self.cnc_version())
-                .field(
-                    stringify!(to_driver_buffer_length),
-                    &self.to_driver_buffer_length(),
-                )
-                .field(
-                    stringify!(to_clients_buffer_length),
-                    &self.to_clients_buffer_length(),
-                )
+                .field(stringify!(to_driver_buffer_length), &self.to_driver_buffer_length())
+                .field(stringify!(to_clients_buffer_length), &self.to_clients_buffer_length())
                 .field(
                     stringify!(counter_metadata_buffer_length),
                     &self.counter_metadata_buffer_length(),
@@ -14387,14 +13136,8 @@ impl core::fmt::Debug for AeronCncMetadata {
                     stringify!(counter_values_buffer_length),
                     &self.counter_values_buffer_length(),
                 )
-                .field(
-                    stringify!(error_log_buffer_length),
-                    &self.error_log_buffer_length(),
-                )
-                .field(
-                    stringify!(client_liveness_timeout),
-                    &self.client_liveness_timeout(),
-                )
+                .field(stringify!(error_log_buffer_length), &self.error_log_buffer_length())
+                .field(stringify!(client_liveness_timeout), &self.client_liveness_timeout())
                 .field(stringify!(start_timestamp), &self.start_timestamp())
                 .field(stringify!(pid), &self.pid())
                 .field(stringify!(file_page_size), &self.file_page_size())
@@ -14526,8 +13269,7 @@ impl AeronCncMetadata {
             log::info!(
                 "{}({})",
                 stringify!(aeron_cnc_version_volatile),
-                [concat!("metadata", ": ", stringify!(*mut aeron_cnc_metadata_t)).to_string()]
-                    .join(", ")
+                [concat!("metadata", ": ", stringify!(*mut aeron_cnc_metadata_t)).to_string()].join(", ")
             );
             let result = aeron_cnc_version_volatile(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -14647,9 +13389,7 @@ pub struct AeronCnc {
 impl core::fmt::Debug for AeronCnc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.inner.get().is_null() {
-            f.debug_struct(stringify!(AeronCnc))
-                .field("inner", &"null")
-                .finish()
+            f.debug_struct(stringify!(AeronCnc)).field("inner", &"null").finish()
         } else {
             f.debug_struct(stringify!(AeronCnc))
                 .field("inner", &self.inner)
@@ -14666,10 +13406,7 @@ impl AeronCnc {
         let resource = ManagedCResource::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(aeron_cnc_t)
-                );
+                log::info!("creating zeroed empty resource on heap {}", stringify!(aeron_cnc_t));
                 let inst: aeron_cnc_t = unsafe { std::mem::zeroed() };
                 let inner_ptr: *mut aeron_cnc_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
@@ -14689,10 +13426,7 @@ impl AeronCnc {
     #[doc = r" _(Use with care)_"]
     pub fn new_zeroed_on_stack() -> Self {
         #[cfg(feature = "extra-logging")]
-        log::debug!(
-            "creating zeroed empty resource on stack {}",
-            stringify!(aeron_cnc_t)
-        );
+        log::debug!("creating zeroed empty resource on stack {}", stringify!(aeron_cnc_t));
         Self {
             inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
         }
@@ -14791,8 +13525,7 @@ impl AeronCnc {
                 stringify!(aeron_cnc_error_log_read),
                 [
                     concat!("aeron_cnc", ": ", stringify!(*mut aeron_cnc_t)).to_string(),
-                    concat!("callback", ": ", stringify!(aeron_error_log_reader_func_t))
-                        .to_string()
+                    concat!("callback", ": ", stringify!(aeron_error_log_reader_func_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -14802,17 +13535,11 @@ impl AeronCnc {
                     let callback: aeron_error_log_reader_func_t = if callback.is_none() {
                         None
                     } else {
-                        Some(
-                            aeron_error_log_reader_func_t_callback::<
-                                AeronErrorLogReaderFuncHandlerImpl,
-                            >,
-                        )
+                        Some(aeron_error_log_reader_func_t_callback::<AeronErrorLogReaderFuncHandlerImpl>)
                     };
                     callback
                 },
-                callback
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                callback.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
                 since_timestamp.into(),
             );
             #[cfg(feature = "log-c-bindings")]
@@ -14831,9 +13558,7 @@ impl AeronCnc {
     #[doc = r""]
     #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
     #[doc = r"  use with care_"]
-    pub fn error_log_read_once<
-        AeronErrorLogReaderFuncHandlerImpl: FnMut(i32, i64, i64, &str) -> (),
-    >(
+    pub fn error_log_read_once<AeronErrorLogReaderFuncHandlerImpl: FnMut(i32, i64, i64, &str) -> ()>(
         &self,
         mut callback: AeronErrorLogReaderFuncHandlerImpl,
         since_timestamp: i64,
@@ -14845,18 +13570,13 @@ impl AeronCnc {
                 stringify!(aeron_cnc_error_log_read),
                 [
                     concat!("aeron_cnc", ": ", stringify!(*mut aeron_cnc_t)).to_string(),
-                    concat!("callback", ": ", stringify!(aeron_error_log_reader_func_t))
-                        .to_string()
+                    concat!("callback", ": ", stringify!(aeron_error_log_reader_func_t)).to_string()
                 ]
                 .join(", ")
             );
             let result = aeron_cnc_error_log_read(
                 self.get_inner(),
-                Some(
-                    aeron_error_log_reader_func_t_callback_for_once_closure::<
-                        AeronErrorLogReaderFuncHandlerImpl,
-                    >,
-                ),
+                Some(aeron_error_log_reader_func_t_callback_for_once_closure::<AeronErrorLogReaderFuncHandlerImpl>),
                 &mut callback as *mut _ as *mut std::os::raw::c_void,
                 since_timestamp.into(),
             );
@@ -14889,9 +13609,7 @@ impl AeronCnc {
     #[doc = ""]
     #[doc = "# Parameters\n \n - `entry_func` callback for each observation found"]
     #[doc = " \n# Return\n -1 on failure, number of observations on success (could be 0)."]
-    pub fn loss_reporter_read<
-        AeronLossReporterReadEntryFuncHandlerImpl: AeronLossReporterReadEntryFuncCallback,
-    >(
+    pub fn loss_reporter_read<AeronLossReporterReadEntryFuncHandlerImpl: AeronLossReporterReadEntryFuncCallback>(
         &self,
         entry_func: Option<&Handler<AeronLossReporterReadEntryFuncHandlerImpl>>,
     ) -> Result<i32, AeronCError> {
@@ -14902,12 +13620,7 @@ impl AeronCnc {
                 stringify!(aeron_cnc_loss_reporter_read),
                 [
                     concat!("aeron_cnc", ": ", stringify!(*mut aeron_cnc_t)).to_string(),
-                    concat!(
-                        "entry_func",
-                        ": ",
-                        stringify!(aeron_loss_reporter_read_entry_func_t)
-                    )
-                    .to_string()
+                    concat!("entry_func", ": ", stringify!(aeron_loss_reporter_read_entry_func_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -14918,16 +13631,12 @@ impl AeronCnc {
                         None
                     } else {
                         Some(
-                            aeron_loss_reporter_read_entry_func_t_callback::<
-                                AeronLossReporterReadEntryFuncHandlerImpl,
-                            >,
+                            aeron_loss_reporter_read_entry_func_t_callback::<AeronLossReporterReadEntryFuncHandlerImpl>,
                         )
                     };
                     callback
                 },
-                entry_func
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                entry_func.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -14960,12 +13669,7 @@ impl AeronCnc {
                 stringify!(aeron_cnc_loss_reporter_read),
                 [
                     concat!("aeron_cnc", ": ", stringify!(*mut aeron_cnc_t)).to_string(),
-                    concat!(
-                        "entry_func",
-                        ": ",
-                        stringify!(aeron_loss_reporter_read_entry_func_t)
-                    )
-                    .to_string()
+                    concat!("entry_func", ": ", stringify!(aeron_loss_reporter_read_entry_func_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -15019,18 +13723,9 @@ impl AeronCnc {
                 "{}({})",
                 stringify!(aeron_cnc_resolve_filename),
                 [
-                    concat!("directory", ": ", stringify!(*const ::std::os::raw::c_char))
-                        .to_string(),
-                    concat!(
-                        "filename_buffer",
-                        ": ",
-                        stringify!(*mut ::std::os::raw::c_char)
-                    )
-                    .to_string(),
-                    format!(
-                        "{} = {:?}",
-                        "filename_buffer_length", filename_buffer_length
-                    )
+                    concat!("directory", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    concat!("filename_buffer", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
+                    format!("{} = {:?}", "filename_buffer_length", filename_buffer_length)
                 ]
                 .join(", ")
             );
@@ -15143,11 +13838,7 @@ impl AeronContext {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args =
-                        [
-                            concat!("context", ": ", stringify!(*mut *mut aeron_context_t))
-                                .to_string(),
-                        ]
-                        .join(", ");
+                        [concat!("context", ": ", stringify!(*mut *mut aeron_context_t)).to_string()].join(", ");
                     log::info!("{}({})", stringify!(aeron_context_init), log_args);
                 }
                 aeron_context_init(ctx_field)
@@ -15155,9 +13846,7 @@ impl AeronContext {
             Some(Box::new(move |ctx_field| unsafe {
                 #[cfg(feature = "log-c-bindings")]
                 {
-                    let log_args =
-                        [concat!("context", ": ", stringify!(*mut aeron_context_t)).to_string()]
-                            .join(", ");
+                    let log_args = [concat!("context", ": ", stringify!(*mut aeron_context_t)).to_string()].join(", ");
                     log::info!("{}({})", stringify!(aeron_context_close), log_args);
                 }
                 aeron_context_close(*ctx_field)
@@ -15300,8 +13989,7 @@ impl AeronContext {
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_context_set_resource_linger_duration_ns(self.get_inner(), value.into());
+            let result = aeron_context_set_resource_linger_duration_ns(self.get_inner(), value.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -15377,8 +14065,7 @@ impl AeronContext {
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_context_set_idle_strategy_init_args(self.get_inner(), value.as_ptr());
+            let result = aeron_context_set_idle_strategy_init_args(self.get_inner(), value.as_ptr());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -15555,9 +14242,7 @@ impl AeronContext {
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -15573,9 +14258,7 @@ impl AeronContext {
     #[doc = r""]
     #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
     #[doc = r"  use with care_"]
-    pub fn set_error_handler_once<
-        AeronErrorHandlerHandlerImpl: FnMut(::std::os::raw::c_int, &str) -> (),
-    >(
+    pub fn set_error_handler_once<AeronErrorHandlerHandlerImpl: FnMut(::std::os::raw::c_int, &str) -> ()>(
         &self,
         mut handler: AeronErrorHandlerHandlerImpl,
     ) -> Result<i32, AeronCError> {
@@ -15592,9 +14275,7 @@ impl AeronContext {
             );
             let result = aeron_context_set_error_handler(
                 self.get_inner(),
-                Some(
-                    aeron_error_handler_t_callback_for_once_closure::<AeronErrorHandlerHandlerImpl>,
-                ),
+                Some(aeron_error_handler_t_callback_for_once_closure::<AeronErrorHandlerHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -15650,12 +14331,7 @@ impl AeronContext {
                 stringify!(aeron_context_set_publication_error_frame_handler),
                 [
                     concat!("context", ": ", stringify!(*mut aeron_context_t)).to_string(),
-                    concat!(
-                        "handler",
-                        ": ",
-                        stringify!(aeron_publication_error_frame_handler_t)
-                    )
-                    .to_string()
+                    concat!("handler", ": ", stringify!(aeron_publication_error_frame_handler_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -15673,9 +14349,7 @@ impl AeronContext {
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -15704,12 +14378,7 @@ impl AeronContext {
                 stringify!(aeron_context_set_publication_error_frame_handler),
                 [
                     concat!("context", ": ", stringify!(*mut aeron_context_t)).to_string(),
-                    concat!(
-                        "handler",
-                        ": ",
-                        stringify!(aeron_publication_error_frame_handler_t)
-                    )
-                    .to_string()
+                    concat!("handler", ": ", stringify!(aeron_publication_error_frame_handler_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -15755,8 +14424,7 @@ impl AeronContext {
                 stringify!(aeron_context_get_publication_error_frame_handler_clientd),
                 [concat!("context", ": ", stringify!(*mut aeron_context_t)).to_string()].join(", ")
             );
-            let result =
-                aeron_context_get_publication_error_frame_handler_clientd(self.get_inner());
+            let result = aeron_context_get_publication_error_frame_handler_clientd(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -15788,9 +14456,7 @@ impl AeronContext {
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -15806,9 +14472,7 @@ impl AeronContext {
     #[doc = r""]
     #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
     #[doc = r"  use with care_"]
-    pub fn set_on_new_publication_once<
-        AeronNewPublicationHandlerImpl: FnMut(&str, i32, i32, i64) -> (),
-    >(
+    pub fn set_on_new_publication_once<AeronNewPublicationHandlerImpl: FnMut(&str, i32, i32, i64) -> ()>(
         &self,
         mut handler: AeronNewPublicationHandlerImpl,
     ) -> Result<i32, AeronCError> {
@@ -15825,11 +14489,7 @@ impl AeronContext {
             );
             let result = aeron_context_set_on_new_publication(
                 self.get_inner(),
-                Some(
-                    aeron_on_new_publication_t_callback_for_once_closure::<
-                        AeronNewPublicationHandlerImpl,
-                    >,
-                ),
+                Some(aeron_on_new_publication_t_callback_for_once_closure::<AeronNewPublicationHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -15872,9 +14532,7 @@ impl AeronContext {
         }
     }
     #[inline]
-    pub fn set_on_new_exclusive_publication<
-        AeronNewPublicationHandlerImpl: AeronNewPublicationCallback,
-    >(
+    pub fn set_on_new_exclusive_publication<AeronNewPublicationHandlerImpl: AeronNewPublicationCallback>(
         &self,
         handler: Option<&Handler<AeronNewPublicationHandlerImpl>>,
     ) -> Result<i32, AeronCError> {
@@ -15899,9 +14557,7 @@ impl AeronContext {
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -15917,9 +14573,7 @@ impl AeronContext {
     #[doc = r""]
     #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
     #[doc = r"  use with care_"]
-    pub fn set_on_new_exclusive_publication_once<
-        AeronNewPublicationHandlerImpl: FnMut(&str, i32, i32, i64) -> (),
-    >(
+    pub fn set_on_new_exclusive_publication_once<AeronNewPublicationHandlerImpl: FnMut(&str, i32, i32, i64) -> ()>(
         &self,
         mut handler: AeronNewPublicationHandlerImpl,
     ) -> Result<i32, AeronCError> {
@@ -15936,11 +14590,7 @@ impl AeronContext {
             );
             let result = aeron_context_set_on_new_exclusive_publication(
                 self.get_inner(),
-                Some(
-                    aeron_on_new_publication_t_callback_for_once_closure::<
-                        AeronNewPublicationHandlerImpl,
-                    >,
-                ),
+                Some(aeron_on_new_publication_t_callback_for_once_closure::<AeronNewPublicationHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -15983,9 +14633,7 @@ impl AeronContext {
         }
     }
     #[inline]
-    pub fn set_on_new_subscription<
-        AeronNewSubscriptionHandlerImpl: AeronNewSubscriptionCallback,
-    >(
+    pub fn set_on_new_subscription<AeronNewSubscriptionHandlerImpl: AeronNewSubscriptionCallback>(
         &self,
         handler: Option<&Handler<AeronNewSubscriptionHandlerImpl>>,
     ) -> Result<i32, AeronCError> {
@@ -16006,15 +14654,11 @@ impl AeronContext {
                     let callback: aeron_on_new_subscription_t = if handler.is_none() {
                         None
                     } else {
-                        Some(
-                            aeron_on_new_subscription_t_callback::<AeronNewSubscriptionHandlerImpl>,
-                        )
+                        Some(aeron_on_new_subscription_t_callback::<AeronNewSubscriptionHandlerImpl>)
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -16030,9 +14674,7 @@ impl AeronContext {
     #[doc = r""]
     #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
     #[doc = r"  use with care_"]
-    pub fn set_on_new_subscription_once<
-        AeronNewSubscriptionHandlerImpl: FnMut(&str, i32, i64) -> (),
-    >(
+    pub fn set_on_new_subscription_once<AeronNewSubscriptionHandlerImpl: FnMut(&str, i32, i64) -> ()>(
         &self,
         mut handler: AeronNewSubscriptionHandlerImpl,
     ) -> Result<i32, AeronCError> {
@@ -16049,11 +14691,7 @@ impl AeronContext {
             );
             let result = aeron_context_set_on_new_subscription(
                 self.get_inner(),
-                Some(
-                    aeron_on_new_subscription_t_callback_for_once_closure::<
-                        AeronNewSubscriptionHandlerImpl,
-                    >,
-                ),
+                Some(aeron_on_new_subscription_t_callback_for_once_closure::<AeronNewSubscriptionHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -16096,9 +14734,7 @@ impl AeronContext {
         }
     }
     #[inline]
-    pub fn set_on_available_counter<
-        AeronAvailableCounterHandlerImpl: AeronAvailableCounterCallback,
-    >(
+    pub fn set_on_available_counter<AeronAvailableCounterHandlerImpl: AeronAvailableCounterCallback>(
         &self,
         handler: Option<&Handler<AeronAvailableCounterHandlerImpl>>,
     ) -> Result<i32, AeronCError> {
@@ -16119,15 +14755,11 @@ impl AeronContext {
                     let callback: aeron_on_available_counter_t = if handler.is_none() {
                         None
                     } else {
-                        Some(
-                            aeron_on_available_counter_t_callback::<AeronAvailableCounterHandlerImpl>,
-                        )
+                        Some(aeron_on_available_counter_t_callback::<AeronAvailableCounterHandlerImpl>)
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -16162,11 +14794,7 @@ impl AeronContext {
             );
             let result = aeron_context_set_on_available_counter(
                 self.get_inner(),
-                Some(
-                    aeron_on_available_counter_t_callback_for_once_closure::<
-                        AeronAvailableCounterHandlerImpl,
-                    >,
-                ),
+                Some(aeron_on_available_counter_t_callback_for_once_closure::<AeronAvailableCounterHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -16209,9 +14837,7 @@ impl AeronContext {
         }
     }
     #[inline]
-    pub fn set_on_unavailable_counter<
-        AeronUnavailableCounterHandlerImpl: AeronUnavailableCounterCallback,
-    >(
+    pub fn set_on_unavailable_counter<AeronUnavailableCounterHandlerImpl: AeronUnavailableCounterCallback>(
         &self,
         handler: Option<&Handler<AeronUnavailableCounterHandlerImpl>>,
     ) -> Result<i32, AeronCError> {
@@ -16222,8 +14848,7 @@ impl AeronContext {
                 stringify!(aeron_context_set_on_unavailable_counter),
                 [
                     concat!("context", ": ", stringify!(*mut aeron_context_t)).to_string(),
-                    concat!("handler", ": ", stringify!(aeron_on_unavailable_counter_t))
-                        .to_string()
+                    concat!("handler", ": ", stringify!(aeron_on_unavailable_counter_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -16233,17 +14858,11 @@ impl AeronContext {
                     let callback: aeron_on_unavailable_counter_t = if handler.is_none() {
                         None
                     } else {
-                        Some(
-                            aeron_on_unavailable_counter_t_callback::<
-                                AeronUnavailableCounterHandlerImpl,
-                            >,
-                        )
+                        Some(aeron_on_unavailable_counter_t_callback::<AeronUnavailableCounterHandlerImpl>)
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -16272,18 +14891,13 @@ impl AeronContext {
                 stringify!(aeron_context_set_on_unavailable_counter),
                 [
                     concat!("context", ": ", stringify!(*mut aeron_context_t)).to_string(),
-                    concat!("handler", ": ", stringify!(aeron_on_unavailable_counter_t))
-                        .to_string()
+                    concat!("handler", ": ", stringify!(aeron_on_unavailable_counter_t)).to_string()
                 ]
                 .join(", ")
             );
             let result = aeron_context_set_on_unavailable_counter(
                 self.get_inner(),
-                Some(
-                    aeron_on_unavailable_counter_t_callback_for_once_closure::<
-                        AeronUnavailableCounterHandlerImpl,
-                    >,
-                ),
+                Some(aeron_on_unavailable_counter_t_callback_for_once_closure::<AeronUnavailableCounterHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -16351,9 +14965,7 @@ impl AeronContext {
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -16386,9 +14998,7 @@ impl AeronContext {
             );
             let result = aeron_context_set_on_close_client(
                 self.get_inner(),
-                Some(
-                    aeron_on_close_client_t_callback_for_once_closure::<AeronCloseClientHandlerImpl>,
-                ),
+                Some(aeron_on_close_client_t_callback_for_once_closure::<AeronCloseClientHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -16444,8 +15054,7 @@ impl AeronContext {
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_context_set_use_conductor_agent_invoker(self.get_inner(), value.into());
+            let result = aeron_context_set_use_conductor_agent_invoker(self.get_inner(), value.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -16471,9 +15080,7 @@ impl AeronContext {
         }
     }
     #[inline]
-    pub fn set_agent_on_start_function<
-        AeronAgentStartFuncHandlerImpl: AeronAgentStartFuncCallback,
-    >(
+    pub fn set_agent_on_start_function<AeronAgentStartFuncHandlerImpl: AeronAgentStartFuncCallback>(
         &self,
         value: Option<&Handler<AeronAgentStartFuncHandlerImpl>>,
     ) -> Result<i32, AeronCError> {
@@ -16498,9 +15105,7 @@ impl AeronContext {
                     };
                     callback
                 },
-                value
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                value.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -16533,11 +15138,7 @@ impl AeronContext {
             );
             let result = aeron_context_set_agent_on_start_function(
                 self.get_inner(),
-                Some(
-                    aeron_agent_on_start_func_t_callback_for_once_closure::<
-                        AeronAgentStartFuncHandlerImpl,
-                    >,
-                ),
+                Some(aeron_agent_on_start_func_t_callback_for_once_closure::<AeronAgentStartFuncHandlerImpl>),
                 &mut value as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -16622,18 +15223,14 @@ impl AeronContext {
                 "{}({})",
                 stringify!(aeron_context_request_driver_termination),
                 [
-                    concat!("directory", ": ", stringify!(*const ::std::os::raw::c_char))
-                        .to_string(),
+                    concat!("directory", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     concat!("token_buffer", ": ", stringify!(*const u8)).to_string(),
                     format!("{} = {:?}", "token_length", token_length)
                 ]
                 .join(", ")
             );
-            let result = aeron_context_request_driver_termination(
-                directory.as_ptr(),
-                token_buffer.into(),
-                token_length.into(),
-            );
+            let result =
+                aeron_context_request_driver_termination(directory.as_ptr(), token_buffer.into(), token_length.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -16727,9 +15324,7 @@ impl AeronControlledFragmentAssembler {
     #[doc = "# Parameters\n \n - `delegate` to call on completed"]
     #[doc = " \n - `delegate_clientd` to pass to delegate handler."]
     #[doc = " \n# Return\n 0 for success and -1 for error."]
-    pub fn new<
-        AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback,
-    >(
+    pub fn new<AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback>(
         delegate: Option<&Handler<AeronControlledFragmentHandlerHandlerImpl>>,
     ) -> Result<Self, AeronCError> {
         let (delegate, delegate_clientd) = (
@@ -16737,17 +15332,11 @@ impl AeronControlledFragmentAssembler {
                 let callback: aeron_controlled_fragment_handler_t = if delegate.is_none() {
                     None
                 } else {
-                    Some(
-                        aeron_controlled_fragment_handler_t_callback::<
-                            AeronControlledFragmentHandlerHandlerImpl,
-                        >,
-                    )
+                    Some(aeron_controlled_fragment_handler_t_callback::<AeronControlledFragmentHandlerHandlerImpl>)
                 };
                 callback
             },
-            delegate
-                .map(|m| m.as_raw())
-                .unwrap_or_else(|| std::ptr::null_mut()),
+            delegate.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
         );
         let resource_constructor = ManagedCResource::new(
             move |ctx_field| unsafe {
@@ -16760,12 +15349,7 @@ impl AeronControlledFragmentAssembler {
                             stringify!(*mut *mut aeron_controlled_fragment_assembler_t)
                         )
                         .to_string(),
-                        concat!(
-                            "delegate",
-                            ": ",
-                            stringify!(aeron_controlled_fragment_handler_t)
-                        )
-                        .to_string(),
+                        concat!("delegate", ": ", stringify!(aeron_controlled_fragment_handler_t)).to_string(),
                     ]
                     .join(", ");
                     log::info!(
@@ -16848,12 +15432,7 @@ impl AeronControlledFragmentAssembler {
                 stringify!(aeron_controlled_fragment_assembler_handler),
                 [
                     concat!("clientd", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
-                    format!(
-                        "{}: {} (len={})",
-                        "buffer",
-                        stringify!(*const u8),
-                        buffer.len()
-                    )
+                    format!("{}: {} (len={})", "buffer", stringify!(*const u8), buffer.len())
                 ]
                 .join(", ")
             );
@@ -16952,11 +15531,7 @@ impl core::fmt::Debug for AeronCounterConstants {
 }
 impl AeronCounterConstants {
     #[inline]
-    pub fn new(
-        correlation_id: i64,
-        registration_id: i64,
-        counter_id: i32,
-    ) -> Result<Self, AeronCError> {
+    pub fn new(correlation_id: i64, registration_id: i64, counter_id: i32) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::new(
             move |ctx_field| {
                 let inst = aeron_counter_constants_t {
@@ -17174,8 +15749,7 @@ impl AeronCounterMetadataDescriptor {
                     label_length: label_length.into(),
                     label: label.into(),
                 };
-                let inner_ptr: *mut aeron_counter_metadata_descriptor_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_counter_metadata_descriptor_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -17198,8 +15772,7 @@ impl AeronCounterMetadataDescriptor {
                     stringify!(aeron_counter_metadata_descriptor_t)
                 );
                 let inst: aeron_counter_metadata_descriptor_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_counter_metadata_descriptor_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_counter_metadata_descriptor_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -17379,10 +15952,7 @@ impl AeronCounter {
         let resource = ManagedCResource::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(aeron_counter_t)
-                );
+                log::info!("creating zeroed empty resource on heap {}", stringify!(aeron_counter_t));
                 let inst: aeron_counter_t = unsafe { std::mem::zeroed() };
                 let inner_ptr: *mut aeron_counter_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
@@ -17442,12 +16012,7 @@ impl AeronCounter {
                 stringify!(aeron_counter_constants),
                 [
                     concat!("counter", ": ", stringify!(*mut aeron_counter_t)).to_string(),
-                    concat!(
-                        "constants",
-                        ": ",
-                        stringify!(*mut aeron_counter_constants_t)
-                    )
-                    .to_string()
+                    concat!("constants", ": ", stringify!(*mut aeron_counter_constants_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -17487,8 +16052,7 @@ impl AeronCounter {
                 stringify!(aeron_counter_close),
                 [
                     concat!("counter", ": ", stringify!(*mut aeron_counter_t)).to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t))
-                        .to_string()
+                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -17537,16 +16101,13 @@ impl AeronCounter {
                 stringify!(aeron_counter_close),
                 [
                     concat!("counter", ": ", stringify!(*mut aeron_counter_t)).to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t))
-                        .to_string()
+                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
                 ]
                 .join(", ")
             );
             let result = aeron_counter_close(
                 self.get_inner(),
-                Some(
-                    aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>,
-                ),
+                Some(aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>),
                 &mut on_close_complete as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -17651,10 +16212,7 @@ impl AeronCounter {
 impl Drop for AeronCounter {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none())
-                && std::rc::Rc::strong_count(inner) == 1
-                && !inner.is_closed_already_called()
-            {
+            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
                 if inner.auto_close.get() {
                     log::info!("auto closing {self:?}");
                     let result = self.close_with_no_args();
@@ -17706,8 +16264,7 @@ impl AeronCounterValueDescriptor {
                     reference_id: reference_id.into(),
                     pad1: pad1.into(),
                 };
-                let inner_ptr: *mut aeron_counter_value_descriptor_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_counter_value_descriptor_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -17730,8 +16287,7 @@ impl AeronCounterValueDescriptor {
                     stringify!(aeron_counter_value_descriptor_t)
                 );
                 let inst: aeron_counter_value_descriptor_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_counter_value_descriptor_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_counter_value_descriptor_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -18156,12 +16712,7 @@ impl AeronCountersReader {
                 stringify!(aeron_counters_reader_get_buffers),
                 [
                     concat!("reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
-                    concat!(
-                        "buffers",
-                        ": ",
-                        stringify!(*mut aeron_counters_reader_buffers_t)
-                    )
-                    .to_string()
+                    concat!("buffers", ": ", stringify!(*mut aeron_counters_reader_buffers_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -18192,18 +16743,8 @@ impl AeronCountersReader {
                 "{}({})",
                 stringify!(aeron_counters_reader_foreach_counter),
                 [
-                    concat!(
-                        "counters_reader",
-                        ": ",
-                        stringify!(*mut aeron_counters_reader_t)
-                    )
-                    .to_string(),
-                    concat!(
-                        "func",
-                        ": ",
-                        stringify!(aeron_counters_reader_foreach_counter_func_t)
-                    )
-                    .to_string()
+                    concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
+                    concat!("func", ": ", stringify!(aeron_counters_reader_foreach_counter_func_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -18221,8 +16762,7 @@ impl AeronCountersReader {
                     };
                     callback
                 },
-                func.map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                func.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -18250,18 +16790,8 @@ impl AeronCountersReader {
                 "{}({})",
                 stringify!(aeron_counters_reader_foreach_counter),
                 [
-                    concat!(
-                        "counters_reader",
-                        ": ",
-                        stringify!(*mut aeron_counters_reader_t)
-                    )
-                    .to_string(),
-                    concat!(
-                        "func",
-                        ": ",
-                        stringify!(aeron_counters_reader_foreach_counter_func_t)
-                    )
-                    .to_string()
+                    concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
+                    concat!("func", ": ", stringify!(aeron_counters_reader_foreach_counter_func_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -18292,12 +16822,7 @@ impl AeronCountersReader {
                 "{}({})",
                 stringify!(aeron_counters_reader_find_by_type_id_and_registration_id),
                 [
-                    concat!(
-                        "counters_reader",
-                        ": ",
-                        stringify!(*mut aeron_counters_reader_t)
-                    )
-                    .to_string(),
+                    concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
                     format!("{} = {:?}", "type_id", type_id),
                     format!("{} = {:?}", "registration_id", registration_id)
                 ]
@@ -18323,8 +16848,7 @@ impl AeronCountersReader {
             log::info!(
                 "{}({})",
                 stringify!(aeron_counters_reader_max_counter_id),
-                [concat!("reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string()]
-                    .join(", ")
+                [concat!("reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string()].join(", ")
             );
             let result = aeron_counters_reader_max_counter_id(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -18344,12 +16868,7 @@ impl AeronCountersReader {
                 "{}({})",
                 stringify!(aeron_counters_reader_addr),
                 [
-                    concat!(
-                        "counters_reader",
-                        ": ",
-                        stringify!(*mut aeron_counters_reader_t)
-                    )
-                    .to_string(),
+                    concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
                     format!("{} = {:?}", "counter_id", counter_id)
                 ]
                 .join(", ")
@@ -18374,22 +16893,14 @@ impl AeronCountersReader {
                 "{}({})",
                 stringify!(aeron_counters_reader_counter_registration_id),
                 [
-                    concat!(
-                        "counters_reader",
-                        ": ",
-                        stringify!(*mut aeron_counters_reader_t)
-                    )
-                    .to_string(),
+                    concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
                     format!("{} = {:?}", "counter_id", counter_id),
                     concat!("registration_id", ": ", stringify!(*mut i64)).to_string()
                 ]
                 .join(", ")
             );
-            let err_code = aeron_counters_reader_counter_registration_id(
-                self.get_inner(),
-                counter_id.into(),
-                &mut mut_result,
-            );
+            let err_code =
+                aeron_counters_reader_counter_registration_id(self.get_inner(), counter_id.into(), &mut mut_result);
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -18413,22 +16924,13 @@ impl AeronCountersReader {
                 "{}({})",
                 stringify!(aeron_counters_reader_counter_owner_id),
                 [
-                    concat!(
-                        "counters_reader",
-                        ": ",
-                        stringify!(*mut aeron_counters_reader_t)
-                    )
-                    .to_string(),
+                    concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
                     format!("{} = {:?}", "counter_id", counter_id),
                     concat!("owner_id", ": ", stringify!(*mut i64)).to_string()
                 ]
                 .join(", ")
             );
-            let err_code = aeron_counters_reader_counter_owner_id(
-                self.get_inner(),
-                counter_id.into(),
-                &mut mut_result,
-            );
+            let err_code = aeron_counters_reader_counter_owner_id(self.get_inner(), counter_id.into(), &mut mut_result);
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -18453,22 +16955,14 @@ impl AeronCountersReader {
                 "{}({})",
                 stringify!(aeron_counters_reader_counter_reference_id),
                 [
-                    concat!(
-                        "counters_reader",
-                        ": ",
-                        stringify!(*mut aeron_counters_reader_t)
-                    )
-                    .to_string(),
+                    concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
                     format!("{} = {:?}", "counter_id", counter_id),
                     concat!("reference_id", ": ", stringify!(*mut i64)).to_string()
                 ]
                 .join(", ")
             );
-            let err_code = aeron_counters_reader_counter_reference_id(
-                self.get_inner(),
-                counter_id.into(),
-                &mut mut_result,
-            );
+            let err_code =
+                aeron_counters_reader_counter_reference_id(self.get_inner(), counter_id.into(), &mut mut_result);
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -18492,22 +16986,13 @@ impl AeronCountersReader {
                 "{}({})",
                 stringify!(aeron_counters_reader_counter_state),
                 [
-                    concat!(
-                        "counters_reader",
-                        ": ",
-                        stringify!(*mut aeron_counters_reader_t)
-                    )
-                    .to_string(),
+                    concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
                     format!("{} = {:?}", "counter_id", counter_id),
                     concat!("state", ": ", stringify!(*mut i32)).to_string()
                 ]
                 .join(", ")
             );
-            let err_code = aeron_counters_reader_counter_state(
-                self.get_inner(),
-                counter_id.into(),
-                &mut mut_result,
-            );
+            let err_code = aeron_counters_reader_counter_state(self.get_inner(), counter_id.into(), &mut mut_result);
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -18530,22 +17015,13 @@ impl AeronCountersReader {
                 "{}({})",
                 stringify!(aeron_counters_reader_counter_type_id),
                 [
-                    concat!(
-                        "counters_reader",
-                        ": ",
-                        stringify!(*mut aeron_counters_reader_t)
-                    )
-                    .to_string(),
+                    concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
                     format!("{} = {:?}", "counter_id", counter_id),
                     concat!("type_id", ": ", stringify!(*mut i32)).to_string()
                 ]
                 .join(", ")
             );
-            let err_code = aeron_counters_reader_counter_type_id(
-                self.get_inner(),
-                counter_id.into(),
-                &mut mut_result,
-            );
+            let err_code = aeron_counters_reader_counter_type_id(self.get_inner(), counter_id.into(), &mut mut_result);
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -18574,12 +17050,7 @@ impl AeronCountersReader {
                 "{}({})",
                 stringify!(aeron_counters_reader_counter_label),
                 [
-                    concat!(
-                        "counters_reader",
-                        ": ",
-                        stringify!(*mut aeron_counters_reader_t)
-                    )
-                    .to_string(),
+                    concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
                     format!("{} = {:?}", "counter_id", counter_id),
                     concat!("buffer", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "buffer_length", buffer_length)
@@ -18615,22 +17086,14 @@ impl AeronCountersReader {
                 "{}({})",
                 stringify!(aeron_counters_reader_free_for_reuse_deadline_ms),
                 [
-                    concat!(
-                        "counters_reader",
-                        ": ",
-                        stringify!(*mut aeron_counters_reader_t)
-                    )
-                    .to_string(),
+                    concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
                     format!("{} = {:?}", "counter_id", counter_id),
                     concat!("deadline_ms", ": ", stringify!(*mut i64)).to_string()
                 ]
                 .join(", ")
             );
-            let err_code = aeron_counters_reader_free_for_reuse_deadline_ms(
-                self.get_inner(),
-                counter_id.into(),
-                &mut mut_result,
-            );
+            let err_code =
+                aeron_counters_reader_free_for_reuse_deadline_ms(self.get_inner(), counter_id.into(), &mut mut_result);
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -18645,30 +17108,20 @@ impl AeronCountersReader {
     #[doc = ""]
     #[doc = "# Parameters\n \n - `recording_id` the recording id of an active recording"]
     #[doc = " \n# Return\n the counter id if found, otherwise AERON_NULL_COUNTER_ID"]
-    pub fn aeron_archive_recording_pos_find_counter_id_by_recording_id(
-        &self,
-        recording_id: i64,
-    ) -> i32 {
+    pub fn aeron_archive_recording_pos_find_counter_id_by_recording_id(&self, recording_id: i64) -> i32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_recording_pos_find_counter_id_by_recording_id),
                 [
-                    concat!(
-                        "counters_reader",
-                        ": ",
-                        stringify!(*mut aeron_counters_reader_t)
-                    )
-                    .to_string(),
+                    concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
                     format!("{} = {:?}", "recording_id", recording_id)
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_recording_pos_find_counter_id_by_recording_id(
-                self.get_inner(),
-                recording_id.into(),
-            );
+            let result =
+                aeron_archive_recording_pos_find_counter_id_by_recording_id(self.get_inner(), recording_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -18679,30 +17132,19 @@ impl AeronCountersReader {
     #[doc = ""]
     #[doc = "# Parameters\n \n - `session_id` the session id of an active recording"]
     #[doc = " \n# Return\n the counter id if found, otherwise AERON_NULL_COUNTER_ID"]
-    pub fn aeron_archive_recording_pos_find_counter_id_by_session_id(
-        &self,
-        session_id: i32,
-    ) -> i32 {
+    pub fn aeron_archive_recording_pos_find_counter_id_by_session_id(&self, session_id: i32) -> i32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_archive_recording_pos_find_counter_id_by_session_id),
                 [
-                    concat!(
-                        "counters_reader",
-                        ": ",
-                        stringify!(*mut aeron_counters_reader_t)
-                    )
-                    .to_string(),
+                    concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
                     format!("{} = {:?}", "session_id", session_id)
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_recording_pos_find_counter_id_by_session_id(
-                self.get_inner(),
-                session_id.into(),
-            );
+            let result = aeron_archive_recording_pos_find_counter_id_by_session_id(self.get_inner(), session_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -18720,18 +17162,12 @@ impl AeronCountersReader {
                 "{}({})",
                 stringify!(aeron_archive_recording_pos_get_recording_id),
                 [
-                    concat!(
-                        "counters_reader",
-                        ": ",
-                        stringify!(*mut aeron_counters_reader_t)
-                    )
-                    .to_string(),
+                    concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
                     format!("{} = {:?}", "counter_id", counter_id)
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_archive_recording_pos_get_recording_id(self.get_inner(), counter_id.into());
+            let result = aeron_archive_recording_pos_get_recording_id(self.get_inner(), counter_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -18758,12 +17194,7 @@ impl AeronCountersReader {
                 "{}({})",
                 stringify!(aeron_archive_recording_pos_get_source_identity),
                 [
-                    concat!(
-                        "counters_reader",
-                        ": ",
-                        stringify!(*mut aeron_counters_reader_t)
-                    )
-                    .to_string(),
+                    concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
                     format!("{} = {:?}", "counter_id", counter_id),
                     concat!("dst", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     concat!("len_p", ": ", stringify!(*mut usize)).to_string()
@@ -18807,12 +17238,7 @@ impl AeronCountersReader {
                 stringify!(aeron_archive_recording_pos_is_active),
                 [
                     concat!("is_active", ": ", stringify!(*mut bool)).to_string(),
-                    concat!(
-                        "counters_reader",
-                        ": ",
-                        stringify!(*mut aeron_counters_reader_t)
-                    )
-                    .to_string(),
+                    concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
                     format!("{} = {:?}", "counter_id", counter_id),
                     format!("{} = {:?}", "recording_id", recording_id)
                 ]
@@ -19303,9 +17729,7 @@ pub struct AeronError {
 impl core::fmt::Debug for AeronError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.inner.get().is_null() {
-            f.debug_struct(stringify!(AeronError))
-                .field("inner", &"null")
-                .finish()
+            f.debug_struct(stringify!(AeronError)).field("inner", &"null").finish()
         } else {
             f.debug_struct(stringify!(AeronError))
                 .field("inner", &self.inner)
@@ -19360,10 +17784,7 @@ impl AeronError {
         let resource = ManagedCResource::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(aeron_error_t)
-                );
+                log::info!("creating zeroed empty resource on heap {}", stringify!(aeron_error_t));
                 let inst: aeron_error_t = unsafe { std::mem::zeroed() };
                 let inner_ptr: *mut aeron_error_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
@@ -19383,10 +17804,7 @@ impl AeronError {
     #[doc = r" _(Use with care)_"]
     pub fn new_zeroed_on_stack() -> Self {
         #[cfg(feature = "extra-logging")]
-        log::debug!(
-            "creating zeroed empty resource on stack {}",
-            stringify!(aeron_error_t)
-        );
+        log::debug!("creating zeroed empty resource on stack {}", stringify!(aeron_error_t));
         Self {
             inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
         }
@@ -19427,8 +17845,7 @@ impl AeronError {
             log::info!(
                 "{}({})",
                 stringify!(aeron_error_code_str),
-                [concat!("errcode", ": ", stringify!(::std::os::raw::c_int)).to_string()]
-                    .join(", ")
+                [concat!("errcode", ": ", stringify!(::std::os::raw::c_int)).to_string()].join(", ")
             );
             let result = aeron_error_code_str(errcode.into());
             #[cfg(feature = "log-c-bindings")]
@@ -19620,18 +18037,8 @@ impl AeronExclusivePublication {
                 "{}({})",
                 stringify!(aeron_exclusive_publication_offer),
                 [
-                    concat!(
-                        "publication",
-                        ": ",
-                        stringify!(*mut aeron_exclusive_publication_t)
-                    )
-                    .to_string(),
-                    format!(
-                        "{}: {} (len={})",
-                        "buffer",
-                        stringify!(*const u8),
-                        buffer.len()
-                    )
+                    concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
+                    format!("{}: {} (len={})", "buffer", stringify!(*const u8), buffer.len())
                 ]
                 .join(", ")
             );
@@ -19640,16 +18047,11 @@ impl AeronExclusivePublication {
                 buffer.as_ptr() as *mut _,
                 buffer.len(),
                 {
-                    let callback: aeron_reserved_value_supplier_t =
-                        if reserved_value_supplier.is_none() {
-                            None
-                        } else {
-                            Some(
-                                aeron_reserved_value_supplier_t_callback::<
-                                    AeronReservedValueSupplierHandlerImpl,
-                                >,
-                            )
-                        };
+                    let callback: aeron_reserved_value_supplier_t = if reserved_value_supplier.is_none() {
+                        None
+                    } else {
+                        Some(aeron_reserved_value_supplier_t_callback::<AeronReservedValueSupplierHandlerImpl>)
+                    };
                     callback
                 },
                 reserved_value_supplier
@@ -19684,18 +18086,8 @@ impl AeronExclusivePublication {
                 "{}({})",
                 stringify!(aeron_exclusive_publication_offer),
                 [
-                    concat!(
-                        "publication",
-                        ": ",
-                        stringify!(*mut aeron_exclusive_publication_t)
-                    )
-                    .to_string(),
-                    format!(
-                        "{}: {} (len={})",
-                        "buffer",
-                        stringify!(*const u8),
-                        buffer.len()
-                    )
+                    concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
+                    format!("{}: {} (len={})", "buffer", stringify!(*const u8), buffer.len())
                 ]
                 .join(", ")
             );
@@ -19704,9 +18096,7 @@ impl AeronExclusivePublication {
                 buffer.as_ptr() as *mut _,
                 buffer.len(),
                 Some(
-                    aeron_reserved_value_supplier_t_callback_for_once_closure::<
-                        AeronReservedValueSupplierHandlerImpl,
-                    >,
+                    aeron_reserved_value_supplier_t_callback_for_once_closure::<AeronReservedValueSupplierHandlerImpl>,
                 ),
                 &mut reserved_value_supplier as *mut _ as *mut std::os::raw::c_void,
             );
@@ -19735,12 +18125,7 @@ impl AeronExclusivePublication {
                 "{}({})",
                 stringify!(aeron_exclusive_publication_offerv),
                 [
-                    concat!(
-                        "publication",
-                        ": ",
-                        stringify!(*mut aeron_exclusive_publication_t)
-                    )
-                    .to_string(),
+                    concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
                     concat!("iov", ": ", stringify!(*mut aeron_iovec_t)).to_string(),
                     format!("{} = {:?}", "iovcnt", iovcnt),
                     concat!(
@@ -19757,16 +18142,11 @@ impl AeronExclusivePublication {
                 iov.get_inner(),
                 iovcnt.into(),
                 {
-                    let callback: aeron_reserved_value_supplier_t =
-                        if reserved_value_supplier.is_none() {
-                            None
-                        } else {
-                            Some(
-                                aeron_reserved_value_supplier_t_callback::<
-                                    AeronReservedValueSupplierHandlerImpl,
-                                >,
-                            )
-                        };
+                    let callback: aeron_reserved_value_supplier_t = if reserved_value_supplier.is_none() {
+                        None
+                    } else {
+                        Some(aeron_reserved_value_supplier_t_callback::<AeronReservedValueSupplierHandlerImpl>)
+                    };
                     callback
                 },
                 reserved_value_supplier
@@ -19802,12 +18182,7 @@ impl AeronExclusivePublication {
                 "{}({})",
                 stringify!(aeron_exclusive_publication_offerv),
                 [
-                    concat!(
-                        "publication",
-                        ": ",
-                        stringify!(*mut aeron_exclusive_publication_t)
-                    )
-                    .to_string(),
+                    concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
                     concat!("iov", ": ", stringify!(*mut aeron_iovec_t)).to_string(),
                     format!("{} = {:?}", "iovcnt", iovcnt),
                     concat!(
@@ -19824,9 +18199,7 @@ impl AeronExclusivePublication {
                 iov.get_inner(),
                 iovcnt.into(),
                 Some(
-                    aeron_reserved_value_supplier_t_callback_for_once_closure::<
-                        AeronReservedValueSupplierHandlerImpl,
-                    >,
+                    aeron_reserved_value_supplier_t_callback_for_once_closure::<AeronReservedValueSupplierHandlerImpl>,
                 ),
                 &mut reserved_value_supplier as *mut _ as *mut std::os::raw::c_void,
             );
@@ -19862,23 +18235,14 @@ impl AeronExclusivePublication {
                 "{}({})",
                 stringify!(aeron_exclusive_publication_try_claim),
                 [
-                    concat!(
-                        "publication",
-                        ": ",
-                        stringify!(*mut aeron_exclusive_publication_t)
-                    )
-                    .to_string(),
+                    concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
                     format!("{} = {:?}", "length", length),
-                    concat!("buffer_claim", ": ", stringify!(*mut aeron_buffer_claim_t))
-                        .to_string()
+                    concat!("buffer_claim", ": ", stringify!(*mut aeron_buffer_claim_t)).to_string()
                 ]
                 .join(", ")
             );
-            let result = aeron_exclusive_publication_try_claim(
-                self.get_inner(),
-                length.into(),
-                buffer_claim.get_inner(),
-            );
+            let result =
+                aeron_exclusive_publication_try_claim(self.get_inner(), length.into(), buffer_claim.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -19896,18 +18260,12 @@ impl AeronExclusivePublication {
                 "{}({})",
                 stringify!(aeron_exclusive_publication_append_padding),
                 [
-                    concat!(
-                        "publication",
-                        ": ",
-                        stringify!(*mut aeron_exclusive_publication_t)
-                    )
-                    .to_string(),
+                    concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
                     format!("{} = {:?}", "length", length)
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_exclusive_publication_append_padding(self.get_inner(), length.into());
+            let result = aeron_exclusive_publication_append_padding(self.get_inner(), length.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -19926,26 +18284,13 @@ impl AeronExclusivePublication {
                 "{}({})",
                 stringify!(aeron_exclusive_publication_offer_block),
                 [
-                    concat!(
-                        "publication",
-                        ": ",
-                        stringify!(*mut aeron_exclusive_publication_t)
-                    )
-                    .to_string(),
-                    format!(
-                        "{}: {} (len={})",
-                        "buffer",
-                        stringify!(*const u8),
-                        buffer.len()
-                    )
+                    concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
+                    format!("{}: {} (len={})", "buffer", stringify!(*const u8), buffer.len())
                 ]
                 .join(", ")
             );
-            let result = aeron_exclusive_publication_offer_block(
-                self.get_inner(),
-                buffer.as_ptr() as *mut _,
-                buffer.len(),
-            );
+            let result =
+                aeron_exclusive_publication_offer_block(self.get_inner(), buffer.as_ptr() as *mut _, buffer.len());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -19963,13 +18308,7 @@ impl AeronExclusivePublication {
             log::info!(
                 "{}({})",
                 stringify!(aeron_exclusive_publication_channel_status),
-                [concat!(
-                    "publication",
-                    ": ",
-                    stringify!(*mut aeron_exclusive_publication_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string()].join(", ")
             );
             let result = aeron_exclusive_publication_channel_status(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -19990,23 +18329,12 @@ impl AeronExclusivePublication {
                 "{}({})",
                 stringify!(aeron_exclusive_publication_constants),
                 [
-                    concat!(
-                        "publication",
-                        ": ",
-                        stringify!(*mut aeron_exclusive_publication_t)
-                    )
-                    .to_string(),
-                    concat!(
-                        "constants",
-                        ": ",
-                        stringify!(*mut aeron_publication_constants_t)
-                    )
-                    .to_string()
+                    concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
+                    concat!("constants", ": ", stringify!(*mut aeron_publication_constants_t)).to_string()
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_exclusive_publication_constants(self.get_inner(), constants.get_inner());
+            let result = aeron_exclusive_publication_constants(self.get_inner(), constants.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -20034,13 +18362,7 @@ impl AeronExclusivePublication {
             log::info!(
                 "{}({})",
                 stringify!(aeron_exclusive_publication_position),
-                [concat!(
-                    "publication",
-                    ": ",
-                    stringify!(*mut aeron_exclusive_publication_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string()].join(", ")
             );
             let result = aeron_exclusive_publication_position(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -20060,13 +18382,7 @@ impl AeronExclusivePublication {
             log::info!(
                 "{}({})",
                 stringify!(aeron_exclusive_publication_position_limit),
-                [concat!(
-                    "publication",
-                    ": ",
-                    stringify!(*mut aeron_exclusive_publication_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string()].join(", ")
             );
             let result = aeron_exclusive_publication_position_limit(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -20091,14 +18407,8 @@ impl AeronExclusivePublication {
                 "{}({})",
                 stringify!(aeron_exclusive_publication_close),
                 [
-                    concat!(
-                        "publication",
-                        ": ",
-                        stringify!(*mut aeron_exclusive_publication_t)
-                    )
-                    .to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t))
-                        .to_string()
+                    concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
+                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -20146,22 +18456,14 @@ impl AeronExclusivePublication {
                 "{}({})",
                 stringify!(aeron_exclusive_publication_close),
                 [
-                    concat!(
-                        "publication",
-                        ": ",
-                        stringify!(*mut aeron_exclusive_publication_t)
-                    )
-                    .to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t))
-                        .to_string()
+                    concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
+                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
                 ]
                 .join(", ")
             );
             let result = aeron_exclusive_publication_close(
                 self.get_inner(),
-                Some(
-                    aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>,
-                ),
+                Some(aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>),
                 &mut on_close_complete as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -20182,13 +18484,7 @@ impl AeronExclusivePublication {
             log::info!(
                 "{}({})",
                 stringify!(aeron_exclusive_publication_revoke_on_close),
-                [concat!(
-                    "publication",
-                    ": ",
-                    stringify!(*mut aeron_exclusive_publication_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string()].join(", ")
             );
             let result = aeron_exclusive_publication_revoke_on_close(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -20214,14 +18510,8 @@ impl AeronExclusivePublication {
                 "{}({})",
                 stringify!(aeron_exclusive_publication_revoke),
                 [
-                    concat!(
-                        "publication",
-                        ": ",
-                        stringify!(*mut aeron_exclusive_publication_t)
-                    )
-                    .to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t))
-                        .to_string()
+                    concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
+                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -20270,22 +18560,14 @@ impl AeronExclusivePublication {
                 "{}({})",
                 stringify!(aeron_exclusive_publication_revoke),
                 [
-                    concat!(
-                        "publication",
-                        ": ",
-                        stringify!(*mut aeron_exclusive_publication_t)
-                    )
-                    .to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t))
-                        .to_string()
+                    concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
+                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
                 ]
                 .join(", ")
             );
             let result = aeron_exclusive_publication_revoke(
                 self.get_inner(),
-                Some(
-                    aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>,
-                ),
+                Some(aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>),
                 &mut on_close_complete as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -20307,13 +18589,7 @@ impl AeronExclusivePublication {
             log::info!(
                 "{}({})",
                 stringify!(aeron_exclusive_publication_is_closed),
-                [concat!(
-                    "publication",
-                    ": ",
-                    stringify!(*mut aeron_exclusive_publication_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string()].join(", ")
             );
             let result = aeron_exclusive_publication_is_closed(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -20331,13 +18607,7 @@ impl AeronExclusivePublication {
             log::info!(
                 "{}({})",
                 stringify!(aeron_exclusive_publication_is_connected),
-                [concat!(
-                    "publication",
-                    ": ",
-                    stringify!(*mut aeron_exclusive_publication_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string()].join(", ")
             );
             let result = aeron_exclusive_publication_is_connected(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -20353,23 +18623,14 @@ impl AeronExclusivePublication {
     #[doc = "# Parameters\n \n - `address_vec` to hold the received addresses"]
     #[doc = " \n - `address_vec_len` available length of the vector to hold the addresses"]
     #[doc = " \n# Return\n number of addresses found or -1 if there is an error."]
-    pub fn local_sockaddrs(
-        &self,
-        address_vec: &AeronIovec,
-        address_vec_len: usize,
-    ) -> Result<i32, AeronCError> {
+    pub fn local_sockaddrs(&self, address_vec: &AeronIovec, address_vec_len: usize) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_exclusive_publication_local_sockaddrs),
                 [
-                    concat!(
-                        "publication",
-                        ": ",
-                        stringify!(*mut aeron_exclusive_publication_t)
-                    )
-                    .to_string(),
+                    concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
                     concat!("address_vec", ": ", stringify!(*mut aeron_iovec_t)).to_string(),
                     format!("{} = {:?}", "address_vec_len", address_vec_len)
                 ]
@@ -20465,10 +18726,7 @@ impl AeronExclusivePublication {
 impl Drop for AeronExclusivePublication {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none())
-                && std::rc::Rc::strong_count(inner) == 1
-                && !inner.is_closed_already_called()
-            {
+            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
                 if inner.auto_close.get() {
                     log::info!("auto closing {self:?}");
                     let result = self.close_with_no_args();
@@ -20516,47 +18774,28 @@ impl AeronFragmentAssembler {
                 };
                 callback
             },
-            delegate
-                .map(|m| m.as_raw())
-                .unwrap_or_else(|| std::ptr::null_mut()),
+            delegate.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
         );
         let resource_constructor = ManagedCResource::new(
             move |ctx_field| unsafe {
                 #[cfg(feature = "log-c-bindings")]
                 {
                     let log_args = [
-                        concat!(
-                            "assembler",
-                            ": ",
-                            stringify!(*mut *mut aeron_fragment_assembler_t)
-                        )
-                        .to_string(),
+                        concat!("assembler", ": ", stringify!(*mut *mut aeron_fragment_assembler_t)).to_string(),
                         concat!("delegate", ": ", stringify!(aeron_fragment_handler_t)).to_string(),
                     ]
                     .join(", ");
-                    log::info!(
-                        "{}({})",
-                        stringify!(aeron_fragment_assembler_create),
-                        log_args
-                    );
+                    log::info!("{}({})", stringify!(aeron_fragment_assembler_create), log_args);
                 }
                 aeron_fragment_assembler_create(ctx_field, delegate, delegate_clientd)
             },
             Some(Box::new(move |ctx_field| unsafe {
                 #[cfg(feature = "log-c-bindings")]
                 {
-                    let log_args = [concat!(
-                        "assembler",
-                        ": ",
-                        stringify!(*mut aeron_fragment_assembler_t)
-                    )
-                    .to_string()]
-                    .join(", ");
-                    log::info!(
-                        "{}({})",
-                        stringify!(aeron_fragment_assembler_delete),
-                        log_args
-                    );
+                    let log_args =
+                        [concat!("assembler", ": ", stringify!(*mut aeron_fragment_assembler_t)).to_string()]
+                            .join(", ");
+                    log::info!("{}({})", stringify!(aeron_fragment_assembler_delete), log_args);
                 }
                 aeron_fragment_assembler_delete(*ctx_field)
             })),
@@ -20577,13 +18816,7 @@ impl AeronFragmentAssembler {
             log::info!(
                 "{}({})",
                 stringify!(aeron_fragment_assembler_delete),
-                [concat!(
-                    "assembler",
-                    ": ",
-                    stringify!(*mut aeron_fragment_assembler_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("assembler", ": ", stringify!(*mut aeron_fragment_assembler_t)).to_string()].join(", ")
             );
             let result = aeron_fragment_assembler_delete(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -20601,11 +18834,7 @@ impl AeronFragmentAssembler {
     #[doc = "# Parameters\n \n - `clientd` passed in the poll call (must be a `AeronFragmentAssembler`)"]
     #[doc = " \n - `buffer` containing the data."]
     #[doc = " \n - `header` representing the meta data for the data."]
-    pub fn handler(
-        clientd: *mut ::std::os::raw::c_void,
-        buffer: &[u8],
-        header: &AeronHeader,
-    ) -> () {
+    pub fn handler(clientd: *mut ::std::os::raw::c_void, buffer: &[u8], header: &AeronHeader) -> () {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -20613,12 +18842,7 @@ impl AeronFragmentAssembler {
                 stringify!(aeron_fragment_assembler_handler),
                 [
                     concat!("clientd", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
-                    format!(
-                        "{}: {} (len={})",
-                        "buffer",
-                        stringify!(*const u8),
-                        buffer.len()
-                    )
+                    format!("{}: {} (len={})", "buffer", stringify!(*const u8), buffer.len())
                 ]
                 .join(", ")
             );
@@ -20901,9 +19125,7 @@ pub struct AeronHeader {
 impl core::fmt::Debug for AeronHeader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.inner.get().is_null() {
-            f.debug_struct(stringify!(AeronHeader))
-                .field("inner", &"null")
-                .finish()
+            f.debug_struct(stringify!(AeronHeader)).field("inner", &"null").finish()
         } else {
             f.debug_struct(stringify!(AeronHeader))
                 .field("inner", &self.inner)
@@ -20919,10 +19141,7 @@ impl AeronHeader {
         let resource = ManagedCResource::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(aeron_header_t)
-                );
+                log::info!("creating zeroed empty resource on heap {}", stringify!(aeron_header_t));
                 let inst: aeron_header_t = unsafe { std::mem::zeroed() };
                 let inner_ptr: *mut aeron_header_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
@@ -20942,10 +19161,7 @@ impl AeronHeader {
     #[doc = r" _(Use with care)_"]
     pub fn new_zeroed_on_stack() -> Self {
         #[cfg(feature = "extra-logging")]
-        log::debug!(
-            "creating zeroed empty resource on stack {}",
-            stringify!(aeron_header_t)
-        );
+        log::debug!("creating zeroed empty resource on stack {}", stringify!(aeron_header_t));
         Self {
             inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
         }
@@ -21389,10 +19605,7 @@ impl core::fmt::Debug for AeronHeaderValues {
                 .field("inner", &self.inner)
                 .field(stringify!(frame), &self.frame())
                 .field(stringify!(initial_term_id), &self.initial_term_id())
-                .field(
-                    stringify!(position_bits_to_shift),
-                    &self.position_bits_to_shift(),
-                )
+                .field(stringify!(position_bits_to_shift), &self.position_bits_to_shift())
                 .finish()
         }
     }
@@ -21594,18 +19807,12 @@ impl core::fmt::Debug for AeronImageConstants {
                 .field(stringify!(source_identity), &self.source_identity())
                 .field(stringify!(correlation_id), &self.correlation_id())
                 .field(stringify!(join_position), &self.join_position())
-                .field(
-                    stringify!(position_bits_to_shift),
-                    &self.position_bits_to_shift(),
-                )
+                .field(stringify!(position_bits_to_shift), &self.position_bits_to_shift())
                 .field(stringify!(term_buffer_length), &self.term_buffer_length())
                 .field(stringify!(mtu_length), &self.mtu_length())
                 .field(stringify!(session_id), &self.session_id())
                 .field(stringify!(initial_term_id), &self.initial_term_id())
-                .field(
-                    stringify!(subscriber_position_id),
-                    &self.subscriber_position_id(),
-                )
+                .field(stringify!(subscriber_position_id), &self.subscriber_position_id())
                 .finish()
         }
     }
@@ -21697,11 +19904,7 @@ impl AeronImageConstants {
         if self.source_identity.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.source_identity)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.source_identity).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -21864,9 +20067,7 @@ impl AeronImageControlledFragmentAssembler {
     #[doc = "# Parameters\n \n - `delegate` to call on completed"]
     #[doc = " \n - `delegate_clientd` to pass to delegate handler."]
     #[doc = " \n# Return\n 0 for success and -1 for error."]
-    pub fn new<
-        AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback,
-    >(
+    pub fn new<AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback>(
         delegate: Option<&Handler<AeronControlledFragmentHandlerHandlerImpl>>,
     ) -> Result<Self, AeronCError> {
         let (delegate, delegate_clientd) = (
@@ -21874,17 +20075,11 @@ impl AeronImageControlledFragmentAssembler {
                 let callback: aeron_controlled_fragment_handler_t = if delegate.is_none() {
                     None
                 } else {
-                    Some(
-                        aeron_controlled_fragment_handler_t_callback::<
-                            AeronControlledFragmentHandlerHandlerImpl,
-                        >,
-                    )
+                    Some(aeron_controlled_fragment_handler_t_callback::<AeronControlledFragmentHandlerHandlerImpl>)
                 };
                 callback
             },
-            delegate
-                .map(|m| m.as_raw())
-                .unwrap_or_else(|| std::ptr::null_mut()),
+            delegate.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
         );
         let resource_constructor = ManagedCResource::new(
             move |ctx_field| unsafe {
@@ -21897,12 +20092,7 @@ impl AeronImageControlledFragmentAssembler {
                             stringify!(*mut *mut aeron_image_controlled_fragment_assembler_t)
                         )
                         .to_string(),
-                        concat!(
-                            "delegate",
-                            ": ",
-                            stringify!(aeron_controlled_fragment_handler_t)
-                        )
-                        .to_string(),
+                        concat!("delegate", ": ", stringify!(aeron_controlled_fragment_handler_t)).to_string(),
                     ]
                     .join(", ");
                     log::info!(
@@ -21911,11 +20101,7 @@ impl AeronImageControlledFragmentAssembler {
                         log_args
                     );
                 }
-                aeron_image_controlled_fragment_assembler_create(
-                    ctx_field,
-                    delegate,
-                    delegate_clientd,
-                )
+                aeron_image_controlled_fragment_assembler_create(ctx_field, delegate, delegate_clientd)
             },
             Some(Box::new(move |ctx_field| unsafe {
                 #[cfg(feature = "log-c-bindings")]
@@ -21989,12 +20175,7 @@ impl AeronImageControlledFragmentAssembler {
                 stringify!(aeron_image_controlled_fragment_assembler_handler),
                 [
                     concat!("clientd", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
-                    format!(
-                        "{}: {} (len={})",
-                        "buffer",
-                        stringify!(*const u8),
-                        buffer.len()
-                    )
+                    format!("{}: {} (len={})", "buffer", stringify!(*const u8), buffer.len())
                 ]
                 .join(", ")
             );
@@ -22028,9 +20209,7 @@ impl std::ops::Deref for AeronImageControlledFragmentAssembler {
         self.get_inner_ref()
     }
 }
-impl From<*mut aeron_image_controlled_fragment_assembler_t>
-    for AeronImageControlledFragmentAssembler
-{
+impl From<*mut aeron_image_controlled_fragment_assembler_t> for AeronImageControlledFragmentAssembler {
     #[inline]
     fn from(value: *mut aeron_image_controlled_fragment_assembler_t) -> Self {
         AeronImageControlledFragmentAssembler {
@@ -22038,17 +20217,13 @@ impl From<*mut aeron_image_controlled_fragment_assembler_t>
         }
     }
 }
-impl From<AeronImageControlledFragmentAssembler>
-    for *mut aeron_image_controlled_fragment_assembler_t
-{
+impl From<AeronImageControlledFragmentAssembler> for *mut aeron_image_controlled_fragment_assembler_t {
     #[inline]
     fn from(value: AeronImageControlledFragmentAssembler) -> Self {
         value.get_inner()
     }
 }
-impl From<&AeronImageControlledFragmentAssembler>
-    for *mut aeron_image_controlled_fragment_assembler_t
-{
+impl From<&AeronImageControlledFragmentAssembler> for *mut aeron_image_controlled_fragment_assembler_t {
     #[inline]
     fn from(value: &AeronImageControlledFragmentAssembler) -> Self {
         value.get_inner()
@@ -22060,9 +20235,7 @@ impl From<AeronImageControlledFragmentAssembler> for aeron_image_controlled_frag
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_image_controlled_fragment_assembler_t>
-    for AeronImageControlledFragmentAssembler
-{
+impl From<*const aeron_image_controlled_fragment_assembler_t> for AeronImageControlledFragmentAssembler {
     #[inline]
     fn from(value: *const aeron_image_controlled_fragment_assembler_t) -> Self {
         AeronImageControlledFragmentAssembler {
@@ -22113,9 +20286,7 @@ impl AeronImageFragmentAssembler {
                 };
                 callback
             },
-            delegate
-                .map(|m| m.as_raw())
-                .unwrap_or_else(|| std::ptr::null_mut()),
+            delegate.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
         );
         let resource_constructor = ManagedCResource::new(
             move |ctx_field| unsafe {
@@ -22131,29 +20302,17 @@ impl AeronImageFragmentAssembler {
                         concat!("delegate", ": ", stringify!(aeron_fragment_handler_t)).to_string(),
                     ]
                     .join(", ");
-                    log::info!(
-                        "{}({})",
-                        stringify!(aeron_image_fragment_assembler_create),
-                        log_args
-                    );
+                    log::info!("{}({})", stringify!(aeron_image_fragment_assembler_create), log_args);
                 }
                 aeron_image_fragment_assembler_create(ctx_field, delegate, delegate_clientd)
             },
             Some(Box::new(move |ctx_field| unsafe {
                 #[cfg(feature = "log-c-bindings")]
                 {
-                    let log_args = [concat!(
-                        "assembler",
-                        ": ",
-                        stringify!(*mut aeron_image_fragment_assembler_t)
-                    )
-                    .to_string()]
-                    .join(", ");
-                    log::info!(
-                        "{}({})",
-                        stringify!(aeron_image_fragment_assembler_delete),
-                        log_args
-                    );
+                    let log_args =
+                        [concat!("assembler", ": ", stringify!(*mut aeron_image_fragment_assembler_t)).to_string()]
+                            .join(", ");
+                    log::info!("{}({})", stringify!(aeron_image_fragment_assembler_delete), log_args);
                 }
                 aeron_image_fragment_assembler_delete(*ctx_field)
             })),
@@ -22174,13 +20333,7 @@ impl AeronImageFragmentAssembler {
             log::info!(
                 "{}({})",
                 stringify!(aeron_image_fragment_assembler_delete),
-                [concat!(
-                    "assembler",
-                    ": ",
-                    stringify!(*mut aeron_image_fragment_assembler_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("assembler", ": ", stringify!(*mut aeron_image_fragment_assembler_t)).to_string()].join(", ")
             );
             let result = aeron_image_fragment_assembler_delete(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -22198,11 +20351,7 @@ impl AeronImageFragmentAssembler {
     #[doc = "# Parameters\n \n - `clientd` passed in the poll call (must be a `AeronImageFragmentAssembler`)"]
     #[doc = " \n - `buffer` containing the data."]
     #[doc = " \n - `header` representing the meta data for the data."]
-    pub fn handler(
-        clientd: *mut ::std::os::raw::c_void,
-        buffer: &[u8],
-        header: &AeronHeader,
-    ) -> () {
+    pub fn handler(clientd: *mut ::std::os::raw::c_void, buffer: &[u8], header: &AeronHeader) -> () {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -22210,12 +20359,7 @@ impl AeronImageFragmentAssembler {
                 stringify!(aeron_image_fragment_assembler_handler),
                 [
                     concat!("clientd", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
-                    format!(
-                        "{}: {} (len={})",
-                        "buffer",
-                        stringify!(*const u8),
-                        buffer.len()
-                    )
+                    format!("{}: {} (len={})", "buffer", stringify!(*const u8), buffer.len())
                 ]
                 .join(", ")
             );
@@ -22298,9 +20442,7 @@ pub struct AeronImage {
 impl core::fmt::Debug for AeronImage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.inner.get().is_null() {
-            f.debug_struct(stringify!(AeronImage))
-                .field("inner", &"null")
-                .finish()
+            f.debug_struct(stringify!(AeronImage)).field("inner", &"null").finish()
         } else {
             f.debug_struct(stringify!(AeronImage))
                 .field("inner", &self.inner)
@@ -22316,10 +20458,7 @@ impl AeronImage {
         let resource = ManagedCResource::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(aeron_image_t)
-                );
+                log::info!("creating zeroed empty resource on heap {}", stringify!(aeron_image_t));
                 let inst: aeron_image_t = unsafe { std::mem::zeroed() };
                 let inner_ptr: *mut aeron_image_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
@@ -22339,10 +20478,7 @@ impl AeronImage {
     #[doc = r" _(Use with care)_"]
     pub fn new_zeroed_on_stack() -> Self {
         #[cfg(feature = "extra-logging")]
-        log::debug!(
-            "creating zeroed empty resource on stack {}",
-            stringify!(aeron_image_t)
-        );
+        log::debug!("creating zeroed empty resource on stack {}", stringify!(aeron_image_t));
         Self {
             inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
         }
@@ -22388,8 +20524,7 @@ impl AeronImage {
                 stringify!(aeron_image_constants),
                 [
                     concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string(),
-                    concat!("constants", ": ", stringify!(*mut aeron_image_constants_t))
-                        .to_string()
+                    concat!("constants", ": ", stringify!(*mut aeron_image_constants_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -22571,9 +20706,7 @@ impl AeronImage {
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
                 fragment_limit.into(),
             );
             #[cfg(feature = "log-c-bindings")]
@@ -22617,11 +20750,7 @@ impl AeronImage {
             );
             let result = aeron_image_poll(
                 self.get_inner(),
-                Some(
-                    aeron_fragment_handler_t_callback_for_once_closure::<
-                        AeronFragmentHandlerHandlerImpl,
-                    >,
-                ),
+                Some(aeron_fragment_handler_t_callback_for_once_closure::<AeronFragmentHandlerHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
                 fragment_limit.into(),
             );
@@ -22644,9 +20773,7 @@ impl AeronImage {
     #[doc = " \n - `clientd` to pass to the handler."]
     #[doc = " \n - `fragment_limit` for the number of fragments to be consumed during one polling operation."]
     #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
-    pub fn controlled_poll<
-        AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback,
-    >(
+    pub fn controlled_poll<AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback>(
         &self,
         handler: Option<&Handler<AeronControlledFragmentHandlerHandlerImpl>>,
         fragment_limit: usize,
@@ -22658,12 +20785,7 @@ impl AeronImage {
                 stringify!(aeron_image_controlled_poll),
                 [
                     concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string(),
-                    concat!(
-                        "handler",
-                        ": ",
-                        stringify!(aeron_controlled_fragment_handler_t)
-                    )
-                    .to_string()
+                    concat!("handler", ": ", stringify!(aeron_controlled_fragment_handler_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -22673,17 +20795,11 @@ impl AeronImage {
                     let callback: aeron_controlled_fragment_handler_t = if handler.is_none() {
                         None
                     } else {
-                        Some(
-                            aeron_controlled_fragment_handler_t_callback::<
-                                AeronControlledFragmentHandlerHandlerImpl,
-                            >,
-                        )
+                        Some(aeron_controlled_fragment_handler_t_callback::<AeronControlledFragmentHandlerHandlerImpl>)
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
                 fragment_limit.into(),
             );
             #[cfg(feature = "log-c-bindings")]
@@ -22723,12 +20839,7 @@ impl AeronImage {
                 stringify!(aeron_image_controlled_poll),
                 [
                     concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string(),
-                    concat!(
-                        "handler",
-                        ": ",
-                        stringify!(aeron_controlled_fragment_handler_t)
-                    )
-                    .to_string()
+                    concat!("handler", ": ", stringify!(aeron_controlled_fragment_handler_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -22790,9 +20901,7 @@ impl AeronImage {
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
                 limit_position.into(),
                 fragment_limit.into(),
             );
@@ -22840,11 +20949,7 @@ impl AeronImage {
             );
             let result = aeron_image_bounded_poll(
                 self.get_inner(),
-                Some(
-                    aeron_fragment_handler_t_callback_for_once_closure::<
-                        AeronFragmentHandlerHandlerImpl,
-                    >,
-                ),
+                Some(aeron_fragment_handler_t_callback_for_once_closure::<AeronFragmentHandlerHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
                 limit_position.into(),
                 fragment_limit.into(),
@@ -22884,12 +20989,7 @@ impl AeronImage {
                 stringify!(aeron_image_bounded_controlled_poll),
                 [
                     concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string(),
-                    concat!(
-                        "handler",
-                        ": ",
-                        stringify!(aeron_controlled_fragment_handler_t)
-                    )
-                    .to_string(),
+                    concat!("handler", ": ", stringify!(aeron_controlled_fragment_handler_t)).to_string(),
                     concat!("clientd", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string()
                 ]
                 .join(", ")
@@ -22900,17 +21000,11 @@ impl AeronImage {
                     let callback: aeron_controlled_fragment_handler_t = if handler.is_none() {
                         None
                     } else {
-                        Some(
-                            aeron_controlled_fragment_handler_t_callback::<
-                                AeronControlledFragmentHandlerHandlerImpl,
-                            >,
-                        )
+                        Some(aeron_controlled_fragment_handler_t_callback::<AeronControlledFragmentHandlerHandlerImpl>)
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
                 limit_position.into(),
                 fragment_limit.into(),
             );
@@ -22953,12 +21047,7 @@ impl AeronImage {
                 stringify!(aeron_image_bounded_controlled_poll),
                 [
                     concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string(),
-                    concat!(
-                        "handler",
-                        ": ",
-                        stringify!(aeron_controlled_fragment_handler_t)
-                    )
-                    .to_string(),
+                    concat!("handler", ": ", stringify!(aeron_controlled_fragment_handler_t)).to_string(),
                     concat!("clientd", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string()
                 ]
                 .join(", ")
@@ -22995,9 +21084,7 @@ impl AeronImage {
     #[doc = " \n - `clientd` to pass to the handler."]
     #[doc = " \n - `limit_position` up to which can be scanned."]
     #[doc = " \n# Return\n the resulting position after the scan terminates which is a complete message or -1 for error."]
-    pub fn controlled_peek<
-        AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback,
-    >(
+    pub fn controlled_peek<AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback>(
         &self,
         initial_position: i64,
         handler: Option<&Handler<AeronControlledFragmentHandlerHandlerImpl>>,
@@ -23011,12 +21098,7 @@ impl AeronImage {
                 [
                     concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string(),
                     format!("{} = {:?}", "initial_position", initial_position),
-                    concat!(
-                        "handler",
-                        ": ",
-                        stringify!(aeron_controlled_fragment_handler_t)
-                    )
-                    .to_string()
+                    concat!("handler", ": ", stringify!(aeron_controlled_fragment_handler_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -23027,17 +21109,11 @@ impl AeronImage {
                     let callback: aeron_controlled_fragment_handler_t = if handler.is_none() {
                         None
                     } else {
-                        Some(
-                            aeron_controlled_fragment_handler_t_callback::<
-                                AeronControlledFragmentHandlerHandlerImpl,
-                            >,
-                        )
+                        Some(aeron_controlled_fragment_handler_t_callback::<AeronControlledFragmentHandlerHandlerImpl>)
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
                 limit_position.into(),
             );
             #[cfg(feature = "log-c-bindings")]
@@ -23077,12 +21153,7 @@ impl AeronImage {
                 [
                     concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string(),
                     format!("{} = {:?}", "initial_position", initial_position),
-                    concat!(
-                        "handler",
-                        ": ",
-                        stringify!(aeron_controlled_fragment_handler_t)
-                    )
-                    .to_string()
+                    concat!("handler", ": ", stringify!(aeron_controlled_fragment_handler_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -23143,9 +21214,7 @@ impl AeronImage {
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
                 block_length_limit.into(),
             );
             #[cfg(feature = "log-c-bindings")]
@@ -23194,9 +21263,7 @@ impl AeronImage {
             );
             let result = aeron_image_block_poll(
                 self.get_inner(),
-                Some(
-                    aeron_block_handler_t_callback_for_once_closure::<AeronBlockHandlerHandlerImpl>,
-                ),
+                Some(aeron_block_handler_t_callback_for_once_closure::<AeronBlockHandlerHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
                 block_length_limit.into(),
             );
@@ -23329,9 +21396,7 @@ pub struct AeronIovec {
 impl core::fmt::Debug for AeronIovec {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.inner.get().is_null() {
-            f.debug_struct(stringify!(AeronIovec))
-                .field("inner", &"null")
-                .finish()
+            f.debug_struct(stringify!(AeronIovec)).field("inner", &"null").finish()
         } else {
             f.debug_struct(stringify!(AeronIovec))
                 .field("inner", &self.inner)
@@ -23367,10 +21432,7 @@ impl AeronIovec {
         let resource = ManagedCResource::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(aeron_iovec_t)
-                );
+                log::info!("creating zeroed empty resource on heap {}", stringify!(aeron_iovec_t));
                 let inst: aeron_iovec_t = unsafe { std::mem::zeroed() };
                 let inner_ptr: *mut aeron_iovec_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
@@ -23390,10 +21452,7 @@ impl AeronIovec {
     #[doc = r" _(Use with care)_"]
     pub fn new_zeroed_on_stack() -> Self {
         #[cfg(feature = "extra-logging")]
-        log::debug!(
-            "creating zeroed empty resource on stack {}",
-            stringify!(aeron_iovec_t)
-        );
+        log::debug!("creating zeroed empty resource on stack {}", stringify!(aeron_iovec_t));
         Self {
             inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
         }
@@ -23602,11 +21661,7 @@ impl AeronIpcChannelParams {
         if self.channel_tag.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.channel_tag)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.channel_tag).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -23614,11 +21669,7 @@ impl AeronIpcChannelParams {
         if self.entity_tag.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.entity_tag)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.entity_tag).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -23626,11 +21677,7 @@ impl AeronIpcChannelParams {
         if self.control_mode.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.control_mode)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.control_mode).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -23886,15 +21933,9 @@ impl core::fmt::Debug for AeronLogbufferMetadata {
             f.debug_struct(stringify!(AeronLogbufferMetadata))
                 .field("inner", &self.inner)
                 .field(stringify!(active_term_count), &self.active_term_count())
-                .field(
-                    stringify!(end_of_stream_position),
-                    &self.end_of_stream_position(),
-                )
+                .field(stringify!(end_of_stream_position), &self.end_of_stream_position())
                 .field(stringify!(is_connected), &self.is_connected())
-                .field(
-                    stringify!(active_transport_count),
-                    &self.active_transport_count(),
-                )
+                .field(stringify!(active_transport_count), &self.active_transport_count())
                 .field(stringify!(correlation_id), &self.correlation_id())
                 .field(stringify!(initial_term_id), &self.initial_term_id())
                 .field(
@@ -23904,18 +21945,9 @@ impl core::fmt::Debug for AeronLogbufferMetadata {
                 .field(stringify!(mtu_length), &self.mtu_length())
                 .field(stringify!(term_length), &self.term_length())
                 .field(stringify!(page_size), &self.page_size())
-                .field(
-                    stringify!(publication_window_length),
-                    &self.publication_window_length(),
-                )
-                .field(
-                    stringify!(receiver_window_length),
-                    &self.receiver_window_length(),
-                )
-                .field(
-                    stringify!(socket_sndbuf_length),
-                    &self.socket_sndbuf_length(),
-                )
+                .field(stringify!(publication_window_length), &self.publication_window_length())
+                .field(stringify!(receiver_window_length), &self.receiver_window_length())
+                .field(stringify!(socket_sndbuf_length), &self.socket_sndbuf_length())
                 .field(
                     stringify!(os_default_socket_sndbuf_length),
                     &self.os_default_socket_sndbuf_length(),
@@ -23924,10 +21956,7 @@ impl core::fmt::Debug for AeronLogbufferMetadata {
                     stringify!(os_max_socket_sndbuf_length),
                     &self.os_max_socket_sndbuf_length(),
                 )
-                .field(
-                    stringify!(socket_rcvbuf_length),
-                    &self.socket_rcvbuf_length(),
-                )
+                .field(stringify!(socket_rcvbuf_length), &self.socket_rcvbuf_length())
                 .field(
                     stringify!(os_default_socket_rcvbuf_length),
                     &self.os_default_socket_rcvbuf_length(),
@@ -23938,10 +21967,7 @@ impl core::fmt::Debug for AeronLogbufferMetadata {
                 )
                 .field(stringify!(max_resend), &self.max_resend())
                 .field(stringify!(entity_tag), &self.entity_tag())
-                .field(
-                    stringify!(response_correlation_id),
-                    &self.response_correlation_id(),
-                )
+                .field(stringify!(response_correlation_id), &self.response_correlation_id())
                 .field(stringify!(linger_timeout_ns), &self.linger_timeout_ns())
                 .field(
                     stringify!(untethered_window_limit_timeout_ns),
@@ -24609,11 +22635,7 @@ impl core::fmt::Debug for AeronLossReporter {
 }
 impl AeronLossReporter {
     #[inline]
-    pub fn new(
-        buffer: *mut u8,
-        next_record_offset: usize,
-        capacity: usize,
-    ) -> Result<Self, AeronCError> {
+    pub fn new(buffer: *mut u8, next_record_offset: usize, capacity: usize) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::new(
             move |ctx_field| {
                 let inst = aeron_loss_reporter_t {
@@ -24691,17 +22713,11 @@ impl AeronLossReporter {
                 stringify!(aeron_loss_reporter_init),
                 [
                     concat!("reporter", ": ", stringify!(*mut aeron_loss_reporter_t)).to_string(),
-                    format!(
-                        "{}: {} (len={})",
-                        "buffer",
-                        stringify!(*mut u8),
-                        buffer.len()
-                    )
+                    format!("{}: {} (len={})", "buffer", stringify!(*mut u8), buffer.len())
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_loss_reporter_init(self.get_inner(), buffer.as_ptr() as *mut _, buffer.len());
+            let result = aeron_loss_reporter_init(self.get_inner(), buffer.as_ptr() as *mut _, buffer.len());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -24766,12 +22782,7 @@ impl AeronLossReporter {
                 stringify!(aeron_loss_reporter_record_observation),
                 [
                     concat!("reporter", ": ", stringify!(*mut aeron_loss_reporter_t)).to_string(),
-                    concat!(
-                        "offset",
-                        ": ",
-                        stringify!(aeron_loss_reporter_entry_offset_t)
-                    )
-                    .to_string(),
+                    concat!("offset", ": ", stringify!(aeron_loss_reporter_entry_offset_t)).to_string(),
                     format!("{} = {:?}", "bytes_lost", bytes_lost),
                     format!("{} = {:?}", "timestamp_ms", timestamp_ms)
                 ]
@@ -24800,18 +22811,9 @@ impl AeronLossReporter {
                 "{}({})",
                 stringify!(aeron_loss_reporter_resolve_filename),
                 [
-                    concat!("directory", ": ", stringify!(*const ::std::os::raw::c_char))
-                        .to_string(),
-                    concat!(
-                        "filename_buffer",
-                        ": ",
-                        stringify!(*mut ::std::os::raw::c_char)
-                    )
-                    .to_string(),
-                    format!(
-                        "{} = {:?}",
-                        "filename_buffer_length", filename_buffer_length
-                    )
+                    concat!("directory", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    concat!("filename_buffer", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
+                    format!("{} = {:?}", "filename_buffer_length", filename_buffer_length)
                 ]
                 .join(", ")
             );
@@ -24830,9 +22832,7 @@ impl AeronLossReporter {
         }
     }
     #[inline]
-    pub fn read<
-        AeronLossReporterReadEntryFuncHandlerImpl: AeronLossReporterReadEntryFuncCallback,
-    >(
+    pub fn read<AeronLossReporterReadEntryFuncHandlerImpl: AeronLossReporterReadEntryFuncCallback>(
         buffer: *const u8,
         capacity: usize,
         entry_func: Option<&Handler<AeronLossReporterReadEntryFuncHandlerImpl>>,
@@ -24845,12 +22845,7 @@ impl AeronLossReporter {
                 [
                     concat!("buffer", ": ", stringify!(*const u8)).to_string(),
                     format!("{} = {:?}", "capacity", capacity),
-                    concat!(
-                        "entry_func",
-                        ": ",
-                        stringify!(aeron_loss_reporter_read_entry_func_t)
-                    )
-                    .to_string()
+                    concat!("entry_func", ": ", stringify!(aeron_loss_reporter_read_entry_func_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -24862,16 +22857,12 @@ impl AeronLossReporter {
                         None
                     } else {
                         Some(
-                            aeron_loss_reporter_read_entry_func_t_callback::<
-                                AeronLossReporterReadEntryFuncHandlerImpl,
-                            >,
+                            aeron_loss_reporter_read_entry_func_t_callback::<AeronLossReporterReadEntryFuncHandlerImpl>,
                         )
                     };
                     callback
                 },
-                entry_func
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                entry_func.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -24898,12 +22889,7 @@ impl AeronLossReporter {
                 [
                     concat!("buffer", ": ", stringify!(*const u8)).to_string(),
                     format!("{} = {:?}", "capacity", capacity),
-                    concat!(
-                        "entry_func",
-                        ": ",
-                        stringify!(aeron_loss_reporter_read_entry_func_t)
-                    )
-                    .to_string()
+                    concat!("entry_func", ": ", stringify!(aeron_loss_reporter_read_entry_func_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -25307,11 +23293,7 @@ impl AeronMappedFile {
         self.length.into()
     }
     #[inline]
-    pub fn aeron_map_new_file(
-        &self,
-        path: &std::ffi::CStr,
-        fill_with_zeroes: bool,
-    ) -> Result<i32, AeronCError> {
+    pub fn aeron_map_new_file(&self, path: &std::ffi::CStr, fill_with_zeroes: bool) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -25324,8 +23306,7 @@ impl AeronMappedFile {
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_map_new_file(self.get_inner(), path.as_ptr(), fill_with_zeroes.into());
+            let result = aeron_map_new_file(self.get_inner(), path.as_ptr(), fill_with_zeroes.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -25365,8 +23346,7 @@ impl AeronMappedFile {
             log::info!(
                 "{}({})",
                 stringify!(aeron_unmap),
-                [concat!("mapped_file", ": ", stringify!(*mut aeron_mapped_file_t)).to_string()]
-                    .join(", ")
+                [concat!("mapped_file", ": ", stringify!(*mut aeron_mapped_file_t)).to_string()].join(", ")
             );
             let result = aeron_unmap(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -25598,12 +23578,7 @@ impl AeronMappedRawLog {
                 "{}({})",
                 stringify!(aeron_raw_log_map),
                 [
-                    concat!(
-                        "mapped_raw_log",
-                        ": ",
-                        stringify!(*mut aeron_mapped_raw_log_t)
-                    )
-                    .to_string(),
+                    concat!("mapped_raw_log", ": ", stringify!(*mut aeron_mapped_raw_log_t)).to_string(),
                     concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "use_sparse_files", use_sparse_files),
                     format!("{} = {:?}", "term_length", term_length),
@@ -25628,30 +23603,20 @@ impl AeronMappedRawLog {
         }
     }
     #[inline]
-    pub fn aeron_raw_log_map_existing(
-        &self,
-        path: &std::ffi::CStr,
-        pre_touch: bool,
-    ) -> Result<i32, AeronCError> {
+    pub fn aeron_raw_log_map_existing(&self, path: &std::ffi::CStr, pre_touch: bool) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_raw_log_map_existing),
                 [
-                    concat!(
-                        "mapped_raw_log",
-                        ": ",
-                        stringify!(*mut aeron_mapped_raw_log_t)
-                    )
-                    .to_string(),
+                    concat!("mapped_raw_log", ": ", stringify!(*mut aeron_mapped_raw_log_t)).to_string(),
                     concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "pre_touch", pre_touch)
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_raw_log_map_existing(self.get_inner(), path.as_ptr(), pre_touch.into());
+            let result = aeron_raw_log_map_existing(self.get_inner(), path.as_ptr(), pre_touch.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -25669,14 +23634,8 @@ impl AeronMappedRawLog {
                 "{}({})",
                 stringify!(aeron_raw_log_close),
                 [
-                    concat!(
-                        "mapped_raw_log",
-                        ": ",
-                        stringify!(*mut aeron_mapped_raw_log_t)
-                    )
-                    .to_string(),
-                    concat!("filename", ": ", stringify!(*const ::std::os::raw::c_char))
-                        .to_string()
+                    concat!("mapped_raw_log", ": ", stringify!(*mut aeron_mapped_raw_log_t)).to_string(),
+                    concat!("filename", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
             );
@@ -25698,14 +23657,8 @@ impl AeronMappedRawLog {
                 "{}({})",
                 stringify!(aeron_raw_log_free),
                 [
-                    concat!(
-                        "mapped_raw_log",
-                        ": ",
-                        stringify!(*mut aeron_mapped_raw_log_t)
-                    )
-                    .to_string(),
-                    concat!("filename", ": ", stringify!(*const ::std::os::raw::c_char))
-                        .to_string()
+                    concat!("mapped_raw_log", ": ", stringify!(*mut aeron_mapped_raw_log_t)).to_string(),
+                    concat!("filename", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
             );
@@ -26070,20 +24023,13 @@ impl AeronAvailableCounterPair {
                         let callback: aeron_on_available_counter_t = if handler.is_none() {
                             None
                         } else {
-                            Some(
-                                aeron_on_available_counter_t_callback::<
-                                    AeronAvailableCounterHandlerImpl,
-                                >,
-                            )
+                            Some(aeron_on_available_counter_t_callback::<AeronAvailableCounterHandlerImpl>)
                         };
                         callback
                     },
-                    clientd: handler
-                        .map(|m| m.as_raw())
-                        .unwrap_or_else(|| std::ptr::null_mut()),
+                    clientd: handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
                 };
-                let inner_ptr: *mut aeron_on_available_counter_pair_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_on_available_counter_pair_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -26106,8 +24052,7 @@ impl AeronAvailableCounterPair {
                     stringify!(aeron_on_available_counter_pair_t)
                 );
                 let inst: aeron_on_available_counter_pair_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_on_available_counter_pair_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_on_available_counter_pair_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -26279,9 +24224,7 @@ impl AeronCloseClientPair {
                         };
                         callback
                     },
-                    clientd: handler
-                        .map(|m| m.as_raw())
-                        .unwrap_or_else(|| std::ptr::null_mut()),
+                    clientd: handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
                 };
                 let inner_ptr: *mut aeron_on_close_client_pair_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
@@ -26474,20 +24417,13 @@ impl AeronUnavailableCounterPair {
                         let callback: aeron_on_unavailable_counter_t = if handler.is_none() {
                             None
                         } else {
-                            Some(
-                                aeron_on_unavailable_counter_t_callback::<
-                                    AeronUnavailableCounterHandlerImpl,
-                                >,
-                            )
+                            Some(aeron_on_unavailable_counter_t_callback::<AeronUnavailableCounterHandlerImpl>)
                         };
                         callback
                     },
-                    clientd: handler
-                        .map(|m| m.as_raw())
-                        .unwrap_or_else(|| std::ptr::null_mut()),
+                    clientd: handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
                 };
-                let inner_ptr: *mut aeron_on_unavailable_counter_pair_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_on_unavailable_counter_pair_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -26510,8 +24446,7 @@ impl AeronUnavailableCounterPair {
                     stringify!(aeron_on_unavailable_counter_pair_t)
                 );
                 let inst: aeron_on_unavailable_counter_pair_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_on_unavailable_counter_pair_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_on_unavailable_counter_pair_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -27053,19 +24988,10 @@ impl core::fmt::Debug for AeronPublicationConstants {
             f.debug_struct(stringify!(AeronPublicationConstants))
                 .field("inner", &self.inner)
                 .field(stringify!(channel), &self.channel())
-                .field(
-                    stringify!(original_registration_id),
-                    &self.original_registration_id(),
-                )
+                .field(stringify!(original_registration_id), &self.original_registration_id())
                 .field(stringify!(registration_id), &self.registration_id())
-                .field(
-                    stringify!(max_possible_position),
-                    &self.max_possible_position(),
-                )
-                .field(
-                    stringify!(position_bits_to_shift),
-                    &self.position_bits_to_shift(),
-                )
+                .field(stringify!(max_possible_position), &self.max_possible_position())
+                .field(stringify!(position_bits_to_shift), &self.position_bits_to_shift())
                 .field(stringify!(term_buffer_length), &self.term_buffer_length())
                 .field(stringify!(max_message_length), &self.max_message_length())
                 .field(stringify!(max_payload_length), &self.max_payload_length())
@@ -27172,11 +25098,7 @@ impl AeronPublicationConstants {
         if self.channel.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.channel)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.channel).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -27357,10 +25279,7 @@ impl core::fmt::Debug for AeronPublicationErrorValues {
                 .field(stringify!(address_type), &self.address_type())
                 .field(stringify!(source_port), &self.source_port())
                 .field(stringify!(error_code), &self.error_code())
-                .field(
-                    stringify!(error_message_length),
-                    &self.error_message_length(),
-                )
+                .field(stringify!(error_message_length), &self.error_message_length())
                 .finish()
         }
     }
@@ -27377,8 +25296,7 @@ impl AeronPublicationErrorValues {
                     stringify!(aeron_publication_error_values_t)
                 );
                 let inst: aeron_publication_error_values_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_publication_error_values_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_publication_error_values_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -27461,13 +25379,7 @@ impl AeronPublicationErrorValues {
             log::info!(
                 "{}({})",
                 stringify!(aeron_publication_error_values_delete),
-                [concat!(
-                    "to_delete",
-                    ": ",
-                    stringify!(*mut aeron_publication_error_values_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("to_delete", ": ", stringify!(*mut aeron_publication_error_values_t)).to_string()].join(", ")
             );
             let result = aeron_publication_error_values_delete(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -27613,12 +25525,7 @@ impl AeronPublication {
                 stringify!(aeron_publication_offer),
                 [
                     concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string(),
-                    format!(
-                        "{}: {} (len={})",
-                        "buffer",
-                        stringify!(*const u8),
-                        buffer.len()
-                    )
+                    format!("{}: {} (len={})", "buffer", stringify!(*const u8), buffer.len())
                 ]
                 .join(", ")
             );
@@ -27627,16 +25534,11 @@ impl AeronPublication {
                 buffer.as_ptr() as *mut _,
                 buffer.len(),
                 {
-                    let callback: aeron_reserved_value_supplier_t =
-                        if reserved_value_supplier.is_none() {
-                            None
-                        } else {
-                            Some(
-                                aeron_reserved_value_supplier_t_callback::<
-                                    AeronReservedValueSupplierHandlerImpl,
-                                >,
-                            )
-                        };
+                    let callback: aeron_reserved_value_supplier_t = if reserved_value_supplier.is_none() {
+                        None
+                    } else {
+                        Some(aeron_reserved_value_supplier_t_callback::<AeronReservedValueSupplierHandlerImpl>)
+                    };
                     callback
                 },
                 reserved_value_supplier
@@ -27672,12 +25574,7 @@ impl AeronPublication {
                 stringify!(aeron_publication_offer),
                 [
                     concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string(),
-                    format!(
-                        "{}: {} (len={})",
-                        "buffer",
-                        stringify!(*const u8),
-                        buffer.len()
-                    )
+                    format!("{}: {} (len={})", "buffer", stringify!(*const u8), buffer.len())
                 ]
                 .join(", ")
             );
@@ -27686,9 +25583,7 @@ impl AeronPublication {
                 buffer.as_ptr() as *mut _,
                 buffer.len(),
                 Some(
-                    aeron_reserved_value_supplier_t_callback_for_once_closure::<
-                        AeronReservedValueSupplierHandlerImpl,
-                    >,
+                    aeron_reserved_value_supplier_t_callback_for_once_closure::<AeronReservedValueSupplierHandlerImpl>,
                 ),
                 &mut reserved_value_supplier as *mut _ as *mut std::os::raw::c_void,
             );
@@ -27734,16 +25629,11 @@ impl AeronPublication {
                 iov.get_inner(),
                 iovcnt.into(),
                 {
-                    let callback: aeron_reserved_value_supplier_t =
-                        if reserved_value_supplier.is_none() {
-                            None
-                        } else {
-                            Some(
-                                aeron_reserved_value_supplier_t_callback::<
-                                    AeronReservedValueSupplierHandlerImpl,
-                                >,
-                            )
-                        };
+                    let callback: aeron_reserved_value_supplier_t = if reserved_value_supplier.is_none() {
+                        None
+                    } else {
+                        Some(aeron_reserved_value_supplier_t_callback::<AeronReservedValueSupplierHandlerImpl>)
+                    };
                     callback
                 },
                 reserved_value_supplier
@@ -27796,9 +25686,7 @@ impl AeronPublication {
                 iov.get_inner(),
                 iovcnt.into(),
                 Some(
-                    aeron_reserved_value_supplier_t_callback_for_once_closure::<
-                        AeronReservedValueSupplierHandlerImpl,
-                    >,
+                    aeron_reserved_value_supplier_t_callback_for_once_closure::<AeronReservedValueSupplierHandlerImpl>,
                 ),
                 &mut reserved_value_supplier as *mut _ as *mut std::os::raw::c_void,
             );
@@ -27839,16 +25727,11 @@ impl AeronPublication {
                 [
                     concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string(),
                     format!("{} = {:?}", "length", length),
-                    concat!("buffer_claim", ": ", stringify!(*mut aeron_buffer_claim_t))
-                        .to_string()
+                    concat!("buffer_claim", ": ", stringify!(*mut aeron_buffer_claim_t)).to_string()
                 ]
                 .join(", ")
             );
-            let result = aeron_publication_try_claim(
-                self.get_inner(),
-                length.into(),
-                buffer_claim.get_inner(),
-            );
+            let result = aeron_publication_try_claim(self.get_inner(), length.into(), buffer_claim.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -27866,8 +25749,7 @@ impl AeronPublication {
             log::info!(
                 "{}({})",
                 stringify!(aeron_publication_channel_status),
-                [concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string()]
-                    .join(", ")
+                [concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string()].join(", ")
             );
             let result = aeron_publication_channel_status(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -27885,8 +25767,7 @@ impl AeronPublication {
             log::info!(
                 "{}({})",
                 stringify!(aeron_publication_is_closed),
-                [concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string()]
-                    .join(", ")
+                [concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string()].join(", ")
             );
             let result = aeron_publication_is_closed(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -27904,8 +25785,7 @@ impl AeronPublication {
             log::info!(
                 "{}({})",
                 stringify!(aeron_publication_is_connected),
-                [concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string()]
-                    .join(", ")
+                [concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string()].join(", ")
             );
             let result = aeron_publication_is_connected(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -27927,12 +25807,7 @@ impl AeronPublication {
                 stringify!(aeron_publication_constants),
                 [
                     concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string(),
-                    concat!(
-                        "constants",
-                        ": ",
-                        stringify!(*mut aeron_publication_constants_t)
-                    )
-                    .to_string()
+                    concat!("constants", ": ", stringify!(*mut aeron_publication_constants_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -27964,8 +25839,7 @@ impl AeronPublication {
             log::info!(
                 "{}({})",
                 stringify!(aeron_publication_position),
-                [concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string()]
-                    .join(", ")
+                [concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string()].join(", ")
             );
             let result = aeron_publication_position(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -27985,8 +25859,7 @@ impl AeronPublication {
             log::info!(
                 "{}({})",
                 stringify!(aeron_publication_position_limit),
-                [concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string()]
-                    .join(", ")
+                [concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string()].join(", ")
             );
             let result = aeron_publication_position_limit(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -28016,8 +25889,7 @@ impl AeronPublication {
                 stringify!(aeron_publication_close),
                 [
                     concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t))
-                        .to_string()
+                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -28070,16 +25942,13 @@ impl AeronPublication {
                 stringify!(aeron_publication_close),
                 [
                     concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t))
-                        .to_string()
+                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
                 ]
                 .join(", ")
             );
             let result = aeron_publication_close(
                 self.get_inner(),
-                Some(
-                    aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>,
-                ),
+                Some(aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>),
                 &mut on_close_complete as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -28101,8 +25970,7 @@ impl AeronPublication {
             log::info!(
                 "{}({})",
                 stringify!(aeron_publication_channel),
-                [concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string()]
-                    .join(", ")
+                [concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string()].join(", ")
             );
             let result = aeron_publication_channel(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -28124,8 +25992,7 @@ impl AeronPublication {
             log::info!(
                 "{}({})",
                 stringify!(aeron_publication_stream_id),
-                [concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string()]
-                    .join(", ")
+                [concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string()].join(", ")
             );
             let result = aeron_publication_stream_id(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -28142,8 +26009,7 @@ impl AeronPublication {
             log::info!(
                 "{}({})",
                 stringify!(aeron_publication_session_id),
-                [concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string()]
-                    .join(", ")
+                [concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string()].join(", ")
             );
             let result = aeron_publication_session_id(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -28158,11 +26024,7 @@ impl AeronPublication {
     #[doc = " \n - `address_vec_len` available length of the vector to hold the addresses"]
     #[doc = " \n# Return\n number of addresses found or -1 if there is an error."]
     #[doc = " @see aeron_subscription_local_sockaddrs"]
-    pub fn local_sockaddrs(
-        &self,
-        address_vec: &AeronIovec,
-        address_vec_len: usize,
-    ) -> Result<i32, AeronCError> {
+    pub fn local_sockaddrs(&self, address_vec: &AeronIovec, address_vec_len: usize) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -28175,11 +26037,8 @@ impl AeronPublication {
                 ]
                 .join(", ")
             );
-            let result = aeron_publication_local_sockaddrs(
-                self.get_inner(),
-                address_vec.get_inner(),
-                address_vec_len.into(),
-            );
+            let result =
+                aeron_publication_local_sockaddrs(self.get_inner(), address_vec.get_inner(), address_vec_len.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -28204,18 +26063,13 @@ impl AeronPublication {
                 [
                     concat!("dst", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "length", length),
-                    concat!("aeron_dir", ": ", stringify!(*const ::std::os::raw::c_char))
-                        .to_string(),
+                    concat!("aeron_dir", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id)
                 ]
                 .join(", ")
             );
-            let result = aeron_publication_image_location(
-                dst.into(),
-                length.into(),
-                aeron_dir.as_ptr(),
-                correlation_id.into(),
-            );
+            let result =
+                aeron_publication_image_location(dst.into(), length.into(), aeron_dir.as_ptr(), correlation_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -28301,10 +26155,7 @@ impl AeronPublication {
 impl Drop for AeronPublication {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none())
-                && std::rc::Rc::strong_count(inner) == 1
-                && !inner.is_closed_already_called()
-            {
+            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
                 if inner.auto_close.get() {
                     log::info!("auto closing {self:?}");
                     let result = self.close_with_no_args();
@@ -28418,13 +26269,7 @@ impl AeronResolutionHeaderIpv4 {
             log::info!(
                 "{}({})",
                 stringify!(aeron_res_header_entry_length_ipv4),
-                [concat!(
-                    "header",
-                    ": ",
-                    stringify!(*mut aeron_resolution_header_ipv4_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("header", ": ", stringify!(*mut aeron_resolution_header_ipv4_t)).to_string()].join(", ")
             );
             let result = aeron_res_header_entry_length_ipv4(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -28638,13 +26483,7 @@ impl AeronResolutionHeaderIpv6 {
             log::info!(
                 "{}({})",
                 stringify!(aeron_res_header_entry_length_ipv6),
-                [concat!(
-                    "header",
-                    ": ",
-                    stringify!(*mut aeron_resolution_header_ipv6_t)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("header", ": ", stringify!(*mut aeron_resolution_header_ipv6_t)).to_string()].join(", ")
             );
             let result = aeron_res_header_entry_length_ipv6(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -28778,12 +26617,7 @@ impl core::fmt::Debug for AeronResolutionHeader {
 }
 impl AeronResolutionHeader {
     #[inline]
-    pub fn new(
-        res_type: i8,
-        res_flags: u8,
-        udp_port: u16,
-        age_in_ms: i32,
-    ) -> Result<Self, AeronCError> {
+    pub fn new(res_type: i8, res_flags: u8, udp_port: u16, age_in_ms: i32) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::new(
             move |ctx_field| {
                 let inst = aeron_resolution_header_t {
@@ -29649,10 +27483,7 @@ impl core::fmt::Debug for AeronStatusMessageHeader {
                 .field(stringify!(session_id), &self.session_id())
                 .field(stringify!(stream_id), &self.stream_id())
                 .field(stringify!(consumption_term_id), &self.consumption_term_id())
-                .field(
-                    stringify!(consumption_term_offset),
-                    &self.consumption_term_offset(),
-                )
+                .field(stringify!(consumption_term_offset), &self.consumption_term_offset())
                 .field(stringify!(receiver_window), &self.receiver_window())
                 .field(stringify!(receiver_id), &self.receiver_id())
                 .finish()
@@ -29913,8 +27744,7 @@ impl AeronStatusMessageOptionalHeader {
                 let inst = aeron_status_message_optional_header_t {
                     group_tag: group_tag.into(),
                 };
-                let inner_ptr: *mut aeron_status_message_optional_header_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_status_message_optional_header_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -29937,8 +27767,7 @@ impl AeronStatusMessageOptionalHeader {
                     stringify!(aeron_status_message_optional_header_t)
                 );
                 let inst: aeron_status_message_optional_header_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_status_message_optional_header_t =
-                    Box::into_raw(Box::new(inst));
+                let inner_ptr: *mut aeron_status_message_optional_header_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -30095,11 +27924,7 @@ impl core::fmt::Debug for AeronStrToPtrHashMapKey {
 }
 impl AeronStrToPtrHashMapKey {
     #[inline]
-    pub fn new(
-        str_: &std::ffi::CStr,
-        hash_code: u64,
-        str_length: usize,
-    ) -> Result<Self, AeronCError> {
+    pub fn new(str_: &std::ffi::CStr, hash_code: u64, str_length: usize) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::new(
             move |ctx_field| {
                 let inst = aeron_str_to_ptr_hash_map_key_t {
@@ -30595,11 +28420,7 @@ impl AeronSubscriptionConstants {
         if self.channel.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.channel)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.channel).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -30805,8 +28626,7 @@ impl AeronSubscription {
                 "{}({})",
                 stringify!(aeron_subscription_poll),
                 [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string(),
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
                     concat!("handler", ": ", stringify!(aeron_fragment_handler_t)).to_string()
                 ]
                 .join(", ")
@@ -30821,9 +28641,7 @@ impl AeronSubscription {
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
                 fragment_limit.into(),
             );
             #[cfg(feature = "log-c-bindings")]
@@ -30861,19 +28679,14 @@ impl AeronSubscription {
                 "{}({})",
                 stringify!(aeron_subscription_poll),
                 [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string(),
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
                     concat!("handler", ": ", stringify!(aeron_fragment_handler_t)).to_string()
                 ]
                 .join(", ")
             );
             let result = aeron_subscription_poll(
                 self.get_inner(),
-                Some(
-                    aeron_fragment_handler_t_callback_for_once_closure::<
-                        AeronFragmentHandlerHandlerImpl,
-                    >,
-                ),
+                Some(aeron_fragment_handler_t_callback_for_once_closure::<AeronFragmentHandlerHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
                 fragment_limit.into(),
             );
@@ -30899,9 +28712,7 @@ impl AeronSubscription {
     #[doc = "# Parameters\n \n - `handler` for handling each message fragment as it is read."]
     #[doc = " \n - `fragment_limit` number of message fragments to limit when polling across multiple images."]
     #[doc = " \n# Return\n the number of fragments received or -1 for error."]
-    pub fn controlled_poll<
-        AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback,
-    >(
+    pub fn controlled_poll<AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback>(
         &self,
         handler: Option<&Handler<AeronControlledFragmentHandlerHandlerImpl>>,
         fragment_limit: usize,
@@ -30912,14 +28723,8 @@ impl AeronSubscription {
                 "{}({})",
                 stringify!(aeron_subscription_controlled_poll),
                 [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string(),
-                    concat!(
-                        "handler",
-                        ": ",
-                        stringify!(aeron_controlled_fragment_handler_t)
-                    )
-                    .to_string()
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
+                    concat!("handler", ": ", stringify!(aeron_controlled_fragment_handler_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -30929,17 +28734,11 @@ impl AeronSubscription {
                     let callback: aeron_controlled_fragment_handler_t = if handler.is_none() {
                         None
                     } else {
-                        Some(
-                            aeron_controlled_fragment_handler_t_callback::<
-                                AeronControlledFragmentHandlerHandlerImpl,
-                            >,
-                        )
+                        Some(aeron_controlled_fragment_handler_t_callback::<AeronControlledFragmentHandlerHandlerImpl>)
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
                 fragment_limit.into(),
             );
             #[cfg(feature = "log-c-bindings")]
@@ -30981,14 +28780,8 @@ impl AeronSubscription {
                 "{}({})",
                 stringify!(aeron_subscription_controlled_poll),
                 [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string(),
-                    concat!(
-                        "handler",
-                        ": ",
-                        stringify!(aeron_controlled_fragment_handler_t)
-                    )
-                    .to_string()
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
+                    concat!("handler", ": ", stringify!(aeron_controlled_fragment_handler_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -31030,8 +28823,7 @@ impl AeronSubscription {
                 "{}({})",
                 stringify!(aeron_subscription_block_poll),
                 [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string(),
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
                     concat!("handler", ": ", stringify!(aeron_block_handler_t)).to_string()
                 ]
                 .join(", ")
@@ -31046,9 +28838,7 @@ impl AeronSubscription {
                     };
                     callback
                 },
-                handler
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
                 block_length_limit.into(),
             );
             #[cfg(feature = "log-c-bindings")]
@@ -31079,17 +28869,14 @@ impl AeronSubscription {
                 "{}({})",
                 stringify!(aeron_subscription_block_poll),
                 [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string(),
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
                     concat!("handler", ": ", stringify!(aeron_block_handler_t)).to_string()
                 ]
                 .join(", ")
             );
             let result = aeron_subscription_block_poll(
                 self.get_inner(),
-                Some(
-                    aeron_block_handler_t_callback_for_once_closure::<AeronBlockHandlerHandlerImpl>,
-                ),
+                Some(aeron_block_handler_t_callback_for_once_closure::<AeronBlockHandlerHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
                 block_length_limit.into(),
             );
@@ -31108,11 +28895,7 @@ impl AeronSubscription {
             log::info!(
                 "{}({})",
                 stringify!(aeron_subscription_is_connected),
-                [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string()
-                ]
-                .join(", ")
+                [concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string()].join(", ")
             );
             let result = aeron_subscription_is_connected(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -31133,14 +28916,8 @@ impl AeronSubscription {
                 "{}({})",
                 stringify!(aeron_subscription_constants),
                 [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string(),
-                    concat!(
-                        "constants",
-                        ": ",
-                        stringify!(*mut aeron_subscription_constants_t)
-                    )
-                    .to_string()
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
+                    concat!("constants", ": ", stringify!(*mut aeron_subscription_constants_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -31172,11 +28949,7 @@ impl AeronSubscription {
             log::info!(
                 "{}({})",
                 stringify!(aeron_subscription_image_count),
-                [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string()
-                ]
-                .join(", ")
+                [concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string()].join(", ")
             );
             let result = aeron_subscription_image_count(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -31203,14 +28976,12 @@ impl AeronSubscription {
                 "{}({})",
                 stringify!(aeron_subscription_image_by_session_id),
                 [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string(),
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
                     format!("{} = {:?}", "session_id", session_id)
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_subscription_image_by_session_id(self.get_inner(), session_id.into());
+            let result = aeron_subscription_image_by_session_id(self.get_inner(), session_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -31231,8 +29002,7 @@ impl AeronSubscription {
                 "{}({})",
                 stringify!(aeron_subscription_image_at_index),
                 [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string(),
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
                     format!("{} = {:?}", "index", index)
                 ]
                 .join(", ")
@@ -31261,17 +29031,13 @@ impl AeronSubscription {
                 "{}({})",
                 stringify!(aeron_subscription_for_each_image),
                 [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string(),
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
                     concat!(
                         "handler",
                         ": ",
                         stringify!(
                             ::std::option::Option<
-                                unsafe extern "C" fn(
-                                    image: *mut aeron_image_t,
-                                    clientd: *mut ::std::os::raw::c_void,
-                                ),
+                                unsafe extern "C" fn(image: *mut aeron_image_t, clientd: *mut ::std::os::raw::c_void),
                             >
                         )
                     )
@@ -31280,8 +29046,7 @@ impl AeronSubscription {
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_subscription_for_each_image(self.get_inner(), handler.into(), clientd.into());
+            let result = aeron_subscription_for_each_image(self.get_inner(), handler.into(), clientd.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -31303,8 +29068,7 @@ impl AeronSubscription {
                 "{}({})",
                 stringify!(aeron_subscription_image_retain),
                 [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string(),
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
                     concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string()
                 ]
                 .join(", ")
@@ -31334,8 +29098,7 @@ impl AeronSubscription {
                 "{}({})",
                 stringify!(aeron_subscription_image_release),
                 [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string(),
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
                     concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string()
                 ]
                 .join(", ")
@@ -31360,11 +29123,7 @@ impl AeronSubscription {
             log::info!(
                 "{}({})",
                 stringify!(aeron_subscription_is_closed),
-                [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string()
-                ]
-                .join(", ")
+                [concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string()].join(", ")
             );
             let result = aeron_subscription_is_closed(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -31384,11 +29143,7 @@ impl AeronSubscription {
             log::info!(
                 "{}({})",
                 stringify!(aeron_subscription_channel_status),
-                [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string()
-                ]
-                .join(", ")
+                [concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string()].join(", ")
             );
             let result = aeron_subscription_channel_status(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -31417,10 +29172,8 @@ impl AeronSubscription {
                 "{}({})",
                 stringify!(aeron_subscription_close),
                 [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t))
-                        .to_string()
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
+                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -31472,18 +29225,14 @@ impl AeronSubscription {
                 "{}({})",
                 stringify!(aeron_subscription_close),
                 [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t))
-                        .to_string()
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
+                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
                 ]
                 .join(", ")
             );
             let result = aeron_subscription_close(
                 self.get_inner(),
-                Some(
-                    aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>,
-                ),
+                Some(aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>),
                 &mut on_close_complete as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -31512,29 +29261,21 @@ impl AeronSubscription {
     #[doc = "# Parameters\n \n - `address_vec` to hold the received addresses"]
     #[doc = " \n - `address_vec_len` available length of the vector to hold the addresses"]
     #[doc = " \n# Return\n number of addresses found or -1 if there is an error."]
-    pub fn local_sockaddrs(
-        &self,
-        address_vec: &AeronIovec,
-        address_vec_len: usize,
-    ) -> Result<i32, AeronCError> {
+    pub fn local_sockaddrs(&self, address_vec: &AeronIovec, address_vec_len: usize) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_subscription_local_sockaddrs),
                 [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string(),
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
                     concat!("address_vec", ": ", stringify!(*mut aeron_iovec_t)).to_string(),
                     format!("{} = {:?}", "address_vec_len", address_vec_len)
                 ]
                 .join(", ")
             );
-            let result = aeron_subscription_local_sockaddrs(
-                self.get_inner(),
-                address_vec.get_inner(),
-                address_vec_len.into(),
-            );
+            let result =
+                aeron_subscription_local_sockaddrs(self.get_inner(), address_vec.get_inner(), address_vec_len.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -31552,29 +29293,20 @@ impl AeronSubscription {
     #[doc = "# Parameters\n \n - `address` for the received address"]
     #[doc = " \n - `address_len` available length for the copied address."]
     #[doc = " \n# Return\n -1 on error, 0 if address not found, 1 if address is found."]
-    pub fn resolved_endpoint(
-        &self,
-        address: &std::ffi::CStr,
-        address_len: usize,
-    ) -> Result<i32, AeronCError> {
+    pub fn resolved_endpoint(&self, address: &std::ffi::CStr, address_len: usize) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_subscription_resolved_endpoint),
                 [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string(),
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
                     concat!("address", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "address_len", address_len)
                 ]
                 .join(", ")
             );
-            let result = aeron_subscription_resolved_endpoint(
-                self.get_inner(),
-                address.as_ptr(),
-                address_len.into(),
-            );
+            let result = aeron_subscription_resolved_endpoint(self.get_inner(), address.as_ptr(), address_len.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -31605,18 +29337,14 @@ impl AeronSubscription {
                 "{}({})",
                 stringify!(aeron_subscription_try_resolve_channel_endpoint_port),
                 [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t))
-                        .to_string(),
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
                     concat!("uri", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "uri_len", uri_len)
                 ]
                 .join(", ")
             );
-            let result = aeron_subscription_try_resolve_channel_endpoint_port(
-                self.get_inner(),
-                uri.into(),
-                uri_len.into(),
-            );
+            let result =
+                aeron_subscription_try_resolve_channel_endpoint_port(self.get_inner(), uri.into(), uri_len.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -31636,10 +29364,7 @@ impl AeronSubscription {
     #[doc = " on a per key basis, so if the buffer was truncated before writing completed, it will only include the byte count up"]
     #[doc = " to the key that overflowed. However, the invariant that if the number returned >= uri_len, then output will have been"]
     #[doc = " truncated."]
-    pub fn try_resolve_channel_endpoint_port_as_string(
-        &self,
-        max_length: usize,
-    ) -> Result<String, AeronCError> {
+    pub fn try_resolve_channel_endpoint_port_as_string(&self, max_length: usize) -> Result<String, AeronCError> {
         let mut result = String::with_capacity(max_length);
         self.try_resolve_channel_endpoint_port_into(&mut result)?;
         Ok(result)
@@ -31663,8 +29388,7 @@ impl AeronSubscription {
             let capacity = dst_truncate_to_capacity.capacity();
             let vec = dst_truncate_to_capacity.as_mut_vec();
             vec.set_len(capacity);
-            let result =
-                self.try_resolve_channel_endpoint_port(vec.as_mut_ptr() as *mut _, capacity)?;
+            let result = self.try_resolve_channel_endpoint_port(vec.as_mut_ptr() as *mut _, capacity)?;
             let mut len = 0;
             loop {
                 if len == capacity {
@@ -31750,10 +29474,7 @@ impl AeronSubscription {
 impl Drop for AeronSubscription {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none())
-                && std::rc::Rc::strong_count(inner) == 1
-                && !inner.is_closed_already_called()
-            {
+            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
                 if inner.auto_close.get() {
                     log::info!("auto closing {self:?}");
                     let result = self.close_with_no_args();
@@ -31774,13 +29495,9 @@ pub struct Aeron {
 impl core::fmt::Debug for Aeron {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.inner.get().is_null() {
-            f.debug_struct(stringify!(Aeron))
-                .field("inner", &"null")
-                .finish()
+            f.debug_struct(stringify!(Aeron)).field("inner", &"null").finish()
         } else {
-            f.debug_struct(stringify!(Aeron))
-                .field("inner", &self.inner)
-                .finish()
+            f.debug_struct(stringify!(Aeron)).field("inner", &self.inner).finish()
         }
     }
 }
@@ -31810,8 +29527,7 @@ impl Aeron {
             Some(Box::new(move |ctx_field| unsafe {
                 #[cfg(feature = "log-c-bindings")]
                 {
-                    let log_args =
-                        [concat!("client", ": ", stringify!(*mut aeron_t)).to_string()].join(", ");
+                    let log_args = [concat!("client", ": ", stringify!(*mut aeron_t)).to_string()].join(", ");
                     log::info!("{}({})", stringify!(aeron_close), log_args);
                 }
                 aeron_close(*ctx_field)
@@ -31942,9 +29658,7 @@ impl Aeron {
     #[doc = "# Parameters\n \n - `stream_out` to call for each label and value."]
     pub fn print_counters(
         &self,
-        stream_out: ::std::option::Option<
-            unsafe extern "C" fn(arg1: *const ::std::os::raw::c_char),
-        >,
+        stream_out: ::std::option::Option<unsafe extern "C" fn(arg1: *const ::std::os::raw::c_char)>,
     ) -> () {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -31956,11 +29670,7 @@ impl Aeron {
                     concat!(
                         "stream_out",
                         ": ",
-                        stringify!(
-                            ::std::option::Option<
-                                unsafe extern "C" fn(arg1: *const ::std::os::raw::c_char),
-                            >
-                        )
+                        stringify!(::std::option::Option<unsafe extern "C" fn(arg1: *const ::std::os::raw::c_char)>)
                     )
                     .to_string()
                 ]
@@ -32039,10 +29749,7 @@ impl Aeron {
     #[doc = " won't be freed."]
     #[doc = ""]
     #[doc = " \n# Return\n 0 for success or -1 for error."]
-    pub fn async_add_publication_cancel(
-        &self,
-        async_: &AeronAsyncAddPublication,
-    ) -> Result<i32, AeronCError> {
+    pub fn async_add_publication_cancel(&self, async_: &AeronAsyncAddPublication) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -32050,12 +29757,7 @@ impl Aeron {
                 stringify!(aeron_async_add_publication_cancel),
                 [
                     concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
-                    concat!(
-                        "async_",
-                        ": ",
-                        stringify!(*mut aeron_async_add_publication_t)
-                    )
-                    .to_string()
+                    concat!("async_", ": ", stringify!(*mut aeron_async_add_publication_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -32106,9 +29808,7 @@ impl Aeron {
                     };
                     callback
                 },
-                on_complete
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                on_complete.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -32152,9 +29852,7 @@ impl Aeron {
             let result = aeron_async_remove_publication(
                 registration_id.into(),
                 self.get_inner(),
-                Some(
-                    aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>,
-                ),
+                Some(aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>),
                 &mut on_complete as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -32190,17 +29888,11 @@ impl Aeron {
                 stringify!(aeron_async_add_exclusive_publication_cancel),
                 [
                     concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
-                    concat!(
-                        "async_",
-                        ": ",
-                        stringify!(*mut aeron_async_add_exclusive_publication_t)
-                    )
-                    .to_string()
+                    concat!("async_", ": ", stringify!(*mut aeron_async_add_exclusive_publication_t)).to_string()
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_async_add_exclusive_publication_cancel(self.get_inner(), async_.get_inner());
+            let result = aeron_async_add_exclusive_publication_cancel(self.get_inner(), async_.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -32219,9 +29911,7 @@ impl Aeron {
     #[doc = " a separate thread, so the caller should ensure that clientd has the appropriate lifetime. Use NULL if not needed."]
     #[doc = " \n - `on_complete_clientd` parameter to pass to the on_complete callback."]
     #[doc = " \n# Return\n 0 for success or -1 for error."]
-    pub fn async_remove_exclusive_publication<
-        AeronNotificationHandlerImpl: AeronNotificationCallback,
-    >(
+    pub fn async_remove_exclusive_publication<AeronNotificationHandlerImpl: AeronNotificationCallback>(
         &self,
         registration_id: i64,
         on_complete: Option<&Handler<AeronNotificationHandlerImpl>>,
@@ -32249,9 +29939,7 @@ impl Aeron {
                     };
                     callback
                 },
-                on_complete
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                on_complete.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -32295,9 +29983,7 @@ impl Aeron {
             let result = aeron_async_remove_exclusive_publication(
                 registration_id.into(),
                 self.get_inner(),
-                Some(
-                    aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>,
-                ),
+                Some(aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>),
                 &mut on_complete as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -32322,10 +30008,7 @@ impl Aeron {
     #[doc = " won't be freed."]
     #[doc = ""]
     #[doc = " \n# Return\n 0 for success or -1 for error."]
-    pub fn async_add_subscription_cancel(
-        &self,
-        async_: &AeronAsyncAddSubscription,
-    ) -> Result<i32, AeronCError> {
+    pub fn async_add_subscription_cancel(&self, async_: &AeronAsyncAddSubscription) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -32333,12 +30016,7 @@ impl Aeron {
                 stringify!(aeron_async_add_subscription_cancel),
                 [
                     concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
-                    concat!(
-                        "async_",
-                        ": ",
-                        stringify!(*mut aeron_async_add_subscription_t)
-                    )
-                    .to_string()
+                    concat!("async_", ": ", stringify!(*mut aeron_async_add_subscription_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -32389,9 +30067,7 @@ impl Aeron {
                     };
                     callback
                 },
-                on_complete
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                on_complete.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -32435,9 +30111,7 @@ impl Aeron {
             let result = aeron_async_remove_subscription(
                 registration_id.into(),
                 self.get_inner(),
-                Some(
-                    aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>,
-                ),
+                Some(aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>),
                 &mut on_complete as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -32483,10 +30157,7 @@ impl Aeron {
     #[doc = " won't be freed."]
     #[doc = ""]
     #[doc = " \n# Return\n 0 for success or -1 for error."]
-    pub fn async_add_counter_cancel(
-        &self,
-        async_: &AeronAsyncAddCounter,
-    ) -> Result<i32, AeronCError> {
+    pub fn async_add_counter_cancel(&self, async_: &AeronAsyncAddCounter) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -32545,9 +30216,7 @@ impl Aeron {
                     };
                     callback
                 },
-                on_complete
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                on_complete.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -32591,9 +30260,7 @@ impl Aeron {
             let result = aeron_async_remove_counter(
                 registration_id.into(),
                 self.get_inner(),
-                Some(
-                    aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>,
-                ),
+                Some(aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>),
                 &mut on_complete as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -32612,10 +30279,7 @@ impl Aeron {
     #[doc = ""]
     #[doc = "# Parameters\n \n - `pair` holding the handler to call and a clientd to pass when called."]
     #[doc = " \n# Return\n 0 for success and -1 for error"]
-    pub fn add_available_counter_handler(
-        &self,
-        pair: &AeronAvailableCounterPair,
-    ) -> Result<i32, AeronCError> {
+    pub fn add_available_counter_handler(&self, pair: &AeronAvailableCounterPair) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -32623,12 +30287,7 @@ impl Aeron {
                 stringify!(aeron_add_available_counter_handler),
                 [
                     concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
-                    concat!(
-                        "pair",
-                        ": ",
-                        stringify!(*mut aeron_on_available_counter_pair_t)
-                    )
-                    .to_string()
+                    concat!("pair", ": ", stringify!(*mut aeron_on_available_counter_pair_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -32649,10 +30308,7 @@ impl Aeron {
     #[doc = ""]
     #[doc = "# Parameters\n \n - `pair` holding the handler to call and a clientd to pass when called."]
     #[doc = " \n# Return\n 0 for success and -1 for error"]
-    pub fn remove_available_counter_handler(
-        &self,
-        pair: &AeronAvailableCounterPair,
-    ) -> Result<i32, AeronCError> {
+    pub fn remove_available_counter_handler(&self, pair: &AeronAvailableCounterPair) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -32660,12 +30316,7 @@ impl Aeron {
                 stringify!(aeron_remove_available_counter_handler),
                 [
                     concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
-                    concat!(
-                        "pair",
-                        ": ",
-                        stringify!(*mut aeron_on_available_counter_pair_t)
-                    )
-                    .to_string()
+                    concat!("pair", ": ", stringify!(*mut aeron_on_available_counter_pair_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -32686,10 +30337,7 @@ impl Aeron {
     #[doc = ""]
     #[doc = "# Parameters\n \n - `pair` holding the handler to call and a clientd to pass when called."]
     #[doc = " \n# Return\n 0 for success and -1 for error"]
-    pub fn add_unavailable_counter_handler(
-        &self,
-        pair: &AeronUnavailableCounterPair,
-    ) -> Result<i32, AeronCError> {
+    pub fn add_unavailable_counter_handler(&self, pair: &AeronUnavailableCounterPair) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -32697,12 +30345,7 @@ impl Aeron {
                 stringify!(aeron_add_unavailable_counter_handler),
                 [
                     concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
-                    concat!(
-                        "pair",
-                        ": ",
-                        stringify!(*mut aeron_on_unavailable_counter_pair_t)
-                    )
-                    .to_string()
+                    concat!("pair", ": ", stringify!(*mut aeron_on_unavailable_counter_pair_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -32723,10 +30366,7 @@ impl Aeron {
     #[doc = ""]
     #[doc = "# Parameters\n \n - `pair` holding the handler to call and a clientd to pass when called."]
     #[doc = " \n# Return\n 0 for success and -1 for error"]
-    pub fn remove_unavailable_counter_handler(
-        &self,
-        pair: &AeronUnavailableCounterPair,
-    ) -> Result<i32, AeronCError> {
+    pub fn remove_unavailable_counter_handler(&self, pair: &AeronUnavailableCounterPair) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -32734,17 +30374,11 @@ impl Aeron {
                 stringify!(aeron_remove_unavailable_counter_handler),
                 [
                     concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
-                    concat!(
-                        "pair",
-                        ": ",
-                        stringify!(*mut aeron_on_unavailable_counter_pair_t)
-                    )
-                    .to_string()
+                    concat!("pair", ": ", stringify!(*mut aeron_on_unavailable_counter_pair_t)).to_string()
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_remove_unavailable_counter_handler(self.get_inner(), pair.get_inner());
+            let result = aeron_remove_unavailable_counter_handler(self.get_inner(), pair.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -32769,8 +30403,7 @@ impl Aeron {
                 stringify!(aeron_add_close_handler),
                 [
                     concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
-                    concat!("pair", ": ", stringify!(*mut aeron_on_close_client_pair_t))
-                        .to_string()
+                    concat!("pair", ": ", stringify!(*mut aeron_on_close_client_pair_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -32799,8 +30432,7 @@ impl Aeron {
                 stringify!(aeron_remove_close_handler),
                 [
                     concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
-                    concat!("pair", ": ", stringify!(*mut aeron_on_close_client_pair_t))
-                        .to_string()
+                    concat!("pair", ": ", stringify!(*mut aeron_on_close_client_pair_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -32859,11 +30491,7 @@ impl Aeron {
     pub fn version_major() -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_version_major),
-                [""; 0].join(", ")
-            );
+            log::info!("{}({})", stringify!(aeron_version_major), [""; 0].join(", "));
             let result = aeron_version_major();
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -32881,11 +30509,7 @@ impl Aeron {
     pub fn version_minor() -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_version_minor),
-                [""; 0].join(", ")
-            );
+            log::info!("{}({})", stringify!(aeron_version_minor), [""; 0].join(", "));
             let result = aeron_version_minor();
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -32903,11 +30527,7 @@ impl Aeron {
     pub fn version_patch() -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_version_patch),
-                [""; 0].join(", ")
-            );
+            log::info!("{}({})", stringify!(aeron_version_patch), [""; 0].join(", "));
             let result = aeron_version_patch();
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -32926,11 +30546,7 @@ impl Aeron {
     pub fn version_gitsha() -> &'static str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_version_gitsha),
-                [""; 0].join(", ")
-            );
+            log::info!("{}({})", stringify!(aeron_version_gitsha), [""; 0].join(", "));
             let result = aeron_version_gitsha();
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -32976,11 +30592,7 @@ impl Aeron {
     #[doc = " \n - `timeout_ms`  to use to determine activity for aeron directory"]
     #[doc = " \n - `log_func` to call during activity check to log diagnostic information."]
     #[doc = " \n# Return\n true for active driver or false for no active driver."]
-    pub fn is_driver_active(
-        dirname: &std::ffi::CStr,
-        timeout_ms: i64,
-        log_func: aeron_log_func_t,
-    ) -> bool {
+    pub fn is_driver_active(dirname: &std::ffi::CStr, timeout_ms: i64, log_func: aeron_log_func_t) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -32993,8 +30605,7 @@ impl Aeron {
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_is_driver_active(dirname.as_ptr(), timeout_ms.into(), log_func.into());
+            let result = aeron_is_driver_active(dirname.as_ptr(), timeout_ms.into(), log_func.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -33012,8 +30623,7 @@ impl Aeron {
             log::info!(
                 "{}({})",
                 stringify!(aeron_properties_buffer_load),
-                [concat!("buffer", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()]
-                    .join(", ")
+                [concat!("buffer", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
             );
             let result = aeron_properties_buffer_load(buffer.as_ptr());
             #[cfg(feature = "log-c-bindings")]
@@ -33037,11 +30647,7 @@ impl Aeron {
             log::info!(
                 "{}({})",
                 stringify!(aeron_properties_file_load),
-                [
-                    concat!("filename", ": ", stringify!(*const ::std::os::raw::c_char))
-                        .to_string()
-                ]
-                .join(", ")
+                [concat!("filename", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
             );
             let result = aeron_properties_file_load(filename.as_ptr());
             #[cfg(feature = "log-c-bindings")]
@@ -33065,8 +30671,7 @@ impl Aeron {
             log::info!(
                 "{}({})",
                 stringify!(aeron_properties_http_load),
-                [concat!("url", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()]
-                    .join(", ")
+                [concat!("url", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
             );
             let result = aeron_properties_http_load(url.as_ptr());
             #[cfg(feature = "log-c-bindings")]
@@ -33091,13 +30696,7 @@ impl Aeron {
             log::info!(
                 "{}({})",
                 stringify!(aeron_properties_load),
-                [concat!(
-                    "url_or_filename",
-                    ": ",
-                    stringify!(*const ::std::os::raw::c_char)
-                )
-                .to_string()]
-                .join(", ")
+                [concat!("url_or_filename", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
             );
             let result = aeron_properties_load(url_or_filename.as_ptr());
             #[cfg(feature = "log-c-bindings")]
@@ -33153,10 +30752,7 @@ impl Aeron {
     #[doc = " \n - `path_length` space available in the buffer"]
     #[doc = " \n# Return\n -1 if there is an issue or the number of bytes written to path excluding the terminator <code>\\0</code>. If this"]
     #[doc = " is equal to or greater than the path_length then the path has been truncated."]
-    pub fn default_path(
-        path: *mut ::std::os::raw::c_char,
-        path_length: usize,
-    ) -> Result<i32, AeronCError> {
+    pub fn default_path(path: *mut ::std::os::raw::c_char, path_length: usize) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -33250,8 +30846,7 @@ impl Aeron {
             log::info!(
                 "{}({})",
                 stringify!(aeron_thread_set_name),
-                [concat!("name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()]
-                    .join(", ")
+                [concat!("name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
             );
             let result = aeron_thread_set_name(name.as_ptr());
             #[cfg(feature = "log-c-bindings")]
@@ -33264,10 +30859,7 @@ impl Aeron {
         }
     }
     #[inline]
-    pub fn thread_get_name(
-        name_buf: *mut ::std::os::raw::c_char,
-        name_buf_size: usize,
-    ) -> Result<i32, AeronCError> {
+    pub fn thread_get_name(name_buf: *mut ::std::os::raw::c_char, name_buf_size: usize) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -33311,8 +30903,7 @@ impl Aeron {
             log::info!(
                 "{}({})",
                 stringify!(aeron_micro_sleep),
-                [concat!("microseconds", ": ", stringify!(::std::os::raw::c_uint)).to_string()]
-                    .join(", ")
+                [concat!("microseconds", ": ", stringify!(::std::os::raw::c_uint)).to_string()].join(", ")
             );
             let result = aeron_micro_sleep(microseconds.into());
             #[cfg(feature = "log-c-bindings")]
@@ -33321,10 +30912,7 @@ impl Aeron {
         }
     }
     #[inline]
-    pub fn thread_set_affinity(
-        name: &std::ffi::CStr,
-        cpu_affinity_no: u8,
-    ) -> Result<i32, AeronCError> {
+    pub fn thread_set_affinity(name: &std::ffi::CStr, cpu_affinity_no: u8) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -33426,11 +31014,7 @@ impl Aeron {
     pub fn randomised_int32() -> i32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_randomised_int32),
-                [""; 0].join(", ")
-            );
+            log::info!("{}({})", stringify!(aeron_randomised_int32), [""; 0].join(", "));
             let result = aeron_randomised_int32();
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -33475,20 +31059,14 @@ impl Aeron {
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_format_number_to_locale(value.into(), buffer.into(), buffer_len.into());
+            let result = aeron_format_number_to_locale(value.into(), buffer.into(), buffer_len.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
         }
     }
     #[inline]
-    pub fn format_to_hex(
-        str_: *mut ::std::os::raw::c_char,
-        str_length: usize,
-        data: *const u8,
-        data_len: usize,
-    ) -> () {
+    pub fn format_to_hex(str_: *mut ::std::os::raw::c_char, str_length: usize, data: *const u8, data_len: usize) -> () {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -33502,8 +31080,7 @@ impl Aeron {
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_format_to_hex(str_.into(), str_length.into(), data.into(), data_len.into());
+            let result = aeron_format_to_hex(str_.into(), str_length.into(), data.into(), data_len.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -33535,8 +31112,7 @@ impl Aeron {
             log::info!(
                 "{}({})",
                 stringify!(aeron_set_errno),
-                [concat!("errcode", ": ", stringify!(::std::os::raw::c_int)).to_string()]
-                    .join(", ")
+                [concat!("errcode", ": ", stringify!(::std::os::raw::c_int)).to_string()].join(", ")
             );
             let result = aeron_set_errno(errcode.into());
             #[cfg(feature = "log-c-bindings")]
@@ -33559,10 +31135,8 @@ impl Aeron {
                 stringify!(aeron_err_set),
                 [
                     concat!("errcode", ": ", stringify!(::std::os::raw::c_int)).to_string(),
-                    concat!("function", ": ", stringify!(*const ::std::os::raw::c_char))
-                        .to_string(),
-                    concat!("filename", ": ", stringify!(*const ::std::os::raw::c_char))
-                        .to_string(),
+                    concat!("function", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    concat!("filename", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     concat!("line_number", ": ", stringify!(::std::os::raw::c_int)).to_string(),
                     concat!("format", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
@@ -33593,10 +31167,8 @@ impl Aeron {
                 "{}({})",
                 stringify!(aeron_err_append),
                 [
-                    concat!("function", ": ", stringify!(*const ::std::os::raw::c_char))
-                        .to_string(),
-                    concat!("filename", ": ", stringify!(*const ::std::os::raw::c_char))
-                        .to_string(),
+                    concat!("function", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    concat!("filename", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     concat!("line_number", ": ", stringify!(::std::os::raw::c_int)).to_string(),
                     concat!("format", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
@@ -33631,8 +31203,7 @@ impl Aeron {
             log::info!(
                 "{}({})",
                 stringify!(aeron_free),
-                [concat!("ptr", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string()]
-                    .join(", ")
+                [concat!("ptr", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string()].join(", ")
             );
             let result = aeron_free(ptr.into());
             #[cfg(feature = "log-c-bindings")]
@@ -33641,10 +31212,7 @@ impl Aeron {
         }
     }
     #[inline]
-    pub fn res_header_entry_length(
-        res: *mut ::std::os::raw::c_void,
-        remaining: usize,
-    ) -> Result<i32, AeronCError> {
+    pub fn res_header_entry_length(res: *mut ::std::os::raw::c_void, remaining: usize) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -33711,8 +31279,7 @@ impl Aeron {
             log::info!(
                 "{}({})",
                 stringify!(aeron_is_directory),
-                [concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()]
-                    .join(", ")
+                [concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
             );
             let result = aeron_is_directory(path.as_ptr());
             #[cfg(feature = "log-c-bindings")]
@@ -33731,11 +31298,7 @@ impl Aeron {
             log::info!(
                 "{}({})",
                 stringify!(aeron_delete_directory),
-                [
-                    concat!("directory", ": ", stringify!(*const ::std::os::raw::c_char))
-                        .to_string()
-                ]
-                .join(", ")
+                [concat!("directory", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
             );
             let result = aeron_delete_directory(directory.as_ptr());
             #[cfg(feature = "log-c-bindings")]
@@ -33748,18 +31311,14 @@ impl Aeron {
         }
     }
     #[inline]
-    pub fn mkdir_recursive(
-        pathname: &std::ffi::CStr,
-        permission: ::std::os::raw::c_int,
-    ) -> Result<i32, AeronCError> {
+    pub fn mkdir_recursive(pathname: &std::ffi::CStr, permission: ::std::os::raw::c_int) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_mkdir_recursive),
                 [
-                    concat!("pathname", ": ", stringify!(*const ::std::os::raw::c_char))
-                        .to_string(),
+                    concat!("pathname", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     concat!("permission", ": ", stringify!(::std::os::raw::c_int)).to_string()
                 ]
                 .join(", ")
@@ -33804,8 +31363,7 @@ impl Aeron {
             log::info!(
                 "{}({})",
                 stringify!(aeron_delete_file),
-                [concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()]
-                    .join(", ")
+                [concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
             );
             let result = aeron_delete_file(path.as_ptr());
             #[cfg(feature = "log-c-bindings")]
@@ -33824,8 +31382,7 @@ impl Aeron {
             log::info!(
                 "{}({})",
                 stringify!(aeron_file_length),
-                [concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()]
-                    .join(", ")
+                [concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
             );
             let result = aeron_file_length(path.as_ptr());
             #[cfg(feature = "log-c-bindings")]
@@ -33840,8 +31397,7 @@ impl Aeron {
             log::info!(
                 "{}({})",
                 stringify!(aeron_usable_fs_space),
-                [concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()]
-                    .join(", ")
+                [concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
             );
             let result = aeron_usable_fs_space(path.as_ptr());
             #[cfg(feature = "log-c-bindings")]
@@ -33856,8 +31412,7 @@ impl Aeron {
             log::info!(
                 "{}({})",
                 stringify!(aeron_usable_fs_space_disabled),
-                [concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()]
-                    .join(", ")
+                [concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
             );
             let result = aeron_usable_fs_space_disabled(path.as_ptr());
             #[cfg(feature = "log-c-bindings")]
@@ -33880,18 +31435,13 @@ impl Aeron {
                 [
                     concat!("dst", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "length", length),
-                    concat!("aeron_dir", ": ", stringify!(*const ::std::os::raw::c_char))
-                        .to_string(),
+                    concat!("aeron_dir", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id)
                 ]
                 .join(", ")
             );
-            let result = aeron_ipc_publication_location(
-                dst.into(),
-                length.into(),
-                aeron_dir.as_ptr(),
-                correlation_id.into(),
-            );
+            let result =
+                aeron_ipc_publication_location(dst.into(), length.into(), aeron_dir.as_ptr(), correlation_id.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -33916,8 +31466,7 @@ impl Aeron {
                 [
                     concat!("dst", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "length", length),
-                    concat!("aeron_dir", ": ", stringify!(*const ::std::os::raw::c_char))
-                        .to_string(),
+                    concat!("aeron_dir", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "correlation_id", correlation_id)
                 ]
                 .join(", ")
@@ -33976,12 +31525,7 @@ impl Aeron {
                 ]
                 .join(", ")
             );
-            let result = aeron_file_resolve(
-                parent.as_ptr(),
-                child.as_ptr(),
-                buffer.into(),
-                buffer_len.into(),
-            );
+            let result = aeron_file_resolve(parent.as_ptr(), child.as_ptr(), buffer.into(), buffer_len.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -34158,11 +31702,7 @@ impl AeronUdpChannelParams {
         if self.endpoint.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.endpoint)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.endpoint).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -34170,11 +31710,7 @@ impl AeronUdpChannelParams {
         if self.bind_interface.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.bind_interface)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.bind_interface).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -34182,11 +31718,7 @@ impl AeronUdpChannelParams {
         if self.control.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.control)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.control).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -34194,11 +31726,7 @@ impl AeronUdpChannelParams {
         if self.control_mode.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.control_mode)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.control_mode).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -34206,11 +31734,7 @@ impl AeronUdpChannelParams {
         if self.channel_tag.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.channel_tag)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.channel_tag).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -34218,11 +31742,7 @@ impl AeronUdpChannelParams {
         if self.entity_tag.is_null() {
             ""
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(self.entity_tag)
-                    .to_str()
-                    .unwrap_or("")
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.entity_tag).to_str().unwrap_or("") }
         }
     }
     #[inline]
@@ -34627,10 +32147,7 @@ impl AeronUriParams {
     }
     #[inline]
     #[doc = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
-    pub fn aeron_uri_find_param_value(
-        uri_params: *const aeron_uri_params_t,
-        key: &std::ffi::CStr,
-    ) -> &'static str {
+    pub fn aeron_uri_find_param_value(uri_params: *const aeron_uri_params_t, key: &std::ffi::CStr) -> &'static str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -34678,11 +32195,7 @@ impl AeronUriParams {
         }
     }
     #[inline]
-    pub fn aeron_uri_get_int64(
-        &self,
-        key: &std::ffi::CStr,
-        default_val: i64,
-    ) -> Result<i64, AeronCError> {
+    pub fn aeron_uri_get_int64(&self, key: &std::ffi::CStr, default_val: i64) -> Result<i64, AeronCError> {
         unsafe {
             let mut mut_result: i64 = Default::default();
             #[cfg(feature = "log-c-bindings")]
@@ -34697,12 +32210,7 @@ impl AeronUriParams {
                 ]
                 .join(", ")
             );
-            let err_code = aeron_uri_get_int64(
-                self.get_inner(),
-                key.as_ptr(),
-                default_val.into(),
-                &mut mut_result,
-            );
+            let err_code = aeron_uri_get_int64(self.get_inner(), key.as_ptr(), default_val.into(), &mut mut_result);
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -34738,10 +32246,7 @@ impl AeronUriParams {
         }
     }
     #[inline]
-    pub fn aeron_uri_get_ats(
-        &self,
-        uri_ats_status: *mut aeron_uri_ats_status_t,
-    ) -> Result<i32, AeronCError> {
+    pub fn aeron_uri_get_ats(&self, uri_ats_status: *mut aeron_uri_ats_status_t) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -34749,12 +32254,7 @@ impl AeronUriParams {
                 stringify!(aeron_uri_get_ats),
                 [
                     concat!("uri_params", ": ", stringify!(*mut aeron_uri_params_t)).to_string(),
-                    concat!(
-                        "uri_ats_status",
-                        ": ",
-                        stringify!(*mut aeron_uri_ats_status_t)
-                    )
-                    .to_string()
+                    concat!("uri_ats_status", ": ", stringify!(*mut aeron_uri_ats_status_t)).to_string()
                 ]
                 .join(", ")
             );
@@ -34778,18 +32278,12 @@ impl AeronUriParams {
                 stringify!(aeron_uri_get_timeout),
                 [
                     concat!("uri_params", ": ", stringify!(*mut aeron_uri_params_t)).to_string(),
-                    concat!(
-                        "param_name",
-                        ": ",
-                        stringify!(*const ::std::os::raw::c_char)
-                    )
-                    .to_string(),
+                    concat!("param_name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     concat!("timeout_ns", ": ", stringify!(*mut u64)).to_string()
                 ]
                 .join(", ")
             );
-            let err_code =
-                aeron_uri_get_timeout(self.get_inner(), param_name.as_ptr(), &mut mut_result);
+            let err_code = aeron_uri_get_timeout(self.get_inner(), param_name.as_ptr(), &mut mut_result);
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
@@ -35035,11 +32529,7 @@ impl AeronUriStringBuilder {
             log::info!(
                 "{}({})",
                 stringify!(aeron_uri_string_builder_close),
-                [
-                    concat!("builder", ": ", stringify!(*mut aeron_uri_string_builder_t))
-                        .to_string()
-                ]
-                .join(", ")
+                [concat!("builder", ": ", stringify!(*mut aeron_uri_string_builder_t)).to_string()].join(", ")
             );
             let result = aeron_uri_string_builder_close(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
@@ -35059,15 +32549,13 @@ impl AeronUriStringBuilder {
                 "{}({})",
                 stringify!(aeron_uri_string_builder_put),
                 [
-                    concat!("builder", ": ", stringify!(*mut aeron_uri_string_builder_t))
-                        .to_string(),
+                    concat!("builder", ": ", stringify!(*mut aeron_uri_string_builder_t)).to_string(),
                     concat!("key", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     concat!("value", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_uri_string_builder_put(self.get_inner(), key.as_ptr(), value.as_ptr());
+            let result = aeron_uri_string_builder_put(self.get_inner(), key.as_ptr(), value.as_ptr());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -35085,15 +32573,13 @@ impl AeronUriStringBuilder {
                 "{}({})",
                 stringify!(aeron_uri_string_builder_put_int32),
                 [
-                    concat!("builder", ": ", stringify!(*mut aeron_uri_string_builder_t))
-                        .to_string(),
+                    concat!("builder", ": ", stringify!(*mut aeron_uri_string_builder_t)).to_string(),
                     concat!("key", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "value", value)
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_uri_string_builder_put_int32(self.get_inner(), key.as_ptr(), value.into());
+            let result = aeron_uri_string_builder_put_int32(self.get_inner(), key.as_ptr(), value.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -35111,15 +32597,13 @@ impl AeronUriStringBuilder {
                 "{}({})",
                 stringify!(aeron_uri_string_builder_put_int64),
                 [
-                    concat!("builder", ": ", stringify!(*mut aeron_uri_string_builder_t))
-                        .to_string(),
+                    concat!("builder", ": ", stringify!(*mut aeron_uri_string_builder_t)).to_string(),
                     concat!("key", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "value", value)
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_uri_string_builder_put_int64(self.get_inner(), key.as_ptr(), value.into());
+            let result = aeron_uri_string_builder_put_int64(self.get_inner(), key.as_ptr(), value.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -35137,8 +32621,7 @@ impl AeronUriStringBuilder {
                 "{}({})",
                 stringify!(aeron_uri_string_builder_get),
                 [
-                    concat!("builder", ": ", stringify!(*mut aeron_uri_string_builder_t))
-                        .to_string(),
+                    concat!("builder", ": ", stringify!(*mut aeron_uri_string_builder_t)).to_string(),
                     concat!("key", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
@@ -35154,26 +32637,20 @@ impl AeronUriStringBuilder {
         }
     }
     #[inline]
-    pub fn sprint(
-        &self,
-        buffer: *mut ::std::os::raw::c_char,
-        buffer_len: usize,
-    ) -> Result<i32, AeronCError> {
+    pub fn sprint(&self, buffer: *mut ::std::os::raw::c_char, buffer_len: usize) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_uri_string_builder_sprint),
                 [
-                    concat!("builder", ": ", stringify!(*mut aeron_uri_string_builder_t))
-                        .to_string(),
+                    concat!("builder", ": ", stringify!(*mut aeron_uri_string_builder_t)).to_string(),
                     concat!("buffer", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
                     format!("{} = {:?}", "buffer_len", buffer_len)
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_uri_string_builder_sprint(self.get_inner(), buffer.into(), buffer_len.into());
+            let result = aeron_uri_string_builder_sprint(self.get_inner(), buffer.into(), buffer_len.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -35225,8 +32702,7 @@ impl AeronUriStringBuilder {
                 "{}({})",
                 stringify!(aeron_uri_string_builder_set_initial_position),
                 [
-                    concat!("builder", ": ", stringify!(*mut aeron_uri_string_builder_t))
-                        .to_string(),
+                    concat!("builder", ": ", stringify!(*mut aeron_uri_string_builder_t)).to_string(),
                     format!("{} = {:?}", "position", position),
                     format!("{} = {:?}", "initial_term_id", initial_term_id),
                     format!("{} = {:?}", "term_length", term_length)
@@ -35330,9 +32806,7 @@ pub struct AeronUri {
 impl core::fmt::Debug for AeronUri {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.inner.get().is_null() {
-            f.debug_struct(stringify!(AeronUri))
-                .field("inner", &"null")
-                .finish()
+            f.debug_struct(stringify!(AeronUri)).field("inner", &"null").finish()
         } else {
             f.debug_struct(stringify!(AeronUri))
                 .field("inner", &self.inner)
@@ -35372,10 +32846,7 @@ impl AeronUri {
         let resource = ManagedCResource::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(aeron_uri_t)
-                );
+                log::info!("creating zeroed empty resource on heap {}", stringify!(aeron_uri_t));
                 let inst: aeron_uri_t = unsafe { std::mem::zeroed() };
                 let inner_ptr: *mut aeron_uri_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
@@ -35395,10 +32866,7 @@ impl AeronUri {
     #[doc = r" _(Use with care)_"]
     pub fn new_zeroed_on_stack() -> Self {
         #[cfg(feature = "extra-logging")]
-        log::debug!(
-            "creating zeroed empty resource on stack {}",
-            stringify!(aeron_uri_t)
-        );
+        log::debug!("creating zeroed empty resource on stack {}", stringify!(aeron_uri_t));
         Self {
             inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
         }
@@ -35437,15 +32905,11 @@ impl AeronUri {
                     let callback: aeron_uri_parse_callback_t = if param_func.is_none() {
                         None
                     } else {
-                        Some(
-                            aeron_uri_parse_callback_t_callback::<AeronUriParseCallbackHandlerImpl>,
-                        )
+                        Some(aeron_uri_parse_callback_t_callback::<AeronUriParseCallbackHandlerImpl>)
                     };
                     callback
                 },
-                param_func
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
+                param_func.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -35461,9 +32925,7 @@ impl AeronUri {
     #[doc = r""]
     #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
     #[doc = r"  use with care_"]
-    pub fn parse_params_once<
-        AeronUriParseCallbackHandlerImpl: FnMut(&str, &str) -> ::std::os::raw::c_int,
-    >(
+    pub fn parse_params_once<AeronUriParseCallbackHandlerImpl: FnMut(&str, &str) -> ::std::os::raw::c_int>(
         uri: *mut ::std::os::raw::c_char,
         mut param_func: AeronUriParseCallbackHandlerImpl,
     ) -> Result<i32, AeronCError> {
@@ -35480,11 +32942,7 @@ impl AeronUri {
             );
             let result = aeron_uri_parse_params(
                 uri.into(),
-                Some(
-                    aeron_uri_parse_callback_t_callback_for_once_closure::<
-                        AeronUriParseCallbackHandlerImpl,
-                    >,
-                ),
+                Some(aeron_uri_parse_callback_t_callback_for_once_closure::<AeronUriParseCallbackHandlerImpl>),
                 &mut param_func as *mut _ as *mut std::os::raw::c_void,
             );
             #[cfg(feature = "log-c-bindings")]
@@ -35554,11 +33012,7 @@ impl AeronUri {
         }
     }
     #[inline]
-    pub fn sprint(
-        &self,
-        buffer: *mut ::std::os::raw::c_char,
-        buffer_len: usize,
-    ) -> Result<i32, AeronCError> {
+    pub fn sprint(&self, buffer: *mut ::std::os::raw::c_char, buffer_len: usize) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -35617,8 +33071,7 @@ impl AeronUri {
             log::info!(
                 "{}({})",
                 stringify!(aeron_uri_parse_tag),
-                [concat!("tag_str", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()]
-                    .join(", ")
+                [concat!("tag_str", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
             );
             let result = aeron_uri_parse_tag(tag_str.as_ptr());
             #[cfg(feature = "log-c-bindings")]
@@ -35690,10 +33143,7 @@ impl From<aeron_uri_t> for AeronUri {
 impl Drop for AeronUri {
     fn drop(&mut self) {
         if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none())
-                && std::rc::Rc::strong_count(inner) == 1
-                && !inner.is_closed_already_called()
-            {
+            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
                 if inner.auto_close.get() {
                     log::info!("auto closing {self:?}");
                     let result = self.close();
@@ -35818,9 +33268,7 @@ unsafe extern "C" fn aeron_error_handler_t_callback<F: AeronErrorHandlerCallback
 }
 #[allow(dead_code)]
 #[doc = "The error handler to be called when an error occurs."]
-unsafe extern "C" fn aeron_error_handler_t_callback_for_once_closure<
-    F: FnMut(::std::os::raw::c_int, &str) -> (),
->(
+unsafe extern "C" fn aeron_error_handler_t_callback_for_once_closure<F: FnMut(::std::os::raw::c_int, &str) -> ()>(
     clientd: *mut ::std::os::raw::c_void,
     errcode: ::std::os::raw::c_int,
     message: *const ::std::os::raw::c_char,
@@ -35864,17 +33312,11 @@ unsafe extern "C" fn aeron_error_handler_t_callback_for_once_closure<
 #[doc = r""]
 #[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
 pub trait AeronPublicationErrorFrameHandlerCallback {
-    fn handle_aeron_publication_error_frame_handler(
-        &mut self,
-        error_frame: AeronPublicationErrorValues,
-    ) -> ();
+    fn handle_aeron_publication_error_frame_handler(&mut self, error_frame: AeronPublicationErrorValues) -> ();
 }
 pub struct AeronPublicationErrorFrameHandlerLogger;
 impl AeronPublicationErrorFrameHandlerCallback for AeronPublicationErrorFrameHandlerLogger {
-    fn handle_aeron_publication_error_frame_handler(
-        &mut self,
-        error_frame: AeronPublicationErrorValues,
-    ) -> () {
+    fn handle_aeron_publication_error_frame_handler(&mut self, error_frame: AeronPublicationErrorValues) -> () {
         log::info!(
             "{}({}\n)",
             stringify!(handle_aeron_publication_error_frame_handler),
@@ -35887,8 +33329,8 @@ unsafe impl Send for AeronPublicationErrorFrameHandlerLogger {}
 unsafe impl Sync for AeronPublicationErrorFrameHandlerLogger {}
 impl Handlers {
     #[doc = r" No handler is set i.e. None with correct type"]
-    pub fn no_publication_error_frame_handler_handler(
-    ) -> Option<&'static Handler<AeronPublicationErrorFrameHandlerLogger>> {
+    pub fn no_publication_error_frame_handler_handler()
+    -> Option<&'static Handler<AeronPublicationErrorFrameHandlerLogger>> {
         None::<&Handler<AeronPublicationErrorFrameHandlerLogger>>
     }
 }
@@ -35896,9 +33338,7 @@ impl Handlers {
 #[doc = "The error frame handler to be called when the driver notifies the client about an error frame being received."]
 #[doc = " The data passed to this callback will only be valid for the lifetime of the callback. The user should use"]
 #[doc = " <code>aeron_publication_error_values_copy</code> if they require the data to live longer than that."]
-unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback<
-    F: AeronPublicationErrorFrameHandlerCallback,
->(
+unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback<F: AeronPublicationErrorFrameHandlerCallback>(
     clientd: *mut ::std::os::raw::c_void,
     error_frame: *mut aeron_publication_error_values_t,
 ) -> () {
@@ -35908,10 +33348,7 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback<
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!(
-            "calling {}",
-            stringify!(handle_aeron_publication_error_frame_handler)
-        );
+        log::debug!("calling {}", stringify!(handle_aeron_publication_error_frame_handler));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -35970,11 +33407,7 @@ pub trait AeronNotificationCallback {
 pub struct AeronNotificationLogger;
 impl AeronNotificationCallback for AeronNotificationLogger {
     fn handle_aeron_notification(&mut self) -> () {
-        log::info!(
-            "{}({}\n)",
-            stringify!(handle_aeron_notification),
-            [""].join(", "),
-        );
+        log::info!("{}({}\n)", stringify!(handle_aeron_notification), [""].join(", "),);
         ()
     }
 }
@@ -36019,10 +33452,7 @@ unsafe extern "C" fn aeron_notification_t_callback_for_once_closure<F: FnMut() -
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!(
-            "calling {}",
-            stringify!(aeron_notification_t_callback_for_once_closure)
-        );
+        log::debug!("calling {}", stringify!(aeron_notification_t_callback_for_once_closure));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -36148,9 +33578,7 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback<F: AeronNewPublicationC
 #[doc = " @param stream_id within the channel of the publication"]
 #[doc = " @param session_id of the publication"]
 #[doc = " @param correlation_id used by the publication"]
-unsafe extern "C" fn aeron_on_new_publication_t_callback_for_once_closure<
-    F: FnMut(&str, i32, i32, i64) -> (),
->(
+unsafe extern "C" fn aeron_on_new_publication_t_callback_for_once_closure<F: FnMut(&str, i32, i32, i64) -> ()>(
     clientd: *mut ::std::os::raw::c_void,
     channel: *const ::std::os::raw::c_char,
     stream_id: i32,
@@ -36207,21 +33635,11 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback_for_once_closure<
 #[doc = r""]
 #[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
 pub trait AeronNewSubscriptionCallback {
-    fn handle_aeron_on_new_subscription(
-        &mut self,
-        channel: &str,
-        stream_id: i32,
-        correlation_id: i64,
-    ) -> ();
+    fn handle_aeron_on_new_subscription(&mut self, channel: &str, stream_id: i32, correlation_id: i64) -> ();
 }
 pub struct AeronNewSubscriptionLogger;
 impl AeronNewSubscriptionCallback for AeronNewSubscriptionLogger {
-    fn handle_aeron_on_new_subscription(
-        &mut self,
-        channel: &str,
-        stream_id: i32,
-        correlation_id: i64,
-    ) -> () {
+    fn handle_aeron_on_new_subscription(&mut self, channel: &str, stream_id: i32, correlation_id: i64) -> () {
         log::info!(
             "{}({}\n)",
             stringify!(handle_aeron_on_new_subscription),
@@ -36302,9 +33720,7 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback<F: AeronNewSubscriptio
 #[doc = " @param stream_id within the channel of the subscription"]
 #[doc = " @param session_id of the subscription"]
 #[doc = " @param correlation_id used by the subscription"]
-unsafe extern "C" fn aeron_on_new_subscription_t_callback_for_once_closure<
-    F: FnMut(&str, i32, i64) -> (),
->(
+unsafe extern "C" fn aeron_on_new_subscription_t_callback_for_once_closure<F: FnMut(&str, i32, i64) -> ()>(
     clientd: *mut ::std::os::raw::c_void,
     channel: *const ::std::os::raw::c_char,
     stream_id: i32,
@@ -36353,19 +33769,11 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback_for_once_closure<
 #[doc = r""]
 #[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
 pub trait AeronAvailableImageCallback {
-    fn handle_aeron_on_available_image(
-        &mut self,
-        subscription: AeronSubscription,
-        image: AeronImage,
-    ) -> ();
+    fn handle_aeron_on_available_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> ();
 }
 pub struct AeronAvailableImageLogger;
 impl AeronAvailableImageCallback for AeronAvailableImageLogger {
-    fn handle_aeron_on_available_image(
-        &mut self,
-        subscription: AeronSubscription,
-        image: AeronImage,
-    ) -> () {
+    fn handle_aeron_on_available_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> () {
         log::info!(
             "{}({}\n)",
             stringify!(handle_aeron_on_available_image),
@@ -36467,19 +33875,11 @@ unsafe extern "C" fn aeron_on_available_image_t_callback_for_once_closure<
 #[doc = r""]
 #[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
 pub trait AeronUnavailableImageCallback {
-    fn handle_aeron_on_unavailable_image(
-        &mut self,
-        subscription: AeronSubscription,
-        image: AeronImage,
-    ) -> ();
+    fn handle_aeron_on_unavailable_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> ();
 }
 pub struct AeronUnavailableImageLogger;
 impl AeronUnavailableImageCallback for AeronUnavailableImageLogger {
-    fn handle_aeron_on_unavailable_image(
-        &mut self,
-        subscription: AeronSubscription,
-        image: AeronImage,
-    ) -> () {
+    fn handle_aeron_on_unavailable_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> () {
         log::info!(
             "{}({}\n)",
             stringify!(handle_aeron_on_unavailable_image),
@@ -36653,11 +34053,7 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback<F: AeronAvailableCoun
         .join(", ")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
-    closure.handle_aeron_on_available_counter(
-        counters_reader.into(),
-        registration_id.into(),
-        counter_id.into(),
-    )
+    closure.handle_aeron_on_available_counter(counters_reader.into(), registration_id.into(), counter_id.into())
 }
 #[allow(dead_code)]
 #[doc = "Function called by aeron_client_t to deliver notifications that a counter has been added to the driver."]
@@ -36698,11 +34094,7 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback_for_once_closure<
         .join(", ")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
-    closure(
-        counters_reader.into(),
-        registration_id.into(),
-        counter_id.into(),
-    )
+    closure(counters_reader.into(), registration_id.into(), counter_id.into())
 }
 #[doc = "Function called by aeron_client_t to deliver notifications that a counter has been removed from the driver."]
 #[doc = ""]
@@ -36746,8 +34138,7 @@ unsafe impl Send for AeronUnavailableCounterLogger {}
 unsafe impl Sync for AeronUnavailableCounterLogger {}
 impl Handlers {
     #[doc = r" No handler is set i.e. None with correct type"]
-    pub fn no_unavailable_counter_handler(
-    ) -> Option<&'static Handler<AeronUnavailableCounterLogger>> {
+    pub fn no_unavailable_counter_handler() -> Option<&'static Handler<AeronUnavailableCounterLogger>> {
         None::<&Handler<AeronUnavailableCounterLogger>>
     }
 }
@@ -36770,10 +34161,7 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback<F: AeronUnavailable
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!(
-            "calling {}",
-            stringify!(handle_aeron_on_unavailable_counter)
-        );
+        log::debug!("calling {}", stringify!(handle_aeron_on_unavailable_counter));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -36788,11 +34176,7 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback<F: AeronUnavailable
         .join(", ")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
-    closure.handle_aeron_on_unavailable_counter(
-        counters_reader.into(),
-        registration_id.into(),
-        counter_id.into(),
-    )
+    closure.handle_aeron_on_unavailable_counter(counters_reader.into(), registration_id.into(), counter_id.into())
 }
 #[allow(dead_code)]
 #[doc = "Function called by aeron_client_t to deliver notifications that a counter has been removed from the driver."]
@@ -36833,11 +34217,7 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback_for_once_closure<
         .join(", ")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
-    closure(
-        counters_reader.into(),
-        registration_id.into(),
-        counter_id.into(),
-    )
+    closure(counters_reader.into(), registration_id.into(), counter_id.into())
 }
 #[doc = "Function called by aeron_client_t to deliver notifications that the client is closing."]
 #[doc = ""]
@@ -36851,11 +34231,7 @@ pub trait AeronCloseClientCallback {
 pub struct AeronCloseClientLogger;
 impl AeronCloseClientCallback for AeronCloseClientLogger {
     fn handle_aeron_on_close_client(&mut self) -> () {
-        log::info!(
-            "{}({}\n)",
-            stringify!(handle_aeron_on_close_client),
-            [""].join(", "),
-        );
+        log::info!("{}({}\n)", stringify!(handle_aeron_on_close_client), [""].join(", "),);
         ()
     }
 }
@@ -37055,8 +34431,8 @@ unsafe impl Send for AeronCountersReaderForeachCounterFuncLogger {}
 unsafe impl Sync for AeronCountersReaderForeachCounterFuncLogger {}
 impl Handlers {
     #[doc = r" No handler is set i.e. None with correct type"]
-    pub fn no_counters_reader_foreach_counter_func_handler(
-    ) -> Option<&'static Handler<AeronCountersReaderForeachCounterFuncLogger>> {
+    pub fn no_counters_reader_foreach_counter_func_handler()
+    -> Option<&'static Handler<AeronCountersReaderForeachCounterFuncLogger>> {
         None::<&Handler<AeronCountersReaderForeachCounterFuncLogger>>
     }
 }
@@ -37203,16 +34579,11 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback_for_o
 #[doc = r""]
 #[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
 pub trait AeronReservedValueSupplierCallback {
-    fn handle_aeron_reserved_value_supplier(&mut self, buffer: *mut u8, frame_length: usize)
-        -> i64;
+    fn handle_aeron_reserved_value_supplier(&mut self, buffer: *mut u8, frame_length: usize) -> i64;
 }
 pub struct AeronReservedValueSupplierLogger;
 impl AeronReservedValueSupplierCallback for AeronReservedValueSupplierLogger {
-    fn handle_aeron_reserved_value_supplier(
-        &mut self,
-        buffer: *mut u8,
-        frame_length: usize,
-    ) -> i64 {
+    fn handle_aeron_reserved_value_supplier(&mut self, buffer: *mut u8, frame_length: usize) -> i64 {
         log::info!(
             "{}({}\n)",
             stringify!(handle_aeron_reserved_value_supplier),
@@ -37229,8 +34600,7 @@ unsafe impl Send for AeronReservedValueSupplierLogger {}
 unsafe impl Sync for AeronReservedValueSupplierLogger {}
 impl Handlers {
     #[doc = r" No handler is set i.e. None with correct type"]
-    pub fn no_reserved_value_supplier_handler(
-    ) -> Option<&'static Handler<AeronReservedValueSupplierLogger>> {
+    pub fn no_reserved_value_supplier_handler() -> Option<&'static Handler<AeronReservedValueSupplierLogger>> {
         None::<&Handler<AeronReservedValueSupplierLogger>>
     }
 }
@@ -37240,9 +34610,7 @@ impl Handlers {
 #[doc = " @param clientd passed to the offer function."]
 #[doc = " @param buffer of the entire frame, including Aeron data header."]
 #[doc = " @param frame_length of the entire frame."]
-unsafe extern "C" fn aeron_reserved_value_supplier_t_callback<
-    F: AeronReservedValueSupplierCallback,
->(
+unsafe extern "C" fn aeron_reserved_value_supplier_t_callback<F: AeronReservedValueSupplierCallback>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *mut u8,
     frame_length: usize,
@@ -37253,10 +34621,7 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback<
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!(
-            "calling {}",
-            stringify!(handle_aeron_reserved_value_supplier)
-        );
+        log::debug!("calling {}", stringify!(handle_aeron_reserved_value_supplier));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -37278,9 +34643,7 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback<
 #[doc = " @param clientd passed to the offer function."]
 #[doc = " @param buffer of the entire frame, including Aeron data header."]
 #[doc = " @param frame_length of the entire frame."]
-unsafe extern "C" fn aeron_reserved_value_supplier_t_callback_for_once_closure<
-    F: FnMut(*mut u8, usize) -> i64,
->(
+unsafe extern "C" fn aeron_reserved_value_supplier_t_callback_for_once_closure<F: FnMut(*mut u8, usize) -> i64>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *mut u8,
     frame_length: usize,
@@ -37404,9 +34767,7 @@ unsafe extern "C" fn aeron_fragment_handler_t_callback<F: AeronFragmentHandlerCa
 #[doc = " @param buffer containing the data."]
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
-unsafe extern "C" fn aeron_fragment_handler_t_callback_for_once_closure<
-    F: FnMut(&[u8], AeronHeader) -> (),
->(
+unsafe extern "C" fn aeron_fragment_handler_t_callback_for_once_closure<F: FnMut(&[u8], AeronHeader) -> ()>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
     length: usize,
@@ -37488,8 +34849,7 @@ unsafe impl Send for AeronControlledFragmentHandlerLogger {}
 unsafe impl Sync for AeronControlledFragmentHandlerLogger {}
 impl Handlers {
     #[doc = r" No handler is set i.e. None with correct type"]
-    pub fn no_controlled_fragment_handler_handler(
-    ) -> Option<&'static Handler<AeronControlledFragmentHandlerLogger>> {
+    pub fn no_controlled_fragment_handler_handler() -> Option<&'static Handler<AeronControlledFragmentHandlerLogger>> {
         None::<&Handler<AeronControlledFragmentHandlerLogger>>
     }
 }
@@ -37504,9 +34864,7 @@ impl Handlers {
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
 #[doc = " @return The action to be taken with regard to the stream position after the callback."]
-unsafe extern "C" fn aeron_controlled_fragment_handler_t_callback<
-    F: AeronControlledFragmentHandlerCallback,
->(
+unsafe extern "C" fn aeron_controlled_fragment_handler_t_callback<F: AeronControlledFragmentHandlerCallback>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
     length: usize,
@@ -37518,10 +34876,7 @@ unsafe extern "C" fn aeron_controlled_fragment_handler_t_callback<
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!(
-            "calling {}",
-            stringify!(handle_aeron_controlled_fragment_handler)
-        );
+        log::debug!("calling {}", stringify!(handle_aeron_controlled_fragment_handler));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -37692,9 +35047,7 @@ unsafe extern "C" fn aeron_block_handler_t_callback<F: AeronBlockHandlerCallback
 #[doc = " @param length of the block in bytes, including any frame headers that is aligned."]
 #[doc = " @param session_id of the stream containing this block of message fragments."]
 #[doc = " @param term_id of the stream containing this block of message fragments."]
-unsafe extern "C" fn aeron_block_handler_t_callback_for_once_closure<
-    F: FnMut(&[u8], i32, i32) -> (),
->(
+unsafe extern "C" fn aeron_block_handler_t_callback_for_once_closure<F: FnMut(&[u8], i32, i32) -> ()>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
     length: usize,
@@ -37761,11 +35114,7 @@ impl AeronErrorLogReaderFuncCallback for AeronErrorLogReaderFuncLogger {
             "{}({}\n)",
             stringify!(handle_aeron_error_log_reader_func),
             [
-                format!(
-                    "{} : {:?}",
-                    stringify!(observation_count),
-                    observation_count
-                ),
+                format!("{} : {:?}", stringify!(observation_count), observation_count),
                 format!(
                     "{} : {:?}",
                     stringify!(first_observation_timestamp),
@@ -37787,8 +35136,7 @@ unsafe impl Send for AeronErrorLogReaderFuncLogger {}
 unsafe impl Sync for AeronErrorLogReaderFuncLogger {}
 impl Handlers {
     #[doc = r" No handler is set i.e. None with correct type"]
-    pub fn no_error_log_reader_func_handler(
-    ) -> Option<&'static Handler<AeronErrorLogReaderFuncLogger>> {
+    pub fn no_error_log_reader_func_handler() -> Option<&'static Handler<AeronErrorLogReaderFuncLogger>> {
         None::<&Handler<AeronErrorLogReaderFuncLogger>>
     }
 }
@@ -37814,11 +35162,7 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback<F: AeronErrorLogRead
         "{}({}\n)",
         stringify!(aeron_error_log_reader_func_t_callback),
         [
-            format!(
-                "{} = {:?}",
-                stringify!(observation_count),
-                observation_count
-            ),
+            format!("{} = {:?}", stringify!(observation_count), observation_count),
             format!(
                 "{} = {:?}",
                 stringify!(first_observation_timestamp),
@@ -37851,9 +35195,7 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback<F: AeronErrorLogRead
     )
 }
 #[allow(dead_code)]
-unsafe extern "C" fn aeron_error_log_reader_func_t_callback_for_once_closure<
-    F: FnMut(i32, i64, i64, &str) -> (),
->(
+unsafe extern "C" fn aeron_error_log_reader_func_t_callback_for_once_closure<F: FnMut(i32, i64, i64, &str) -> ()>(
     observation_count: i32,
     first_observation_timestamp: i64,
     last_observation_timestamp: i64,
@@ -37877,11 +35219,7 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback_for_once_closure<
         "{}({}\n)",
         stringify!(aeron_error_log_reader_func_t_callback_for_once_closure),
         [
-            format!(
-                "{} = {:?}",
-                stringify!(observation_count),
-                observation_count
-            ),
+            format!("{} = {:?}", stringify!(observation_count), observation_count),
             format!(
                 "{} = {:?}",
                 stringify!(first_observation_timestamp),
@@ -37946,11 +35284,7 @@ impl AeronLossReporterReadEntryFuncCallback for AeronLossReporterReadEntryFuncLo
             "{}({}\n)",
             stringify!(handle_aeron_loss_reporter_read_entry_func),
             [
-                format!(
-                    "{} : {:?}",
-                    stringify!(observation_count),
-                    observation_count
-                ),
+                format!("{} : {:?}", stringify!(observation_count), observation_count),
                 format!("{} : {:?}", stringify!(total_bytes_lost), total_bytes_lost),
                 format!(
                     "{} : {:?}",
@@ -37976,15 +35310,13 @@ unsafe impl Send for AeronLossReporterReadEntryFuncLogger {}
 unsafe impl Sync for AeronLossReporterReadEntryFuncLogger {}
 impl Handlers {
     #[doc = r" No handler is set i.e. None with correct type"]
-    pub fn no_loss_reporter_read_entry_func_handler(
-    ) -> Option<&'static Handler<AeronLossReporterReadEntryFuncLogger>> {
+    pub fn no_loss_reporter_read_entry_func_handler() -> Option<&'static Handler<AeronLossReporterReadEntryFuncLogger>>
+    {
         None::<&Handler<AeronLossReporterReadEntryFuncLogger>>
     }
 }
 #[allow(dead_code)]
-unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback<
-    F: AeronLossReporterReadEntryFuncCallback,
->(
+unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback<F: AeronLossReporterReadEntryFuncCallback>(
     clientd: *mut ::std::os::raw::c_void,
     observation_count: i64,
     total_bytes_lost: i64,
@@ -38003,10 +35335,7 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback<
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!(
-            "calling {}",
-            stringify!(handle_aeron_loss_reporter_read_entry_func)
-        );
+        log::debug!("calling {}", stringify!(handle_aeron_loss_reporter_read_entry_func));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -38014,11 +35343,7 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback<
         stringify!(aeron_loss_reporter_read_entry_func_t_callback),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
-            format!(
-                "{} = {:?}",
-                stringify!(observation_count),
-                observation_count
-            ),
+            format!("{} = {:?}", stringify!(observation_count), observation_count),
             format!("{} = {:?}", stringify!(total_bytes_lost), total_bytes_lost),
             format!(
                 "{} = {:?}",
@@ -38098,11 +35423,7 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback_for_once_clo
         stringify!(aeron_loss_reporter_read_entry_func_t_callback_for_once_closure),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
-            format!(
-                "{} = {:?}",
-                stringify!(observation_count),
-                observation_count
-            ),
+            format!("{} = {:?}", stringify!(observation_count), observation_count),
             format!("{} = {:?}", stringify!(total_bytes_lost), total_bytes_lost),
             format!(
                 "{} = {:?}",
@@ -38170,8 +35491,7 @@ unsafe impl Send for AeronIdleStrategyFuncLogger {}
 unsafe impl Sync for AeronIdleStrategyFuncLogger {}
 impl Handlers {
     #[doc = r" No handler is set i.e. None with correct type"]
-    pub fn no_idle_strategy_func_handler() -> Option<&'static Handler<AeronIdleStrategyFuncLogger>>
-    {
+    pub fn no_idle_strategy_func_handler() -> Option<&'static Handler<AeronIdleStrategyFuncLogger>> {
         None::<&Handler<AeronIdleStrategyFuncLogger>>
     }
 }
@@ -38202,9 +35522,7 @@ unsafe extern "C" fn aeron_idle_strategy_func_t_callback<F: AeronIdleStrategyFun
     closure.handle_aeron_idle_strategy_func(work_count.into())
 }
 #[allow(dead_code)]
-unsafe extern "C" fn aeron_idle_strategy_func_t_callback_for_once_closure<
-    F: FnMut(::std::os::raw::c_int) -> (),
->(
+unsafe extern "C" fn aeron_idle_strategy_func_t_callback_for_once_closure<F: FnMut(::std::os::raw::c_int) -> ()>(
     state: *mut ::std::os::raw::c_void,
     work_count: ::std::os::raw::c_int,
 ) -> () {
@@ -38262,8 +35580,8 @@ unsafe impl Send for AeronArchiveCredentialsEncodedCredentialsSupplierFuncLogger
 unsafe impl Sync for AeronArchiveCredentialsEncodedCredentialsSupplierFuncLogger {}
 impl Handlers {
     #[doc = r" No handler is set i.e. None with correct type"]
-    pub fn no_archive_credentials_encoded_credentials_supplier_func_handler(
-    ) -> Option<&'static Handler<AeronArchiveCredentialsEncodedCredentialsSupplierFuncLogger>> {
+    pub fn no_archive_credentials_encoded_credentials_supplier_func_handler()
+    -> Option<&'static Handler<AeronArchiveCredentialsEncodedCredentialsSupplierFuncLogger>> {
         None::<&Handler<AeronArchiveCredentialsEncodedCredentialsSupplierFuncLogger>>
     }
 }
@@ -38311,14 +35629,15 @@ unsafe extern "C" fn aeron_archive_credentials_encoded_credentials_supplier_func
     }
     #[cfg(feature = "extra-logging")]
     {
-        log :: debug ! ("calling {}" , stringify ! (aeron_archive_credentials_encoded_credentials_supplier_func_t_callback_for_once_closure));
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_archive_credentials_encoded_credentials_supplier_func_t_callback_for_once_closure)
+        );
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
         "{}({}\n)",
-        stringify!(
-            aeron_archive_credentials_encoded_credentials_supplier_func_t_callback_for_once_closure
-        ),
+        stringify!(aeron_archive_credentials_encoded_credentials_supplier_func_t_callback_for_once_closure),
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
@@ -38338,9 +35657,7 @@ pub trait AeronArchiveCredentialsChallengeSupplierFuncCallback {
     ) -> *mut aeron_archive_encoded_credentials_t;
 }
 pub struct AeronArchiveCredentialsChallengeSupplierFuncLogger;
-impl AeronArchiveCredentialsChallengeSupplierFuncCallback
-    for AeronArchiveCredentialsChallengeSupplierFuncLogger
-{
+impl AeronArchiveCredentialsChallengeSupplierFuncCallback for AeronArchiveCredentialsChallengeSupplierFuncLogger {
     fn handle_aeron_archive_credentials_challenge_supplier_func(
         &mut self,
         encoded_challenge: AeronArchiveEncodedCredentials,
@@ -38348,12 +35665,7 @@ impl AeronArchiveCredentialsChallengeSupplierFuncCallback
         log::info!(
             "{}({}\n)",
             stringify!(handle_aeron_archive_credentials_challenge_supplier_func),
-            [format!(
-                "{} : {:?}",
-                stringify!(encoded_challenge),
-                encoded_challenge
-            )]
-            .join(", "),
+            [format!("{} : {:?}", stringify!(encoded_challenge), encoded_challenge)].join(", "),
         );
         unimplemented!()
     }
@@ -38362,8 +35674,8 @@ unsafe impl Send for AeronArchiveCredentialsChallengeSupplierFuncLogger {}
 unsafe impl Sync for AeronArchiveCredentialsChallengeSupplierFuncLogger {}
 impl Handlers {
     #[doc = r" No handler is set i.e. None with correct type"]
-    pub fn no_archive_credentials_challenge_supplier_func_handler(
-    ) -> Option<&'static Handler<AeronArchiveCredentialsChallengeSupplierFuncLogger>> {
+    pub fn no_archive_credentials_challenge_supplier_func_handler()
+    -> Option<&'static Handler<AeronArchiveCredentialsChallengeSupplierFuncLogger>> {
         None::<&Handler<AeronArchiveCredentialsChallengeSupplierFuncLogger>>
     }
 }
@@ -38394,11 +35706,7 @@ unsafe extern "C" fn aeron_archive_credentials_challenge_supplier_func_t_callbac
         "{}({}\n)",
         stringify!(aeron_archive_credentials_challenge_supplier_func_t_callback),
         [
-            format!(
-                "{} = {:?}",
-                stringify!(encoded_challenge),
-                encoded_challenge
-            ),
+            format!("{} = {:?}", stringify!(encoded_challenge), encoded_challenge),
             format!("{} = {:?}", stringify!(clientd), clientd)
         ]
         .join(", ")
@@ -38425,9 +35733,7 @@ unsafe extern "C" fn aeron_archive_credentials_challenge_supplier_func_t_callbac
     {
         log::debug!(
             "calling {}",
-            stringify!(
-                aeron_archive_credentials_challenge_supplier_func_t_callback_for_once_closure
-            )
+            stringify!(aeron_archive_credentials_challenge_supplier_func_t_callback_for_once_closure)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -38435,11 +35741,7 @@ unsafe extern "C" fn aeron_archive_credentials_challenge_supplier_func_t_callbac
         "{}({}\n)",
         stringify!(aeron_archive_credentials_challenge_supplier_func_t_callback_for_once_closure),
         [
-            format!(
-                "{} = {:?}",
-                stringify!(encoded_challenge),
-                encoded_challenge
-            ),
+            format!("{} = {:?}", stringify!(encoded_challenge), encoded_challenge),
             format!("{} = {:?}", stringify!(clientd), clientd)
         ]
         .join(", ")
@@ -38454,17 +35756,11 @@ unsafe extern "C" fn aeron_archive_credentials_challenge_supplier_func_t_callbac
 #[doc = r""]
 #[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
 pub trait AeronArchiveCredentialsFreeFuncCallback {
-    fn handle_aeron_archive_credentials_free_func(
-        &mut self,
-        credentials: AeronArchiveEncodedCredentials,
-    ) -> ();
+    fn handle_aeron_archive_credentials_free_func(&mut self, credentials: AeronArchiveEncodedCredentials) -> ();
 }
 pub struct AeronArchiveCredentialsFreeFuncLogger;
 impl AeronArchiveCredentialsFreeFuncCallback for AeronArchiveCredentialsFreeFuncLogger {
-    fn handle_aeron_archive_credentials_free_func(
-        &mut self,
-        credentials: AeronArchiveEncodedCredentials,
-    ) -> () {
+    fn handle_aeron_archive_credentials_free_func(&mut self, credentials: AeronArchiveEncodedCredentials) -> () {
         log::info!(
             "{}({}\n)",
             stringify!(handle_aeron_archive_credentials_free_func),
@@ -38477,8 +35773,8 @@ unsafe impl Send for AeronArchiveCredentialsFreeFuncLogger {}
 unsafe impl Sync for AeronArchiveCredentialsFreeFuncLogger {}
 impl Handlers {
     #[doc = r" No handler is set i.e. None with correct type"]
-    pub fn no_archive_credentials_free_func_handler(
-    ) -> Option<&'static Handler<AeronArchiveCredentialsFreeFuncLogger>> {
+    pub fn no_archive_credentials_free_func_handler() -> Option<&'static Handler<AeronArchiveCredentialsFreeFuncLogger>>
+    {
         None::<&Handler<AeronArchiveCredentialsFreeFuncLogger>>
     }
 }
@@ -38486,9 +35782,7 @@ impl Handlers {
 #[doc = "Callback to return encoded credentials so they may be reused or freed."]
 #[doc = ""]
 #[doc = " @param credentials to reuse or free"]
-unsafe extern "C" fn aeron_archive_credentials_free_func_t_callback<
-    F: AeronArchiveCredentialsFreeFuncCallback,
->(
+unsafe extern "C" fn aeron_archive_credentials_free_func_t_callback<F: AeronArchiveCredentialsFreeFuncCallback>(
     credentials: *mut aeron_archive_encoded_credentials_t,
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
@@ -38498,10 +35792,7 @@ unsafe extern "C" fn aeron_archive_credentials_free_func_t_callback<
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!(
-            "calling {}",
-            stringify!(handle_aeron_archive_credentials_free_func)
-        );
+        log::debug!("calling {}", stringify!(handle_aeron_archive_credentials_free_func));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -38572,16 +35863,14 @@ unsafe impl Send for AeronArchiveDelegatingInvokerFuncLogger {}
 unsafe impl Sync for AeronArchiveDelegatingInvokerFuncLogger {}
 impl Handlers {
     #[doc = r" No handler is set i.e. None with correct type"]
-    pub fn no_archive_delegating_invoker_func_handler(
-    ) -> Option<&'static Handler<AeronArchiveDelegatingInvokerFuncLogger>> {
+    pub fn no_archive_delegating_invoker_func_handler()
+    -> Option<&'static Handler<AeronArchiveDelegatingInvokerFuncLogger>> {
         None::<&Handler<AeronArchiveDelegatingInvokerFuncLogger>>
     }
 }
 #[allow(dead_code)]
 #[doc = "Callback to allow execution of a delegating invoker to be run."]
-unsafe extern "C" fn aeron_archive_delegating_invoker_func_t_callback<
-    F: AeronArchiveDelegatingInvokerFuncCallback,
->(
+unsafe extern "C" fn aeron_archive_delegating_invoker_func_t_callback<F: AeronArchiveDelegatingInvokerFuncCallback>(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
     #[cfg(debug_assertions)]
@@ -38590,10 +35879,7 @@ unsafe extern "C" fn aeron_archive_delegating_invoker_func_t_callback<
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!(
-            "calling {}",
-            stringify!(handle_aeron_archive_delegating_invoker_func)
-        );
+        log::debug!("calling {}", stringify!(handle_aeron_archive_delegating_invoker_func));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -38606,9 +35892,7 @@ unsafe extern "C" fn aeron_archive_delegating_invoker_func_t_callback<
 }
 #[allow(dead_code)]
 #[doc = "Callback to allow execution of a delegating invoker to be run."]
-unsafe extern "C" fn aeron_archive_delegating_invoker_func_t_callback_for_once_closure<
-    F: FnMut() -> (),
->(
+unsafe extern "C" fn aeron_archive_delegating_invoker_func_t_callback_for_once_closure<F: FnMut() -> ()>(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
     #[cfg(debug_assertions)]
@@ -38642,9 +35926,7 @@ pub trait AeronArchiveRecordingDescriptorConsumerFuncCallback {
     ) -> ();
 }
 pub struct AeronArchiveRecordingDescriptorConsumerFuncLogger;
-impl AeronArchiveRecordingDescriptorConsumerFuncCallback
-    for AeronArchiveRecordingDescriptorConsumerFuncLogger
-{
+impl AeronArchiveRecordingDescriptorConsumerFuncCallback for AeronArchiveRecordingDescriptorConsumerFuncLogger {
     fn handle_aeron_archive_recording_descriptor_consumer_func(
         &mut self,
         recording_descriptor: AeronArchiveRecordingDescriptor,
@@ -38666,8 +35948,8 @@ unsafe impl Send for AeronArchiveRecordingDescriptorConsumerFuncLogger {}
 unsafe impl Sync for AeronArchiveRecordingDescriptorConsumerFuncLogger {}
 impl Handlers {
     #[doc = r" No handler is set i.e. None with correct type"]
-    pub fn no_archive_recording_descriptor_consumer_func_handler(
-    ) -> Option<&'static Handler<AeronArchiveRecordingDescriptorConsumerFuncLogger>> {
+    pub fn no_archive_recording_descriptor_consumer_func_handler()
+    -> Option<&'static Handler<AeronArchiveRecordingDescriptorConsumerFuncLogger>> {
         None::<&Handler<AeronArchiveRecordingDescriptorConsumerFuncLogger>>
     }
 }
@@ -38695,11 +35977,7 @@ unsafe extern "C" fn aeron_archive_recording_descriptor_consumer_func_t_callback
         "{}({}\n)",
         stringify!(aeron_archive_recording_descriptor_consumer_func_t_callback),
         [
-            format!(
-                "{} = {:?}",
-                stringify!(recording_descriptor),
-                recording_descriptor
-            ),
+            format!("{} = {:?}", stringify!(recording_descriptor), recording_descriptor),
             format!("{} = {:?}", stringify!(clientd), clientd)
         ]
         .join(", ")
@@ -38723,9 +36001,7 @@ unsafe extern "C" fn aeron_archive_recording_descriptor_consumer_func_t_callback
     {
         log::debug!(
             "calling {}",
-            stringify!(
-                aeron_archive_recording_descriptor_consumer_func_t_callback_for_once_closure
-            )
+            stringify!(aeron_archive_recording_descriptor_consumer_func_t_callback_for_once_closure)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -38733,11 +36009,7 @@ unsafe extern "C" fn aeron_archive_recording_descriptor_consumer_func_t_callback
         "{}({}\n)",
         stringify!(aeron_archive_recording_descriptor_consumer_func_t_callback_for_once_closure),
         [
-            format!(
-                "{} = {:?}",
-                stringify!(recording_descriptor),
-                recording_descriptor
-            ),
+            format!("{} = {:?}", stringify!(recording_descriptor), recording_descriptor),
             format!("{} = {:?}", stringify!(clientd), clientd)
         ]
         .join(", ")
@@ -38780,9 +36052,8 @@ unsafe impl Send for AeronArchiveRecordingSubscriptionDescriptorConsumerFuncLogg
 unsafe impl Sync for AeronArchiveRecordingSubscriptionDescriptorConsumerFuncLogger {}
 impl Handlers {
     #[doc = r" No handler is set i.e. None with correct type"]
-    pub fn no_archive_recording_subscription_descriptor_consumer_func_handler(
-    ) -> Option<&'static Handler<AeronArchiveRecordingSubscriptionDescriptorConsumerFuncLogger>>
-    {
+    pub fn no_archive_recording_subscription_descriptor_consumer_func_handler()
+    -> Option<&'static Handler<AeronArchiveRecordingSubscriptionDescriptorConsumerFuncLogger>> {
         None::<&Handler<AeronArchiveRecordingSubscriptionDescriptorConsumerFuncLogger>>
     }
 }
@@ -38820,9 +36091,8 @@ unsafe extern "C" fn aeron_archive_recording_subscription_descriptor_consumer_fu
         .join(", ")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
-    closure.handle_aeron_archive_recording_subscription_descriptor_consumer_func(
-        recording_subscription_descriptor.into(),
-    )
+    closure
+        .handle_aeron_archive_recording_subscription_descriptor_consumer_func(recording_subscription_descriptor.into())
 }
 #[allow(dead_code)]
 #[doc = "Callback to return recording subscription descriptors."]
@@ -38838,10 +36108,25 @@ unsafe extern "C" fn aeron_archive_recording_subscription_descriptor_consumer_fu
     }
     #[cfg(feature = "extra-logging")]
     {
-        log :: debug ! ("calling {}" , stringify ! (aeron_archive_recording_subscription_descriptor_consumer_func_t_callback_for_once_closure));
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_archive_recording_subscription_descriptor_consumer_func_t_callback_for_once_closure)
+        );
     }
     #[cfg(feature = "log-c-bindings")]
-    log :: debug ! ("{}({}\n)" , stringify ! (aeron_archive_recording_subscription_descriptor_consumer_func_t_callback_for_once_closure) , [format ! ("{} = {:?}" , stringify ! (recording_subscription_descriptor) , recording_subscription_descriptor) , format ! ("{} = {:?}" , stringify ! (clientd) , clientd)] . join (", "));
+    log::debug!(
+        "{}({}\n)",
+        stringify!(aeron_archive_recording_subscription_descriptor_consumer_func_t_callback_for_once_closure),
+        [
+            format!(
+                "{} = {:?}",
+                stringify!(recording_subscription_descriptor),
+                recording_subscription_descriptor
+            ),
+            format!("{} = {:?}", stringify!(clientd), clientd)
+        ]
+        .join(", ")
+    );
     let closure: &mut F = &mut *(clientd as *mut F);
     closure(recording_subscription_descriptor.into())
 }
@@ -38856,9 +36141,7 @@ pub trait AeronArchiveRecordingSignalConsumerFuncCallback {
     ) -> ();
 }
 pub struct AeronArchiveRecordingSignalConsumerFuncLogger;
-impl AeronArchiveRecordingSignalConsumerFuncCallback
-    for AeronArchiveRecordingSignalConsumerFuncLogger
-{
+impl AeronArchiveRecordingSignalConsumerFuncCallback for AeronArchiveRecordingSignalConsumerFuncLogger {
     fn handle_aeron_archive_recording_signal_consumer_func(
         &mut self,
         recording_signal: AeronArchiveRecordingSignal,
@@ -38866,12 +36149,7 @@ impl AeronArchiveRecordingSignalConsumerFuncCallback
         log::info!(
             "{}({}\n)",
             stringify!(handle_aeron_archive_recording_signal_consumer_func),
-            [format!(
-                "{} : {:?}",
-                stringify!(recording_signal),
-                recording_signal
-            )]
-            .join(", "),
+            [format!("{} : {:?}", stringify!(recording_signal), recording_signal)].join(", "),
         );
         ()
     }
@@ -38880,8 +36158,8 @@ unsafe impl Send for AeronArchiveRecordingSignalConsumerFuncLogger {}
 unsafe impl Sync for AeronArchiveRecordingSignalConsumerFuncLogger {}
 impl Handlers {
     #[doc = r" No handler is set i.e. None with correct type"]
-    pub fn no_archive_recording_signal_consumer_func_handler(
-    ) -> Option<&'static Handler<AeronArchiveRecordingSignalConsumerFuncLogger>> {
+    pub fn no_archive_recording_signal_consumer_func_handler()
+    -> Option<&'static Handler<AeronArchiveRecordingSignalConsumerFuncLogger>> {
         None::<&Handler<AeronArchiveRecordingSignalConsumerFuncLogger>>
     }
 }
@@ -38974,8 +36252,7 @@ unsafe impl Send for AeronUriParseCallbackLogger {}
 unsafe impl Sync for AeronUriParseCallbackLogger {}
 impl Handlers {
     #[doc = r" No handler is set i.e. None with correct type"]
-    pub fn no_uri_parse_callback_handler() -> Option<&'static Handler<AeronUriParseCallbackLogger>>
-    {
+    pub fn no_uri_parse_callback_handler() -> Option<&'static Handler<AeronUriParseCallbackLogger>> {
         None::<&Handler<AeronUriParseCallbackLogger>>
     }
 }
@@ -39098,15 +36375,13 @@ unsafe impl Send for AeronStrToPtrHashMapForEachFuncLogger {}
 unsafe impl Sync for AeronStrToPtrHashMapForEachFuncLogger {}
 impl Handlers {
     #[doc = r" No handler is set i.e. None with correct type"]
-    pub fn no_str_to_ptr_hash_map_for_each_func_handler(
-    ) -> Option<&'static Handler<AeronStrToPtrHashMapForEachFuncLogger>> {
+    pub fn no_str_to_ptr_hash_map_for_each_func_handler()
+    -> Option<&'static Handler<AeronStrToPtrHashMapForEachFuncLogger>> {
         None::<&Handler<AeronStrToPtrHashMapForEachFuncLogger>>
     }
 }
 #[allow(dead_code)]
-unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback<
-    F: AeronStrToPtrHashMapForEachFuncCallback,
->(
+unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback<F: AeronStrToPtrHashMapForEachFuncCallback>(
     clientd: *mut ::std::os::raw::c_void,
     key: *const ::std::os::raw::c_char,
     key_len: usize,
@@ -39118,10 +36393,7 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback<
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!(
-            "calling {}",
-            stringify!(handle_aeron_str_to_ptr_hash_map_for_each_func)
-        );
+        log::debug!("calling {}", stringify!(handle_aeron_str_to_ptr_hash_map_for_each_func));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -39189,3 +36461,4 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback_for_once
         value.into(),
     )
 }
+

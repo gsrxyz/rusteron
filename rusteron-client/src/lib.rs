@@ -35,8 +35,7 @@ pub const PUBLICATION_NOT_CONNECTED: i64 = bindings::AERON_PUBLICATION_NOT_CONNE
 pub const PUBLICATION_BACK_PRESSURED: i64 = bindings::AERON_PUBLICATION_BACK_PRESSURED as i64;
 pub const PUBLICATION_ADMIN_ACTION: i64 = bindings::AERON_PUBLICATION_ADMIN_ACTION as i64;
 pub const PUBLICATION_CLOSED: i64 = bindings::AERON_PUBLICATION_CLOSED as i64;
-pub const PUBLICATION_MAX_POSITION_EXCEEDED: i64 =
-    bindings::AERON_PUBLICATION_MAX_POSITION_EXCEEDED as i64;
+pub const PUBLICATION_MAX_POSITION_EXCEEDED: i64 = bindings::AERON_PUBLICATION_MAX_POSITION_EXCEEDED as i64;
 pub const PUBLICATION_ERROR: i64 = bindings::AERON_PUBLICATION_ERROR as i64;
 
 include!(concat!(env!("OUT_DIR"), "/aeron.rs"));
@@ -324,9 +323,7 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-        )?;
+        media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
@@ -426,16 +423,13 @@ mod tests {
     /// `stream_id` header accessors, and `status()` on publication/subscription.
     #[test]
     #[serial]
-    fn offer_result_and_claim_roundtrip_with_header_accessors() -> Result<(), Box<dyn error::Error>>
-    {
+    fn offer_result_and_claim_roundtrip_with_header_accessors() -> Result<(), Box<dyn error::Error>> {
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
 
         let media_driver_ctx = AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-        )?;
+        media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
@@ -448,8 +442,7 @@ mod tests {
 
         let channel = String::from("aeron:ipc");
         let stream_id: i32 = 9123;
-        let pub_poller =
-            aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
+        let pub_poller = aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
         let sub_poller = aeron.async_add_subscription(
             &channel.into_c_string(),
             stream_id,
@@ -529,9 +522,7 @@ mod tests {
         let received_claim = std::cell::Cell::new(false);
         let header_ids = std::cell::Cell::new(Option::<(i32, i32)>::None);
         let read_start = Instant::now();
-        while read_start.elapsed() < Duration::from_secs(2)
-            && !(received_offer.get() && received_claim.get())
-        {
+        while read_start.elapsed() < Duration::from_secs(2) && !(received_offer.get() && received_claim.get()) {
             let _ = subscription.poll_once(
                 |msg, header| {
                     header_ids.set(Some((
@@ -579,9 +570,7 @@ mod tests {
         let media_driver_ctx = AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-        )?;
+        media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
@@ -594,8 +583,7 @@ mod tests {
 
         let channel = String::from("aeron:ipc");
         let stream_id: i32 = 9124;
-        let pub_poller =
-            aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
+        let pub_poller = aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
         let sub_poller = aeron.async_add_subscription(
             &channel.into_c_string(),
             stream_id,
@@ -652,12 +640,8 @@ mod tests {
             #[cfg(debug_assertions)]
             sleep(Duration::from_millis(10));
         }
-        let (commit_pos, claim_pos) =
-            committed_pos.expect("try_claim_owned + commit never succeeded");
-        assert_eq!(
-            commit_pos, claim_pos,
-            "commit() return should match claim.position()"
-        );
+        let (commit_pos, claim_pos) = committed_pos.expect("try_claim_owned + commit never succeeded");
+        assert_eq!(commit_pos, claim_pos, "commit() return should match claim.position()");
 
         // Receive the committed message and assert the exact bytes.
         let received = std::cell::Cell::new(false);
@@ -700,9 +684,7 @@ mod tests {
         let media_driver_ctx = AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-        )?;
+        media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
@@ -715,8 +697,7 @@ mod tests {
 
         let channel = String::from("aeron:ipc");
         let stream_id: i32 = 9125;
-        let pub_poller =
-            aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
+        let pub_poller = aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
         let sub_poller = aeron.async_add_subscription(
             &channel.into_c_string(),
             stream_id,
@@ -787,18 +768,13 @@ mod tests {
             #[cfg(debug_assertions)]
             sleep(Duration::from_millis(10));
         }
-        assert!(
-            offered,
-            "offer_result_simple never succeeded after dropped claim"
-        );
+        assert!(offered, "offer_result_simple never succeeded after dropped claim");
 
         // Receive only the marker — the dropped claim should have been aborted.
         let received_dropped = std::cell::Cell::new(false);
         let received_marker = std::cell::Cell::new(false);
         let read_start = Instant::now();
-        while read_start.elapsed() < Duration::from_secs(2)
-            && !(received_marker.get() || received_dropped.get())
-        {
+        while read_start.elapsed() < Duration::from_secs(2) && !(received_marker.get() || received_dropped.get()) {
             let _ = subscription.poll_once(
                 |msg, _header| {
                     if msg == dropped_payload {
@@ -813,10 +789,7 @@ mod tests {
             #[cfg(debug_assertions)]
             sleep(Duration::from_millis(10));
         }
-        assert!(
-            !received_dropped.get(),
-            "dropped claim was erroneously delivered"
-        );
+        assert!(!received_dropped.get(), "dropped claim was erroneously delivered");
         assert!(
             received_marker.get(),
             "marker message was not received after dropped claim"
@@ -835,10 +808,7 @@ mod tests {
             #[cfg(debug_assertions)]
             sleep(Duration::from_millis(10));
         }
-        assert!(
-            final_offered,
-            "publication became unusable after dropped claim"
-        );
+        assert!(final_offered, "publication became unusable after dropped claim");
 
         assert_eq!(subscription.status(), AeronStatus::Connected);
 
@@ -864,9 +834,7 @@ mod tests {
         let media_driver_ctx = AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-        )?;
+        media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
@@ -879,8 +847,7 @@ mod tests {
 
         let channel = String::from("aeron:ipc");
         let stream_id: i32 = 9126;
-        let pub_poller =
-            aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
+        let pub_poller = aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
         let sub_poller = aeron.async_add_subscription(
             &channel.into_c_string(),
             stream_id,
@@ -954,10 +921,7 @@ mod tests {
             #[cfg(debug_assertions)]
             sleep(Duration::from_millis(10));
         }
-        assert!(
-            offered,
-            "publication became unusable after failed try_claim_owned"
-        );
+        assert!(offered, "publication became unusable after failed try_claim_owned");
 
         // Shutdown
         drop(_subscription);
@@ -981,8 +945,7 @@ mod tests {
         let media_driver_ctx = AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx
-            .set_dir(&format!("{}alloc-guard", media_driver_ctx.get_dir()).into_c_string())?;
+        media_driver_ctx.set_dir(&format!("{}alloc-guard", media_driver_ctx.get_dir()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
@@ -995,8 +958,7 @@ mod tests {
 
         let channel = String::from("aeron:ipc");
         let stream_id: i32 = 7777;
-        let pub_poller =
-            aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
+        let pub_poller = aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
 
         // Bring the publication up + connected before measuring.
         let publisher: AeronPublication = {
@@ -1045,9 +1007,7 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-        )?;
+        media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
@@ -1067,8 +1027,7 @@ mod tests {
         for i in 0..STRESS_ITERS {
             let port = 55000u16 + i;
             let channel = format!("aeron:udp?endpoint=203.0.113.1:{}", port);
-            let pub_poller =
-                aeron.async_add_publication(&channel.clone().into_c_string(), 4500 + i as i32)?;
+            let pub_poller = aeron.async_add_publication(&channel.clone().into_c_string(), 4500 + i as i32)?;
             let sub_poller = aeron.async_add_subscription(
                 &channel.into_c_string(),
                 4500 + i as i32,
@@ -1148,9 +1107,7 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-        )?;
+        media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
@@ -1194,9 +1151,7 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-        )?;
+        media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
@@ -1233,9 +1188,7 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-        )?;
+        media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
@@ -1271,9 +1224,7 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-        )?;
+        media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
         // Under Valgrind execution is ~10x slower; increase liveness timeouts so the
         // driver doesn't evict the client before the test finishes.
         media_driver_ctx.set_client_liveness_timeout_ns(60_000_000_000)?; // 60 s
@@ -1339,9 +1290,7 @@ mod tests {
         )?;
         info!("created subscription");
 
-        subscription
-            .poll_once(|msg, header| println!("foo"), 1024)
-            .unwrap();
+        subscription.poll_once(|msg, header| println!("foo"), 1024).unwrap();
 
         // pick a large enough size to confirm fragement assembler is working
         let string_len = media_driver_ctx.ipc_mtu_length * 100;
@@ -1358,16 +1307,14 @@ mod tests {
                     if stop_publisher.load(Ordering::Acquire) || publisher.is_closed() {
                         break;
                     }
-                    let result =
-                        publisher.offer(large_msg, Handlers::no_reserved_value_supplier_handler());
+                    let result = publisher.offer(large_msg, Handlers::no_reserved_value_supplier_handler());
 
                     assert_eq!(123, publisher.get_constants().unwrap().stream_id);
 
                     if result < large_msg.len() as i64 {
                         let error = AeronCError::from_code(result as i32);
                         match error.kind() {
-                            AeronErrorType::PublicationBackPressured
-                            | AeronErrorType::PublicationAdminAction => {
+                            AeronErrorType::PublicationBackPressured | AeronErrorType::PublicationAdminAction => {
                                 // ignore
                             }
                             _ => {
@@ -1465,12 +1412,13 @@ mod tests {
         excl_pub_handler.release();
 
         let cnc = AeronCnc::new_on_heap(ctx.get_dir())?;
-        cnc.counters_reader().foreach_counter_once(
-            |value: i64, id: i32, type_id: i32, key: &[u8], label: &str| {
-                println!("counter reader id={id}, type_id={type_id}, key={key:?}, label={label}, value={value} [type={:?}]",
-                AeronSystemCounterType::try_from(type_id));
-            },
-        );
+        cnc.counters_reader()
+            .foreach_counter_once(|value: i64, id: i32, type_id: i32, key: &[u8], label: &str| {
+                println!(
+                    "counter reader id={id}, type_id={type_id}, key={key:?}, label={label}, value={value} [type={:?}]",
+                    AeronSystemCounterType::try_from(type_id)
+                );
+            });
         cnc.error_log_read_once(| observation_count: i32,
                                      first_observation_timestamp: i64,
                                      last_observation_timestamp: i64,
@@ -1499,9 +1447,7 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-        )?;
+        media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
         // Under Valgrind execution is ~10x slower; increase liveness timeouts so the
         // driver doesn't evict the client before the test finishes.
         media_driver_ctx.set_client_liveness_timeout_ns(60_000_000_000)?; // 60 s
@@ -1526,8 +1472,7 @@ mod tests {
         aeron.start()?;
         info!("client started");
         const STREAM_ID: i32 = 123;
-        let publisher =
-            aeron.add_publication(AERON_IPC_STREAM, STREAM_ID, Duration::from_secs(5))?;
+        let publisher = aeron.add_publication(AERON_IPC_STREAM, STREAM_ID, Duration::from_secs(5))?;
         info!("created publisher");
 
         let subscription = aeron.add_subscription(
@@ -1608,12 +1553,11 @@ mod tests {
             }
         }
 
-        let (mut closure, mut inner_handler) =
-            Handler::leak_with_fragment_assembler(FragmentHandler {
-                count_copy,
-                stop2,
-                string_len,
-            })?;
+        let (mut closure, mut inner_handler) = Handler::leak_with_fragment_assembler(FragmentHandler {
+            count_copy,
+            stop2,
+            string_len,
+        })?;
         let loop_result: Result<(), Box<dyn error::Error>> = {
             let start_time = Instant::now();
             loop {
@@ -1656,9 +1600,7 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-        )?;
+        media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
@@ -1696,18 +1638,13 @@ mod tests {
                 if let Ok(label) = counters_reader.get_counter_label(counter_id, 1000) {
                     if label == "label_buffer" {
                         self.found_counter = true;
-                        assert_eq!(
-                            &counters_reader.get_counter_key(counter_id).unwrap(),
-                            "key".as_bytes()
-                        );
+                        assert_eq!(&counters_reader.get_counter_key(counter_id).unwrap(), "key".as_bytes());
                     }
                 }
             }
         }
 
-        let mut available_counter_handler = Handler::leak(AvailableCounterHandler {
-            found_counter: false,
-        });
+        let mut available_counter_handler = Handler::leak(AvailableCounterHandler { found_counter: false });
         ctx.set_on_available_counter(Some(&available_counter_handler))?;
 
         info!("creating client");
@@ -1717,12 +1654,7 @@ mod tests {
         aeron.start()?;
         info!("client started [counters test]");
 
-        let counter = aeron.add_counter(
-            123,
-            "key".as_bytes(),
-            "label_buffer",
-            Duration::from_secs(5),
-        )?;
+        let counter = aeron.add_counter(123, "key".as_bytes(), "label_buffer", Duration::from_secs(5))?;
         let constants = counter.get_constants()?;
         let counter_id = constants.counter_id;
 
@@ -1743,18 +1675,13 @@ mod tests {
         };
 
         let now = Instant::now();
-        while counter.addr_atomic().load(Ordering::SeqCst) < 100
-            && now.elapsed() < Duration::from_secs(10)
-        {
+        while counter.addr_atomic().load(Ordering::SeqCst) < 100 && now.elapsed() < Duration::from_secs(10) {
             sleep(Duration::from_micros(10));
         }
 
         assert!(now.elapsed() < Duration::from_secs(10));
 
-        info!(
-            "counter is {}",
-            counter.addr_atomic().load(Ordering::SeqCst)
-        );
+        info!("counter is {}", counter.addr_atomic().load(Ordering::SeqCst));
 
         info!("stopping client");
 
@@ -1817,9 +1744,7 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-        )?;
+        media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
         media_driver_ctx.set_client_liveness_timeout_ns(liveness_timeout_ns)?;
         media_driver_ctx.set_image_liveness_timeout_ns(liveness_timeout_ns)?;
         media_driver_ctx.set_publication_unblock_timeout_ns(liveness_timeout_ns + 5_000_000_000)?;
@@ -1856,8 +1781,7 @@ mod tests {
             std::thread::spawn(move || {
                 while !stop_publisher.load(Ordering::Acquire) {
                     let msg = b"test";
-                    let result =
-                        publisher.offer(msg, Handlers::no_reserved_value_supplier_handler());
+                    let result = publisher.offer(msg, Handlers::no_reserved_value_supplier_handler());
                     // If backpressure is encountered, sleep a bit.
                     if result == AeronErrorType::PublicationBackPressured.code() as i64 {
                         sleep(Duration::from_millis(50));
@@ -1902,9 +1826,7 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-        )?;
+        media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
         media_driver_ctx.set_client_liveness_timeout_ns(60_000_000_000)?;
         media_driver_ctx.set_image_liveness_timeout_ns(60_000_000_000)?;
         media_driver_ctx.set_publication_unblock_timeout_ns(65_000_000_000)?;
@@ -1943,10 +1865,7 @@ mod tests {
         // Publish a single message.
         let msg = b"hello multi-subscription";
         let result = publisher.offer(msg, Handlers::no_reserved_value_supplier_handler());
-        assert!(
-            result >= msg.len() as i64,
-            "Message should be sent successfully"
-        );
+        assert!(result >= msg.len() as i64, "Message should be sent successfully");
 
         let start_time = Instant::now();
         // Poll both subscriptions with inline closures until each has received at least one message.
@@ -1988,16 +1907,13 @@ mod tests {
 
     #[test]
     #[serial]
-    pub fn should_be_able_to_drop_after_close_manually_being_closed(
-    ) -> Result<(), Box<dyn error::Error>> {
+    pub fn should_be_able_to_drop_after_close_manually_being_closed() -> Result<(), Box<dyn error::Error>> {
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
 
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-        )?;
+        media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
         let (_stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
@@ -2045,9 +1961,7 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-        )?;
+        media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
         let (_stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
@@ -2064,10 +1978,7 @@ mod tests {
         publisher.close(Handlers::no_notification_handler())?;
 
         // Attempt to send a message after the publication is closed.
-        let result = publisher.offer(
-            b"should fail",
-            Handlers::no_reserved_value_supplier_handler(),
-        );
+        let result = publisher.offer(b"should fail", Handlers::no_reserved_value_supplier_handler());
         assert!(
             result < 0,
             "Offering on a closed publication should return a negative error code"
@@ -2090,9 +2001,7 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-        )?;
+        media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
         let (_stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
@@ -2118,9 +2027,7 @@ mod tests {
         let result = publisher.offer(b"", Handlers::no_reserved_value_supplier_handler());
         assert!(result > 0);
 
-        while !empty_received.load(Ordering::SeqCst)
-            && start_time.elapsed() < Duration::from_secs(5)
-        {
+        while !empty_received.load(Ordering::SeqCst) && start_time.elapsed() < Duration::from_secs(5) {
             let _ = subscription.poll_once(
                 |msg, _header| {
                     if msg.is_empty() {
@@ -2131,10 +2038,7 @@ mod tests {
             )?;
         }
 
-        assert!(
-            empty_received.load(Ordering::SeqCst),
-            "Empty message was not received"
-        );
+        assert!(empty_received.load(Ordering::SeqCst), "Empty message was not received");
         drop(subscription);
         drop(publisher);
         drop(aeron);
@@ -2194,12 +2098,7 @@ mod tests {
             let _ = self.histogram.record(latency_ns);
         }
 
-        fn print_and_reset(
-            &mut self,
-            window_number: usize,
-            interval: Duration,
-            totals: &mut MdcTotals,
-        ) {
+        fn print_and_reset(&mut self, window_number: usize, interval: Duration, totals: &mut MdcTotals) {
             totals.gap_events += self.gap_events;
             totals.missing_messages += self.missing_messages;
             totals.received_messages += self.received_messages;
@@ -2261,10 +2160,7 @@ mod tests {
         );
         let mdc_host = std::env::var("RUSTERON_MDC_HOST").unwrap_or("127.0.0.1".to_string());
 
-        let publication_channel = format!(
-            "aeron:udp?control-mode=manual|control={}:{CONTROL_PORT}",
-            mdc_host
-        );
+        let publication_channel = format!("aeron:udp?control-mode=manual|control={}:{CONTROL_PORT}", mdc_host);
         // - group=false: do not apply MDC receiver-group semantics.
         // - nak-delay=100us: shorten unreliable-stream gap-fill decision latency.
         let subscription_channel = format!(
@@ -2287,8 +2183,8 @@ mod tests {
         let subscriber_channel = subscription_channel.clone();
         let subscriber_running = Arc::clone(&running);
         let subscriber_thread = std::thread::spawn(move || -> MdcTotals {
-            let (_ctx, aeron) = create_client_for_dir(&subscriber_dir)
-                .expect("failed to create subscriber aeron client");
+            let (_ctx, aeron) =
+                create_client_for_dir(&subscriber_dir).expect("failed to create subscriber aeron client");
 
             let subscription = aeron
                 .add_subscription(
@@ -2342,24 +2238,18 @@ mod tests {
         let publisher_destination = destination_uri.clone();
         let publisher_running = Arc::clone(&running);
         let publisher_thread = std::thread::spawn(move || -> u64 {
-            let (_ctx, aeron) = create_client_for_dir(&publisher_dir)
-                .expect("failed to create publisher aeron client");
+            let (_ctx, aeron) = create_client_for_dir(&publisher_dir).expect("failed to create publisher aeron client");
 
             let publication = aeron
-                .add_exclusive_publication(
-                    &publisher_channel.into_c_string(),
-                    STREAM_ID,
-                    Duration::from_secs(5),
-                )
+                .add_exclusive_publication(&publisher_channel.into_c_string(), STREAM_ID, Duration::from_secs(5))
                 .expect("failed to create publication");
 
-            let add_destination =
-                AeronAsyncDestination::aeron_exclusive_publication_async_add_destination(
-                    &aeron,
-                    &publication,
-                    &publisher_destination.into_c_string(),
-                )
-                .expect("failed to add manual MDC destination");
+            let add_destination = AeronAsyncDestination::aeron_exclusive_publication_async_add_destination(
+                &aeron,
+                &publication,
+                &publisher_destination.into_c_string(),
+            )
+            .expect("failed to add manual MDC destination");
 
             let add_destination_start = Instant::now();
             while add_destination
@@ -2390,8 +2280,7 @@ mod tests {
                 let ts_ns = Aeron::nano_clock().max(0) as u64;
                 payload[8..16].copy_from_slice(&ts_ns.to_le_bytes());
 
-                let result =
-                    publication.offer(&payload, Handlers::no_reserved_value_supplier_handler());
+                let result = publication.offer(&payload, Handlers::no_reserved_value_supplier_handler());
                 if result > 0 {
                     seq = seq.wrapping_add(1);
                 }
@@ -2412,10 +2301,7 @@ mod tests {
         );
 
         assert!(sent_messages > 0, "publisher failed to send any messages");
-        assert!(
-            totals.received_messages > 0,
-            "subscriber did not receive any messages"
-        );
+        assert!(totals.received_messages > 0, "subscriber did not receive any messages");
         Ok(())
     }
 
@@ -2474,15 +2360,9 @@ mod tests {
         info!("publishing msg");
 
         loop {
-            let result = publisher.offer(
-                "213".as_bytes(),
-                Handlers::no_reserved_value_supplier_handler(),
-            );
+            let result = publisher.offer("213".as_bytes(), Handlers::no_reserved_value_supplier_handler());
             if result < 0 {
-                error!(
-                    "failed to publish {:?}",
-                    AeronCError::from_code(result as i32)
-                );
+                error!("failed to publish {:?}", AeronCError::from_code(result as i32));
             } else {
                 break;
             }
@@ -2515,9 +2395,7 @@ mod tests {
         Ok((ctx, aeron))
     }
 
-    fn create_client(
-        media_driver_ctx: &AeronDriverContext,
-    ) -> Result<(AeronContext, Aeron), Box<dyn Error>> {
+    fn create_client(media_driver_ctx: &AeronDriverContext) -> Result<(AeronContext, Aeron), Box<dyn Error>> {
         let dir = media_driver_ctx.get_dir().to_string();
         create_client_for_dir(&dir)
     }
@@ -2535,15 +2413,8 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx.set_dir(
-            &format!(
-                "{}{}-{}",
-                media_driver_ctx.get_dir(),
-                Aeron::epoch_clock(),
-                instance
-            )
-            .into_c_string(),
-        )?;
+        media_driver_ctx
+            .set_dir(&format!("{}{}-{}", media_driver_ctx.get_dir(), Aeron::epoch_clock(), instance).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
         Ok((media_driver_ctx, stop, driver_handle))
@@ -2560,8 +2431,7 @@ mod tests {
         let (_ctx, aeron) = create_client(&media_driver_ctx)?;
 
         let stream_id: i32 = 4321;
-        let exclusive =
-            aeron.add_exclusive_publication(AERON_IPC_STREAM, stream_id, Duration::from_secs(5))?;
+        let exclusive = aeron.add_exclusive_publication(AERON_IPC_STREAM, stream_id, Duration::from_secs(5))?;
 
         // Add a matching subscription so the IPC image connects and offers succeed.
         let sub_poller = aeron.async_add_subscription(
@@ -2614,10 +2484,7 @@ mod tests {
             #[cfg(debug_assertions)]
             sleep(Duration::from_millis(10));
         }
-        assert!(
-            committed,
-            "exclusive try_claim_owned + commit never succeeded"
-        );
+        assert!(committed, "exclusive try_claim_owned + commit never succeeded");
 
         // 3) Generated constants accessors return sane, consistent values.
         let constants = exclusive.get_constants().expect("publication constants");
@@ -2625,9 +2492,7 @@ mod tests {
         // channel is a *const c_char into the C struct; just assert it's a valid C string.
         assert!(!constants.channel.is_null());
         assert_eq!(
-            unsafe { std::ffi::CStr::from_ptr(constants.channel) }
-                .to_str()
-                .unwrap(),
+            unsafe { std::ffi::CStr::from_ptr(constants.channel) }.to_str().unwrap(),
             "aeron:ipc"
         );
         assert!(constants.max_possible_position > 0);
@@ -2647,8 +2512,8 @@ mod tests {
     /// deterministic — they fuzz the invariants the unit tests only sample.
     mod property_tests {
         use crate::{
-            publication_position_to_result, validate_endpoint_for_aeron_udp, AeronCError,
-            AeronErrorType, AeronStatus, AeronStatusTracker,
+            publication_position_to_result, validate_endpoint_for_aeron_udp, AeronCError, AeronErrorType, AeronStatus,
+            AeronStatusTracker,
         };
         use proptest::prelude::*;
 
@@ -2758,13 +2623,10 @@ mod tests {
             let media_driver_ctx = AeronDriverContext::new()?;
             media_driver_ctx.set_dir_delete_on_shutdown(true)?;
             media_driver_ctx.set_dir_delete_on_start(true)?;
-            media_driver_ctx.set_dir(
-                &format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string(),
-            )?;
-            let (stop, driver_handle) = rusteron_media_driver::AeronDriver::launch_embedded(
-                media_driver_ctx.clone(),
-                false,
-            );
+            media_driver_ctx
+                .set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
+            let (stop, driver_handle) =
+                rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
             let ctx = AeronContext::new()?;
             ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
@@ -2776,8 +2638,7 @@ mod tests {
             let channel = String::from("aeron:ipc");
             let stream_id: i32 = 9999;
 
-            let pub_poller =
-                aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
+            let pub_poller = aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
             let sub_poller = aeron.async_add_subscription(
                 &channel.into_c_string(),
                 stream_id,
@@ -2935,8 +2796,7 @@ mod idle_strategy_tests {
 
     #[test]
     fn backoff_resets_on_work_and_progresses_to_park() {
-        let mut s =
-            BackoffIdleStrategy::with(2, 2, Duration::from_micros(1), Duration::from_millis(1));
+        let mut s = BackoffIdleStrategy::with(2, 2, Duration::from_micros(1), Duration::from_millis(1));
         // Work done -> resets state (no backoff progression).
         s.idle(1);
         assert_eq!(s.state, BACKOFF_NOT_IDLE);

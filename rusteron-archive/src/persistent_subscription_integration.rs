@@ -72,13 +72,11 @@ mod tests {
 
         let request_port = find_unused_udp_port(start_port).expect("Could not find port");
         let response_port = find_unused_udp_port(request_port + 1).expect("Could not find port");
-        let recording_event_port =
-            find_unused_udp_port(response_port + 1).expect("Could not find port");
+        let recording_event_port = find_unused_udp_port(response_port + 1).expect("Could not find port");
 
         let request_control_channel = format!("aeron:udp?endpoint=localhost:{}", request_port);
         let response_control_channel = format!("aeron:udp?endpoint=localhost:{}", response_port);
-        let recording_events_channel =
-            format!("aeron:udp?endpoint=localhost:{}", recording_event_port);
+        let recording_events_channel = format!("aeron:udp?endpoint=localhost:{}", recording_event_port);
 
         let archive_media_driver = EmbeddedArchiveMediaDriverProcess::build_and_start(
             &aeron_dir,
@@ -134,8 +132,7 @@ mod tests {
         let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
             start_aeron_archive_with_config("e2e_test", 9000)?;
 
-        let archive_connector =
-            AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
+        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
         let archive = archive_connector
             .poll_blocking(Duration::from_secs(20))
             .expect("failed to connect to archive");
@@ -148,12 +145,7 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 2001;
 
-        archive.start_recording(
-            &channel.into_c_string(),
-            stream_id,
-            SOURCE_LOCATION_LOCAL,
-            true,
-        )?;
+        archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
@@ -164,11 +156,7 @@ mod tests {
         for i in 0..historical_count {
             let message = format!("Historical-{}", i);
             let deadline = Instant::now() + Duration::from_secs(10);
-            while publication.offer(
-                message.as_bytes(),
-                Handlers::no_reserved_value_supplier_handler(),
-            ) <= 0
-            {
+            while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 if Instant::now() > deadline {
                     return Err("timed out offering historical message".into());
                 }
@@ -181,11 +169,7 @@ mod tests {
         let session_id = publication.get_constants()?.session_id;
         let counters_reader = aeron_archive.counters_reader();
         let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
-        let recording_id = RecordingPos::get_recording_id_block(
-            &counters_reader,
-            counter_id,
-            Duration::from_secs(5),
-        )?;
+        let recording_id = RecordingPos::get_recording_id_block(&counters_reader, counter_id, Duration::from_secs(5))?;
         let published_position = publication.position();
         let start = Instant::now();
         while counters_reader.get_counter_value(counter_id) < published_position
@@ -197,14 +181,9 @@ mod tests {
         // Phase 2: replay the historical batch and verify it.
         let replay_stream_id = 2002;
         let replay_params = AeronArchiveReplayParams::new(-1, i32::MAX, 0, i64::MAX, 0, 0)?;
-        let replay_session_id = archive.start_replay(
-            recording_id,
-            &channel.into_c_string(),
-            replay_stream_id,
-            &replay_params,
-        )?;
-        let replay_channel =
-            format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
+        let replay_session_id =
+            archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)?;
+        let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
         let replay_sub = aeron_archive
             .async_add_subscription(
                 &replay_channel,
@@ -264,11 +243,7 @@ mod tests {
         for i in 0..live_count {
             let message = format!("Live-{}", i);
             let deadline = Instant::now() + Duration::from_secs(10);
-            while publication.offer(
-                message.as_bytes(),
-                Handlers::no_reserved_value_supplier_handler(),
-            ) <= 0
-            {
+            while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 if Instant::now() > deadline {
                     return Err("timed out offering live message".into());
                 }
@@ -282,10 +257,7 @@ mod tests {
         }
         assert_eq!(handler.live, live_count, "should receive all live messages");
 
-        info!(
-            "End-to-end OK: {} replayed + {} live",
-            handler.historical, handler.live
-        );
+        info!("End-to-end OK: {} replayed + {} live", handler.historical, handler.live);
 
         handler.release();
         live_sub.close(Handlers::no_notification_handler())?;
@@ -315,8 +287,7 @@ mod tests {
         let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
             start_aeron_archive_with_config("restart_test", 9100)?;
 
-        let archive_connector =
-            AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
+        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
         let archive = archive_connector
             .poll_blocking(Duration::from_secs(20))
             .expect("failed to connect to archive");
@@ -327,12 +298,8 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 2003;
 
-        let subscription_id = archive.start_recording(
-            &channel.into_c_string(),
-            stream_id,
-            SOURCE_LOCATION_LOCAL,
-            true,
-        )?;
+        let subscription_id =
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
@@ -343,11 +310,7 @@ mod tests {
         for i in 0..batch1_count {
             let message = format!("BeforeRestart-{}", i);
             let deadline = Instant::now() + Duration::from_secs(10);
-            while publication.offer(
-                message.as_bytes(),
-                Handlers::no_reserved_value_supplier_handler(),
-            ) <= 0
-            {
+            while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 if Instant::now() > deadline {
                     return Err(format!("timed out offering BeforeRestart-{i}").into());
                 }
@@ -368,11 +331,7 @@ mod tests {
         for i in 0..batch2_count {
             let message = format!("AfterRestart-{}", i);
             let deadline = Instant::now() + Duration::from_secs(10);
-            while publication.offer(
-                message.as_bytes(),
-                Handlers::no_reserved_value_supplier_handler(),
-            ) <= 0
-            {
+            while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 if Instant::now() > deadline {
                     return Err(format!("timed out offering AfterRestart-{i}").into());
                 }
@@ -385,25 +344,16 @@ mod tests {
         let session_id = publication.get_constants()?.session_id;
         let counters_reader = aeron_archive.counters_reader();
         let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
-        let recording_id = RecordingPos::get_recording_id_block(
-            &counters_reader,
-            counter_id,
-            Duration::from_secs(5),
-        )?;
+        let recording_id = RecordingPos::get_recording_id_block(&counters_reader, counter_id, Duration::from_secs(5))?;
 
         // Replay entire recording
         let replay_stream_id = 2004;
         let replay_params = AeronArchiveReplayParams::new(-1, i32::MAX, 0, i64::MAX, 0, 0)?;
 
-        let replay_session_id = archive.start_replay(
-            recording_id,
-            &channel.into_c_string(),
-            replay_stream_id,
-            &replay_params,
-        )?;
+        let replay_session_id =
+            archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)?;
 
-        let replay_channel =
-            format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
+        let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
         let subscription = aeron_archive
             .async_add_subscription(
@@ -483,8 +433,7 @@ mod tests {
         let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
             start_aeron_archive_with_config("throughput_test", 9200)?;
 
-        let archive_connector =
-            AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
+        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
         let archive = archive_connector
             .poll_blocking(Duration::from_secs(20))
             .expect("failed to connect to archive");
@@ -495,12 +444,8 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 2005;
 
-        let subscription_id = archive.start_recording(
-            &channel.into_c_string(),
-            stream_id,
-            SOURCE_LOCATION_LOCAL,
-            true,
-        )?;
+        let subscription_id =
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
@@ -513,11 +458,7 @@ mod tests {
         for i in 0..message_count {
             let message = format!("Throughput-Test-{}", i);
             let mut attempts = 0;
-            while publication.offer(
-                message.as_bytes(),
-                Handlers::no_reserved_value_supplier_handler(),
-            ) <= 0
-            {
+            while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 sleep(Duration::from_millis(1));
                 attempts += 1;
                 if attempts > 100 {
@@ -539,25 +480,16 @@ mod tests {
         let session_id = publication.get_constants()?.session_id;
         let counters_reader = aeron_archive.counters_reader();
         let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
-        let recording_id = RecordingPos::get_recording_id_block(
-            &counters_reader,
-            counter_id,
-            Duration::from_secs(5),
-        )?;
+        let recording_id = RecordingPos::get_recording_id_block(&counters_reader, counter_id, Duration::from_secs(5))?;
 
         // Replay
         let replay_stream_id = 2006;
         let replay_params = AeronArchiveReplayParams::new(-1, i32::MAX, 0, i64::MAX, 0, 0)?;
 
-        let replay_session_id = archive.start_replay(
-            recording_id,
-            &channel.into_c_string(),
-            replay_stream_id,
-            &replay_params,
-        )?;
+        let replay_session_id =
+            archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)?;
 
-        let replay_channel =
-            format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
+        let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
         let subscription = aeron_archive
             .async_add_subscription(
@@ -623,8 +555,7 @@ mod tests {
         let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
             start_aeron_archive_with_config("variable_size_test", 9300)?;
 
-        let archive_connector =
-            AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
+        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
         let archive = archive_connector
             .poll_blocking(Duration::from_secs(20))
             .expect("failed to connect to archive");
@@ -635,12 +566,8 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 2007;
 
-        let subscription_id = archive.start_recording(
-            &channel.into_c_string(),
-            stream_id,
-            SOURCE_LOCATION_LOCAL,
-            true,
-        )?;
+        let subscription_id =
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
@@ -677,25 +604,16 @@ mod tests {
         let session_id = publication.get_constants()?.session_id;
         let counters_reader = aeron_archive.counters_reader();
         let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
-        let recording_id = RecordingPos::get_recording_id_block(
-            &counters_reader,
-            counter_id,
-            Duration::from_secs(5),
-        )?;
+        let recording_id = RecordingPos::get_recording_id_block(&counters_reader, counter_id, Duration::from_secs(5))?;
 
         // Replay
         let replay_stream_id = 2008;
         let replay_params = AeronArchiveReplayParams::new(-1, i32::MAX, 0, i64::MAX, 0, 0)?;
 
-        let replay_session_id = archive.start_replay(
-            recording_id,
-            &channel.into_c_string(),
-            replay_stream_id,
-            &replay_params,
-        )?;
+        let replay_session_id =
+            archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)?;
 
-        let replay_channel =
-            format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
+        let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
         let subscription = aeron_archive
             .async_add_subscription(
@@ -721,9 +639,7 @@ mod tests {
 
         // Poll for all messages
         let start = Instant::now();
-        while handler.received_sizes.len() < total_messages
-            && start.elapsed() < Duration::from_secs(20)
-        {
+        while handler.received_sizes.len() < total_messages && start.elapsed() < Duration::from_secs(20) {
             subscription.poll(Some(&mut handler), 100)?;
             sleep(Duration::from_millis(10));
         }
@@ -735,27 +651,17 @@ mod tests {
         );
 
         // Verify sizes match (within fragmentation tolerance)
-        for (i, (original, received)) in message_sizes
-            .iter()
-            .zip(handler.received_sizes.iter())
-            .enumerate()
-        {
+        for (i, (original, received)) in message_sizes.iter().zip(handler.received_sizes.iter()).enumerate() {
             info!(
                 "Message {}: original {} bytes, received {} bytes",
                 i, original, received
             );
             // Due to fragmentation, received size might differ slightly
             let original_div_2 = original / 2;
-            assert!(
-                received >= &original_div_2,
-                "Received size should be reasonable"
-            );
+            assert!(received >= &original_div_2, "Received size should be reasonable");
         }
 
-        info!(
-            "Verified all {} messages with varying sizes",
-            total_messages
-        );
+        info!("Verified all {} messages with varying sizes", total_messages);
 
         subscription.close(Handlers::no_notification_handler())?;
         handler.release();
@@ -781,8 +687,7 @@ mod tests {
         let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
             start_aeron_archive_with_config("lifecycle_test", 9400)?;
 
-        let archive_connector =
-            AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
+        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
         let archive = archive_connector
             .poll_blocking(Duration::from_secs(20))
             .expect("failed to connect to archive");
@@ -793,12 +698,8 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 2009;
 
-        let subscription_id = archive.start_recording(
-            &channel.into_c_string(),
-            stream_id,
-            SOURCE_LOCATION_LOCAL,
-            true,
-        )?;
+        let subscription_id =
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
         info!("Started recording with subscription_id={}", subscription_id);
 
         let publication = aeron_archive
@@ -809,11 +710,7 @@ mod tests {
         let phase1_count = 20;
         for i in 0..phase1_count {
             let message = format!("Phase1-{}", i);
-            while publication.offer(
-                message.as_bytes(),
-                Handlers::no_reserved_value_supplier_handler(),
-            ) <= 0
-            {
+            while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -826,26 +723,15 @@ mod tests {
         sleep(Duration::from_millis(500));
 
         // Restart recording
-        let subscription_id2 = archive.start_recording(
-            &channel.into_c_string(),
-            stream_id,
-            SOURCE_LOCATION_LOCAL,
-            true,
-        )?;
-        info!(
-            "Restarted recording with subscription_id={}",
-            subscription_id2
-        );
+        let subscription_id2 =
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        info!("Restarted recording with subscription_id={}", subscription_id2);
 
         // Phase 2: Record more messages
         let phase2_count = 20;
         for i in 0..phase2_count {
             let message = format!("Phase2-{}", i);
-            while publication.offer(
-                message.as_bytes(),
-                Handlers::no_reserved_value_supplier_handler(),
-            ) <= 0
-            {
+            while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -866,10 +752,7 @@ mod tests {
             }
         })?;
 
-        assert!(
-            recording_found.get(),
-            "Should find recording for our stream"
-        );
+        assert!(recording_found.get(), "Should find recording for our stream");
 
         drop(archive);
         drop(aeron_archive);
@@ -893,8 +776,7 @@ mod tests {
         let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
             start_aeron_archive_with_config("multi_stream_test", 9500)?;
 
-        let archive_connector =
-            AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
+        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
         let archive = archive_connector
             .poll_blocking(Duration::from_secs(20))
             .expect("failed to connect to archive");
@@ -908,12 +790,8 @@ mod tests {
 
         // Setup multiple streams
         for stream_id in &stream_ids {
-            let subscription_id = archive.start_recording(
-                &"aeron:ipc".into_c_string(),
-                *stream_id,
-                SOURCE_LOCATION_LOCAL,
-                true,
-            )?;
+            let subscription_id =
+                archive.start_recording(&"aeron:ipc".into_c_string(), *stream_id, SOURCE_LOCATION_LOCAL, true)?;
 
             let publication = aeron_archive
                 .async_add_publication(&"aeron:ipc".into_c_string(), *stream_id)?
@@ -922,11 +800,7 @@ mod tests {
             // Publish some messages
             for i in 0..10 {
                 let message = format!("Stream-{}-Message-{}", stream_id, i);
-                while publication.offer(
-                    message.as_bytes(),
-                    Handlers::no_reserved_value_supplier_handler(),
-                ) <= 0
-                {
+                while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                     sleep(Duration::from_millis(10));
                 }
             }
@@ -935,11 +809,8 @@ mod tests {
             let session_id = publication.get_constants()?.session_id;
             let counters_reader = aeron_archive.counters_reader();
             let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
-            let recording_id = RecordingPos::get_recording_id_block(
-                &counters_reader,
-                counter_id,
-                Duration::from_secs(5),
-            )?;
+            let recording_id =
+                RecordingPos::get_recording_id_block(&counters_reader, counter_id, Duration::from_secs(5))?;
 
             publications.push(publication);
             recording_ids.push((*stream_id, recording_id));
@@ -989,8 +860,7 @@ mod tests {
         let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
             start_aeron_archive_with_config("error_recovery_test", 9600)?;
 
-        let archive_connector =
-            AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
+        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
         let archive = archive_connector
             .poll_blocking(Duration::from_secs(20))
             .expect("failed to connect to archive");
@@ -1001,39 +871,23 @@ mod tests {
         let fake_recording_id = 999999;
         let replay_params = AeronArchiveReplayParams::new(-1, i32::MAX, 0, 100, 0, 0)?;
 
-        let result = archive.start_replay(
-            fake_recording_id,
-            &"aeron:ipc".into_c_string(),
-            4001,
-            &replay_params,
-        );
+        let result = archive.start_replay(fake_recording_id, &"aeron:ipc".into_c_string(), 4001, &replay_params);
 
-        assert!(
-            result.is_err(),
-            "Should fail to replay non-existent recording"
-        );
+        assert!(result.is_err(), "Should fail to replay non-existent recording");
         info!("Correctly handled non-existent recording error");
 
         // Test 2: Attempt to get recording position for invalid counter
         let invalid_counter_id = 9999;
-        let result =
-            RecordingPos::get_recording_id(&aeron_archive.counters_reader(), invalid_counter_id);
-        assert!(
-            result.is_err(),
-            "Should fail to get recording ID for invalid counter"
-        );
+        let result = RecordingPos::get_recording_id(&aeron_archive.counters_reader(), invalid_counter_id);
+        assert!(result.is_err(), "Should fail to get recording ID for invalid counter");
         info!("Correctly handled invalid counter ID");
 
         // Test 3: Valid operation after errors
         let channel = "aeron:ipc";
         let stream_id = 4002;
 
-        let subscription_id = archive.start_recording(
-            &channel.into_c_string(),
-            stream_id,
-            SOURCE_LOCATION_LOCAL,
-            true,
-        )?;
+        let subscription_id =
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
@@ -1042,11 +896,7 @@ mod tests {
         // Publish messages
         for i in 0..5 {
             let message = format!("Recovery-Test-{}", i);
-            while publication.offer(
-                message.as_bytes(),
-                Handlers::no_reserved_value_supplier_handler(),
-            ) <= 0
-            {
+            while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -1081,21 +931,14 @@ mod tests {
 
         let channel = "aeron:ipc";
         let stream_id = 5001;
-        archive.start_recording(
-            &channel.into_c_string(),
-            stream_id,
-            SOURCE_LOCATION_LOCAL,
-            true,
-        )?;
+        archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
             .poll_blocking(Duration::from_secs(5))?;
         for i in 0..100 {
             let m = format!("msg-{i}");
-            while publication.offer(m.as_bytes(), Handlers::no_reserved_value_supplier_handler())
-                <= 0
-            {
+            while publication.offer(m.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 sleep(Duration::from_millis(1));
             }
         }
@@ -1104,13 +947,10 @@ mod tests {
         let session_id = publication.get_constants()?.session_id;
         let counters = aeron_archive.counters_reader();
         let counter_id = RecordingPos::find_counter_id_by_session(&counters, session_id);
-        let recording_id =
-            RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
+        let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
         let published_position = publication.position();
         let deadline = Instant::now() + Duration::from_secs(5);
-        while counters.get_counter_value(counter_id) < published_position
-            && Instant::now() < deadline
-        {
+        while counters.get_counter_value(counter_id) < published_position && Instant::now() < deadline {
             sleep(Duration::from_millis(10));
         }
         info!("recording_id={recording_id} position={published_position}");

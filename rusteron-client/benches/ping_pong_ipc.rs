@@ -60,12 +60,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     c.bench_function("ping_pong_ipc_process_benchmark", |b| {
         b.iter(|| {
-            record_rtt(
-                &pong_publication,
-                &ping_subscription,
-                &mut buffer,
-                &mut handler,
-            );
+            record_rtt(&pong_publication, &ping_subscription, &mut buffer, &mut handler);
         });
     });
 
@@ -149,11 +144,7 @@ impl AeronFragmentHandlerCallback for PingRoundTripHandler {
 }
 
 fn read_i64(buffer: &[u8]) -> i64 {
-    i64::from_le_bytes(
-        buffer[0..8]
-            .try_into()
-            .expect("Slice with incorrect length"),
-    )
+    i64::from_le_bytes(buffer[0..8].try_into().expect("Slice with incorrect length"))
 }
 
 #[inline]

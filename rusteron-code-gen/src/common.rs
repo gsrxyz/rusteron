@@ -22,9 +22,7 @@ impl<T: Clone> Clone for CResource<T> {
         unsafe {
             match self {
                 CResource::OwnedOnHeap(r) => CResource::OwnedOnHeap(r.clone()),
-                CResource::OwnedOnStack(r) => {
-                    CResource::OwnedOnStack(MaybeUninit::new(r.assume_init_ref().clone()))
-                }
+                CResource::OwnedOnStack(r) => CResource::OwnedOnStack(MaybeUninit::new(r.assume_init_ref().clone())),
                 CResource::Borrowed(r) => CResource::Borrowed(r.clone()),
             }
         }
@@ -115,17 +113,12 @@ impl<T> std::fmt::Debug for ManagedCResource<T> {
 
         if !self.close_already_called.get()
             && !self.resource.is_null()
-            && !self
-                .check_for_is_closed
-                .as_ref()
-                .map_or(false, |f| f(self.resource))
+            && !self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource))
         {
             debug_struct.field("resource", &self.resource);
         }
 
-        debug_struct
-            .field("type", &std::any::type_name::<T>())
-            .finish()
+        debug_struct.field("type", &std::any::type_name::<T>()).finish()
     }
 }
 
@@ -159,9 +152,7 @@ impl<T> ManagedCResource<T> {
         Ok(result)
     }
 
-    pub fn initialise(
-        init: impl FnOnce(*mut *mut T) -> i32 + Sized,
-    ) -> Result<*mut T, AeronCError> {
+    pub fn initialise(init: impl FnOnce(*mut *mut T) -> i32 + Sized) -> Result<*mut T, AeronCError> {
         let mut resource: *mut T = std::ptr::null_mut();
         let result = init(&mut resource);
         if result < 0 || resource.is_null() {
@@ -173,10 +164,7 @@ impl<T> ManagedCResource<T> {
     pub fn is_closed_already_called(&self) -> bool {
         self.close_already_called.get()
             || self.resource.is_null()
-            || self
-                .check_for_is_closed
-                .as_ref()
-                .map_or(false, |f| f(self.resource))
+            || self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource))
     }
 
     /// Gets a raw pointer to the resource.
@@ -193,9 +181,7 @@ impl<T> ManagedCResource<T> {
     #[inline]
     // to prevent the dependencies from being dropped as you have a copy here
     pub fn add_dependency<D: std::any::Any>(&self, dep: D) {
-        if let Some(dep) =
-            (&dep as &dyn std::any::Any).downcast_ref::<std::rc::Rc<dyn std::any::Any>>()
-        {
+        if let Some(dep) = (&dep as &dyn std::any::Any).downcast_ref::<std::rc::Rc<dyn std::any::Any>>() {
             unsafe {
                 (*self.dependencies.get()).push(dep.clone());
             }
@@ -235,10 +221,7 @@ impl<T> ManagedCResource<T> {
         }
         self.close_already_called.set(true);
 
-        let already_closed = self
-            .check_for_is_closed
-            .as_ref()
-            .map_or(false, |f| f(self.resource));
+        let already_closed = self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource));
 
         if let Some(mut cleanup) = self.cleanup.take() {
             if !self.resource.is_null() {
@@ -260,10 +243,7 @@ impl<T> Drop for ManagedCResource<T> {
     fn drop(&mut self) {
         if !self.resource.is_null() {
             let already_closed = self.close_already_called.get()
-                || self
-                    .check_for_is_closed
-                    .as_ref()
-                    .map_or(false, |f| f(self.resource));
+                || self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource));
 
             let resource = if already_closed {
                 self.resource
@@ -364,9 +344,7 @@ impl AeronErrorType {
             AeronErrorType::GenericError => "Generic Error",
             AeronErrorType::ClientErrorDriverTimeout => "Client Error Driver Timeout",
             AeronErrorType::ClientErrorClientTimeout => "Client Error Client Timeout",
-            AeronErrorType::ClientErrorConductorServiceTimeout => {
-                "Client Error Conductor Service Timeout"
-            }
+            AeronErrorType::ClientErrorConductorServiceTimeout => "Client Error Conductor Service Timeout",
             AeronErrorType::ClientErrorBufferFull => "Client Error Buffer Full",
             AeronErrorType::PublicationBackPressured => "Publication Back Pressured",
             AeronErrorType::PublicationAdminAction => "Publication Admin Action",
@@ -403,9 +381,8 @@ impl AeronCError {
                 // `from_code` sits on the error path; re-compiling the regex on
                 // every Aeron error (including back-pressure retries) is wasteful.
                 static BACKTRACE_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-                let re = BACKTRACE_RE.get_or_init(|| {
-                    regex::Regex::new(r#"fn: "([^"]+)", file: "([^"]+)", line: (\d+)"#).unwrap()
-                });
+                let re = BACKTRACE_RE
+                    .get_or_init(|| regex::Regex::new(r#"fn: "([^"]+)", file: "([^"]+)", line: (\d+)"#).unwrap());
                 let mut lines = String::new();
                 re.captures_iter(&backtrace).for_each(|cap| {
                     let function = &cap[1];
@@ -513,10 +490,7 @@ impl<T> Handler<T> {
     }
 
     pub unsafe fn new(raw_ptr: *mut T, should_drop: bool) -> Self {
-        Self {
-            raw_ptr,
-            should_drop,
-        }
+        Self { raw_ptr, should_drop }
     }
 }
 
@@ -748,10 +722,7 @@ mod handler_tests {
     fn release_nulls_pointer_so_is_none_is_true() {
         let mut handler = Handler::leak(42u32);
         // Boxed value lives on the heap before release.
-        assert!(
-            !handler.is_none(),
-            "freshly leaked handler must be non-null"
-        );
+        assert!(!handler.is_none(), "freshly leaked handler must be non-null");
 
         handler.release();
 

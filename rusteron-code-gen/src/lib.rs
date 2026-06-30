@@ -33,11 +33,7 @@ pub fn append_to_file(file_path: &str, code: &str) -> std::io::Result<()> {
         }
     }
 
-    let mut file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .append(true)
-        .open(path)?;
+    let mut file = OpenOptions::new().create(true).write(true).append(true).open(path)?;
 
     writeln!(file, "\n{}", code)?;
 
@@ -94,8 +90,7 @@ mod tests {
     use crate::generator::MEDIA_DRIVER_BINDINGS;
     use crate::parser::parse_bindings;
     use crate::{
-        append_to_file, format_token_stream, format_with_rustfmt, ARCHIVE_BINDINGS,
-        CLIENT_BINDINGS, CUSTOM_AERON_CODE,
+        append_to_file, format_token_stream, format_with_rustfmt, ARCHIVE_BINDINGS, CLIENT_BINDINGS, CUSTOM_AERON_CODE,
     };
     use proc_macro2::TokenStream;
     use std::fs;
@@ -139,14 +134,7 @@ mod tests {
             let _ = crate::generate_handlers(handler, &bindings_copy);
         }
         for (p, w) in bindings.wrappers.values().enumerate() {
-            let code = crate::generate_rust_code(
-                w,
-                &bindings.wrappers,
-                p == 0,
-                true,
-                true,
-                &bindings.handlers,
-            );
+            let code = crate::generate_rust_code(w, &bindings.wrappers, p == 0, true, true, &bindings.handlers);
             write_to_file(code, false, "client.rs");
         }
         let bindings_copy = bindings.clone();
@@ -197,14 +185,7 @@ mod tests {
             .filter(|w| !w.type_name.contains("_t_") && w.type_name != "in_addr")
             .enumerate()
         {
-            let code = crate::generate_rust_code(
-                w,
-                &bindings.wrappers,
-                p == 0,
-                true,
-                true,
-                &bindings.handlers,
-            );
+            let code = crate::generate_rust_code(w, &bindings.wrappers, p == 0, true, true, &bindings.handlers);
             write_to_file(code, false, "md.rs");
         }
         let bindings_copy = bindings.clone();
@@ -248,14 +229,7 @@ mod tests {
             let _ = crate::generate_handlers(handler, &bindings_copy);
         }
         for (p, w) in bindings.wrappers.values().enumerate() {
-            let code = crate::generate_rust_code(
-                w,
-                &bindings.wrappers,
-                p == 0,
-                true,
-                true,
-                &bindings.handlers,
-            );
+            let code = crate::generate_rust_code(w, &bindings.wrappers, p == 0, true, true, &bindings.handlers);
             write_to_file(code, false, "archive.rs");
         }
         let bindings_copy = bindings.clone();
@@ -276,11 +250,7 @@ mod tests {
     /// the whole stream, test-modules disabled) and assert it byte-matches the
     /// committed `docs-rs/aeron.rs`. Catches "forgot to rebuild with
     /// `COPY_BINDINGS=true`" drift as a CI failure instead of a stale docs.rs.
-    fn assert_aeron_rs_snapshot_matches(
-        bindings_file: &str,
-        snapshot_rel_path: &str,
-        skip_filter: fn(&str) -> bool,
-    ) {
+    fn assert_aeron_rs_snapshot_matches(bindings_file: &str, snapshot_rel_path: &str, skip_filter: fn(&str) -> bool) {
         if running_under_valgrind() {
             return;
         }
@@ -288,8 +258,7 @@ mod tests {
         let bindings_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("bindings")
             .join(bindings_file);
-        let snapshot_path =
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(snapshot_rel_path);
+        let snapshot_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(snapshot_rel_path);
 
         let mut bindings = parse_bindings(&bindings_path);
         // First pass: populate FnMut(...) names required by generate_rust_code.
@@ -361,22 +330,14 @@ mod tests {
     #[test]
     #[cfg(not(target_os = "windows"))]
     fn client_aeron_rs_matches_committed_snapshot() {
-        assert_aeron_rs_snapshot_matches(
-            "client.rs",
-            "../rusteron-client/docs-rs/aeron.rs",
-            |_| true,
-        );
+        assert_aeron_rs_snapshot_matches("client.rs", "../rusteron-client/docs-rs/aeron.rs", |_| true);
     }
 
     #[test]
     #[cfg(not(target_os = "windows"))]
     #[cfg(target_os = "macos")]
     fn archive_aeron_rs_matches_committed_snapshot() {
-        assert_aeron_rs_snapshot_matches(
-            "archive.rs",
-            "../rusteron-archive/docs-rs/aeron.rs",
-            |_| true,
-        );
+        assert_aeron_rs_snapshot_matches("archive.rs", "../rusteron-archive/docs-rs/aeron.rs", |_| true);
     }
 
     #[test]
@@ -384,11 +345,9 @@ mod tests {
     #[cfg(target_os = "macos")]
     fn media_driver_aeron_rs_matches_committed_snapshot() {
         // Mirrors the media_driver trybuild test's filter.
-        assert_aeron_rs_snapshot_matches(
-            "media-driver.rs",
-            "../rusteron-media-driver/docs-rs/aeron.rs",
-            |t| !t.contains("_t_") && t != "in_addr",
-        );
+        assert_aeron_rs_snapshot_matches("media-driver.rs", "../rusteron-media-driver/docs-rs/aeron.rs", |t| {
+            !t.contains("_t_") && t != "in_addr"
+        });
     }
 
     /// `aeron_custom.rs` is a verbatim copy (not generated) into each crate's
@@ -400,9 +359,8 @@ mod tests {
         for crate_name in ["client", "archive", "media-driver"] {
             let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join(format!("../rusteron-{crate_name}/docs-rs/aeron_custom.rs"));
-            let committed = fs::read_to_string(&path).unwrap_or_else(|_| {
-                panic!("missing committed aeron_custom.rs: {}", path.display())
-            });
+            let committed = fs::read_to_string(&path)
+                .unwrap_or_else(|_| panic!("missing committed aeron_custom.rs: {}", path.display()));
             assert_eq!(
                 committed.trim(),
                 source,
@@ -414,8 +372,7 @@ mod tests {
 
     fn write_to_file(rust_code: TokenStream, delete: bool, name: &str) -> String {
         let src = format_token_stream(rust_code);
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join(format!("../target/{}", name));
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../target/{}", name));
         let path = path.to_str().unwrap();
         if delete {
             let _ = fs::remove_file(path);

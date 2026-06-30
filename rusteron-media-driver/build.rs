@@ -53,13 +53,10 @@ pub fn main() {
         println!("cargo:warning=docs.rs build detected, skipping build script");
         for entry in WalkDir::new(&docs_rs) {
             let entry = entry.unwrap();
-            if entry.file_type().is_file()
-                && entry.path().extension().map(|s| s == "rs").unwrap_or(false)
-            {
+            if entry.file_type().is_file() && entry.path().extension().map(|s| s == "rs").unwrap_or(false) {
                 let file_name = entry.path().file_name().unwrap();
                 let dest = out_path.join(file_name);
-                fs::copy(entry.path(), dest)
-                    .expect("Failed to copy generated Rust file from artifacts");
+                fs::copy(entry.path(), dest).expect("Failed to copy generated Rust file from artifacts");
             }
         }
         return;
@@ -69,23 +66,14 @@ pub fn main() {
     println!("cargo:rerun-if-changed=bindings.h");
 
     // Determine the artifacts folder based on feature, OS, and architecture.
-    #[cfg(all(
-        any(feature = "precompile", feature = "precompile-rustls"),
-        feature = "static"
-    ))]
+    #[cfg(all(any(feature = "precompile", feature = "precompile-rustls"), feature = "static"))]
     let artifacts_dir = get_artifact_path();
 
-    #[cfg(all(
-        any(feature = "precompile", feature = "precompile-rustls"),
-        feature = "static"
-    ))]
+    #[cfg(all(any(feature = "precompile", feature = "precompile-rustls"), feature = "static"))]
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     // If the artifacts folder exists use that instead of doing cmake and requiring java to be installed
-    #[cfg(all(
-        any(feature = "precompile", feature = "precompile-rustls"),
-        feature = "static"
-    ))]
+    #[cfg(all(any(feature = "precompile", feature = "precompile-rustls"), feature = "static"))]
     if fs::read_dir(&artifacts_dir)
         .as_mut()
         .map(|s| s.next().is_none())
@@ -97,10 +85,7 @@ pub fn main() {
             println!("Error downloading precompiled binaries: {e:?}");
         }
     }
-    #[cfg(all(
-        any(feature = "precompile", feature = "precompile-rustls"),
-        feature = "static"
-    ))]
+    #[cfg(all(any(feature = "precompile", feature = "precompile-rustls"), feature = "static"))]
     if artifacts_dir.exists()
         && fs::read_dir(&artifacts_dir)
             .as_mut()
@@ -113,10 +98,7 @@ pub fn main() {
             artifacts_dir.display()
         );
 
-        println!(
-            "cargo:rustc-link-arg=-Wl,-rpath,{}",
-            artifacts_dir.display()
-        );
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{}", artifacts_dir.display());
         println!("cargo:rustc-link-search=native={}", artifacts_dir.display());
         let link_type = LinkType::detect();
         println!(
@@ -148,13 +130,10 @@ pub fn main() {
         // Copy generated Rust files (*.rs) from the artifacts folder into OUT_DIR.
         for entry in WalkDir::new(&docs_rs) {
             let entry = entry.unwrap();
-            if entry.file_type().is_file()
-                && entry.path().extension().map(|s| s == "rs").unwrap_or(false)
-            {
+            if entry.file_type().is_file() && entry.path().extension().map(|s| s == "rs").unwrap_or(false) {
                 let file_name = entry.path().file_name().unwrap();
                 let dest = out_path.join(file_name);
-                fs::copy(entry.path(), dest)
-                    .expect("Failed to copy generated Rust file from artifacts");
+                fs::copy(entry.path(), dest).expect("Failed to copy generated Rust file from artifacts");
             }
         }
 
@@ -192,11 +171,7 @@ fn build_from_source(docs_rs: &Path) {
         link_type.target_name()
     );
     if let Some(base_target_name) = link_type.base_target_name() {
-        println!(
-            "cargo:rustc-link-lib={}{}",
-            link_type.link_lib(),
-            base_target_name
-        );
+        println!("cargo:rustc-link-lib={}{}", link_type.link_lib(), base_target_name);
     }
 
     if let LinkType::Static = link_type {
@@ -258,10 +233,7 @@ fn build_from_source(docs_rs: &Path) {
     // For Windows, the .lib file is in build/lib/{profile}, but the DLL
     // is shipped in build/binaries/{profile}
     let base_lib_dir = cmake_output.join("build");
-    println!(
-        "cargo:rustc-link-search=native={}",
-        base_lib_dir.join("lib").display()
-    );
+    println!("cargo:rustc-link-search=native={}", base_lib_dir.join("lib").display());
     // Because the `cmake_output` path is different for debug/release, we're not worried
     // about accidentally linking the Debug library when this is a release build or vice-versa
     println!(
@@ -285,18 +257,13 @@ fn build_from_source(docs_rs: &Path) {
     let bindings = bindgen::Builder::default()
         .clang_arg(format!("-I{}", header_path.display()))
         // We need to include some of the headers from `aeron c client`, so update the include path here
-        .clang_arg(format!(
-            "-I{}",
-            aeron_path.join("aeron-client/src/main/c").display()
-        ))
+        .clang_arg(format!("-I{}", aeron_path.join("aeron-client/src/main/c").display()))
         .header("bindings.h")
         .allowlist_function("aeron_.*")
         .allowlist_type("aeron_.*")
         .allowlist_var("AERON_.*")
         .rustified_enum("aeron_.*_enum")
-        .default_enum_style(EnumVariation::Rust {
-            non_exhaustive: false,
-        })
+        .default_enum_style(EnumVariation::Rust { non_exhaustive: false })
         .derive_debug(true)
         .derive_copy(true)
         .derive_eq(true)
@@ -307,18 +274,12 @@ fn build_from_source(docs_rs: &Path) {
         .expect("Unable to generate aeron_driver bindings");
 
     let out = out_path.join("bindings.rs");
-    bindings
-        .write_to_file(out.clone())
-        .expect("Couldn't write bindings!");
+    bindings.write_to_file(out.clone()).expect("Couldn't write bindings!");
 
     let mut bindings = rusteron_code_gen::parse_bindings(&out);
     assert_eq!(
         "aeron_driver_conductor_t",
-        bindings
-            .wrappers
-            .get("aeron_driver_conductor_t")
-            .unwrap()
-            .type_name
+        bindings.wrappers.get("aeron_driver_conductor_t").unwrap().type_name
     );
     let aeron = out_path.join("aeron.rs");
     let _ = fs::remove_file(aeron.clone());
@@ -326,11 +287,7 @@ fn build_from_source(docs_rs: &Path) {
     // include custom aeron code
     let aeron_custom = out_path.join("aeron_custom.rs");
     let _ = fs::remove_file(aeron_custom.clone());
-    append_to_file(
-        aeron_custom.to_str().unwrap(),
-        rusteron_code_gen::CUSTOM_AERON_CODE,
-    )
-    .unwrap();
+    append_to_file(aeron_custom.to_str().unwrap(), rusteron_code_gen::CUSTOM_AERON_CODE).unwrap();
 
     let mut stream = TokenStream::new();
     let bindings_copy = bindings.clone();
@@ -344,14 +301,8 @@ fn build_from_source(docs_rs: &Path) {
         .filter(|w| !w.type_name.contains("_t_") && w.type_name != "in_addr")
         .enumerate()
     {
-        let code = rusteron_code_gen::generate_rust_code(
-            w,
-            &bindings.wrappers,
-            p == 0,
-            false,
-            true,
-            &bindings.handlers,
-        );
+        let code =
+            rusteron_code_gen::generate_rust_code(w, &bindings.wrappers, p == 0, false, true, &bindings.handlers);
         stream.extend(code);
     }
     let bindings_copy = bindings.clone();
@@ -379,8 +330,7 @@ fn build_from_source(docs_rs: &Path) {
     let _ = std::fs::create_dir_all(docs_rs);
 
     for rs in [&aeron, &aeron_custom, &out] {
-        fs::copy(rs, docs_rs.join(rs.file_name().unwrap()))
-            .expect("Failed to copy source code for docs-rs");
+        fs::copy(rs, docs_rs.join(rs.file_name().unwrap())).expect("Failed to copy source code for docs-rs");
     }
 }
 
@@ -454,18 +404,12 @@ fn publish_artifacts(cmake_build_path: &Path) -> std::io::Result<()> {
         }
     }
 
-    assert!(
-        libs_copied > 0,
-        "No libraries found in the cmake build directory."
-    );
+    assert!(libs_copied > 0, "No libraries found in the cmake build directory.");
     println!("Artifacts published to: {}", publish_dir.display());
     Ok(())
 }
 
-#[cfg(all(
-    any(feature = "precompile", feature = "precompile-rustls"),
-    feature = "static"
-))]
+#[cfg(all(any(feature = "precompile", feature = "precompile-rustls"), feature = "static"))]
 fn download_precompiled_binaries(artifacts_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let version = env::var("CARGO_PKG_VERSION").unwrap();
     let mut target_os = env::var("CARGO_CFG_TARGET_OS").unwrap(); // e.g., "macos", "linux", "windows"
@@ -500,8 +444,7 @@ fn download_precompiled_binaries(artifacts_dir: &Path) -> Result<(), Box<dyn std
     archive.unpack(artifacts_dir)?;
 
     // move files we are interested in
-    let pkg_name =
-        std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME should always be set by Cargo");
+    let pkg_name = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME should always be set by Cargo");
     let dir = fs::read_dir(
         artifacts_dir
             .join(format!("artifacts-{target_os}-{image}-{feature}"))

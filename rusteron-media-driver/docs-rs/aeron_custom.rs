@@ -1,3 +1,4 @@
+
 // code here is included in all modules and extends generated classes
 pub static AERON_IPC_STREAM: &std::ffi::CStr =
     unsafe { std::ffi::CStr::from_bytes_with_nul_unchecked(b"aeron:ipc\0") };
@@ -2087,3 +2088,4 @@ mod aeron_custom_tests {
         assert!(validate_endpoint_for_aeron_udp("a.b.c.d:40123").is_ok());
     }
 }
+

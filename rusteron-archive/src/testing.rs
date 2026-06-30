@@ -130,25 +130,16 @@ impl EmbeddedArchiveMediaDriverProcess {
                         if let Ok(archive_context) = AeronArchiveContext::new() {
                             archive_context.set_aeron(&aeron).expect("invalid aeron");
                             archive_context
-                                .set_control_request_channel(
-                                    &self.control_request_channel.as_str().into_c_string(),
-                                )
+                                .set_control_request_channel(&self.control_request_channel.as_str().into_c_string())
                                 .expect("invalid control request channel");
                             archive_context
-                                .set_control_response_channel(
-                                    &self.control_response_channel.as_str().into_c_string(),
-                                )
+                                .set_control_response_channel(&self.control_response_channel.as_str().into_c_string())
                                 .expect("invalid control response channel");
                             archive_context
-                                .set_recording_events_channel(
-                                    &self.recording_events_channel.as_str().into_c_string(),
-                                )
+                                .set_recording_events_channel(&self.recording_events_channel.as_str().into_c_string())
                                 .expect("invalid recording events channel");
-                            if let Ok(connect) =
-                                AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)
-                            {
-                                if let Ok(archive) = connect.poll_blocking(Duration::from_secs(10))
-                                {
+                            if let Ok(connect) = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron) {
+                                if let Ok(archive) = connect.poll_blocking(Duration::from_secs(10)) {
                                     let i = archive.get_archive_id();
                                     assert!(i > 0);
                                     info!("aeron archive media driver is up [connected with archive id {i}]");
@@ -169,9 +160,7 @@ impl EmbeddedArchiveMediaDriverProcess {
             "failed to start up aeron media driver"
         );
 
-        return Err(std::io::Error::other(
-            "unable to start up aeron media driver client",
-        ));
+        return Err(std::io::Error::other("unable to start up aeron media driver client"));
     }
 
     /// Starts an embedded Aeron Archive Media Driver process with the specified configurations.
@@ -227,21 +216,13 @@ impl EmbeddedArchiveMediaDriverProcess {
         fs::create_dir_all(aeron_dir)?;
         fs::create_dir_all(archive_dir)?;
 
-        let binding = fs::read_dir(format!(
-            "{}/aeron/aeron-all/build/libs",
-            env!("CARGO_MANIFEST_DIR")
-        ))?
-        .filter(|f| f.is_ok())
-        .map(|f| f.unwrap())
-        .filter(|f| {
-            f.file_name()
-                .to_string_lossy()
-                .to_string()
-                .ends_with(".jar")
-        })
-        .next()
-        .unwrap()
-        .path();
+        let binding = fs::read_dir(format!("{}/aeron/aeron-all/build/libs", env!("CARGO_MANIFEST_DIR")))?
+            .filter(|f| f.is_ok())
+            .map(|f| f.unwrap())
+            .filter(|f| f.file_name().to_string_lossy().to_string().ends_with(".jar"))
+            .next()
+            .unwrap()
+            .path();
         let mut jar_path = binding.to_str().unwrap();
         let agent_jar = jar_path.replace("aeron-all", "aeron-agent");
 
@@ -251,11 +232,7 @@ impl EmbeddedArchiveMediaDriverProcess {
         if fs::exists(&agent_jar).unwrap_or_default() {
             args.push(format!("-javaagent:{}", agent_jar));
         }
-        let separator = if cfg!(target_os = "windows") {
-            ";"
-        } else {
-            ":"
-        };
+        let separator = if cfg!(target_os = "windows") { ";" } else { ":" };
 
         let combined_jars = format!(
             "{}{separator}{}",
@@ -276,10 +253,7 @@ impl EmbeddedArchiveMediaDriverProcess {
         args.push("-Daeron.event.archive.log=all".to_string());
         args.push("-Daeron.event.cluster.log=all".to_string());
         args.push("-Dagrona.disable.bounds.checks=true".to_string());
-        args.push(format!(
-            "-Daeron.archive.control.channel={}",
-            control_request_channel
-        ));
+        args.push(format!("-Daeron.archive.control.channel={}", control_request_channel));
         args.push(format!(
             "-Daeron.archive.control.response.channel={}",
             control_response_channel
@@ -294,10 +268,7 @@ impl EmbeddedArchiveMediaDriverProcess {
         args.push("-Daeron.publication.unblock.timeout=65000000000".to_string());
         args.push("io.aeron.archive.ArchivingMediaDriver".to_string());
 
-        info!(
-            "starting archive media driver [\n\tjava {}\n]",
-            args.join(" ")
-        );
+        info!("starting archive media driver [\n\tjava {}\n]", args.join(" "));
 
         let child = Command::new("java")
             .args(args)
@@ -415,10 +386,7 @@ pub fn set_panic_hook() {
             error!("Panic message: {}", payload);
         } else {
             // If it's not a &str or String, try to print it as Debug
-            error!(
-                "Panic with non-standard payload: {:?}",
-                info.payload().type_id()
-            );
+            error!("Panic with non-standard payload: {:?}", info.payload().type_id());
         }
 
         warn!("shutdown");

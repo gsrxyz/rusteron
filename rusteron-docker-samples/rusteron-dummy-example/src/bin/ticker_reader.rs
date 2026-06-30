@@ -1,8 +1,6 @@
 use log::{error, info};
 use rusteron_archive::*;
-use rusteron_dummy_example::{
-    archive_connect, init_logger, start_media_driver, TICKER_CHANNEL, TICKER_STREAM_ID,
-};
+use rusteron_dummy_example::{archive_connect, init_logger, start_media_driver, TICKER_CHANNEL, TICKER_STREAM_ID};
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::atomic::Ordering;
@@ -22,14 +20,10 @@ fn main() -> Result<()> {
 
     let shutdown = rusteron_dummy_example::register_exit_signals()?;
 
-    let mut archive_log_time = Instant::now()
-        .checked_sub(Duration::from_secs(300))
-        .unwrap();
+    let mut archive_log_time = Instant::now().checked_sub(Duration::from_secs(300)).unwrap();
     let archive_log = Duration::from_secs(120);
 
-    let mut live_log_time = Instant::now()
-        .checked_sub(Duration::from_secs(300))
-        .unwrap();
+    let mut live_log_time = Instant::now().checked_sub(Duration::from_secs(300)).unwrap();
     let live_log = Duration::from_secs(30);
 
     let mut record_reader = Handler::leak(RecorderDescriptorReader::default());
@@ -62,8 +56,7 @@ fn main() -> Result<()> {
                         info!("trying replay merge {record:?}");
                         let session_id = record.session_id;
 
-                        let replay_channel =
-                            format!("aeron:udp?control-mode=manual|session-id={session_id}");
+                        let replay_channel = format!("aeron:udp?control-mode=manual|session-id={session_id}");
                         info!("replay channel {replay_channel}");
                         let subscription = aeron.add_subscription(
                             &replay_channel.clone().into_c_string(),
@@ -150,9 +143,7 @@ fn main() -> Result<()> {
                                 let time = Instant::now();
 
                                 let mut count = 0;
-                                while subscription
-                                    .poll(Some(&replay_msg_count_handler), 1000)
-                                    .is_ok()
+                                while subscription.poll(Some(&replay_msg_count_handler), 1000).is_ok()
                                     && !subscription.is_closed()
                                     && time.elapsed() < Duration::from_secs(60)
                                     && (count > 0 || time.elapsed() < Duration::from_secs(5))
@@ -160,8 +151,7 @@ fn main() -> Result<()> {
                                     count += 1;
                                     // prevent live sub from building up
                                     if let Some(live_subscription) = &live_subscription {
-                                        let _ = live_subscription
-                                            .poll(Some(&live_msg_count_handler), 1000);
+                                        let _ = live_subscription.poll(Some(&live_msg_count_handler), 1000);
                                     }
                                 }
 
@@ -202,10 +192,7 @@ fn main() -> Result<()> {
 
         if live_log_time.elapsed() > live_log {
             live_log_time = Instant::now();
-            info!(
-                "live channel sent {:?} since previous log",
-                *live_msg_count_handler
-            );
+            info!("live channel sent {:?} since previous log", *live_msg_count_handler);
             live_msg_count_handler.reset();
         }
     }
@@ -239,15 +226,9 @@ impl AeronArchiveRecordingDescriptorConsumerFuncCallback for RecorderDescriptorR
             self.last_recording_with_stop_position = Some(copy.clone_struct());
         }
         assert_eq!(copy.recording_id, recording_descriptor.recording_id);
-        assert_eq!(
-            copy.control_session_id,
-            recording_descriptor.control_session_id
-        );
+        assert_eq!(copy.control_session_id, recording_descriptor.control_session_id);
         assert_eq!(copy.mtu_length, recording_descriptor.mtu_length);
-        assert_eq!(
-            copy.source_identity_length,
-            recording_descriptor.source_identity_length
-        );
+        assert_eq!(copy.source_identity_length, recording_descriptor.source_identity_length);
         assert_eq!(copy.deref(), recording_descriptor.deref());
         self.last_recording = Some(copy);
     }
