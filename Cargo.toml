@@ -29,7 +29,7 @@ proptest        = "1.6"
 quote           = "1.0"
 regex           = "1.11"
 reqwest         = { version = "0.13", features = ["blocking"], default-features = false }
-rusteron-code-gen = { path = "rusteron-code-gen", version = "=0.1.166" }
+rusteron-code-gen = { path = "rusteron-code-gen", version = "=0.1.167" }
 serial_test     = { version = "3.4", features = ["file_locks"] }
 syn             = { version = "2.0", features = ["full"] }
 tar             = "0.4"
