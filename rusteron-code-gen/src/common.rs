@@ -71,8 +71,9 @@ impl<T> CResource<T> {
     /// `ManagedCResource` — the FFI close fires exactly once across all
     /// clones.  Stack and borrowed resources are no-ops (they don't own a
     /// cleanup closure).
+    #[allow(dead_code)]
     #[inline]
-    pub fn close_resource(&self) -> Result<(), AeronCError> {
+    pub(crate) fn close_resource(&self) -> Result<(), AeronCError> {
         match self {
             CResource::OwnedOnHeap(r) => r.close_shared(),
             CResource::OwnedOnStack(_) | CResource::Borrowed(_) => Ok(()),
@@ -84,8 +85,9 @@ impl<T> CResource<T> {
     /// This is used for close methods that take extra parameters, such as
     /// Aeron's close-complete notification callback.  The custom close still
     /// consumes the wrapper handle and still closes exactly once across clones.
+    #[allow(dead_code)]
     #[inline]
-    pub fn close_resource_with(&self, cleanup: impl FnMut(*mut *mut T) -> i32) -> Result<(), AeronCError> {
+    pub(crate) fn close_resource_with(&self, cleanup: impl FnMut(*mut *mut T) -> i32) -> Result<(), AeronCError> {
         match self {
             CResource::OwnedOnHeap(r) => r.close_shared_with(cleanup),
             CResource::OwnedOnStack(_) | CResource::Borrowed(_) => Ok(()),
@@ -97,8 +99,9 @@ impl<T> CResource<T> {
     /// This is for owner/client handles (e.g. Aeron/AeronArchive) whose C close
     /// frees child resources.  If child handles still hold dependency clones, we
     /// must defer to natural Rc teardown to preserve child-before-parent order.
+    #[allow(dead_code)]
     #[inline]
-    pub fn close_resource_deferred_if_shared(&self) -> Result<(), AeronCError> {
+    pub(crate) fn close_resource_deferred_if_shared(&self) -> Result<(), AeronCError> {
         match self {
             CResource::OwnedOnHeap(r) => {
                 let refs = std::rc::Rc::strong_count(r);
@@ -214,12 +217,6 @@ impl<T> ManagedCResource<T> {
         Ok(resource)
     }
 
-    /// Returns `true` if the resource has been closed (via close() or is
-    /// already null).
-    pub fn is_closed_already_called(&self) -> bool {
-        self.close_already_called.get() || self.resource.get().is_null()
-    }
-
     /// Gets a raw pointer to the resource.
     #[inline(always)]
     pub fn get(&self) -> *mut T {
@@ -275,7 +272,7 @@ impl<T> ManagedCResource<T> {
     ///
     /// This is the method called by the generated `close(self)` method on
     /// wrapper types.
-    pub fn close_shared(&self) -> Result<(), AeronCError> {
+    pub(crate) fn close_shared(&self) -> Result<(), AeronCError> {
         if self.close_already_called.get() {
             return Ok(());
         }
@@ -316,7 +313,8 @@ impl<T> ManagedCResource<T> {
     /// The stored default cleanup is taken first so Drop cannot later run it a
     /// second time.  If the custom close fails, the default cleanup is restored
     /// and the resource remains retryable.
-    pub fn close_shared_with(&self, mut custom_cleanup: impl FnMut(*mut *mut T) -> i32) -> Result<(), AeronCError> {
+    #[allow(dead_code)]
+    pub(crate) fn close_shared_with(&self, mut custom_cleanup: impl FnMut(*mut *mut T) -> i32) -> Result<(), AeronCError> {
         if self.close_already_called.get() {
             return Ok(());
         }

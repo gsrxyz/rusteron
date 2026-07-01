@@ -210,12 +210,19 @@ fn build_from_source(docs_rs: &Path) {
     // Sanitizer support — set RUSTERON_SANITIZE=address (or other) to enable.
     // This injects -fsanitize=* flags into the C/C++ compilation via cmake,
     // allowing AddressSanitizer (etc.) to catch memory errors in the C bindings.
+    #[allow(unused_mut)]
+    let mut c_flags = "-fcommon".to_string();
+    let mut cxx_flags = String::new();
     if let Ok(san) = std::env::var("RUSTERON_SANITIZE") {
         if !san.is_empty() {
             let san_flags = format!("-fsanitize={} -fno-omit-frame-pointer -g -O1", san);
-            config.define("CMAKE_C_FLAGS", &san_flags);
-            config.define("CMAKE_CXX_FLAGS", &san_flags);
+            c_flags = format!("{} {}", san_flags, c_flags);
+            cxx_flags = san_flags;
         }
+    }
+    config.define("CMAKE_C_FLAGS", &c_flags);
+    if !cxx_flags.is_empty() {
+        config.define("CMAKE_CXX_FLAGS", &cxx_flags);
     }
 
     let cmake_output = config

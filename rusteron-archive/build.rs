@@ -250,7 +250,6 @@ fn build_from_source(docs_rs: &Path) {
             cxx_flags = san_flags;
         }
     }
-    config.define("CMAKE_C_FLAGS", &c_flags);
     if !cxx_flags.is_empty() {
         config.define("CMAKE_CXX_FLAGS", &cxx_flags);
     }
