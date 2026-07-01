@@ -427,7 +427,6 @@ impl AeronArchivePersistentSubscription {
                 aeron_archive_persistent_subscription_close(*ctx_field)
             })),
             true,
-            None,
         ) {
             Ok(r) => r,
             Err(e) => {
@@ -859,7 +858,7 @@ mod tests {
                 }
             }
             assert!(caught_up_count > 0);
-            if let Err(err) = publication.close(Handlers::no_notification_handler()) {
+            if let Err(err) = publication.close() {
                 info!("publisher close returned error: {err:?}");
             }
             info!("Publisher thread terminated");
@@ -998,12 +997,8 @@ mod tests {
         assert!(!replay_merge.has_failed());
         assert!(replay_merge.is_live_added());
         assert!(reply_count > 10_000, "no replay-merge fragments received");
-        if let Err(err) = replay_merge.close() {
-            info!("replay merge close returned error: {err:?}");
-        }
-        if let Err(err) = subscription.close(Handlers::no_notification_handler()) {
-            info!("replay subscription close returned error: {err:?}");
-        }
+        drop(replay_merge);
+        drop(subscription);
         Ok(())
     }
 
@@ -1390,7 +1385,7 @@ mod tests {
             .poll_blocking(Duration::from_secs(30))
             .expect("failed to connect to archive");
 
-        drop(archive);
+        archive.close()?;
 
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?;
         let new_archive = archive_connector
@@ -1401,8 +1396,63 @@ mod tests {
             "Reconnected archive should have a valid archive id"
         );
 
-        drop(new_archive);
-        drop(aeron);
+        new_archive.close()?;
+        aeron.close()?;
+        drop(media_driver);
+        pub_error_frame_handler.release();
+        error_handler.release();
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_archive_close_defers_with_live_clone() -> Result<(), Box<dyn std::error::Error>> {
+        let (aeron, archive_context, media_driver, mut pub_error_frame_handler, mut error_handler) =
+            start_aeron_archive()?;
+        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?;
+        let archive = archive_connector
+            .poll_blocking(Duration::from_secs(30))
+            .expect("failed to connect to archive");
+        let archive_id = archive.get_archive_id();
+        assert!(archive_id > 0);
+
+        // Ordering 1: close clone first, original stays alive
+        let clone = archive.clone();
+        clone.close()?;
+        assert_eq!(archive_id, archive.get_archive_id(), "clone close defers while original alive");
+
+        // Ordering 2: close original first, clone stays alive
+        let clone2 = archive.clone();
+        archive.close()?;
+        assert_eq!(archive_id, clone2.get_archive_id(), "original close defers while clone alive");
+
+        clone2.close()?;
+        aeron.close()?;
+        drop(media_driver);
+        pub_error_frame_handler.release();
+        error_handler.release();
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_archive_close_does_not_close_aeron_client() -> Result<(), Box<dyn std::error::Error>> {
+        let (aeron, archive_context, media_driver, mut pub_error_frame_handler, mut error_handler) =
+            start_aeron_archive()?;
+        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?;
+        let archive = archive_connector
+            .poll_blocking(Duration::from_secs(30))
+            .expect("failed to connect to archive");
+
+        archive.close()?;
+
+        let publication = aeron
+            .add_publication(AERON_IPC_STREAM, 30, Duration::from_secs(5))
+            .expect("Aeron client should remain usable after archive close");
+        assert!(!publication.get_inner().is_null());
+        publication.close()?;
+
+        aeron.close()?;
         drop(media_driver);
         pub_error_frame_handler.release();
         error_handler.release();

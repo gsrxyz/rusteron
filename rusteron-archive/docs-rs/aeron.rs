@@ -35,7 +35,6 @@ impl DarwinPthreadHandlerRec {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -187,6 +186,55 @@ impl<T> CResource<T> {
             CResource::OwnedOnStack(_) | CResource::Borrowed(_) => None,
         }
     }
+    #[doc = " Run the clean-up / close on the resource via its shared state."]
+    #[doc = ""]
+    #[doc = " For `OwnedOnHeap` resources this calls `close_shared` on the"]
+    #[doc = " `ManagedCResource` — the FFI close fires exactly once across all"]
+    #[doc = " clones.  Stack and borrowed resources are no-ops (they don't own a"]
+    #[doc = " cleanup closure)."]
+    #[inline]
+    pub fn close_resource(&self) -> Result<(), AeronCError> {
+        match self {
+            CResource::OwnedOnHeap(r) => r.close_shared(),
+            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => Ok(()),
+        }
+    }
+    #[doc = " Run a custom close function through the same shared close gate."]
+    #[doc = ""]
+    #[doc = " This is used for close methods that take extra parameters, such as"]
+    #[doc = " Aeron's close-complete notification callback.  The custom close still"]
+    #[doc = " consumes the wrapper handle and still closes exactly once across clones."]
+    #[inline]
+    pub fn close_resource_with(&self, cleanup: impl FnMut(*mut *mut T) -> i32) -> Result<(), AeronCError> {
+        match self {
+            CResource::OwnedOnHeap(r) => r.close_shared_with(cleanup),
+            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => Ok(()),
+        }
+    }
+    #[doc = " Close an owner resource only when this is the last shared reference."]
+    #[doc = ""]
+    #[doc = " This is for owner/client handles (e.g. Aeron/AeronArchive) whose C close"]
+    #[doc = " frees child resources.  If child handles still hold dependency clones, we"]
+    #[doc = " must defer to natural Rc teardown to preserve child-before-parent order."]
+    #[inline]
+    pub fn close_resource_deferred_if_shared(&self) -> Result<(), AeronCError> {
+        match self {
+            CResource::OwnedOnHeap(r) => {
+                let refs = std::rc::Rc::strong_count(r);
+                if refs > 1 {
+                    log::info!(
+                        "close deferred for {} because {} references are still alive",
+                        std::any::type_name::<T>(),
+                        refs
+                    );
+                    Ok(())
+                } else {
+                    r.close_shared()
+                }
+            }
+            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => Ok(()),
+        }
+    }
 }
 impl<T> std::fmt::Debug for CResource<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -207,18 +255,21 @@ impl<T> std::fmt::Debug for CResource<T> {
 #[doc = " A custom struct for managing C resources with automatic cleanup."]
 #[doc = ""]
 #[doc = " It handles initialisation and clean-up of the resource and ensures that resources"]
-#[doc = " are properly released when they go out of scope."]
+#[doc = " are properly released when they go out of scope. All teardown goes through the"]
+#[doc = " single `cleanup` closure (if set), which is the FFI close function (e.g."]
+#[doc = " `aeron_close`). The Rc dependency graph ensures parents outlive children"]
+#[doc = " structurally — you cannot race `aeron_close` ahead of a live child handle."]
 #[allow(dead_code)]
 pub struct ManagedCResource<T> {
-    resource: *mut T,
-    cleanup: Option<Box<dyn FnMut(*mut *mut T) -> i32>>,
+    resource: std::cell::Cell<*mut T>,
+    #[doc = " Interior mutability so the cleanup can be invoked through a shared"]
+    #[doc = " `&self` reference when the resource is shared via `Rc`.  The"]
+    #[doc = " `close_already_called` gate ensures single-execution: only the first"]
+    #[doc = " call to `close()` or `close_shared()` takes and runs the closure."]
+    cleanup: UnsafeCell<Option<Box<dyn FnMut(*mut *mut T) -> i32>>>,
     cleanup_struct: bool,
-    #[doc = " if someone externally rusteron calls close"]
+    #[doc = " Set when close() has been called (gate against double-cleanup)."]
     close_already_called: std::cell::Cell<bool>,
-    #[doc = " if there is a c method to verify it someone has closed it, only few structs have this functionality"]
-    check_for_is_closed: Option<fn(*mut T) -> bool>,
-    #[doc = " this will be called if closed hasn't already happened even if its borrowed"]
-    auto_close: std::cell::Cell<bool>,
     #[doc = " indicates if the underlying resource has already been handed off and should not be re-polled"]
     resource_released: std::cell::Cell<bool>,
     #[doc = " Keeps deps alive (e.g. the Aeron client while a pub/sub exists)."]
@@ -228,14 +279,17 @@ pub struct ManagedCResource<T> {
 }
 impl<T> std::fmt::Debug for ManagedCResource<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut debug_struct = f.debug_struct("ManagedCResource");
-        if !self.close_already_called.get()
-            && !self.resource.is_null()
-            && !self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource))
-        {
-            debug_struct.field("resource", &self.resource);
-        }
-        debug_struct.field("type", &std::any::type_name::<T>()).finish()
+        f.debug_struct("ManagedCResource")
+            .field(
+                "resource",
+                if self.close_already_called.get() {
+                    &"<closed>"
+                } else {
+                    &self.resource
+                },
+            )
+            .field("type", &std::any::type_name::<T>())
+            .finish()
     }
 }
 impl<T> ManagedCResource<T> {
@@ -249,16 +303,13 @@ impl<T> ManagedCResource<T> {
         init: impl FnOnce(*mut *mut T) -> i32,
         cleanup: Option<Box<dyn FnMut(*mut *mut T) -> i32>>,
         cleanup_struct: bool,
-        check_for_is_closed: Option<fn(*mut T) -> bool>,
     ) -> Result<Self, AeronCError> {
         let resource = Self::initialise(init)?;
         let result = Self {
-            resource,
-            cleanup,
+            resource: std::cell::Cell::new(resource),
+            cleanup: UnsafeCell::new(cleanup),
             cleanup_struct,
             close_already_called: std::cell::Cell::new(false),
-            check_for_is_closed,
-            auto_close: std::cell::Cell::new(false),
             resource_released: std::cell::Cell::new(false),
             dependencies: UnsafeCell::new(vec![]),
         };
@@ -274,19 +325,19 @@ impl<T> ManagedCResource<T> {
         }
         Ok(resource)
     }
+    #[doc = " Returns `true` if the resource has been closed (via close() or is"]
+    #[doc = " already null)."]
     pub fn is_closed_already_called(&self) -> bool {
-        self.close_already_called.get()
-            || self.resource.is_null()
-            || self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource))
+        self.close_already_called.get() || self.resource.get().is_null()
     }
     #[doc = " Gets a raw pointer to the resource."]
     #[inline(always)]
     pub fn get(&self) -> *mut T {
-        self.resource
+        self.resource.get()
     }
     #[inline(always)]
     pub fn get_mut(&self) -> &mut T {
-        unsafe { &mut *self.resource }
+        unsafe { &mut *self.resource.get() }
     }
     #[inline]
     pub fn add_dependency<D: std::any::Any>(&self, dep: D) {
@@ -317,51 +368,88 @@ impl<T> ManagedCResource<T> {
     pub fn mark_resource_released(&self) {
         self.resource_released.set(true);
     }
-    #[doc = " Closes the resource by calling the cleanup function."]
+    #[doc = " Closes the resource through a shared reference."]
     #[doc = ""]
-    #[doc = " If cleanup fails, it returns an `AeronError`."]
-    pub fn close(&mut self) -> Result<(), AeronCError> {
+    #[doc = " Like `close(&mut self)` but works with `&self`, enabling explicit close"]
+    #[doc = " on handles that share the resource via `Rc`.  The cleanup closure is"]
+    #[doc = " accessed through `UnsafeCell` interior mutability; the"]
+    #[doc = " `close_already_called` gate ensures it is only taken once regardless of"]
+    #[doc = " how many clones call `close_shared()`."]
+    #[doc = ""]
+    #[doc = " This is the method called by the generated `close(self)` method on"]
+    #[doc = " wrapper types."]
+    pub fn close_shared(&self) -> Result<(), AeronCError> {
         if self.close_already_called.get() {
             return Ok(());
         }
-        self.close_already_called.set(true);
-        let already_closed = self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource));
-        if let Some(mut cleanup) = self.cleanup.take() {
-            if !self.resource.is_null() {
-                if !already_closed {
-                    let result = cleanup(&mut self.resource);
-                    if result < 0 {
-                        return Err(AeronCError::from_code(result));
+        let cleanup = unsafe { (*self.cleanup.get()).take() };
+        if let Some(mut cleanup) = cleanup {
+            let mut resource = self.resource.get();
+            if !resource.is_null() {
+                let result = cleanup(&mut resource);
+                if result < 0 {
+                    unsafe {
+                        *self.cleanup.get() = Some(cleanup);
                     }
+                    return Err(AeronCError::from_code(result));
                 }
-                self.resource = std::ptr::null_mut();
             }
+            self.close_already_called.set(true);
+            if !self.cleanup_struct {
+                self.resource.set(std::ptr::null_mut());
+            }
+        } else {
+            self.close_already_called.set(true);
+        }
+        Ok(())
+    }
+    #[doc = " Closes the resource with a caller-supplied C close function."]
+    #[doc = ""]
+    #[doc = " The stored default cleanup is taken first so Drop cannot later run it a"]
+    #[doc = " second time.  If the custom close fails, the default cleanup is restored"]
+    #[doc = " and the resource remains retryable."]
+    pub fn close_shared_with(&self, mut custom_cleanup: impl FnMut(*mut *mut T) -> i32) -> Result<(), AeronCError> {
+        if self.close_already_called.get() {
+            return Ok(());
+        }
+        let stored_cleanup = unsafe { (*self.cleanup.get()).take() };
+        let mut resource = self.resource.get();
+        if !resource.is_null() {
+            let result = custom_cleanup(&mut resource);
+            if result < 0 {
+                unsafe {
+                    *self.cleanup.get() = stored_cleanup;
+                }
+                return Err(AeronCError::from_code(result));
+            }
+        }
+        self.close_already_called.set(true);
+        if !self.cleanup_struct {
+            self.resource.set(std::ptr::null_mut());
         }
         Ok(())
     }
 }
 impl<T> Drop for ManagedCResource<T> {
     fn drop(&mut self) {
-        if !self.resource.is_null() {
-            let already_closed = self.close_already_called.get()
-                || self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource));
-            let resource = if already_closed {
-                self.resource
-            } else {
-                self.resource.clone()
-            };
-            if !already_closed {
-                #[cfg(feature = "extra-logging")]
-                log::info!("closing c resource: {:?}", self);
-                let _ = self.close();
+        if !self.close_already_called.get() {
+            if let Err(e) = self.close_shared() {
+                log::warn!(
+                    "cleanup failed for {} during Drop with code {}",
+                    std::any::type_name::<T>(),
+                    e.code,
+                );
             }
-            self.close_already_called.set(true);
-            if self.cleanup_struct {
-                #[cfg(feature = "extra-logging")]
-                log::info!("closing rust struct resource: {:?}", resource);
+        }
+        if self.cleanup_struct {
+            #[cfg(feature = "extra-logging")]
+            log::info!("closing rust struct resource: {:?}", self.resource.get());
+            let resource = self.resource.get();
+            if !resource.is_null() {
                 unsafe {
                     let _ = Box::from_raw(resource);
                 }
+                self.resource.set(std::ptr::null_mut());
             }
         }
     }
@@ -804,7 +892,6 @@ impl OpaquePthreadAttr {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -934,7 +1021,6 @@ impl OpaquePthreadCond {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -1064,7 +1150,6 @@ impl OpaquePthreadMutex {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -1194,7 +1279,6 @@ impl OpaquePthread {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -1324,7 +1408,6 @@ impl AeronArchiveAsyncConnect {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -1421,9 +1504,8 @@ impl AeronArchive {
                 }
                 aeron_archive_async_connect_poll(ctx_field, async_.into())
             },
-            None,
+            Some(Box::new(move |ptr| unsafe { aeron_archive_close(*ptr) })),
             false,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
@@ -1481,7 +1563,6 @@ impl AeronArchiveAsyncConnect {
             },
             None,
             false,
-            None,
         )?;
         let result = Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_async)),
@@ -1508,7 +1589,6 @@ impl AeronArchiveAsyncConnect {
                 if let Some(inner) = self.inner.as_owned() {
                     inner.mark_resource_released();
                 }
-                result.inner.as_owned().unwrap().auto_close.set(true);
                 Ok(Some(result))
             }
             Err(AeronCError { code }) if code == 0 => Ok(None),
@@ -1591,35 +1671,10 @@ impl AeronArchiveContext {
                 aeron_archive_context_close(*ctx_field)
             })),
             false,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
         })
-    }
-    #[inline]
-    #[doc = "Close and delete the `AeronArchiveContext` struct."]
-    #[doc = ""]
-    pub fn close(&self) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_context_close),
-                [concat!("ctx", ": ", stringify!(*mut aeron_archive_context_t)).to_string()].join(", ")
-            );
-            let result = aeron_archive_context_close(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
     }
     #[inline]
     #[doc = "Specify the client used for communicating with the local Media Driver."]
@@ -2844,7 +2899,6 @@ impl AeronArchiveControlResponsePoller {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -2973,29 +3027,6 @@ impl AeronArchiveControlResponsePoller {
         self.is_recording_signal.into()
     }
     #[inline]
-    pub fn close(&self) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_control_response_poller_close),
-                [concat!("poller", ": ", stringify!(*mut aeron_archive_control_response_poller_t)).to_string()]
-                    .join(", ")
-            );
-            let result = aeron_archive_control_response_poller_close(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
     pub fn poll(&self) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -3076,20 +3107,11 @@ impl From<aeron_archive_control_response_poller_t> for AeronArchiveControlRespon
         }
     }
 }
-impl Drop for AeronArchiveControlResponsePoller {
-    fn drop(&mut self) {
-        if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
-                if inner.auto_close.get() {
-                    log::info!("auto closing {self:?}");
-                    let result = self.close();
-                    log::debug!("result {:?}", result);
-                } else {
-                    #[cfg(feature = "extra-logging")]
-                    log::warn!("{} not closed", stringify!(AeronArchiveControlResponsePoller));
-                }
-            }
-        }
+impl AeronArchiveControlResponsePoller {
+    pub fn close(self) -> Result<(), AeronCError> {
+        let result = self.inner.close_resource();
+        drop(self);
+        result
     }
 }
 #[derive(Clone)]
@@ -3126,7 +3148,6 @@ impl AeronArchiveEncodedCredentials {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -3149,7 +3170,6 @@ impl AeronArchiveEncodedCredentials {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -3348,45 +3368,10 @@ impl AeronArchivePersistentSubscriptionContext {
                 aeron_archive_persistent_subscription_context_close(*ctx_field)
             })),
             false,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
         })
-    }
-    #[inline]
-    #[doc = "Close and dispose of all resources held by the persistent subscription context."]
-    #[doc = " \n"]
-    #[doc = " If the context created its own Aeron client (i.e. none was set via"]
-    #[doc = " aeron_archive_persistent_subscription_context_set_aeron), that client will be closed here."]
-    #[doc = ""]
-    #[doc = " \n# Return\n 0 on success, -1 on error."]
-    pub fn close(&self) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_persistent_subscription_context_close),
-                [concat!(
-                    "context",
-                    ": ",
-                    stringify!(*mut aeron_archive_persistent_subscription_context_t)
-                )
-                .to_string()]
-                .join(", ")
-            );
-            let result = aeron_archive_persistent_subscription_context_close(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
     }
     #[inline]
     #[doc = "Set the Aeron client that will be used by the persistent subscription."]
@@ -4249,7 +4234,6 @@ impl AeronArchivePersistentSubscriptionListener {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -4272,7 +4256,6 @@ impl AeronArchivePersistentSubscriptionListener {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -4456,7 +4439,6 @@ impl AeronArchivePersistentSubscription {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -4474,37 +4456,6 @@ impl AeronArchivePersistentSubscription {
         );
         Self {
             inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
-        }
-    }
-    #[inline]
-    #[doc = "Close a persistent subscription and dispose of all resources and memory held by it."]
-    #[doc = ""]
-    #[doc = " \n# Return\n 0 on success, -1 on error."]
-    pub fn close(&self) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_persistent_subscription_close),
-                [concat!(
-                    "persistent_subscription",
-                    ": ",
-                    stringify!(*mut aeron_archive_persistent_subscription_t)
-                )
-                .to_string()]
-                .join(", ")
-            );
-            let result = aeron_archive_persistent_subscription_close(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
         }
     }
     #[inline]
@@ -4896,20 +4847,11 @@ impl From<aeron_archive_persistent_subscription_t> for AeronArchivePersistentSub
         }
     }
 }
-impl Drop for AeronArchivePersistentSubscription {
-    fn drop(&mut self) {
-        if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
-                if inner.auto_close.get() {
-                    log::info!("auto closing {self:?}");
-                    let result = self.close();
-                    log::debug!("result {:?}", result);
-                } else {
-                    #[cfg(feature = "extra-logging")]
-                    log::warn!("{} not closed", stringify!(AeronArchivePersistentSubscription));
-                }
-            }
-        }
+impl AeronArchivePersistentSubscription {
+    pub fn close(self) -> Result<(), AeronCError> {
+        let result = self.inner.close_resource();
+        drop(self);
+        result
     }
 }
 #[derive(Clone)]
@@ -4973,7 +4915,6 @@ impl AeronArchiveProxy {
                 aeron_archive_proxy_delete(*ctx_field)
             })),
             false,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
@@ -5059,28 +5000,6 @@ impl AeronArchiveProxy {
                 .join(", ")
             );
             let result = aeron_archive_proxy_set_control_session_id(self.get_inner(), control_session_id.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    pub fn close(&self) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_proxy_close),
-                [concat!("archive_proxy", ": ", stringify!(*mut aeron_archive_proxy_t)).to_string()].join(", ")
-            );
-            let result = aeron_archive_proxy_close(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -6083,7 +6002,6 @@ impl AeronArchiveRecordingDescriptorPoller {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -6146,34 +6064,6 @@ impl AeronArchiveRecordingDescriptorPoller {
     #[inline]
     pub fn is_dispatch_complete(&self) -> bool {
         self.is_dispatch_complete.into()
-    }
-    #[inline]
-    pub fn close(&self) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_recording_descriptor_poller_close),
-                [concat!(
-                    "poller",
-                    ": ",
-                    stringify!(*mut aeron_archive_recording_descriptor_poller_t)
-                )
-                .to_string()]
-                .join(", ")
-            );
-            let result = aeron_archive_recording_descriptor_poller_close(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
     }
     #[inline]
     pub fn reset<
@@ -6371,20 +6261,11 @@ impl From<aeron_archive_recording_descriptor_poller_t> for AeronArchiveRecording
         }
     }
 }
-impl Drop for AeronArchiveRecordingDescriptorPoller {
-    fn drop(&mut self) {
-        if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
-                if inner.auto_close.get() {
-                    log::info!("auto closing {self:?}");
-                    let result = self.close();
-                    log::debug!("result {:?}", result);
-                } else {
-                    #[cfg(feature = "extra-logging")]
-                    log::warn!("{} not closed", stringify!(AeronArchiveRecordingDescriptorPoller));
-                }
-            }
-        }
+impl AeronArchiveRecordingDescriptorPoller {
+    pub fn close(self) -> Result<(), AeronCError> {
+        let result = self.inner.close_resource();
+        drop(self);
+        result
     }
 }
 #[doc = "Struct containing the details of a recording"]
@@ -6476,7 +6357,6 @@ impl AeronArchiveRecordingDescriptor {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -6499,7 +6379,6 @@ impl AeronArchiveRecordingDescriptor {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -6759,7 +6638,6 @@ impl AeronArchiveRecordingSignal {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -6782,7 +6660,6 @@ impl AeronArchiveRecordingSignal {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -6971,7 +6848,6 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -7036,34 +6912,6 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
     #[inline]
     pub fn is_dispatch_complete(&self) -> bool {
         self.is_dispatch_complete.into()
-    }
-    #[inline]
-    pub fn close(&self) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_recording_subscription_descriptor_poller_close),
-                [concat!(
-                    "poller",
-                    ": ",
-                    stringify!(*mut aeron_archive_recording_subscription_descriptor_poller_t)
-                )
-                .to_string()]
-                .join(", ")
-            );
-            let result = aeron_archive_recording_subscription_descriptor_poller_close(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
     }
     #[inline]
     pub fn reset<
@@ -7275,23 +7123,11 @@ impl From<aeron_archive_recording_subscription_descriptor_poller_t>
         }
     }
 }
-impl Drop for AeronArchiveRecordingSubscriptionDescriptorPoller {
-    fn drop(&mut self) {
-        if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
-                if inner.auto_close.get() {
-                    log::info!("auto closing {self:?}");
-                    let result = self.close();
-                    log::debug!("result {:?}", result);
-                } else {
-                    #[cfg(feature = "extra-logging")]
-                    log::warn!(
-                        "{} not closed",
-                        stringify!(AeronArchiveRecordingSubscriptionDescriptorPoller)
-                    );
-                }
-            }
-        }
+impl AeronArchiveRecordingSubscriptionDescriptorPoller {
+    pub fn close(self) -> Result<(), AeronCError> {
+        let result = self.inner.close_resource();
+        drop(self);
+        result
     }
 }
 #[doc = "Struct containing the details of a recording subscription"]
@@ -7344,7 +7180,6 @@ impl AeronArchiveRecordingSubscriptionDescriptor {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -7367,7 +7202,6 @@ impl AeronArchiveRecordingSubscriptionDescriptor {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -7618,38 +7452,12 @@ impl AeronArchiveReplayMerge {
                 aeron_archive_replay_merge_close(*ctx_field)
             })),
             false,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
             _subscription: Some(subscription_copy),
             _aeron_archive: Some(aeron_archive_copy),
         })
-    }
-    #[inline]
-    #[doc = "Close and delete the `AeronArchiveReplayMerge` struct."]
-    #[doc = ""]
-    #[doc = " \n# Return\n 0 for success, -1 for failure"]
-    pub fn close(&self) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_replay_merge_close),
-                [concat!("replay_merge", ": ", stringify!(*mut aeron_archive_replay_merge_t)).to_string()].join(", ")
-            );
-            let result = aeron_archive_replay_merge_close(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
     }
     #[inline]
     #[doc = "Process the operation of the merge.  Do not call the processing of fragments on the subscription."]
@@ -7959,7 +7767,6 @@ impl AeronArchiveReplayParams {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -7982,7 +7789,6 @@ impl AeronArchiveReplayParams {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -8213,7 +8019,6 @@ impl AeronArchiveReplicationParams {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -8236,7 +8041,6 @@ impl AeronArchiveReplicationParams {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -8480,7 +8284,6 @@ impl AeronArchive {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -8539,29 +8342,6 @@ impl AeronArchive {
     #[inline]
     pub fn is_in_callback(&self) -> bool {
         self.is_in_callback.into()
-    }
-    #[inline]
-    #[doc = "Close the connection to the Aeron Archive and free up associated resources."]
-    pub fn close(&self) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_close),
-                [concat!("aeron_archive", ": ", stringify!(*mut aeron_archive_t)).to_string()].join(", ")
-            );
-            let result = aeron_archive_close(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
     }
     #[inline]
     #[doc = "Retrieve the underlying `AeronArchiveContext` used to configure the provided `AeronArchive`."]
@@ -10617,20 +10397,11 @@ impl From<aeron_archive_t> for AeronArchive {
         }
     }
 }
-impl Drop for AeronArchive {
-    fn drop(&mut self) {
-        if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
-                if inner.auto_close.get() {
-                    log::info!("auto closing {self:?}");
-                    let result = self.close();
-                    log::debug!("result {:?}", result);
-                } else {
-                    #[cfg(feature = "extra-logging")]
-                    log::warn!("{} not closed", stringify!(AeronArchive));
-                }
-            }
-        }
+impl AeronArchive {
+    pub fn close(self) -> Result<(), AeronCError> {
+        let result = self.inner.close_resource_deferred_if_shared();
+        drop(self);
+        result
     }
 }
 #[derive(Clone)]
@@ -10668,7 +10439,6 @@ impl AeronAsyncAddCounter {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -10784,9 +10554,10 @@ impl AeronCounter {
                 }
                 aeron_async_add_counter_poll(ctx_field, async_.into())
             },
-            None,
+            Some(Box::new(move |ptr| unsafe {
+                aeron_counter_close(*ptr, Default::default(), Default::default())
+            })),
             false,
-            Some(|c| unsafe { aeron_counter_is_closed(c) }),
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
@@ -10865,7 +10636,6 @@ impl AeronAsyncAddCounter {
             },
             None,
             false,
-            None,
         )?;
         let result = Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_async)),
@@ -10892,7 +10662,6 @@ impl AeronAsyncAddCounter {
                 if let Some(inner) = self.inner.as_owned() {
                     inner.mark_resource_released();
                 }
-                result.inner.as_owned().unwrap().auto_close.set(true);
                 Ok(Some(result))
             }
             Err(AeronCError { code }) if code == 0 => Ok(None),
@@ -10955,7 +10724,6 @@ impl AeronAsyncAddExclusivePublication {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -11108,9 +10876,10 @@ impl AeronExclusivePublication {
                 }
                 aeron_async_add_exclusive_publication_poll(ctx_field, async_.into())
             },
-            None,
+            Some(Box::new(move |ptr| unsafe {
+                aeron_exclusive_publication_close(*ptr, Default::default(), Default::default())
+            })),
             false,
-            Some(|c| unsafe { aeron_exclusive_publication_is_closed(c) }),
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
@@ -11184,7 +10953,6 @@ impl AeronAsyncAddExclusivePublication {
             },
             None,
             false,
-            None,
         )?;
         let result = Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_async)),
@@ -11211,7 +10979,6 @@ impl AeronAsyncAddExclusivePublication {
                 if let Some(inner) = self.inner.as_owned() {
                     inner.mark_resource_released();
                 }
-                result.inner.as_owned().unwrap().auto_close.set(true);
                 Ok(Some(result))
             }
             Err(AeronCError { code }) if code == 0 => Ok(None),
@@ -11274,7 +11041,6 @@ impl AeronAsyncAddPublication {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -11391,9 +11157,10 @@ impl AeronPublication {
                 }
                 aeron_async_add_publication_poll(ctx_field, async_.into())
             },
-            None,
+            Some(Box::new(move |ptr| unsafe {
+                aeron_publication_close(*ptr, Default::default(), Default::default())
+            })),
             false,
-            Some(|c| unsafe { aeron_publication_is_closed(c) }),
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
@@ -11462,7 +11229,6 @@ impl AeronAsyncAddPublication {
             },
             None,
             false,
-            None,
         )?;
         let result = Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_async)),
@@ -11489,7 +11255,6 @@ impl AeronAsyncAddPublication {
                 if let Some(inner) = self.inner.as_owned() {
                     inner.mark_resource_released();
                 }
-                result.inner.as_owned().unwrap().auto_close.set(true);
                 Ok(Some(result))
             }
             Err(AeronCError { code }) if code == 0 => Ok(None),
@@ -11552,7 +11317,6 @@ impl AeronAsyncAddSubscription {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -11674,9 +11438,10 @@ impl AeronSubscription {
                 }
                 aeron_async_add_subscription_poll(ctx_field, async_.into())
             },
-            None,
+            Some(Box::new(move |ptr| unsafe {
+                aeron_subscription_close(*ptr, Default::default(), Default::default())
+            })),
             false,
-            Some(|c| unsafe { aeron_subscription_is_closed(c) }),
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
@@ -11809,7 +11574,6 @@ impl AeronAsyncAddSubscription {
             },
             None,
             false,
-            None,
         )?;
         let result = Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_async)),
@@ -11836,7 +11600,6 @@ impl AeronAsyncAddSubscription {
                 if let Some(inner) = self.inner.as_owned() {
                     inner.mark_resource_released();
                 }
-                result.inner.as_owned().unwrap().auto_close.set(true);
                 Ok(Some(result))
             }
             Err(AeronCError { code }) if code == 0 => Ok(None),
@@ -11899,7 +11662,6 @@ impl AeronAsyncDestinationById {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -12061,7 +11823,6 @@ impl AeronAsyncDestination {
                 aeron_publication_async_remove_destination(ctx_field, client.into(), publication.into(), uri.into())
             })),
             false,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
@@ -12125,7 +11886,6 @@ impl AeronAsyncDestination {
                 )
             })),
             false,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
@@ -12180,7 +11940,6 @@ impl AeronAsyncDestination {
                 aeron_subscription_async_remove_destination(ctx_field, client.into(), subscription.into(), uri.into())
             })),
             false,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
@@ -12368,7 +12127,6 @@ impl AeronAsyncGetNextAvailableSessionId {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -12517,7 +12275,6 @@ impl AeronBufferClaim {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -12540,7 +12297,6 @@ impl AeronBufferClaim {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -12762,7 +12518,6 @@ impl AeronClientRegisteringResource {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -12924,7 +12679,6 @@ impl AeronCncConstants {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -12947,7 +12701,6 @@ impl AeronCncConstants {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -13179,7 +12932,6 @@ impl AeronCncMetadata {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -13202,7 +12954,6 @@ impl AeronCncMetadata {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -13414,7 +13165,6 @@ impl AeronCnc {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -13692,26 +13442,6 @@ impl AeronCnc {
         }
     }
     #[inline]
-    #[doc = "Closes the instance of the aeron cnc and frees its resources."]
-    #[doc = ""]
-    pub fn close(&self) -> () {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_cnc_close),
-                [concat!("aeron_cnc", ": ", stringify!(*mut aeron_cnc_t)).to_string()].join(", ")
-            );
-            let result = aeron_cnc_close(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
     pub fn resolve_filename(
         directory: &std::ffi::CStr,
         filename_buffer: *mut ::std::os::raw::c_char,
@@ -13852,7 +13582,6 @@ impl AeronContext {
                 aeron_context_close(*ctx_field)
             })),
             false,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
@@ -15181,31 +14910,6 @@ impl AeronContext {
         }
     }
     #[inline]
-    #[doc = "Close and delete `AeronContext` struct."]
-    #[doc = ""]
-    #[doc = " \n# Return\n 0 for success and -1 for error."]
-    pub fn close(&self) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_context_close),
-                [concat!("context", ": ", stringify!(*mut aeron_context_t)).to_string()].join(", ")
-            );
-            let result = aeron_context_close(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
     #[doc = "Request the media driver terminates operation and closes all resources."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `directory`    in which the media driver is running."]
@@ -15379,7 +15083,6 @@ impl AeronControlledFragmentAssembler {
                 aeron_controlled_fragment_assembler_delete(*ctx_field)
             })),
             false,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
@@ -15545,7 +15248,6 @@ impl AeronCounterConstants {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -15568,7 +15270,6 @@ impl AeronCounterConstants {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -15755,7 +15456,6 @@ impl AeronCounterMetadataDescriptor {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -15778,7 +15478,6 @@ impl AeronCounterMetadataDescriptor {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -15960,7 +15659,6 @@ impl AeronCounter {
             },
             None,
             true,
-            Some(|c| unsafe { aeron_counter_is_closed(c) }),
         )
         .unwrap();
         Self {
@@ -16033,91 +15731,6 @@ impl AeronCounter {
         let result = AeronCounterConstants::new_zeroed_on_stack();
         self.constants(&result)?;
         Ok(result)
-    }
-    #[inline]
-    #[doc = "Asynchronously close the counter."]
-    #[doc = ""]
-    #[doc = " \n# Return\n 0 for success or -1 for error."]
-    pub fn close<AeronNotificationHandlerImpl: AeronNotificationCallback>(
-        &self,
-        on_close_complete: Option<&Handler<AeronNotificationHandlerImpl>>,
-    ) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_counter_close),
-                [
-                    concat!("counter", ": ", stringify!(*mut aeron_counter_t)).to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_counter_close(
-                self.get_inner(),
-                {
-                    let callback: aeron_notification_t = if on_close_complete.is_none() {
-                        None
-                    } else {
-                        Some(aeron_notification_t_callback::<AeronNotificationHandlerImpl>)
-                    };
-                    callback
-                },
-                on_close_complete
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    #[doc = "Asynchronously close the counter."]
-    #[doc = ""]
-    #[doc = " \n# Return\n 0 for success or -1 for error."]
-    #[doc = r""]
-    #[doc = r""]
-    #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
-    #[doc = r"  use with care_"]
-    pub fn close_once<AeronNotificationHandlerImpl: FnMut() -> ()>(
-        &self,
-        mut on_close_complete: AeronNotificationHandlerImpl,
-    ) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_counter_close),
-                [
-                    concat!("counter", ": ", stringify!(*mut aeron_counter_t)).to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_counter_close(
-                self.get_inner(),
-                Some(aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>),
-                &mut on_close_complete as *mut _ as *mut std::os::raw::c_void,
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
     }
     #[inline]
     #[doc = "Check if the counter is closed"]
@@ -16198,31 +15811,41 @@ impl From<aeron_counter_t> for AeronCounter {
     }
 }
 impl AeronCounter {
-    pub fn close_with_no_args(&self) -> Result<(), AeronCError> {
-        self.close(Handlers::no_notification_handler())?;
-        Ok(())
+    pub fn close(self) -> Result<(), AeronCError> {
+        let result = self.inner.close_resource();
+        drop(self);
+        result
+    }
+}
+impl AeronCounter {
+    pub fn close_with_handler<AeronNotificationHandlerImpl: AeronNotificationCallback>(
+        self,
+        on_close_complete: Option<&Handler<AeronNotificationHandlerImpl>>,
+    ) -> Result<(), AeronCError> {
+        let result = self.inner.close_resource_with(move |ptr| unsafe {
+            aeron_counter_close(
+                *ptr,
+                {
+                    let callback: aeron_notification_t = if on_close_complete.is_none() {
+                        None
+                    } else {
+                        Some(aeron_notification_t_callback::<AeronNotificationHandlerImpl>)
+                    };
+                    callback
+                },
+                on_close_complete
+                    .map(|m| m.as_raw())
+                    .unwrap_or_else(|| std::ptr::null_mut()),
+            )
+        });
+        drop(self);
+        result
     }
 }
 impl AeronCounter {
     #[inline]
     pub fn addr_atomic(&self) -> &std::sync::atomic::AtomicI64 {
         unsafe { std::sync::atomic::AtomicI64::from_ptr(self.addr()) }
-    }
-}
-impl Drop for AeronCounter {
-    fn drop(&mut self) {
-        if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
-                if inner.auto_close.get() {
-                    log::info!("auto closing {self:?}");
-                    let result = self.close_with_no_args();
-                    log::debug!("result {:?}", result);
-                } else {
-                    #[cfg(feature = "extra-logging")]
-                    log::warn!("{} not closed", stringify!(AeronCounter));
-                }
-            }
-        }
     }
 }
 #[derive(Clone)]
@@ -16270,7 +15893,6 @@ impl AeronCounterValueDescriptor {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -16293,7 +15915,6 @@ impl AeronCounterValueDescriptor {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -16479,7 +16100,6 @@ impl AeronCountersReaderBuffers {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -16502,7 +16122,6 @@ impl AeronCountersReaderBuffers {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -16678,7 +16297,6 @@ impl AeronCountersReader {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -17349,7 +16967,6 @@ impl AeronDataHeaderAsLongs {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -17372,7 +16989,6 @@ impl AeronDataHeaderAsLongs {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -17550,7 +17166,6 @@ impl AeronDataHeader {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -17573,7 +17188,6 @@ impl AeronDataHeader {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -17772,7 +17386,6 @@ impl AeronError {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -17792,7 +17405,6 @@ impl AeronError {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -17998,7 +17610,6 @@ impl AeronExclusivePublication {
             },
             None,
             true,
-            Some(|c| unsafe { aeron_exclusive_publication_is_closed(c) }),
         )
         .unwrap();
         Self {
@@ -18391,91 +18002,6 @@ impl AeronExclusivePublication {
         }
     }
     #[inline]
-    #[doc = "Asynchronously close the publication."]
-    #[doc = ""]
-    #[doc = " \n# Return\n 0 for success or -1 for error."]
-    pub fn close<AeronNotificationHandlerImpl: AeronNotificationCallback>(
-        &self,
-        on_close_complete: Option<&Handler<AeronNotificationHandlerImpl>>,
-    ) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_exclusive_publication_close),
-                [
-                    concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_exclusive_publication_close(
-                self.get_inner(),
-                {
-                    let callback: aeron_notification_t = if on_close_complete.is_none() {
-                        None
-                    } else {
-                        Some(aeron_notification_t_callback::<AeronNotificationHandlerImpl>)
-                    };
-                    callback
-                },
-                on_close_complete
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    #[doc = "Asynchronously close the publication."]
-    #[doc = ""]
-    #[doc = " \n# Return\n 0 for success or -1 for error."]
-    #[doc = r""]
-    #[doc = r""]
-    #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
-    #[doc = r"  use with care_"]
-    pub fn close_once<AeronNotificationHandlerImpl: FnMut() -> ()>(
-        &self,
-        mut on_close_complete: AeronNotificationHandlerImpl,
-    ) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_exclusive_publication_close),
-                [
-                    concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_exclusive_publication_close(
-                self.get_inner(),
-                Some(aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>),
-                &mut on_close_complete as *mut _ as *mut std::os::raw::c_void,
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
     #[doc = "Revoke this publication when it's closed."]
     #[doc = ""]
     pub fn revoke_on_close(&self) -> () {
@@ -18712,31 +18238,41 @@ impl From<aeron_exclusive_publication_t> for AeronExclusivePublication {
     }
 }
 impl AeronExclusivePublication {
-    pub fn close_with_no_args(&self) -> Result<(), AeronCError> {
-        self.close(Handlers::no_notification_handler())?;
-        Ok(())
+    pub fn close(self) -> Result<(), AeronCError> {
+        let result = self.inner.close_resource();
+        drop(self);
+        result
+    }
+}
+impl AeronExclusivePublication {
+    pub fn close_with_handler<AeronNotificationHandlerImpl: AeronNotificationCallback>(
+        self,
+        on_close_complete: Option<&Handler<AeronNotificationHandlerImpl>>,
+    ) -> Result<(), AeronCError> {
+        let result = self.inner.close_resource_with(move |ptr| unsafe {
+            aeron_exclusive_publication_close(
+                *ptr,
+                {
+                    let callback: aeron_notification_t = if on_close_complete.is_none() {
+                        None
+                    } else {
+                        Some(aeron_notification_t_callback::<AeronNotificationHandlerImpl>)
+                    };
+                    callback
+                },
+                on_close_complete
+                    .map(|m| m.as_raw())
+                    .unwrap_or_else(|| std::ptr::null_mut()),
+            )
+        });
+        drop(self);
+        result
     }
 }
 impl AeronExclusivePublication {
     #[inline]
     pub fn is_ready(&self) -> bool {
         self.is_connected() && self.position_limit() != 0
-    }
-}
-impl Drop for AeronExclusivePublication {
-    fn drop(&mut self) {
-        if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
-                if inner.auto_close.get() {
-                    log::info!("auto closing {self:?}");
-                    let result = self.close_with_no_args();
-                    log::debug!("result {:?}", result);
-                } else {
-                    #[cfg(feature = "extra-logging")]
-                    log::warn!("{} not closed", stringify!(AeronExclusivePublication));
-                }
-            }
-        }
     }
 }
 #[derive(Clone)]
@@ -18800,7 +18336,6 @@ impl AeronFragmentAssembler {
                 aeron_fragment_assembler_delete(*ctx_field)
             })),
             false,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
@@ -18954,7 +18489,6 @@ impl AeronFrameHeader {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -18977,7 +18511,6 @@ impl AeronFrameHeader {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -19149,7 +18682,6 @@ impl AeronHeader {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -19406,7 +18938,6 @@ impl AeronHeaderValuesFrame {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -19429,7 +18960,6 @@ impl AeronHeaderValuesFrame {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -19630,7 +19160,6 @@ impl AeronHeaderValues {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -19653,7 +19182,6 @@ impl AeronHeaderValues {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -19852,7 +19380,6 @@ impl AeronImageConstants {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -19875,7 +19402,6 @@ impl AeronImageConstants {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -20122,7 +19648,6 @@ impl AeronImageControlledFragmentAssembler {
                 aeron_image_controlled_fragment_assembler_delete(*ctx_field)
             })),
             false,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
@@ -20317,7 +19842,6 @@ impl AeronImageFragmentAssembler {
                 aeron_image_fragment_assembler_delete(*ctx_field)
             })),
             false,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
@@ -20466,7 +19990,6 @@ impl AeronImage {
             },
             None,
             true,
-            Some(|c| unsafe { aeron_image_is_closed(c) }),
         )
         .unwrap();
         Self {
@@ -21420,7 +20943,6 @@ impl AeronIovec {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -21440,7 +20962,6 @@ impl AeronIovec {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -21613,7 +21134,6 @@ impl AeronIpcChannelParams {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -21636,7 +21156,6 @@ impl AeronIpcChannelParams {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -21824,7 +21343,6 @@ impl AeronLogBuffer {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -22079,7 +21597,6 @@ impl AeronLogbufferMetadata {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -22102,7 +21619,6 @@ impl AeronLogbufferMetadata {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -22442,7 +21958,6 @@ impl AeronLossReporterEntry {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -22465,7 +21980,6 @@ impl AeronLossReporterEntry {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -22649,7 +22163,6 @@ impl AeronLossReporter {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -22672,7 +22185,6 @@ impl AeronLossReporter {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -23046,7 +22558,6 @@ impl AeronMappedBuffer {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -23069,7 +22580,6 @@ impl AeronMappedBuffer {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -23241,7 +22751,6 @@ impl AeronMappedFile {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -23264,7 +22773,6 @@ impl AeronMappedFile {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -23505,7 +23013,6 @@ impl AeronMappedRawLog {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -23528,7 +23035,6 @@ impl AeronMappedRawLog {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -23822,7 +23328,6 @@ impl AeronNakHeader {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -23845,7 +23350,6 @@ impl AeronNakHeader {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -24035,7 +23539,6 @@ impl AeronAvailableCounterPair {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -24058,7 +23561,6 @@ impl AeronAvailableCounterPair {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -24232,7 +23734,6 @@ impl AeronCloseClientPair {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -24255,7 +23756,6 @@ impl AeronCloseClientPair {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -24429,7 +23929,6 @@ impl AeronUnavailableCounterPair {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -24452,7 +23951,6 @@ impl AeronUnavailableCounterPair {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -24619,7 +24117,6 @@ impl AeronOptionHeader {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -24642,7 +24139,6 @@ impl AeronOptionHeader {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -24813,7 +24309,6 @@ impl AeronPerThreadError {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -24836,7 +24331,6 @@ impl AeronPerThreadError {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -25050,7 +24544,6 @@ impl AeronPublicationConstants {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -25073,7 +24566,6 @@ impl AeronPublicationConstants {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -25302,7 +24794,6 @@ impl AeronPublicationErrorValues {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -25485,7 +24976,6 @@ impl AeronPublication {
             },
             None,
             true,
-            Some(|c| unsafe { aeron_publication_is_closed(c) }),
         )
         .unwrap();
         Self {
@@ -25868,99 +25358,6 @@ impl AeronPublication {
         }
     }
     #[inline]
-    #[doc = "Asynchronously close the publication. Will callback on the on_complete notification when the publication is closed."]
-    #[doc = " The callback is optional, use NULL for the on_complete callback if not required."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `on_close_complete` optional callback to execute once the publication has been closed and freed. This may"]
-    #[doc = " happen on a separate thread, so the caller should ensure that clientd has the appropriate lifetime."]
-    #[doc = " \n - `on_close_complete_clientd` parameter to pass to the on_complete callback."]
-    #[doc = " \n# Return\n 0 for success or -1 for error."]
-    pub fn close<AeronNotificationHandlerImpl: AeronNotificationCallback>(
-        &self,
-        on_close_complete: Option<&Handler<AeronNotificationHandlerImpl>>,
-    ) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_publication_close),
-                [
-                    concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_publication_close(
-                self.get_inner(),
-                {
-                    let callback: aeron_notification_t = if on_close_complete.is_none() {
-                        None
-                    } else {
-                        Some(aeron_notification_t_callback::<AeronNotificationHandlerImpl>)
-                    };
-                    callback
-                },
-                on_close_complete
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    #[doc = "Asynchronously close the publication. Will callback on the on_complete notification when the publication is closed."]
-    #[doc = " The callback is optional, use NULL for the on_complete callback if not required."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `on_close_complete` optional callback to execute once the publication has been closed and freed. This may"]
-    #[doc = " happen on a separate thread, so the caller should ensure that clientd has the appropriate lifetime."]
-    #[doc = " \n - `on_close_complete_clientd` parameter to pass to the on_complete callback."]
-    #[doc = " \n# Return\n 0 for success or -1 for error."]
-    #[doc = r""]
-    #[doc = r""]
-    #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
-    #[doc = r"  use with care_"]
-    pub fn close_once<AeronNotificationHandlerImpl: FnMut() -> ()>(
-        &self,
-        mut on_close_complete: AeronNotificationHandlerImpl,
-    ) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_publication_close),
-                [
-                    concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_publication_close(
-                self.get_inner(),
-                Some(aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>),
-                &mut on_close_complete as *mut _ as *mut std::os::raw::c_void,
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
     #[doc = "Get the publication's channel"]
     #[doc = ""]
     #[doc = " \n# Return\n channel uri string"]
@@ -26141,31 +25538,41 @@ impl From<aeron_publication_t> for AeronPublication {
     }
 }
 impl AeronPublication {
-    pub fn close_with_no_args(&self) -> Result<(), AeronCError> {
-        self.close(Handlers::no_notification_handler())?;
-        Ok(())
+    pub fn close(self) -> Result<(), AeronCError> {
+        let result = self.inner.close_resource();
+        drop(self);
+        result
+    }
+}
+impl AeronPublication {
+    pub fn close_with_handler<AeronNotificationHandlerImpl: AeronNotificationCallback>(
+        self,
+        on_close_complete: Option<&Handler<AeronNotificationHandlerImpl>>,
+    ) -> Result<(), AeronCError> {
+        let result = self.inner.close_resource_with(move |ptr| unsafe {
+            aeron_publication_close(
+                *ptr,
+                {
+                    let callback: aeron_notification_t = if on_close_complete.is_none() {
+                        None
+                    } else {
+                        Some(aeron_notification_t_callback::<AeronNotificationHandlerImpl>)
+                    };
+                    callback
+                },
+                on_close_complete
+                    .map(|m| m.as_raw())
+                    .unwrap_or_else(|| std::ptr::null_mut()),
+            )
+        });
+        drop(self);
+        result
     }
 }
 impl AeronPublication {
     #[inline]
     pub fn is_ready(&self) -> bool {
         self.is_connected() && self.position_limit() != 0
-    }
-}
-impl Drop for AeronPublication {
-    fn drop(&mut self) {
-        if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
-                if inner.auto_close.get() {
-                    log::info!("auto closing {self:?}");
-                    let result = self.close_with_no_args();
-                    log::debug!("result {:?}", result);
-                } else {
-                    #[cfg(feature = "extra-logging")]
-                    log::warn!("{} not closed", stringify!(AeronPublication));
-                }
-            }
-        }
     }
 }
 #[derive(Clone)]
@@ -26207,7 +25614,6 @@ impl AeronResolutionHeaderIpv4 {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -26230,7 +25636,6 @@ impl AeronResolutionHeaderIpv4 {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -26421,7 +25826,6 @@ impl AeronResolutionHeaderIpv6 {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -26444,7 +25848,6 @@ impl AeronResolutionHeaderIpv6 {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -26632,7 +26035,6 @@ impl AeronResolutionHeader {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -26655,7 +26057,6 @@ impl AeronResolutionHeader {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -26839,7 +26240,6 @@ impl AeronResponseSetupHeader {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -26862,7 +26262,6 @@ impl AeronResponseSetupHeader {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -27052,7 +26451,6 @@ impl AeronRttmHeader {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -27075,7 +26473,6 @@ impl AeronRttmHeader {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -27282,7 +26679,6 @@ impl AeronSetupHeader {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -27305,7 +26701,6 @@ impl AeronSetupHeader {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -27518,7 +26913,6 @@ impl AeronStatusMessageHeader {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -27541,7 +26935,6 @@ impl AeronStatusMessageHeader {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -27750,7 +27143,6 @@ impl AeronStatusMessageOptionalHeader {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -27773,7 +27165,6 @@ impl AeronStatusMessageOptionalHeader {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -27938,7 +27329,6 @@ impl AeronStrToPtrHashMapKey {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -27961,7 +27351,6 @@ impl AeronStrToPtrHashMapKey {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -28150,7 +27539,6 @@ impl AeronStrToPtrHashMap {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -28173,7 +27561,6 @@ impl AeronStrToPtrHashMap {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -28372,7 +27759,6 @@ impl AeronSubscriptionConstants {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -28395,7 +27781,6 @@ impl AeronSubscriptionConstants {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -28584,7 +27969,6 @@ impl AeronSubscription {
             },
             None,
             true,
-            Some(|c| unsafe { aeron_subscription_is_closed(c) }),
         )
         .unwrap();
         Self {
@@ -29152,99 +28536,6 @@ impl AeronSubscription {
         }
     }
     #[inline]
-    #[doc = "Asynchronously close the subscription. Will callback on the on_complete notification when the subscription is"]
-    #[doc = " closed. The callback is optional, use NULL for the on_complete callback if not required."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `on_close_complete` optional callback to execute once the subscription has been closed and freed. This may"]
-    #[doc = " happen on a separate thread, so the caller should ensure that clientd has the appropriate lifetime."]
-    #[doc = " \n - `on_close_complete_clientd` parameter to pass to the on_complete callback."]
-    #[doc = " \n# Return\n 0 for success or -1 for error."]
-    pub fn close<AeronNotificationHandlerImpl: AeronNotificationCallback>(
-        &self,
-        on_close_complete: Option<&Handler<AeronNotificationHandlerImpl>>,
-    ) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_subscription_close),
-                [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_subscription_close(
-                self.get_inner(),
-                {
-                    let callback: aeron_notification_t = if on_close_complete.is_none() {
-                        None
-                    } else {
-                        Some(aeron_notification_t_callback::<AeronNotificationHandlerImpl>)
-                    };
-                    callback
-                },
-                on_close_complete
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    #[doc = "Asynchronously close the subscription. Will callback on the on_complete notification when the subscription is"]
-    #[doc = " closed. The callback is optional, use NULL for the on_complete callback if not required."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `on_close_complete` optional callback to execute once the subscription has been closed and freed. This may"]
-    #[doc = " happen on a separate thread, so the caller should ensure that clientd has the appropriate lifetime."]
-    #[doc = " \n - `on_close_complete_clientd` parameter to pass to the on_complete callback."]
-    #[doc = " \n# Return\n 0 for success or -1 for error."]
-    #[doc = r""]
-    #[doc = r""]
-    #[doc = r" _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,"]
-    #[doc = r"  use with care_"]
-    pub fn close_once<AeronNotificationHandlerImpl: FnMut() -> ()>(
-        &self,
-        mut on_close_complete: AeronNotificationHandlerImpl,
-    ) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_subscription_close),
-                [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
-                    concat!("on_close_complete", ": ", stringify!(aeron_notification_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_subscription_close(
-                self.get_inner(),
-                Some(aeron_notification_t_callback_for_once_closure::<AeronNotificationHandlerImpl>),
-                &mut on_close_complete as *mut _ as *mut std::os::raw::c_void,
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
     #[doc = "Get all of the local socket addresses for this subscription. Multiple addresses can occur if this is a"]
     #[doc = " multi-destination subscription. Addresses will a string representation in numeric form. IPv6 addresses will be"]
     #[doc = " surrounded by '[' and ']' so that the ':' that separate the parts are distinguishable from the port delimiter."]
@@ -29466,25 +28757,35 @@ impl From<aeron_subscription_t> for AeronSubscription {
     }
 }
 impl AeronSubscription {
-    pub fn close_with_no_args(&self) -> Result<(), AeronCError> {
-        self.close(Handlers::no_notification_handler())?;
-        Ok(())
+    pub fn close(self) -> Result<(), AeronCError> {
+        let result = self.inner.close_resource();
+        drop(self);
+        result
     }
 }
-impl Drop for AeronSubscription {
-    fn drop(&mut self) {
-        if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
-                if inner.auto_close.get() {
-                    log::info!("auto closing {self:?}");
-                    let result = self.close_with_no_args();
-                    log::debug!("result {:?}", result);
-                } else {
-                    #[cfg(feature = "extra-logging")]
-                    log::warn!("{} not closed", stringify!(AeronSubscription));
-                }
-            }
-        }
+impl AeronSubscription {
+    pub fn close_with_handler<AeronNotificationHandlerImpl: AeronNotificationCallback>(
+        self,
+        on_close_complete: Option<&Handler<AeronNotificationHandlerImpl>>,
+    ) -> Result<(), AeronCError> {
+        let result = self.inner.close_resource_with(move |ptr| unsafe {
+            aeron_subscription_close(
+                *ptr,
+                {
+                    let callback: aeron_notification_t = if on_close_complete.is_none() {
+                        None
+                    } else {
+                        Some(aeron_notification_t_callback::<AeronNotificationHandlerImpl>)
+                    };
+                    callback
+                },
+                on_close_complete
+                    .map(|m| m.as_raw())
+                    .unwrap_or_else(|| std::ptr::null_mut()),
+            )
+        });
+        drop(self);
+        result
     }
 }
 #[derive(Clone)]
@@ -29533,7 +28834,6 @@ impl Aeron {
                 aeron_close(*ctx_field)
             })),
             false,
-            Some(|c| unsafe { aeron_is_closed(c) }),
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
@@ -29606,31 +28906,6 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
-        }
-    }
-    #[inline]
-    #[doc = "Close and delete `Aeron` struct."]
-    #[doc = ""]
-    #[doc = " \n# Return\n 0 for success and -1 for error."]
-    pub fn close(&self) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_close),
-                [concat!("client", ": ", stringify!(*mut aeron_t)).to_string()].join(", ")
-            );
-            let result = aeron_close(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
         }
     }
     #[inline]
@@ -31599,6 +30874,13 @@ impl From<aeron_t> for Aeron {
         }
     }
 }
+impl Aeron {
+    pub fn close(self) -> Result<(), AeronCError> {
+        let result = self.inner.close_resource_deferred_if_shared();
+        drop(self);
+        result
+    }
+}
 #[derive(Clone)]
 pub struct AeronUdpChannelParams {
     inner: CResource<aeron_udp_channel_params_t>,
@@ -31654,7 +30936,6 @@ impl AeronUdpChannelParams {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -31677,7 +30958,6 @@ impl AeronUdpChannelParams {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -31896,7 +31176,6 @@ impl AeronUriParam {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -31919,7 +31198,6 @@ impl AeronUriParam {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -32094,7 +31372,6 @@ impl AeronUriParams {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -32117,7 +31394,6 @@ impl AeronUriParams {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -32491,7 +31767,6 @@ impl AeronUriStringBuilder {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -32518,28 +31793,6 @@ impl AeronUriStringBuilder {
     #[inline]
     pub fn closed(&self) -> bool {
         self.closed.into()
-    }
-    #[inline]
-    pub fn close(&self) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_uri_string_builder_close),
-                [concat!("builder", ": ", stringify!(*mut aeron_uri_string_builder_t)).to_string()].join(", ")
-            );
-            let result = aeron_uri_string_builder_close(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
     }
     #[inline]
     pub fn put(&self, key: &std::ffi::CStr, value: &std::ffi::CStr) -> Result<i32, AeronCError> {
@@ -32834,7 +32087,6 @@ impl AeronUri {
             },
             None,
             true,
-            None,
         )?;
         Ok(Self {
             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
@@ -32854,7 +32106,6 @@ impl AeronUri {
             },
             None,
             true,
-            None,
         )
         .unwrap();
         Self {
@@ -32976,24 +32227,6 @@ impl AeronUri {
             } else {
                 return Ok(result);
             }
-        }
-    }
-    #[inline]
-    pub fn close(&self) -> () {
-        if let Some(inner) = self.inner.as_owned() {
-            inner.close_already_called.set(true);
-        }
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_uri_close),
-                [concat!("params", ": ", stringify!(*mut aeron_uri_t)).to_string()].join(", ")
-            );
-            let result = aeron_uri_close(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
         }
     }
     #[inline]
@@ -33140,20 +32373,11 @@ impl From<aeron_uri_t> for AeronUri {
         }
     }
 }
-impl Drop for AeronUri {
-    fn drop(&mut self) {
-        if let Some(inner) = self.inner.as_owned() {
-            if (inner.cleanup.is_none()) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
-                if inner.auto_close.get() {
-                    log::info!("auto closing {self:?}");
-                    let result = self.close();
-                    log::debug!("result {:?}", result);
-                } else {
-                    #[cfg(feature = "extra-logging")]
-                    log::warn!("{} not closed", stringify!(AeronUri));
-                }
-            }
-        }
+impl AeronUri {
+    pub fn close(self) -> Result<(), AeronCError> {
+        let result = self.inner.close_resource();
+        drop(self);
+        result
     }
 }
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]

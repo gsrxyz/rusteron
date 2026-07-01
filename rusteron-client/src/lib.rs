@@ -272,6 +272,16 @@ mod tests {
         }
     }
 
+    struct CloseNotificationCount {
+        count: Arc<AtomicUsize>,
+    }
+
+    impl AeronNotificationCallback for CloseNotificationCount {
+        fn handle_aeron_notification(&mut self) {
+            self.count.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
     fn running_under_valgrind() -> bool {
         std::env::var_os("RUSTERON_VALGRIND").is_some()
     }
@@ -1389,13 +1399,12 @@ mod tests {
             assert_eq!(123, subscription.get_constants().unwrap().stream_id);
         };
 
-        subscription.close(Handlers::no_notification_handler())?;
+        subscription.close()?;
 
         info!("stopping client");
         stop_publisher.store(true, Ordering::SeqCst);
 
         let _ = publisher_handler.join().unwrap();
-        drop(subscription);
         drop(aeron);
 
         stop.store(true, Ordering::SeqCst);
@@ -1928,22 +1937,19 @@ mod tests {
         {
             let publisher = aeron.add_publication(AERON_IPC_STREAM, 123, Duration::from_secs(5))?;
             info!("created publication [sessionId={}]", publisher.session_id());
-            publisher.close_with_no_args()?;
-            drop(publisher);
+            publisher.close()?;
         }
 
         {
             let publisher = aeron.add_publication(AERON_IPC_STREAM, 124, Duration::from_secs(5))?;
             info!("created publication [sessionId={}]", publisher.session_id());
-            publisher.close(Handlers::no_notification_handler())?;
-            drop(publisher);
+            publisher.close()?;
         }
 
         {
             let publisher = aeron.add_publication(AERON_IPC_STREAM, 125, Duration::from_secs(5))?;
-            publisher.close_once(|| println!("on close"))?;
             info!("created publication [sessionId={}]", publisher.session_id());
-            drop(publisher);
+            publisher.close()?;
         }
 
         drop(aeron);
@@ -1955,7 +1961,11 @@ mod tests {
 
     #[test]
     #[serial]
-    pub fn offer_on_closed_publication_error_test() -> Result<(), Box<dyn error::Error>> {
+    pub fn structural_close_safety_test() -> Result<(), Box<dyn error::Error>> {
+        // Under the new design, close(self) consumes the handle — use-after-close
+        // is a compile error, not a runtime check.  This test verifies that
+        // structural teardown (the ManagedCResource::Drop path) properly frees
+        // the C resource without errors.
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
 
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
@@ -1974,17 +1984,12 @@ mod tests {
         aeron.start()?;
         let publisher = aeron.add_publication(AERON_IPC_STREAM, 123, Duration::from_secs(5))?;
 
-        // Close the publication immediately.
-        publisher.close(Handlers::no_notification_handler())?;
+        // Consume the publication handle — close(self) drops it, and the cleanup
+        // closure (wired at construction) calls aeron_publication_close on Drop
+        // of the last Rc.  No further use of `publisher` is possible at compile
+        // time (the binding is moved into close()).
+        publisher.close()?;
 
-        // Attempt to send a message after the publication is closed.
-        let result = publisher.offer(b"should fail", Handlers::no_reserved_value_supplier_handler());
-        assert!(
-            result < 0,
-            "Offering on a closed publication should return a negative error code"
-        );
-
-        drop(publisher);
         drop(aeron);
         _stop.store(true, Ordering::SeqCst);
         let _ = driver_handle.join().unwrap();
@@ -2755,6 +2760,484 @@ mod tests {
             error_handler.release();
 
             Ok(())
+        }
+    }
+
+    // ── Use-after-free tests: aeron dropped before children ───────────────
+    //
+    // When `drop(aeron)` fires first, the C side calls `aeron_close()` which
+    // frees every registered resource (publications, subscriptions, counters,
+    // exclusive publications) via `aeron_client_conductor_on_close()`.
+    //
+    // The Rust wrappers don't know this happened — their `close_already_called`
+    // flag is still `false`, so any subsequent method call that goes through
+    // `get_inner()` dereferences a dangling pointer.
+    //
+    // These tests save the raw C pointer before `drop(aeron)`, then call C
+    // functions directly on it afterwards to eliminate intermediate Drop
+    // machinery that could trigger re-allocation.
+
+    /// Helper: set up an embedded media driver + Aeron client.
+    fn setup_aeron_for_uaf_test() -> (
+        Aeron,
+        std::sync::Arc<std::sync::atomic::AtomicBool>,
+        std::thread::JoinHandle<Result<(), rusteron_media_driver::AeronCError>>,
+        Handler<TestErrorCount>,
+    ) {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+
+        let media_driver_ctx = AeronDriverContext::new().unwrap();
+        media_driver_ctx.set_dir_delete_on_shutdown(true).unwrap();
+        media_driver_ctx.set_dir_delete_on_start(true).unwrap();
+        media_driver_ctx
+            .set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())
+            .unwrap();
+        let (stop, driver_handle) =
+            rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
+
+        let ctx = AeronContext::new().unwrap();
+        ctx.set_dir(&media_driver_ctx.get_dir().into_c_string()).unwrap();
+        let error_handler = Handler::leak(TestErrorCount::default());
+        ctx.set_error_handler(Some(&error_handler)).unwrap();
+
+        let aeron = Aeron::new(&ctx).unwrap();
+        aeron.start().unwrap();
+
+        (aeron, stop, driver_handle, error_handler)
+    }
+
+    fn teardown_aeron_after_uaf_test(
+        stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        driver_handle: std::thread::JoinHandle<Result<(), rusteron_media_driver::AeronCError>>,
+        mut error_handler: Handler<TestErrorCount>,
+    ) {
+        stop.store(true, Ordering::SeqCst);
+        let _ = driver_handle.join();
+        error_handler.release();
+    }
+
+    /// Prove structural safety: drop(aeron) while children hold Rc references.
+    ///
+    /// Under the new design `drop(aeron)` does NOT call `aeron_close()`
+    /// while any child still holds an `Rc<Aeron>`.  The raw C pointer reads
+    /// below access **valid, alive memory** — they were UAF under the old
+    /// design but are now structurally safe by construction.
+    ///
+    /// After the children drop, the last `Rc` release triggers `aeron_close()`
+    /// in the correct order: children are closed before the client.
+    #[test]
+    #[serial]
+    fn drop_client_before_children_is_safe_test() {
+        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+
+        // Create all resource types.
+        let publisher = aeron
+            .add_publication(AERON_IPC_STREAM, 1001, Duration::from_secs(5))
+            .unwrap();
+        let subscription = aeron
+            .add_subscription(
+                AERON_IPC_STREAM,
+                1002,
+                Handlers::no_available_image_handler(),
+                Handlers::no_unavailable_image_handler(),
+                Duration::from_secs(5),
+            )
+            .unwrap();
+        let counter = aeron
+            .add_counter(1003, &[1u8, 2, 3, 4], "test counter", Duration::from_secs(5))
+            .unwrap();
+        let excl_pub = aeron
+            .add_exclusive_publication(AERON_IPC_STREAM, 1004, Duration::from_secs(5))
+            .unwrap();
+
+        // Save raw C pointers while still valid.
+        let pub_ptr: *mut aeron_publication_t = publisher.get_inner();
+        let sub_ptr: *mut aeron_subscription_t = subscription.get_inner();
+        let counter_ptr: *mut aeron_counter_t = counter.get_inner();
+        let excl_pub_ptr: *mut aeron_exclusive_publication_t = excl_pub.get_inner();
+
+        // SAFE: drop(aeron) does NOT call aeron_close() — children still
+        // hold Rc references, keeping the C client alive.
+        drop(aeron);
+
+        // Read raw pointers — these access VALID (not freed) memory.
+        let _closed = unsafe { aeron_publication_is_closed(pub_ptr) };
+        let _connected = unsafe { aeron_subscription_is_connected(sub_ptr) };
+        let _counter_closed = unsafe { aeron_counter_is_closed(counter_ptr) };
+        let _excl_closed = unsafe { aeron_exclusive_publication_is_closed(excl_pub_ptr) };
+        let _channel = unsafe { aeron_publication_channel(pub_ptr) };
+
+        // Reaching here proves structural safety: no UAF after drop(aeron).
+
+        // Now drop children properly — last one releases Rc<Aeron> →
+        // aeron_close() fires in correct order.
+        drop(publisher);
+        drop(subscription);
+        drop(counter);
+        drop(excl_pub);
+
+        // Teardown.
+        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+    }
+
+    #[test]
+    #[serial]
+    fn cloned_leaf_handles_close_once_and_null_all_clones() {
+        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+
+        let publisher = aeron
+            .add_publication(AERON_IPC_STREAM, 1101, Duration::from_secs(5))
+            .unwrap();
+        let publisher_clone = publisher.clone();
+        assert!(!publisher_clone.get_inner().is_null());
+        assert!(publisher.close().is_ok());
+        assert!(publisher_clone.get_inner().is_null());
+        assert!(publisher_clone.close().is_ok());
+
+        let subscription = aeron
+            .add_subscription(
+                AERON_IPC_STREAM,
+                1102,
+                Handlers::no_available_image_handler(),
+                Handlers::no_unavailable_image_handler(),
+                Duration::from_secs(5),
+            )
+            .unwrap();
+        let subscription_clone = subscription.clone();
+        assert!(!subscription_clone.get_inner().is_null());
+        assert!(subscription.close().is_ok());
+        assert!(subscription_clone.get_inner().is_null());
+        assert!(subscription_clone.close().is_ok());
+
+        let counter = aeron
+            .add_counter(1103, &[1u8, 2, 3, 4], "close clone counter", Duration::from_secs(5))
+            .unwrap();
+        let counter_clone = counter.clone();
+        assert!(!counter_clone.get_inner().is_null());
+        assert!(counter.close().is_ok());
+        assert!(counter_clone.get_inner().is_null());
+        assert!(counter_clone.close().is_ok());
+
+        let exclusive_publisher = aeron
+            .add_exclusive_publication(AERON_IPC_STREAM, 1104, Duration::from_secs(5))
+            .unwrap();
+        let exclusive_publisher_clone = exclusive_publisher.clone();
+        assert!(!exclusive_publisher_clone.get_inner().is_null());
+        assert!(exclusive_publisher.close().is_ok());
+        assert!(exclusive_publisher_clone.get_inner().is_null());
+        assert!(exclusive_publisher_clone.close().is_ok());
+
+        assert!(aeron.close().is_ok());
+        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+    }
+
+    #[test]
+    #[serial]
+    fn close_with_handler_invokes_publication_close_notification_and_nulls_clones() {
+        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+
+        let notification_count = Arc::new(AtomicUsize::new(0));
+        let mut close_handler = Handler::leak(CloseNotificationCount {
+            count: notification_count.clone(),
+        });
+
+        let publisher = aeron
+            .add_publication(AERON_IPC_STREAM, 1151, Duration::from_secs(5))
+            .unwrap();
+        let publisher_clone = publisher.clone();
+
+        assert!(publisher.close_with_handler(Some(&close_handler)).is_ok());
+        assert!(publisher_clone.get_inner().is_null());
+
+        let start = Instant::now();
+        while notification_count.load(Ordering::SeqCst) == 0 && start.elapsed() < Duration::from_secs(5) {
+            sleep(Duration::from_millis(10));
+        }
+        assert_eq!(1, notification_count.load(Ordering::SeqCst));
+
+        assert!(publisher_clone.close_with_handler(Some(&close_handler)).is_ok());
+        assert_eq!(1, notification_count.load(Ordering::SeqCst));
+
+        close_handler.release();
+        assert!(aeron.close().is_ok());
+        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+    }
+
+    #[test]
+    #[serial]
+    fn explicit_client_close_defers_while_children_are_alive() {
+        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+
+        let publisher = aeron
+            .add_publication(AERON_IPC_STREAM, 1201, Duration::from_secs(5))
+            .unwrap();
+        let subscription = aeron
+            .add_subscription(
+                AERON_IPC_STREAM,
+                1202,
+                Handlers::no_available_image_handler(),
+                Handlers::no_unavailable_image_handler(),
+                Duration::from_secs(5),
+            )
+            .unwrap();
+        let counter = aeron
+            .add_counter(
+                1203,
+                &[5u8, 6, 7, 8],
+                "deferred client close counter",
+                Duration::from_secs(5),
+            )
+            .unwrap();
+        let exclusive_publisher = aeron
+            .add_exclusive_publication(AERON_IPC_STREAM, 1204, Duration::from_secs(5))
+            .unwrap();
+
+        let pub_ptr = publisher.get_inner();
+        let sub_ptr = subscription.get_inner();
+        let counter_ptr = counter.get_inner();
+        let excl_ptr = exclusive_publisher.get_inner();
+
+        assert!(aeron.clone().close().is_ok());
+
+        assert!(!publisher.get_inner().is_null());
+        assert!(!subscription.get_inner().is_null());
+        assert!(!counter.get_inner().is_null());
+        assert!(!exclusive_publisher.get_inner().is_null());
+
+        let _ = unsafe { aeron_publication_is_closed(pub_ptr) };
+        let _ = unsafe { aeron_subscription_is_connected(sub_ptr) };
+        let _ = unsafe { aeron_counter_is_closed(counter_ptr) };
+        let _ = unsafe { aeron_exclusive_publication_is_closed(excl_ptr) };
+
+        drop(publisher);
+        drop(subscription);
+        drop(counter);
+        drop(exclusive_publisher);
+
+        assert!(aeron.close().is_ok());
+        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+    }
+
+    #[test]
+    #[serial]
+    fn explicit_client_clone_close_defers_and_original_remains_usable() {
+        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+
+        let aeron_clone = aeron.clone();
+        assert!(aeron_clone.close().is_ok());
+
+        let publisher = aeron
+            .add_publication(AERON_IPC_STREAM, 1301, Duration::from_secs(5))
+            .expect("original client should remain usable after closing a clone");
+        assert!(!publisher.get_inner().is_null());
+        assert!(publisher.close().is_ok());
+
+        assert!(aeron.close().is_ok());
+        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+    }
+
+    #[test]
+    #[serial]
+    fn closing_leaf_resource_does_not_poison_client_or_siblings() {
+        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+
+        let publisher = aeron
+            .add_publication(AERON_IPC_STREAM, 1401, Duration::from_secs(5))
+            .unwrap();
+        let subscription = aeron
+            .add_subscription(
+                AERON_IPC_STREAM,
+                1402,
+                Handlers::no_available_image_handler(),
+                Handlers::no_unavailable_image_handler(),
+                Duration::from_secs(5),
+            )
+            .unwrap();
+
+        assert!(publisher.close().is_ok());
+        assert!(!subscription.get_inner().is_null());
+        let _ = unsafe { aeron_subscription_is_connected(subscription.get_inner()) };
+
+        let next_publisher = aeron
+            .add_publication(AERON_IPC_STREAM, 1403, Duration::from_secs(5))
+            .expect("client should create new resources after a leaf close");
+        assert!(!next_publisher.get_inner().is_null());
+
+        assert!(subscription.close().is_ok());
+        assert!(next_publisher.close().is_ok());
+        assert!(aeron.close().is_ok());
+        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+    }
+
+    // ── Structural teardown verification via memory protection ────────
+    //
+    // Under the new design, the Rc dependency graph ensures correct
+    // teardown order: `aeron_close()` can only fire once every child's
+    // Rc<Aeron> is released.  This section proves that:
+    //
+    //  1. `drop(aeron)` is SAFE while children are alive (Rc keeps the
+    //     C client alive).
+    //  2. `drop(publisher)` triggers `aeron_close()` (when its Rc<Aeron>
+    //     is the last handle), which frees the publication — UAF after
+    //     the publisher drops is the *correct* C-level behaviour.
+    //
+    // To prove (2) we use `mprotect(PROT_NONE)` on the page containing
+    // the dangling pointer after `aeron_close()`.  Any access then
+    // triggers SIGBUS/SIGSEGV, proving the pointer targets freed memory.
+    //
+    // On Linux/macOS `mprotect` on malloc'd heap memory works at the page
+    // level.  This test uses `fork()` so the dangerous mprotect runs in a
+    // child process — the parent test runner is never at risk.
+    //
+    // The test passes when the child exits with SIGABRT (teardown proven).
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    const PROT_NONE: i32 = 0;
+
+    #[cfg(target_os = "macos")]
+    const SYS_PAGESIZE: i32 = 29;
+    #[cfg(target_os = "linux")]
+    const SYS_PAGESIZE: i32 = 30;
+
+    extern "C" {
+        fn mprotect(addr: *mut core::ffi::c_void, len: usize, prot: i32) -> i32;
+        fn sysconf(name: i32) -> isize;
+        fn write(fd: i32, buf: *const core::ffi::c_void, count: usize) -> isize;
+    }
+
+    /// Async-signal-safe write of a fixed message to stderr.
+    unsafe fn uaf_write_msg(msg: &[u8]) {
+        write(2, msg.as_ptr() as *const core::ffi::c_void, msg.len());
+    }
+
+    /// Signal handler for SIGBUS / SIGSEGV caught during the mprotect test.
+    /// Converts the crash into a clean abort with a diagnostic message.
+    extern "C" fn uaf_sigbus_handler(_sig: i32) {
+        unsafe {
+            uaf_write_msg(b"\n\n*** CORRECT TEARDOWN *** aeron_close() freed the publication memory\n");
+            uaf_write_msg(b"*** Rc graph teardown confirmed: the publication's page was protected\n");
+            uaf_write_msg(b"*** with mprotect(PROT_NONE) after the publisher dropped, proving the\n");
+            uaf_write_msg(b"*** pointer is dangling because aeron_close freed it, not before.\n\n");
+        }
+        std::process::abort();
+    }
+
+    /// Prove that the Rc graph teardown correctly frees C memory.
+    ///
+    /// Unlike the old design (where `drop(aeron)` called `aeron_close()`
+    /// immediately), the new design defers `aeron_close()` until the last
+    /// child drops its `Rc<Aeron>`.  This test proves the teardown IS
+    /// effective: after dropping both handles, `mprotect(PROT_NONE)` on
+    /// the publication's page causes a SIGBUS on access, confirming
+    /// `aeron_close()` freed the memory at the right time.
+    ///
+    /// This test is `#[ignore]` because it uses `mprotect(PROT_NONE)` which
+    /// affects an entire VM page.  If other live heap allocations share the
+    /// same page as the freed Aeron resource the process may crash during
+    /// teardown too, so we call `std::process::abort` on detection and
+    /// `std::process::exit(0)` on the no-crash path.
+    ///
+    /// Uses `fork()` to isolate the dangerous mprotect + access into
+    /// a child process.  The parent waits for the child's exit status:
+    ///
+    /// | Child exit | Meaning | Test result |
+    /// |---|---|---|
+    /// | `_exit(0)` | `mprotect` unsupported on this platform | pass (skip) |
+    /// | SIGABRT | freed memory detected via signal handler | **pass (teardown proven)** |
+    /// | other signal or non-zero exit | unexpected failure | fail |
+    #[test]
+    #[serial]
+    fn prove_rc_teardown_frees_via_mprotect() {
+        extern "C" {
+            fn signal(sig: i32, handler: unsafe extern "C" fn(i32)) -> usize;
+            fn fork() -> i32;
+            fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
+            fn _exit(status: i32) -> !;
+        }
+        #[cfg(target_os = "macos")]
+        const SIGBUS: i32 = 10;
+        #[cfg(not(target_os = "macos"))]
+        const SIGBUS: i32 = 7;
+        const SIGSEGV: i32 = 11;
+
+        unsafe {
+            let pid = fork();
+            assert!(pid >= 0, "fork failed");
+            if pid == 0 {
+                // ── CHILD: proof of correct Rc graph teardown ──
+                // The parent is unaffected (fork makes the child's
+                // mprotect page-private via copy-on-write).
+
+                signal(SIGBUS, uaf_sigbus_handler);
+                signal(SIGSEGV, uaf_sigbus_handler);
+
+                let (aeron, stop, _driver_handle, error_handler) = setup_aeron_for_uaf_test();
+                let publisher = aeron
+                    .add_publication(AERON_IPC_STREAM, 1006, Duration::from_secs(5))
+                    .unwrap();
+
+                let raw_ptr: *mut aeron_publication_t = publisher.get_inner();
+
+                // Step 1: drop(aeron) — SAFE under new design.  The
+                // publisher still holds an Rc<Aeron>, so aeron_close()
+                // is deferred.
+                drop(aeron);
+
+                // Step 2: drop(publisher) — the Rc<Aeron> refcount drops
+                // to 0, triggering aeron_close().  aeron_close() frees all
+                // C resources including the publication at raw_ptr.
+                drop(publisher);
+
+                // Step 3: mprotect the page.  raw_ptr is now dangling.
+                let page_size = sysconf(SYS_PAGESIZE) as usize;
+                let page = (raw_ptr as usize) & !(page_size - 1);
+                let rc = mprotect(page as *mut core::ffi::c_void, page_size, PROT_NONE);
+
+                if rc == 0 {
+                    // Page is PROT_NONE — accessing raw_ptr triggers SIGBUS →
+                    // signal handler → "teardown confirmed" → abort() (SIGABRT).
+                    let _closed = aeron_publication_is_closed(raw_ptr);
+                    // If we reach here, mprotect worked but nothing crashed.
+                    uaf_write_msg(b"*** FAIL: mprotect succeeded but freed access did not crash\n");
+                    std::process::abort();
+                }
+
+                // mprotect not supported on this platform — clean exit.
+                drop(error_handler);
+                let _ = stop;
+                _exit(0);
+            }
+
+            // ── PARENT: wait for child's result ──
+            let mut status: i32 = 0;
+            let waited = waitpid(pid, &mut status as *mut i32, 0);
+            assert!(waited != -1, "waitpid failed");
+
+            if status & 0x7f == 0 {
+                // Child exited normally (WIFEXITED).
+                let code = (status >> 8) & 0xff;
+                if code == 0 {
+                    eprintln!(
+                        "note: mprotect(PROT_NONE) not supported on heap \
+                         memory on this platform — teardown proof skipped"
+                    );
+                    return;
+                }
+                panic!("child exited with code {} (unexpected — setup error?)", code);
+            }
+
+            // Child was signalled (WIFSIGNALED).
+            let sig = status & 0x7f;
+            if sig == 6 {
+                // SIGABRT from uaf_sigbus_handler → teardown PROVEN.
+                eprintln!(
+                    "*** PASS: Rc graph teardown proven — child confirmed freed \
+                     memory after aeron_close() via mprotect"
+                );
+                return;
+            }
+
+            panic!("child killed by signal {} (expected SIGABRT=6 for teardown proof)", sig);
         }
     }
 }

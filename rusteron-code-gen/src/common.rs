@@ -64,6 +64,58 @@ impl<T> CResource<T> {
             CResource::OwnedOnStack(_) | CResource::Borrowed(_) => None,
         }
     }
+
+    /// Run the clean-up / close on the resource via its shared state.
+    ///
+    /// For `OwnedOnHeap` resources this calls `close_shared` on the
+    /// `ManagedCResource` — the FFI close fires exactly once across all
+    /// clones.  Stack and borrowed resources are no-ops (they don't own a
+    /// cleanup closure).
+    #[inline]
+    pub fn close_resource(&self) -> Result<(), AeronCError> {
+        match self {
+            CResource::OwnedOnHeap(r) => r.close_shared(),
+            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => Ok(()),
+        }
+    }
+
+    /// Run a custom close function through the same shared close gate.
+    ///
+    /// This is used for close methods that take extra parameters, such as
+    /// Aeron's close-complete notification callback.  The custom close still
+    /// consumes the wrapper handle and still closes exactly once across clones.
+    #[inline]
+    pub fn close_resource_with(&self, cleanup: impl FnMut(*mut *mut T) -> i32) -> Result<(), AeronCError> {
+        match self {
+            CResource::OwnedOnHeap(r) => r.close_shared_with(cleanup),
+            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => Ok(()),
+        }
+    }
+
+    /// Close an owner resource only when this is the last shared reference.
+    ///
+    /// This is for owner/client handles (e.g. Aeron/AeronArchive) whose C close
+    /// frees child resources.  If child handles still hold dependency clones, we
+    /// must defer to natural Rc teardown to preserve child-before-parent order.
+    #[inline]
+    pub fn close_resource_deferred_if_shared(&self) -> Result<(), AeronCError> {
+        match self {
+            CResource::OwnedOnHeap(r) => {
+                let refs = std::rc::Rc::strong_count(r);
+                if refs > 1 {
+                    log::info!(
+                        "close deferred for {} because {} references are still alive",
+                        std::any::type_name::<T>(),
+                        refs
+                    );
+                    Ok(())
+                } else {
+                    r.close_shared()
+                }
+            }
+            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => Ok(()),
+        }
+    }
 }
 
 impl<T> std::fmt::Debug for CResource<T> {
@@ -87,18 +139,21 @@ impl<T> std::fmt::Debug for CResource<T> {
 /// A custom struct for managing C resources with automatic cleanup.
 ///
 /// It handles initialisation and clean-up of the resource and ensures that resources
-/// are properly released when they go out of scope.
+/// are properly released when they go out of scope. All teardown goes through the
+/// single `cleanup` closure (if set), which is the FFI close function (e.g.
+/// `aeron_close`). The Rc dependency graph ensures parents outlive children
+/// structurally — you cannot race `aeron_close` ahead of a live child handle.
 #[allow(dead_code)]
 pub struct ManagedCResource<T> {
-    resource: *mut T,
-    cleanup: Option<Box<dyn FnMut(*mut *mut T) -> i32>>,
+    resource: std::cell::Cell<*mut T>,
+    /// Interior mutability so the cleanup can be invoked through a shared
+    /// `&self` reference when the resource is shared via `Rc`.  The
+    /// `close_already_called` gate ensures single-execution: only the first
+    /// call to `close()` or `close_shared()` takes and runs the closure.
+    cleanup: UnsafeCell<Option<Box<dyn FnMut(*mut *mut T) -> i32>>>,
     cleanup_struct: bool,
-    /// if someone externally rusteron calls close
+    /// Set when close() has been called (gate against double-cleanup).
     close_already_called: std::cell::Cell<bool>,
-    /// if there is a c method to verify it someone has closed it, only few structs have this functionality
-    check_for_is_closed: Option<fn(*mut T) -> bool>,
-    /// this will be called if closed hasn't already happened even if its borrowed
-    auto_close: std::cell::Cell<bool>,
     /// indicates if the underlying resource has already been handed off and should not be re-polled
     resource_released: std::cell::Cell<bool>,
     /// Keeps deps alive (e.g. the Aeron client while a pub/sub exists).
@@ -109,16 +164,17 @@ pub struct ManagedCResource<T> {
 
 impl<T> std::fmt::Debug for ManagedCResource<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut debug_struct = f.debug_struct("ManagedCResource");
-
-        if !self.close_already_called.get()
-            && !self.resource.is_null()
-            && !self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource))
-        {
-            debug_struct.field("resource", &self.resource);
-        }
-
-        debug_struct.field("type", &std::any::type_name::<T>()).finish()
+        f.debug_struct("ManagedCResource")
+            .field(
+                "resource",
+                if self.close_already_called.get() {
+                    &"<closed>"
+                } else {
+                    &self.resource
+                },
+            )
+            .field("type", &std::any::type_name::<T>())
+            .finish()
     }
 }
 
@@ -133,17 +189,14 @@ impl<T> ManagedCResource<T> {
         init: impl FnOnce(*mut *mut T) -> i32,
         cleanup: Option<Box<dyn FnMut(*mut *mut T) -> i32>>,
         cleanup_struct: bool,
-        check_for_is_closed: Option<fn(*mut T) -> bool>,
     ) -> Result<Self, AeronCError> {
         let resource = Self::initialise(init)?;
 
         let result = Self {
-            resource,
-            cleanup,
+            resource: std::cell::Cell::new(resource),
+            cleanup: UnsafeCell::new(cleanup),
             cleanup_struct,
             close_already_called: std::cell::Cell::new(false),
-            check_for_is_closed,
-            auto_close: std::cell::Cell::new(false),
             resource_released: std::cell::Cell::new(false),
             dependencies: UnsafeCell::new(vec![]),
         };
@@ -161,21 +214,21 @@ impl<T> ManagedCResource<T> {
         Ok(resource)
     }
 
+    /// Returns `true` if the resource has been closed (via close() or is
+    /// already null).
     pub fn is_closed_already_called(&self) -> bool {
-        self.close_already_called.get()
-            || self.resource.is_null()
-            || self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource))
+        self.close_already_called.get() || self.resource.get().is_null()
     }
 
     /// Gets a raw pointer to the resource.
     #[inline(always)]
     pub fn get(&self) -> *mut T {
-        self.resource
+        self.resource.get()
     }
 
     #[inline(always)]
     pub fn get_mut(&self) -> &mut T {
-        unsafe { &mut *self.resource }
+        unsafe { &mut *self.resource.get() }
     }
 
     #[inline]
@@ -212,27 +265,77 @@ impl<T> ManagedCResource<T> {
         self.resource_released.set(true);
     }
 
-    /// Closes the resource by calling the cleanup function.
+    /// Closes the resource through a shared reference.
     ///
-    /// If cleanup fails, it returns an `AeronError`.
-    pub fn close(&mut self) -> Result<(), AeronCError> {
+    /// Like `close(&mut self)` but works with `&self`, enabling explicit close
+    /// on handles that share the resource via `Rc`.  The cleanup closure is
+    /// accessed through `UnsafeCell` interior mutability; the
+    /// `close_already_called` gate ensures it is only taken once regardless of
+    /// how many clones call `close_shared()`.
+    ///
+    /// This is the method called by the generated `close(self)` method on
+    /// wrapper types.
+    pub fn close_shared(&self) -> Result<(), AeronCError> {
         if self.close_already_called.get() {
             return Ok(());
         }
-        self.close_already_called.set(true);
 
-        let already_closed = self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource));
-
-        if let Some(mut cleanup) = self.cleanup.take() {
-            if !self.resource.is_null() {
-                if !already_closed {
-                    let result = cleanup(&mut self.resource);
-                    if result < 0 {
-                        return Err(AeronCError::from_code(result));
+        // SAFETY: this library deliberately uses Rc/Cell/UnsafeCell for
+        // single-threaded low-latency handles. close_shared() is not Sync; the
+        // first caller takes the cleanup closure and either completes close or
+        // restores the closure on failure so a later call/drop can retry.
+        let cleanup = unsafe { (*self.cleanup.get()).take() };
+        if let Some(mut cleanup) = cleanup {
+            let mut resource = self.resource.get();
+            if !resource.is_null() {
+                let result = cleanup(&mut resource);
+                if result < 0 {
+                    unsafe {
+                        *self.cleanup.get() = Some(cleanup);
                     }
+                    return Err(AeronCError::from_code(result));
                 }
-                self.resource = std::ptr::null_mut();
             }
+
+            self.close_already_called.set(true);
+            if !self.cleanup_struct {
+                // C-owned resources have been freed by the close function.
+                // Null the shared pointer so clones cannot keep using a
+                // dangling pointer after explicit close.
+                self.resource.set(std::ptr::null_mut());
+            }
+        } else {
+            self.close_already_called.set(true);
+        }
+
+        Ok(())
+    }
+
+    /// Closes the resource with a caller-supplied C close function.
+    ///
+    /// The stored default cleanup is taken first so Drop cannot later run it a
+    /// second time.  If the custom close fails, the default cleanup is restored
+    /// and the resource remains retryable.
+    pub fn close_shared_with(&self, mut custom_cleanup: impl FnMut(*mut *mut T) -> i32) -> Result<(), AeronCError> {
+        if self.close_already_called.get() {
+            return Ok(());
+        }
+
+        let stored_cleanup = unsafe { (*self.cleanup.get()).take() };
+        let mut resource = self.resource.get();
+        if !resource.is_null() {
+            let result = custom_cleanup(&mut resource);
+            if result < 0 {
+                unsafe {
+                    *self.cleanup.get() = stored_cleanup;
+                }
+                return Err(AeronCError::from_code(result));
+            }
+        }
+
+        self.close_already_called.set(true);
+        if !self.cleanup_struct {
+            self.resource.set(std::ptr::null_mut());
         }
 
         Ok(())
@@ -241,30 +344,29 @@ impl<T> ManagedCResource<T> {
 
 impl<T> Drop for ManagedCResource<T> {
     fn drop(&mut self) {
-        if !self.resource.is_null() {
-            let already_closed = self.close_already_called.get()
-                || self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource));
-
-            let resource = if already_closed {
-                self.resource
-            } else {
-                self.resource.clone()
-            };
-
-            if !already_closed {
-                // Ensure the clean-up function is called when the resource is dropped.
-                #[cfg(feature = "extra-logging")]
-                log::info!("closing c resource: {:?}", self);
-                let _ = self.close(); // Ignore errors during an automatic drop to avoid panics.
+        // Delegate to close_shared() which handles single-execution, error
+        // logging, and pointer-nulling.  close_already_called prevents
+        // double-execution if the resource was already closed through
+        // another clone.
+        if !self.close_already_called.get() {
+            if let Err(e) = self.close_shared() {
+                log::warn!(
+                    "cleanup failed for {} during Drop with code {}",
+                    std::any::type_name::<T>(),
+                    e.code,
+                );
             }
-            self.close_already_called.set(true);
+        }
 
-            if self.cleanup_struct {
-                #[cfg(feature = "extra-logging")]
-                log::info!("closing rust struct resource: {:?}", resource);
+        if self.cleanup_struct {
+            #[cfg(feature = "extra-logging")]
+            log::info!("closing rust struct resource: {:?}", self.resource.get());
+            let resource = self.resource.get();
+            if !resource.is_null() {
                 unsafe {
                     let _ = Box::from_raw(resource);
                 }
+                self.resource.set(std::ptr::null_mut());
             }
         }
     }

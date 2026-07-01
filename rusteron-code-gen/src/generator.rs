@@ -475,23 +475,6 @@ impl CWrapper {
         self.find_unique_method("close")
     }
 
-    fn get_is_closed_method(&self) -> Option<Method> {
-        self.find_unique_method("is_closed")
-    }
-
-    fn get_is_closed_method_quote(&self) -> TokenStream {
-        if let Some(method) = self.get_is_closed_method() {
-            let fn_name = format_ident!("{}", method.fn_name);
-            quote! {
-                Some(|c| unsafe{#fn_name(c)})
-            }
-        } else {
-            quote! {
-                None
-            }
-        }
-    }
-
     /// Generate logging expressions for method arguments
     fn generate_arg_logging(arguments: &[Arg], arg_names: &[TokenStream]) -> TokenStream {
         let mut arg_names_idx = 0;
@@ -573,16 +556,8 @@ impl CWrapper {
             .iter()
             .filter(|m| !m.arguments.iter().any(|arg| arg.is_double_mut_pointer()))
             .filter(|m| !self.skipped_methods.contains(&m.struct_method_name))
+            .filter(|m| m.struct_method_name != "close")
             .map(|method| {
-                let set_closed = if method.struct_method_name == "close" {
-                    quote! {
-                        if let Some(inner) = self.inner.as_owned() {
-                            inner.close_already_called.set(true);
-                        }
-                    }
-                } else {
-                    quote! {}
-                };
 
                 let fn_name =
                     Ident::new(&method.struct_method_name, proc_macro2::Span::call_site());
@@ -703,6 +678,7 @@ impl CWrapper {
 
 
                 let mut additional_methods = vec![];
+                let set_closed = quote! {};
 
                 Self::add_mut_string_methods_if_applicable(method, &fn_name, uses_self, &method_docs, &mut additional_methods);
 
@@ -1221,7 +1197,6 @@ impl CWrapper {
                         quote! { "" }
                     };
 
-                    let is_closed_method = self.get_is_closed_method_quote();
                     quote! {
                         #(#method_docs)*
                         pub fn #fn_name #where_clause(#(#new_args),*) -> Result<Self, AeronCError> {
@@ -1245,7 +1220,6 @@ impl CWrapper {
                                     #close_fn(#(#close_args),*)
                                 } )),
                                 false,
-                                #is_closed_method,
                             )?;
 
                             Ok(Self {
@@ -1263,8 +1237,6 @@ impl CWrapper {
         let no_constructor = constructors.iter().map(|x| x.to_string()).join("").trim().is_empty();
         if no_constructor {
             let type_name = format_ident!("{}", self.type_name);
-            let is_closed_method = self.get_is_closed_method_quote();
-
             let zeroed_impl = quote! {
                 #[inline]
                 /// creates zeroed struct where the underlying c struct is on the heap
@@ -1280,7 +1252,6 @@ impl CWrapper {
                         },
                         None,
                         true,
-                        #is_closed_method
                     ).unwrap();
 
                     Self {
@@ -1351,8 +1322,6 @@ impl CWrapper {
                     .collect_vec();
                 let lets: Vec<TokenStream> = Self::lets_for_copying_arguments(wrappers, &cloned_fields, false);
 
-                let is_closed_method = self.get_is_closed_method_quote();
-
                 vec![quote! {
                     #[inline]
                     pub fn new #where_clause(#(#new_args),*) -> Result<Self, AeronCError> {
@@ -1367,7 +1336,6 @@ impl CWrapper {
                             },
                             None,
                             true,
-                            #is_closed_method
                         )?;
 
                         Ok(Self {
@@ -2443,7 +2411,27 @@ pub fn generate_rust_code(
 
             // Generate logging for poll method arguments (as token stream)
             let poll_log_expr_tokens = CWrapper::generate_arg_logging(&poll_method.arguments, &init_args);
-            let is_closed_method = main.get_is_closed_method_quote();
+
+            let close_cleanup = if let Some(close_method) = main.get_close_method() {
+                let close_fn = format_ident!("{}", close_method.fn_name);
+                // Aeron C close functions now take optional notification
+                // callbacks and a clientd pointer.  Use Default::default()
+                // for any arg beyond the resource pointer — it resolves to
+                // `None` / `null_mut()` via type inference at the call site.
+                let extra_args: Vec<TokenStream> = close_method
+                    .arguments
+                    .iter()
+                    .skip(1)
+                    .map(|_| quote! { Default::default() })
+                    .collect();
+                quote! {
+                    Some(Box::new(move |ptr| unsafe {
+                        #close_fn(*ptr, #(#extra_args),*)
+                    }))
+                }
+            } else {
+                quote! { None }
+            };
 
             quote! {
                     impl #main_class_name {
@@ -2458,9 +2446,8 @@ pub fn generate_rust_code(
                                     }
                                     #poll_method_name(#(#init_args),*)
                                 },
-                                None,
+                                #close_cleanup,
                                 false,
-                                #is_closed_method,
                             )?;
                             Ok(Self {
                                 inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
@@ -2519,7 +2506,6 @@ pub fn generate_rust_code(
                                 },
                                 None,
                                 false,
-                                None,
                             )?;
                             let result = Self {
                                 inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_async)),
@@ -2550,7 +2536,6 @@ pub fn generate_rust_code(
                                     if let Some(inner) = self.inner.as_owned() {
                                         inner.mark_resource_released();
                                     }
-                                    result.inner.as_owned().unwrap().auto_close.set(true);
                                     Ok(Some(result))
                                 }
                                 Err(AeronCError {code }) if code == 0 => {
@@ -2593,60 +2578,67 @@ pub fn generate_rust_code(
     let mut additional_impls = vec![];
 
     if let Some(close_method) = wrapper.get_close_method() {
-        if !wrapper.methods.iter().any(|m| m.fn_name.contains("_init")) {
-            let close_method_call = if close_method.arguments.len() > 1 {
-                // Check if close method has handler callbacks (which are handled by no_notification_handler)
-                let has_handler_callbacks = close_method
+        let close_deferred_if_shared = wrapper.type_name == "aeron_t" || wrapper.type_name == "aeron_archive_t";
+        let skip_generated_close =
+            wrapper.methods.iter().any(|m| m.fn_name.contains("_init")) && !close_deferred_if_shared;
+        if !skip_generated_close {
+            let close_fn = format_ident!("{}", close_method.fn_name);
+            let close_resource_call = if close_deferred_if_shared {
+                quote! { self.inner.close_resource_deferred_if_shared() }
+            } else {
+                quote! { self.inner.close_resource() }
+            };
+            // Consuming close(self): run the FFI close through the shared
+            // ManagedCResource state, then drop this handle.  The cleanup
+            // closure is taken exactly once across clones, and after
+            // close(self) this binding is gone.
+            additional_impls.push(quote! {
+                impl #class_name {
+                    pub fn close(self) -> Result<(), AeronCError> {
+                        let result = #close_resource_call;
+                        // Drop this handle (decrements Rc, releases deps).
+                        drop(self);
+                        result
+                    }
+                }
+            });
+
+            let close_has_notification_handler = !close_deferred_if_shared
+                && close_method
                     .arguments
                     .iter()
-                    .skip(1)
-                    .any(|arg| arg.name.contains("clientd") || arg.name.starts_with("on_"));
+                    .any(|arg| matches!(arg.processing, ArgProcessing::Handler(_)))
+                && close_method.arguments.iter().any(|arg| arg.is_c_void());
 
-                if has_handler_callbacks {
-                    // The close method takes handler callbacks, use no_notification_handler()
-                    additional_impls.push(quote! {
-                        impl #class_name {
-                            pub fn close_with_no_args(&self) -> Result<(), AeronCError> {
-                                self.close(Handlers::no_notification_handler())?;
-                                Ok(())
-                            }
+            if close_has_notification_handler {
+                additional_impls.push(quote! {
+                    impl #class_name {
+                        pub fn close_with_handler<AeronNotificationHandlerImpl: AeronNotificationCallback>(
+                            self,
+                            on_close_complete: Option<&Handler<AeronNotificationHandlerImpl>>,
+                        ) -> Result<(), AeronCError> {
+                            let result = self.inner.close_resource_with(move |ptr| unsafe {
+                                #close_fn(
+                                    *ptr,
+                                    {
+                                        let callback: aeron_notification_t = if on_close_complete.is_none() {
+                                            None
+                                        } else {
+                                            Some(aeron_notification_t_callback::<AeronNotificationHandlerImpl>)
+                                        };
+                                        callback
+                                    },
+                                    on_close_complete
+                                        .map(|m| m.as_raw())
+                                        .unwrap_or_else(|| std::ptr::null_mut()),
+                                )
+                            });
+                            drop(self);
+                            result
                         }
-                    });
-
-                    let ident = format_ident!("close_with_no_args");
-                    quote! {#ident}
-                } else {
-                    // Pass through non-handler parameters if any exist
-                    let close_method_args = close_method
-                        .arguments
-                        .iter()
-                        .skip(1)
-                        .map(|arg| {
-                            let arg_name = arg.as_ident();
-                            if arg.c_type == "()" {
-                                quote! {}
-                            } else {
-                                quote! { #arg_name }
-                            }
-                        })
-                        .collect::<Vec<_>>();
-
-                    additional_impls.push(quote! {
-                        impl #class_name {
-                            pub fn close_with_no_args(&self) -> Result<(), AeronCError> {
-                                self.close(Handlers::no_notification_handler(), #(#close_method_args),*)?;
-                                Ok(())
-                            }
-                        }
-                    });
-
-                    let ident = format_ident!("close_with_no_args");
-                    quote! {#ident}
-                }
-            } else {
-                let ident = format_ident!("{}", close_method.struct_method_name);
-                quote! {#ident}
-            };
+                    }
+                });
+            }
 
             // Generate additional methods for specific types
             if wrapper.type_name == "aeron_counter_t" {
@@ -2669,30 +2661,6 @@ pub fn generate_rust_code(
                     }
                 });
             }
-            let is_closed_method = if wrapper.get_is_closed_method().is_some() {
-                quote! { self.is_closed() }
-            } else {
-                quote! { false }
-            };
-
-            additional_impls.push(quote! {
-                impl Drop for #class_name {
-                    fn drop(&mut self) {
-                        if let Some(inner) = self.inner.as_owned() {
-                            if (inner.cleanup.is_none() ) && std::rc::Rc::strong_count(inner) == 1 && !inner.is_closed_already_called() {
-                                if inner.auto_close.get() {
-                                    log::info!("auto closing {self:?}");
-                                    let result = self.#close_method_call();
-                                    log::debug!("result {:?}", result);
-                                } else {
-                                    #[cfg(feature = "extra-logging")]
-                                    log::warn!("{} not closed", stringify!(#class_name));
-                                }
-                            }
-                        }
-                    }
-                }
-            });
         }
     }
 
@@ -2779,8 +2747,6 @@ pub fn generate_rust_code(
         } else {
             quote! {}
         };
-
-    let is_closed_method = wrapper.get_is_closed_method_quote();
 
     quote! {
         #warning_code

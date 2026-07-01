@@ -220,7 +220,7 @@ mod tests {
             handler.historical, historical_count,
             "replay should deliver all historical messages"
         );
-        replay_sub.close(Handlers::no_notification_handler())?;
+        replay_sub.close()?;
         info!("Replayed {} historical messages", handler.historical);
 
         // Phase 3: live consumption. Subscribe first and wait for an image so the
@@ -260,7 +260,7 @@ mod tests {
         info!("End-to-end OK: {} replayed + {} live", handler.historical, handler.live);
 
         handler.release();
-        live_sub.close(Handlers::no_notification_handler())?;
+        live_sub.close()?;
         drop(publication);
         drop(archive);
         drop(aeron_archive);
@@ -409,7 +409,7 @@ mod tests {
             handler.before_restart + handler.after_restart
         );
 
-        subscription.close(Handlers::no_notification_handler())?;
+        subscription.close()?;
         handler.release();
         drop(archive);
         drop(aeron_archive);
@@ -531,7 +531,7 @@ mod tests {
             handler.count as f64 / replay_duration.as_secs_f64()
         );
 
-        subscription.close(Handlers::no_notification_handler())?;
+        subscription.close()?;
         handler.release();
         drop(archive);
         drop(aeron_archive);
@@ -663,7 +663,7 @@ mod tests {
 
         info!("Verified all {} messages with varying sizes", total_messages);
 
-        subscription.close(Handlers::no_notification_handler())?;
+        subscription.close()?;
         handler.release();
         drop(archive);
         drop(aeron_archive);

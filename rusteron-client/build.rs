@@ -206,6 +206,18 @@ fn build_from_source(docs_rs: &Path) {
     if let Ok(gradle_wrapper) = std::env::var("GRADLE_WRAPPER") {
         config.define("GRADLE_WRAPPER", gradle_wrapper);
     }
+
+    // Sanitizer support — set RUSTERON_SANITIZE=address (or other) to enable.
+    // This injects -fsanitize=* flags into the C/C++ compilation via cmake,
+    // allowing AddressSanitizer (etc.) to catch memory errors in the C bindings.
+    if let Ok(san) = std::env::var("RUSTERON_SANITIZE") {
+        if !san.is_empty() {
+            let san_flags = format!("-fsanitize={} -fno-omit-frame-pointer -g -O1", san);
+            config.define("CMAKE_C_FLAGS", &san_flags);
+            config.define("CMAKE_CXX_FLAGS", &san_flags);
+        }
+    }
+
     let cmake_output = config
         .define("BUILD_AERON_DRIVER", "OFF")
         .define("BUILD_AERON_ARCHIVE_API", "OFF")

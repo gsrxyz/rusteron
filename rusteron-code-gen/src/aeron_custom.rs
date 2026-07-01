@@ -103,7 +103,6 @@ impl AeronCnc {
                 0
             })),
             false,
-            None,
         )?;
 
         let result = Self {
@@ -347,7 +346,6 @@ impl AeronCncMetadata {
                 aeron_unmap(mapped_file2.borrow_mut().deref_mut() as *mut aeron_mapped_file_t)
             })),
             false,
-            None,
         )?;
 
         let result = Self {
@@ -592,7 +590,6 @@ impl Default for AeronUriStringBuilder {
                 aeron_uri_string_builder_close(*ctx_field)
             })),
             true,
-            Some(|ctx| unsafe { (*ctx).closed }),
         )
         .expect("should not happen");
         Self {
@@ -634,48 +631,52 @@ impl std::error::Error for AeronCError {}
 const PARSE_CSTR_ERROR_CODE: i32 = -132131;
 
 impl AeronUriStringBuilder {
+    /// Close previous builder state and run a re-init function.
+    ///
+    /// Closes the previous C builder state directly (reserving the cleanup
+    /// closure for the final Drop), runs `f`, and re-arms the cleanup gate on
+    /// success so ManagedCResource::Drop calls `aeron_uri_string_builder_close`
+    /// on the new state.
     #[inline]
-    #[doc = "Initialize a new AeronUriStringBuilder. If already initialized, it will close the previous builder to prevent memory leaks."]
-    pub fn init_new(&self) -> Result<i32, AeronCError> {
+    fn reinit_run<F>(&self, log_msg: &str, f: F) -> Result<i32, AeronCError>
+    where
+        F: FnOnce(*mut aeron_uri_string_builder_t) -> i32,
+    {
         if let Some(inner) = self.inner.as_owned() {
             if !inner.close_already_called.get() {
-                let _ = self.close();
-                inner.close_already_called.set(false);
+                unsafe { aeron_uri_string_builder_close(inner.get()); }
+                inner.close_already_called.set(true);
             }
         }
-        let result = unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("aeron_uri_string_builder_init_new(self.get_inner())");
-
-            aeron_uri_string_builder_init_new(self.get_inner())
-        };
+        #[cfg(feature = "log-c-bindings")]
+        log::info!("{}", log_msg);
+        let result = unsafe { f(self.get_inner()) };
         if result < 0 {
             Err(AeronCError::from_code(result))
         } else {
+            if let Some(inner) = self.inner.as_owned() {
+                inner.close_already_called.set(false);
+            }
             Ok(result)
         }
     }
 
     #[inline]
+    #[doc = "Initialize a new AeronUriStringBuilder. If already initialized, it will close the previous builder to prevent memory leaks."]
+    pub fn init_new(&self) -> Result<i32, AeronCError> {
+        self.reinit_run(
+            "aeron_uri_string_builder_init_new(self.get_inner())",
+            |ptr| unsafe { aeron_uri_string_builder_init_new(ptr) },
+        )
+    }
+
+    #[inline]
     #[doc = "Initialize AeronUriStringBuilder with an existing URI string. If already initialized, it will close the previous builder."]
     pub fn init_on_string(&self, uri: &std::ffi::CStr) -> Result<i32, AeronCError> {
-        if let Some(inner) = self.inner.as_owned() {
-            if !inner.close_already_called.get() {
-                let _ = self.close();
-                inner.close_already_called.set(false);
-            }
-        }
-        let result = unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("aeron_uri_string_builder_init_on_string(self.get_inner(), uri)");
-
-            aeron_uri_string_builder_init_on_string(self.get_inner(), uri.as_ptr())
-        };
-        if result < 0 {
-            Err(AeronCError::from_code(result))
-        } else {
-            Ok(result)
-        }
+        self.reinit_run(
+            "aeron_uri_string_builder_init_on_string(self.get_inner(), uri)",
+            |ptr| unsafe { aeron_uri_string_builder_init_on_string(ptr, uri.as_ptr()) },
+        )
     }
 
     #[inline]

@@ -218,7 +218,7 @@ mod tests {
         );
 
         handler.release();
-        subscription.close(Handlers::no_notification_handler())?;
+        subscription.close()?;
         drop(publication);
         drop(archive);
         drop(aeron_archive);
@@ -341,7 +341,7 @@ mod tests {
             "Should have received all replay messages (got {})",
             handler.replay_count
         );
-        replay_sub.close(Handlers::no_notification_handler())?;
+        replay_sub.close()?;
         info!("Replayed {} messages", handler.replay_count);
 
         // Phase 3: live consumption. Subscribe first and wait for an image.
@@ -383,7 +383,7 @@ mod tests {
         );
 
         handler.release();
-        subscription.close(Handlers::no_notification_handler())?;
+        subscription.close()?;
         drop(publication);
         drop(archive);
         drop(aeron_archive);
@@ -788,7 +788,7 @@ mod tests {
 
         // Release handlers in reverse order of creation to avoid
         // Handler leak warnings during cleanup
-        subscription.close(Handlers::no_notification_handler())?;
+        subscription.close()?;
         handler.release();
 
         // Explicitly release the error handler before dropping archive objects
@@ -1104,7 +1104,7 @@ mod tests {
 
         // Cleanup
         for sub in subscriptions {
-            sub.close(Handlers::no_notification_handler())?;
+            sub.close()?;
         }
         for mut handler in handlers {
             handler.release();

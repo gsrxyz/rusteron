@@ -158,7 +158,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             received += n as usize;
         }
     }
-    replay_sub.close(Handlers::no_notification_handler())?;
+    replay_sub.close()?;
     println!("replayed {received}/{MSG_COUNT} messages");
 
     if received < MSG_COUNT {
