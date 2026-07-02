@@ -478,7 +478,7 @@ mod test {
             0
         }) as Box<dyn FnMut(*mut *mut i32) -> i32>);
 
-        let mut resource = ManagedCResource::new(
+        let resource = ManagedCResource::new(
             |res: *mut *mut i32| {
                 unsafe {
                     *res = resource_ptr;

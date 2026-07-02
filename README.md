@@ -115,8 +115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ctx = AeronContext::new()?;
     ctx.set_dir(&driver_ctx.get_dir().into_c_string())?;
     // Reuse the built-in logger for async client errors (Aeron samples always set one).
-    let mut error_handler = Handler::leak(AeronErrorHandlerLogger);
-    ctx.set_error_handler(Some(&error_handler))?;
+    ctx.set_error_handler(Some(AeronErrorHandlerLogger))?;
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
 
@@ -146,7 +145,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         10,
     )?;
 
-    error_handler.release();
     stop.store(true, Ordering::SeqCst);
     driver.join().ok();
     Ok(())

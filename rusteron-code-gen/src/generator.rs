@@ -38,6 +38,35 @@ pub enum ArgProcessing {
     Default,
 }
 
+/// C callback typedefs that are only ever invoked synchronously, during the FFI call
+/// they are passed to (e.g. fragment handlers during `poll`). Everything not listed here
+/// is treated as *retained*: the C client stores the `clientd` pointer and may invoke the
+/// callback later (conductor thread), so the wrapper must keep the `Handler` alive by
+/// cloning it into the registering resource's dependencies, and it is unsound to offer a
+/// stack-closure `_once` variant for it.
+const SYNC_HANDLER_TYPES: &[&str] = &[
+    "aeron_fragment_handler_t",
+    "aeron_controlled_fragment_handler_t",
+    "aeron_block_handler_t",
+    "aeron_error_log_reader_func_t",
+    "aeron_loss_reporter_read_entry_func_t",
+    "aeron_uri_parse_callback_t",
+    "aeron_reserved_value_supplier_t",
+    "aeron_counters_reader_foreach_counter_func_t",
+    "aeron_counters_reader_foreach_metadata_func_t",
+    "aeron_str_to_ptr_hash_map_for_each_func_t",
+    "aeron_rb_handler_t",
+    "aeron_rb_controlled_handler_t",
+    "aeron_queue_drain_func_t",
+    "aeron_term_gap_scanner_on_gap_detected_func_t",
+    "aeron_archive_recording_descriptor_consumer_func_t",
+    "aeron_archive_recording_subscription_descriptor_consumer_func_t",
+];
+
+pub fn is_sync_handler_type(c_type: &str) -> bool {
+    SYNC_HANDLER_TYPES.iter().any(|t| c_type.contains(t))
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Arg {
     pub name: String,
@@ -279,7 +308,13 @@ impl ReturnType {
         }
     }
 
-    pub fn method_generics_for_where(&self) -> Option<TokenStream> {
+    /// Generic bounds for a handler argument. `force_static` is used by constructors,
+    /// where the handler is always cloned into the created resource's dependencies
+    /// (requiring `'static` for the `dyn Any` storage). For plain methods, only
+    /// *retained* handlers (see [`SYNC_HANDLER_TYPES`]) get the `'static` bound —
+    /// synchronous handlers may borrow local state, and their `_once` closure variants
+    /// rely on that.
+    pub fn method_generics_for_where(&self, force_static: bool) -> Option<TokenStream> {
         if let ArgProcessing::Handler(handler_client) = &self.original.processing {
             if !self.original.is_mut_pointer() {
                 let handler = handler_client.get(0).unwrap();
@@ -287,9 +322,16 @@ impl ReturnType {
                     .expect("Invalid class name in wrapper");
                 let new_handler = parse_str::<Type>(&format!("{}Callback", snake_to_pascal_case(&handler.c_type)))
                     .expect("Invalid class name in wrapper");
-                return Some(quote! {
-                    #new_type: #new_handler
-                });
+                let needs_static = force_static || !is_sync_handler_type(&handler.c_type);
+                return if needs_static {
+                    Some(quote! {
+                        #new_type: #new_handler + 'static
+                    })
+                } else {
+                    Some(quote! {
+                        #new_type: #new_handler
+                    })
+                };
             }
         }
         None
@@ -566,13 +608,48 @@ impl CWrapper {
                 let mut return_type = return_type_helper.get_new_return_type(true, false);
                 let ffi_call = Ident::new(&method.fn_name, proc_macro2::Span::call_site());
 
+                // Retained-callback setters (single retained handler arg, int return, &self)
+                // take the callback value by ownership: the wrapper heap-allocates it into a
+                // Handler, registers it as a dependency of this resource, and returns it so
+                // the caller can optionally keep access to its state.
+                let uses_self_precheck = method
+                    .arguments
+                    .iter()
+                    .any(|arg| arg.is_single_mut_pointer() && arg.c_type.ends_with(self.type_name.as_str()));
+                let handler_value_args: Vec<&Arg> = method
+                    .arguments
+                    .iter()
+                    .filter(|a| matches!(a.processing, ArgProcessing::Handler(_)) && !a.is_mut_pointer())
+                    .collect();
+                let has_mut_primitive = method.arguments.iter().any(|a| a.is_mut_pointer() && a.is_primitive());
+                let owned_retained_handler: Option<Arg> = if uses_self_precheck
+                    && !has_mut_primitive
+                    && method.return_type.is_c_raw_int()
+                    && handler_value_args.len() == 1
+                {
+                    let a = handler_value_args[0];
+                    if let ArgProcessing::Handler(hc) = &a.processing {
+                        if !is_sync_handler_type(&hc[0].c_type) {
+                            Some(a.clone())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let is_owned_handler_arg =
+                    |arg: &Arg| owned_retained_handler.as_ref().map(|o| o.name == arg.name).unwrap_or(false);
+
                 // Filter out arguments that are `*mut` of the struct's type
                 let generic_types: Vec<TokenStream> = method
                     .arguments
                     .iter()
                     .flat_map(|arg| {
                         ReturnType::new(arg.clone(), wrappers.clone())
-                            .method_generics_for_where()
+                            .method_generics_for_where(false)
                             .into_iter()
                     })
                     .collect_vec();
@@ -605,6 +682,14 @@ impl CWrapper {
                                     Some(quote! { #arg_name: #arg_type })
                                 }
                             }
+                        } else if is_owned_handler_arg(arg) {
+                            let arg_name = arg.as_ident();
+                            let new_type = parse_str::<Type>(&format!(
+                                "{}HandlerImpl",
+                                snake_to_pascal_case(&arg.c_type)
+                            ))
+                            .expect("Invalid class name in wrapper");
+                            Some(quote! { #arg_name: Option<#new_type> })
                         } else {
                             let arg_name = arg.as_ident();
                             let arg_type = ReturnType::new(arg.clone(), wrappers.clone())
@@ -640,6 +725,34 @@ impl CWrapper {
                             } else {
                                 Some(quote! { #field_name.get_inner() })
                             }
+                        } else if is_owned_handler_arg(arg) {
+                            // The prelude has already heap-allocated the callback into
+                            // `#name` (Handler) and captured its clientd as `#name_raw`,
+                            // so the FFI call only sees Copy raw parts.
+                            if let ArgProcessing::Handler(handler_client) = &arg.processing {
+                                let handler = handler_client.get(0).unwrap();
+                                let handler_type = handler.as_type();
+                                let raw_name = format_ident!("{}_raw", arg.name);
+                                let shim = format_ident!("{}_callback", handler.c_type);
+                                let new_type = parse_str::<Type>(&format!(
+                                    "{}HandlerImpl",
+                                    snake_to_pascal_case(&arg.c_type)
+                                ))
+                                .expect("Invalid class name in wrapper");
+                                Some(quote! {
+                                    {
+                                        let callback: #handler_type = if #raw_name.is_null() {
+                                            None
+                                        } else {
+                                            Some(#shim::<#new_type>)
+                                        };
+                                        callback
+                                    },
+                                    #raw_name
+                                })
+                            } else {
+                                unreachable!("owned handler arg must have Handler processing")
+                            }
                         } else {
                             let arg_name = arg.as_ident();
                             let arg_name = quote! { #arg_name };
@@ -651,9 +764,81 @@ impl CWrapper {
                     .filter(|t| !t.is_empty())
                     .collect();
 
-                let converter = return_type_helper.handle_c_to_rs_return(quote! { result }, true, false);
+                let mut converter = return_type_helper.handle_c_to_rs_return(quote! { result }, true, false);
+
+                // For callbacks the C client retains beyond this call (everything not in
+                // SYNC_HANDLER_TYPES), clone the Handler into this resource's dependencies
+                // so the callback value stays alive until the C resource is closed.
+                let retained_handler_registrations: Vec<TokenStream> = method
+                    .arguments
+                    .iter()
+                    .filter_map(|arg| {
+                        if let ArgProcessing::Handler(handler_client) = &arg.processing {
+                            if !arg.is_mut_pointer() {
+                                let handler = handler_client.get(0).unwrap();
+                                if !is_sync_handler_type(&handler.c_type) {
+                                    let name = arg.as_ident();
+                                    // Owned setters hold `Option<Handler<T>>` (borrow it);
+                                    // borrow-style methods hold `Option<&Handler<T>>` (Copy).
+                                    let matched = if is_owned_handler_arg(arg) {
+                                        quote! { &#name }
+                                    } else {
+                                        quote! { #name }
+                                    };
+                                    return Some(quote! {
+                                        if let Some(__handler) = #matched {
+                                            if let Some(__inner) = self.inner.as_owned() {
+                                                __inner.add_dependency(__handler.clone());
+                                            }
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                        None
+                    })
+                    .collect();
+
+                // Heap-allocate the owned callback and capture its raw clientd before the
+                // FFI call, so the Handler itself stays available for registration/return.
+                let handler_prelude = if let Some(arg) = &owned_retained_handler {
+                    let name = arg.as_ident();
+                    let raw_name = format_ident!("{}_raw", arg.name);
+                    quote! {
+                        let #name = #name.map(Handler::new);
+                        let #raw_name = #name
+                            .as_ref()
+                            .map(|m| m.as_raw())
+                            .unwrap_or_else(|| std::ptr::null_mut());
+                    }
+                } else {
+                    quote! {}
+                };
+
+                if let Some(arg) = &owned_retained_handler {
+                    let name = arg.as_ident();
+                    let new_type = parse_str::<Type>(&format!(
+                        "{}HandlerImpl",
+                        snake_to_pascal_case(&arg.c_type)
+                    ))
+                    .expect("Invalid class name in wrapper");
+                    return_type = quote! { Result<Option<Handler<#new_type>>, AeronCError> };
+                    converter = quote! {
+                        if result < 0 {
+                            return Err(AeronCError::from_code(result));
+                        } else {
+                            return Ok(#name);
+                        }
+                    };
+                }
 
                 let mut method_docs: Vec<TokenStream> = get_docs(&method.docs, wrappers, Some(&fn_arguments) );
+
+                if owned_retained_handler.is_some() {
+                    method_docs.push(quote! { #[doc = ""] });
+                    method_docs.push(quote! { #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."] });
+                    method_docs.push(quote! { #[doc = " Returns the created [`Handler`] for optional state access — safe to ignore. Closures with a matching signature are accepted directly."] });
+                }
 
                 // Generate logging expression for arguments
                 let args_log_expr = Self::generate_arg_logging(&method.arguments, &arg_names);
@@ -676,6 +861,12 @@ impl CWrapper {
                 };
 
 
+
+                let register_handlers = if uses_self && !retained_handler_registrations.is_empty() {
+                    quote! { #(#retained_handler_registrations)* }
+                } else {
+                    quote! {}
+                };
 
                 let mut additional_methods = vec![];
                 let set_closed = quote! {};
@@ -752,6 +943,7 @@ impl CWrapper {
                                 );
 
                                 let err_code = #ffi_call(#(#arg_names),*);
+                                #register_handlers
 
                                 #[cfg(feature = "log-c-bindings")]
                                 log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
@@ -772,6 +964,7 @@ impl CWrapper {
                         #(#method_docs)*
                         pub fn #fn_name #where_clause(#possible_self #(#fn_arguments),*) -> #return_type {
                             #set_closed
+                            #handler_prelude
                             unsafe {
                                 #[cfg(feature = "log-c-bindings")]
                                 log::info!(
@@ -781,6 +974,7 @@ impl CWrapper {
                                 );
 
                                 let result = #ffi_call(#(#arg_names),*);
+                                #register_handlers
 
                                 #[cfg(feature = "log-c-bindings")]
                                 log::info!("  -> {:?}", result);
@@ -792,6 +986,30 @@ impl CWrapper {
                         #(#additional_methods)*
                     }
                 }
+            })
+            .collect()
+    }
+
+    /// Registration statements that clone each `Handler` argument into `result`'s
+    /// dependencies. Used by constructors: the created C struct stores the callback and
+    /// clientd pointers, so the Handler must stay alive until the C resource is closed.
+    fn handler_dependency_registrations(arguments: &[Arg]) -> Vec<TokenStream> {
+        arguments
+            .iter()
+            .filter_map(|arg| {
+                if let ArgProcessing::Handler(_) = &arg.processing {
+                    if !arg.is_mut_pointer() {
+                        let name = arg.as_ident();
+                        return Some(quote! {
+                            if let Some(__handler) = #name {
+                                if let Some(__inner) = result.inner.as_owned() {
+                                    __inner.add_dependency(__handler.clone());
+                                }
+                            }
+                        });
+                    }
+                }
+                None
             })
             .collect()
     }
@@ -811,11 +1029,25 @@ impl CWrapper {
         additional_methods: &mut Vec<TokenStream>,
         set_closed: &TokenStream,
     ) {
-        if method.arguments.iter().any(|arg| {
-            matches!(arg.processing, ArgProcessing::Handler(_))
-                && !method.fn_name.starts_with("set_")
-                && !method.fn_name.starts_with("add_")
-        }) {
+        // Only generate `_once` stack-closure variants when every callback is invoked
+        // synchronously during the FFI call. For retained callbacks (the C client stores
+        // the clientd pointer and calls back later) a stack closure would dangle — those
+        // methods only accept a `Handler`, which is kept alive via the resource's
+        // dependencies.
+        let handler_args: Vec<&Arg> = method
+            .arguments
+            .iter()
+            .filter(|arg| matches!(arg.processing, ArgProcessing::Handler(_)) && !arg.is_mut_pointer())
+            .collect();
+        let all_handlers_sync = !handler_args.is_empty()
+            && handler_args.iter().all(|arg| {
+                if let ArgProcessing::Handler(handler_client) = &arg.processing {
+                    is_sync_handler_type(&handler_client[0].c_type)
+                } else {
+                    false
+                }
+            });
+        if all_handlers_sync {
             let fn_name = format_ident!("{}_once", fn_name);
 
             // replace type to be FnMut
@@ -896,8 +1128,9 @@ impl CWrapper {
                 #(#method_docs)*
                 ///
                 ///
-                /// _NOTE: aeron must not store this closure and instead use it immediately. If not you will get undefined behaviour,
-                ///  use with care_
+                /// `_once` variant: the closure is borrowed for this call only — the callback fires
+                /// synchronously inside it, so nothing is stored and no allocation occurs. It may
+                /// borrow local state. Only generated for callbacks the C client does not retain.
                 pub fn #fn_name #where_clause(#possible_self #(#fn_arguments),*) -> #return_type {
                     #set_closed
                     unsafe {
@@ -1176,7 +1409,7 @@ impl CWrapper {
                         .iter()
                         .flat_map(|arg| {
                             ReturnType::new(arg.clone(), wrappers.clone())
-                                .method_generics_for_where()
+                                .method_generics_for_where(true)
                                 .into_iter()
                         })
                         .collect_vec();
@@ -1188,6 +1421,12 @@ impl CWrapper {
 
                     let method_docs: Vec<TokenStream> = get_docs(&method.docs, wrappers, Some(&new_args));
 
+                    // The C struct created here stores every callback/clientd pair it is
+                    // given (e.g. fragment assemblers keep their delegate), so clone each
+                    // Handler into the new resource's dependencies to keep it alive until
+                    // the C resource is closed.
+                    let handler_deps: Vec<TokenStream> = Self::handler_dependency_registrations(&method.arguments);
+
                     // Generate logging expression token stream (will be evaluated in closure)
                     let init_log_expr_tokens = Self::generate_arg_logging(&method.arguments, &init_args);
                     // Generate logging for close method arguments
@@ -1195,6 +1434,27 @@ impl CWrapper {
                         Self::generate_arg_logging(&close_m.arguments, &close_args)
                     } else {
                         quote! { "" }
+                    };
+
+                    // `async_add_destination` handles must NOT run `async_remove_destination`
+                    // on drop: removing the destination is a separate, destructive operation —
+                    // not the destructor of the async-add handle (the C client frees the async
+                    // struct itself once its poll completes). Pairing them made dropping the
+                    // poll handle silently tear the destination down again, with a dangling
+                    // uri pointer to boot.
+                    let cleanup_tokens = if method.fn_name.contains("_destination") {
+                        quote! { None }
+                    } else {
+                        quote! {
+                            Some(Box::new(move |ctx_field| unsafe {
+                                #[cfg(feature = "log-c-bindings")]
+                                {
+                                    let log_args = #close_log_expr_tokens;
+                                    log::info!("{}({})", stringify!(#close_fn), log_args);
+                                }
+                                #close_fn(#(#close_args),*)
+                            }))
+                        }
                     };
 
                     quote! {
@@ -1211,21 +1471,16 @@ impl CWrapper {
                                     }
                                     #init_fn(#(#init_args),*)
                                 },
-                                Some(Box::new(move |ctx_field| unsafe {
-                                    #[cfg(feature = "log-c-bindings")]
-                                    {
-                                        let log_args = #close_log_expr_tokens;
-                                        log::info!("{}({})", stringify!(#close_fn), log_args);
-                                    }
-                                    #close_fn(#(#close_args),*)
-                                } )),
+                                #cleanup_tokens,
                                 false,
                             )?;
 
-                            Ok(Self {
+                            let result = Self {
                                 inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
                                 #(#new_ref_args)*
-                            })
+                            };
+                            #(#handler_deps)*
+                            Ok(result)
                         }
                     }
                 } else {
@@ -1304,7 +1559,7 @@ impl CWrapper {
                     .iter()
                     .flat_map(|arg| {
                         ReturnType::new(arg.clone(), wrappers.clone())
-                            .method_generics_for_where()
+                            .method_generics_for_where(true)
                             .into_iter()
                     })
                     .collect_vec();
@@ -1322,6 +1577,10 @@ impl CWrapper {
                     .collect_vec();
                 let lets: Vec<TokenStream> = Self::lets_for_copying_arguments(wrappers, &cloned_fields, false);
 
+                // The C struct stores these callback/clientd fields directly, so keep the
+                // Handler values alive alongside the resource.
+                let field_handler_deps: Vec<TokenStream> = Self::handler_dependency_registrations(&self.fields);
+
                 vec![quote! {
                     #[inline]
                     pub fn new #where_clause(#(#new_args),*) -> Result<Self, AeronCError> {
@@ -1338,9 +1597,11 @@ impl CWrapper {
                             true,
                         )?;
 
-                        Ok(Self {
+                        let result = Self {
                             inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
-                        })
+                        };
+                        #(#field_handler_deps)*
+                        Ok(result)
                     }
 
                     #zeroed_impl
@@ -2133,6 +2394,25 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
         unsafe impl Send for #logger_type_name {}
         unsafe impl Sync for #logger_type_name {}
 
+        /// Any closure with the matching signature is a callback: methods that retain it
+        /// heap-allocate it into a [`Handler`] owned by the registering resource.
+        impl<F: FnMut(#(#fn_mut_args),*) -> #closure_return_type> #closure_type_name for F {
+            #[inline]
+            fn #handle_method_name(&mut self, #(#closure_args),*) -> #closure_return_type {
+                self(#(#wrapper_closure_args),*)
+            }
+        }
+
+        /// Pass an existing [`Handler`] clone anywhere a callback value is expected, e.g.
+        /// to share one callback instance across several registrations.
+        impl<T: #closure_type_name> #closure_type_name for Handler<T> {
+            #[inline]
+            fn #handle_method_name(&mut self, #(#closure_args),*) -> #closure_return_type {
+                use std::ops::DerefMut;
+                self.deref_mut().#handle_method_name(#(#wrapper_closure_args),*)
+            }
+        }
+
         impl Handlers {
             /// No handler is set i.e. None with correct type
             pub fn #no_method_name() -> Option<&'static Handler<#logger_type_name>> {
@@ -2333,7 +2613,7 @@ pub fn generate_rust_code(
                 .iter()
                 .flat_map(|arg| {
                     ReturnType::new(arg.clone(), wrappers.clone())
-                        .method_generics_for_where()
+                        .method_generics_for_where(true)
                         .into_iter()
                 })
                 .collect_vec();
@@ -2347,7 +2627,7 @@ pub fn generate_rust_code(
                 .iter()
                 .flat_map(|arg| {
                     ReturnType::new(arg.clone(), wrappers.clone())
-                        .method_generics_for_where()
+                        .method_generics_for_where(true)
                         .into_iter()
                 })
                 .collect_vec();
@@ -2386,6 +2666,40 @@ pub fn generate_rust_code(
                     }
                 })
                 .collect_vec();
+
+            let mut async_handler_deps: Vec<TokenStream> =
+                CWrapper::handler_dependency_registrations(&new_method.arguments);
+
+            // The conductor thread can invoke retained callbacks (e.g. image lifecycle
+            // handlers) for as long as the *client* lives — even if this async poller is
+            // dropped without ever being polled. Anchor each handler to the client too, so
+            // dropping an unpolled poller cannot free a callback C still points at.
+            if let Some(client_arg) = async_new_args
+                .iter()
+                .find(|a| a.to_string().contains(" : Aeron") || a.to_string().contains(" : & Aeron"))
+            {
+                let client_var = format_ident!("{}", client_arg.to_string().split_whitespace().next().unwrap());
+                let client_anchored: Vec<TokenStream> = new_method
+                    .arguments
+                    .iter()
+                    .filter_map(|arg| {
+                        if let ArgProcessing::Handler(_) = &arg.processing {
+                            if !arg.is_mut_pointer() {
+                                let name = arg.as_ident();
+                                return Some(quote! {
+                                    if let Some(__handler) = #name {
+                                        if let Some(__client_inner) = #client_var.inner.as_owned() {
+                                            __client_inner.add_dependency(__handler.clone());
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                        None
+                    })
+                    .collect();
+                async_handler_deps.extend(client_anchored);
+            }
 
             let async_new_args_for_client = async_new_args.iter().skip(1).cloned().collect_vec();
 
@@ -2511,6 +2825,11 @@ pub fn generate_rust_code(
                                 inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_async)),
                             };
                             #(#async_dependancies)*
+                            // Retained callbacks (e.g. image lifecycle handlers) are stored by
+                            // the C client; the dependency clones below are propagated to the
+                            // final resource when poll() succeeds, keeping them alive until it
+                            // closes.
+                            #(#async_handler_deps)*
                             Ok(result)
                         }
 
@@ -2592,16 +2911,56 @@ pub fn generate_rust_code(
             // ManagedCResource state, then drop this handle.  The cleanup
             // closure is taken exactly once across clones, and after
             // close(self) this binding is gone.
-            additional_impls.push(quote! {
-                impl #class_name {
-                    pub fn close(self) -> Result<(), AeronCError> {
-                        let result = #close_resource_call;
-                        // Drop this handle (decrements Rc, releases deps).
-                        drop(self);
-                        result
+            if close_deferred_if_shared {
+                additional_impls.push(quote! {
+                    impl #class_name {
+                        /// Releases this handle and closes the C client **once the last reference drops**.
+                        ///
+                        /// The C client owns and frees every child resource (publications,
+                        /// subscriptions, counters) when it closes, so while children or clones
+                        /// are alive this is deferred — equivalent to `drop` — and the surviving
+                        /// handles remain fully usable. The C close runs when the final
+                        /// reference (child or clone) is released.
+                        pub fn close(self) -> Result<(), AeronCError> {
+                            let result = #close_resource_call;
+                            // Drop this handle (decrements Rc, releases deps).
+                            drop(self);
+                            result
+                        }
+
+                        /// Closes the C client **immediately**, even if children or clones are alive.
+                        ///
+                        /// Clones of *this* handle are safe afterwards (their shared pointer is
+                        /// nulled). Child handles are not:
+                        ///
+                        /// # Safety
+                        /// The C client frees every child resource (publications, subscriptions,
+                        /// counters) during this call, so surviving child handles dangle. Any use
+                        /// is use-after-free — **including their `Drop`**, which calls the C close
+                        /// on the freed pointer (double free). You must `std::mem::forget` every
+                        /// surviving child, or never return (e.g. `std::process::exit`). Prefer
+                        /// [`Self::close`], which defers until the last reference drops.
+                        pub unsafe fn close_now(self) -> Result<(), AeronCError> {
+                            let result = self.inner.close_resource();
+                            drop(self);
+                            result
+                        }
                     }
-                }
-            });
+                });
+            } else {
+                additional_impls.push(quote! {
+                    impl #class_name {
+                        /// Closes this resource in the C client immediately; all clones of this
+                        /// handle become closed (their pointer is nulled) and must not be used.
+                        pub fn close(self) -> Result<(), AeronCError> {
+                            let result = #close_resource_call;
+                            // Drop this handle (decrements Rc, releases deps).
+                            drop(self);
+                            result
+                        }
+                    }
+                });
+            }
 
             let close_has_notification_handler = !close_deferred_if_shared
                 && close_method
@@ -2613,6 +2972,9 @@ pub fn generate_rust_code(
             if close_has_notification_handler {
                 additional_impls.push(quote! {
                     impl #class_name {
+                        /// Like [`Self::close`], but notifies `on_close_complete` when the close
+                        /// finishes. The handler must outlive the notification (keep your
+                        /// `Handler` alive until it has fired).
                         pub fn close_with_handler<AeronNotificationHandlerImpl: AeronNotificationCallback>(
                             self,
                             on_close_complete: Option<&Handler<AeronNotificationHandlerImpl>>,

@@ -94,20 +94,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..MSG_COUNT {
         let msg = format!("message-{i}");
         let deadline = Instant::now() + Duration::from_secs(5);
-        // offer() returns the log position (>0) or a negative code. Retry transient codes
-        // (back-pressure, not-connected, admin action); abort on fatal ones (closed, etc.).
+        // offer() returns Ok(position) or a typed error: retry the retryable ones
+        // (back-pressure, not-connected, admin action); abort on fatal ones.
         loop {
             if Instant::now() > deadline {
                 return Err("timed out offering a message".into());
             }
-            let r = publication.offer(msg.as_bytes(), Handlers::no_reserved_value_supplier_handler());
-            if r > 0 {
-                break;
+            match publication.offer_simple(msg.as_bytes()) {
+                Ok(_) => break,
+                Err(e) if e.is_retryable() => sleep(Duration::from_millis(1)),
+                Err(e) => return Err(format!("publication gone: {e}").into()),
             }
-            if r == PUBLICATION_CLOSED || r == PUBLICATION_MAX_POSITION_EXCEEDED || r == PUBLICATION_ERROR {
-                return Err(format!("publication gone (offer returned {r})").into());
-            }
-            sleep(Duration::from_millis(1));
         }
     }
     println!("recorded {MSG_COUNT} messages");
@@ -125,7 +122,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 5. Replay the recording from the start onto a scratch stream and consume it.
     let replay_stream_id = 4002;
-    let replay_params = AeronArchiveReplayParams::new(-1, i32::MAX, 0, i64::MAX, 0, 0)?;
+    let replay_params = AeronArchiveReplayParams::builder().position(0).follow_live().build()?;
     let replay_session_id =
         archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)?;
     let replay_channel = format!("{channel}?session-id={}", replay_session_id as i32).into_c_string();

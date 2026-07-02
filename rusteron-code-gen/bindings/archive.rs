@@ -30,6 +30,20 @@ pub const AERON_PUBLICATION_CLOSED: i32 = -4;
 pub const AERON_PUBLICATION_MAX_POSITION_EXCEEDED: i32 = -5;
 pub const AERON_PUBLICATION_ERROR: i32 = -6;
 pub const AERON_MAX_PATH: u32 = 4096;
+pub const ARCHIVE_ERROR_CODE_GENERIC: u32 = 0;
+pub const ARCHIVE_ERROR_CODE_ACTIVE_LISTING: u32 = 1;
+pub const ARCHIVE_ERROR_CODE_ACTIVE_RECORDING: u32 = 2;
+pub const ARCHIVE_ERROR_CODE_ACTIVE_SUBSCRIPTION: u32 = 3;
+pub const ARCHIVE_ERROR_CODE_UNKNOWN_SUBSCRIPTION: u32 = 4;
+pub const ARCHIVE_ERROR_CODE_UNKNOWN_RECORDING: u32 = 5;
+pub const ARCHIVE_ERROR_CODE_UNKNOWN_REPLAY: u32 = 6;
+pub const ARCHIVE_ERROR_CODE_MAX_REPLAYS: u32 = 7;
+pub const ARCHIVE_ERROR_CODE_MAX_RECORDINGS: u32 = 8;
+pub const ARCHIVE_ERROR_CODE_INVALID_EXTENSION: u32 = 9;
+pub const ARCHIVE_ERROR_CODE_AUTHENTICATION_REJECTED: u32 = 10;
+pub const ARCHIVE_ERROR_CODE_STORAGE_SPACE: u32 = 11;
+pub const ARCHIVE_ERROR_CODE_UNKNOWN_REPLICATION: u32 = 12;
+pub const ARCHIVE_ERROR_CODE_UNAUTHORISED_ACTION: u32 = 13;
 pub const AERON_NULL_POSITION: i32 = -1;
 pub const AERON_ARCHIVE_PROXY_REQUEST_BUFFER_LENGTH: u32 = 8192;
 pub const AERON_ARCHIVE_CONTROL_RESPONSE_POLLER_FRAGMENT_LIMIT_DEFAULT: u32 = 10;
@@ -114,6 +128,222 @@ pub const AERON_IMAGES_DIR: &[u8; 7] = b"images\0";
 pub const AERON_CNC_FILE: &[u8; 8] = b"cnc.dat\0";
 pub const AERON_LOSS_REPORT_FILE: &[u8; 16] = b"loss-report.dat\0";
 pub const AERON_LOSS_REPORTER_ENTRY_ALIGNMENT: u32 = 64;
+pub const AERON_SYSTEM_COUNTER_ID_BYTES_SENT: u32 = 0;
+pub const AERON_SYSTEM_COUNTER_ID_BYTES_RECEIVED: u32 = 1;
+pub const AERON_SYSTEM_COUNTER_ID_RECEIVER_PROXY_FAILS: u32 = 2;
+pub const AERON_SYSTEM_COUNTER_ID_SENDER_PROXY_FAILS: u32 = 3;
+pub const AERON_SYSTEM_COUNTER_ID_CONDUCTOR_PROXY_FAILS: u32 = 4;
+pub const AERON_SYSTEM_COUNTER_ID_NAK_MESSAGES_SENT: u32 = 5;
+pub const AERON_SYSTEM_COUNTER_ID_NAK_MESSAGES_RECEIVED: u32 = 6;
+pub const AERON_SYSTEM_COUNTER_ID_STATUS_MESSAGES_SENT: u32 = 7;
+pub const AERON_SYSTEM_COUNTER_ID_STATUS_MESSAGES_RECEIVED: u32 = 8;
+pub const AERON_SYSTEM_COUNTER_ID_HEARTBEATS_SENT: u32 = 9;
+pub const AERON_SYSTEM_COUNTER_ID_HEARTBEATS_RECEIVED: u32 = 10;
+pub const AERON_SYSTEM_COUNTER_ID_RETRANSMITS_SENT: u32 = 11;
+pub const AERON_SYSTEM_COUNTER_ID_FLOW_CONTROL_UNDER_RUNS: u32 = 12;
+pub const AERON_SYSTEM_COUNTER_ID_FLOW_CONTROL_OVER_RUNS: u32 = 13;
+pub const AERON_SYSTEM_COUNTER_ID_INVALID_PACKETS: u32 = 14;
+pub const AERON_SYSTEM_COUNTER_ID_ERRORS: u32 = 15;
+pub const AERON_SYSTEM_COUNTER_ID_SHORT_SENDS: u32 = 16;
+pub const AERON_SYSTEM_COUNTER_ID_FREE_FAILS: u32 = 17;
+pub const AERON_SYSTEM_COUNTER_ID_SENDER_FLOW_CONTROL_LIMITS: u32 = 18;
+pub const AERON_SYSTEM_COUNTER_ID_UNBLOCKED_PUBLICATIONS: u32 = 19;
+pub const AERON_SYSTEM_COUNTER_ID_UNBLOCKED_COMMANDS: u32 = 20;
+pub const AERON_SYSTEM_COUNTER_ID_POSSIBLE_TTL_ASYMMETRY: u32 = 21;
+pub const AERON_SYSTEM_COUNTER_ID_CONTROLLABLE_IDLE_STRATEGY: u32 = 22;
+pub const AERON_SYSTEM_COUNTER_ID_LOSS_GAP_FILLS: u32 = 23;
+pub const AERON_SYSTEM_COUNTER_ID_CLIENT_TIMEOUTS: u32 = 24;
+pub const AERON_SYSTEM_COUNTER_ID_RESOLUTION_CHANGES: u32 = 25;
+pub const AERON_SYSTEM_COUNTER_ID_CONDUCTOR_MAX_CYCLE_TIME: u32 = 26;
+pub const AERON_SYSTEM_COUNTER_ID_CONDUCTOR_CYCLE_TIME_THRESHOLD_EXCEEDED: u32 = 27;
+pub const AERON_SYSTEM_COUNTER_ID_SENDER_MAX_CYCLE_TIME: u32 = 28;
+pub const AERON_SYSTEM_COUNTER_ID_SENDER_CYCLE_TIME_THRESHOLD_EXCEEDED: u32 = 29;
+pub const AERON_SYSTEM_COUNTER_ID_RECEIVER_MAX_CYCLE_TIME: u32 = 30;
+pub const AERON_SYSTEM_COUNTER_ID_RECEIVER_CYCLE_TIME_THRESHOLD_EXCEEDED: u32 = 31;
+pub const AERON_SYSTEM_COUNTER_ID_NAME_RESOLVER_MAX_TIME: u32 = 32;
+pub const AERON_SYSTEM_COUNTER_ID_NAME_RESOLVER_TIME_THRESHOLD_EXCEEDED: u32 = 33;
+pub const AERON_SYSTEM_COUNTER_ID_AERON_VERSION: u32 = 34;
+pub const AERON_SYSTEM_COUNTER_ID_BYTES_CURRENTLY_MAPPED: u32 = 35;
+pub const AERON_SYSTEM_COUNTER_ID_RETRANSMITTED_BYTES: u32 = 36;
+pub const AERON_SYSTEM_COUNTER_ID_RETRANSMIT_OVERFLOW: u32 = 37;
+pub const AERON_SYSTEM_COUNTER_ID_ERROR_FRAMES_RECEIVED: u32 = 38;
+pub const AERON_SYSTEM_COUNTER_ID_ERROR_FRAMES_SENT: u32 = 39;
+pub const AERON_SYSTEM_COUNTER_ID_PUBLICATIONS_REVOKED: u32 = 40;
+pub const AERON_SYSTEM_COUNTER_ID_PUBLICATION_IMAGES_REVOKED: u32 = 41;
+pub const AERON_SYSTEM_COUNTER_ID_IMAGES_REJECTED: u32 = 42;
+pub const AERON_SYSTEM_COUNTER_ID_CONTROL_PROTOCOL_VERSION: u32 = 43;
+pub const AERON_SYSTEM_COUNTER_ID_STATUS_MESSAGES_REJECTED: u32 = 44;
+pub const AERON_SYSTEM_COUNTER_ID_ASYNC_EXECUTOR_PROXY_FAILS: u32 = 45;
+pub const AERON_COUNTER_SYSTEM_COUNTER_TYPE_ID: u32 = 0;
+pub const AERON_COUNTER_PUBLISHER_LIMIT_NAME: &[u8; 8] = b"pub-lmt\0";
+pub const AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID: u32 = 1;
+pub const AERON_COUNTER_SENDER_POSITION_NAME: &[u8; 8] = b"snd-pos\0";
+pub const AERON_COUNTER_SENDER_POSITION_TYPE_ID: u32 = 2;
+pub const AERON_COUNTER_RECEIVER_HWM_NAME: &[u8; 8] = b"rcv-hwm\0";
+pub const AERON_COUNTER_RECEIVER_HWM_TYPE_ID: u32 = 3;
+pub const AERON_COUNTER_SUBSCRIPTION_POSITION_NAME: &[u8; 8] = b"sub-pos\0";
+pub const AERON_COUNTER_SUBSCRIPTION_POSITION_TYPE_ID: u32 = 4;
+pub const AERON_COUNTER_RECEIVER_POSITION_NAME: &[u8; 8] = b"rcv-pos\0";
+pub const AERON_COUNTER_RECEIVER_POSITION_TYPE_ID: u32 = 5;
+pub const AERON_COUNTER_SEND_CHANNEL_STATUS_NAME: &[u8; 12] = b"snd-channel\0";
+pub const AERON_COUNTER_SEND_CHANNEL_STATUS_TYPE_ID: u32 = 6;
+pub const AERON_COUNTER_RECEIVE_CHANNEL_STATUS_NAME: &[u8; 12] = b"rcv-channel\0";
+pub const AERON_COUNTER_RECEIVE_CHANNEL_STATUS_TYPE_ID: u32 = 7;
+pub const AERON_COUNTER_SENDER_LIMIT_NAME: &[u8; 8] = b"snd-lmt\0";
+pub const AERON_COUNTER_SENDER_LIMIT_TYPE_ID: u32 = 9;
+pub const AERON_COUNTER_PER_IMAGE_TYPE_ID: u32 = 10;
+pub const AERON_COUNTER_CLIENT_HEARTBEAT_TIMESTAMP_NAME: &[u8; 17] = b"client-heartbeat\0";
+pub const AERON_COUNTER_CLIENT_HEARTBEAT_TIMESTAMP_TYPE_ID: u32 = 11;
+pub const AERON_COUNTER_PUBLISHER_POSITION_NAME_CONCURRENT: &[u8; 21] = b"pub-pos (concurrent)\0";
+pub const AERON_COUNTER_PUBLISHER_POSITION_NAME_EXCLUSIVE: &[u8; 20] = b"pub-pos (exclusive)\0";
+pub const AERON_COUNTER_PUBLISHER_POSITION_TYPE_ID: u32 = 12;
+pub const AERON_COUNTER_SENDER_BPE_NAME: &[u8; 8] = b"snd-bpe\0";
+pub const AERON_COUNTER_SENDER_BPE_TYPE_ID: u32 = 13;
+pub const AERON_COUNTER_RCV_LOCAL_SOCKADDR_NAME: &[u8; 19] = b"rcv-local-sockaddr\0";
+pub const AERON_COUNTER_SND_LOCAL_SOCKADDR_NAME: &[u8; 19] = b"snd-local-sockaddr\0";
+pub const AERON_COUNTER_LOCAL_SOCKADDR_TYPE_ID: u32 = 14;
+pub const AERON_COUNTER_NAME_RESOLVER_NEIGHBORS_COUNTER_TYPE_ID: u32 = 15;
+pub const AERON_COUNTER_NAME_RESOLVER_CACHE_ENTRIES_COUNTER_TYPE_ID: u32 = 16;
+pub const AERON_COUNTER_FC_NUM_RECEIVERS_TYPE_ID: u32 = 17;
+pub const AERON_COUNTER_CHANNEL_MDC_NUM_DESTINATIONS_NAME: &[u8; 13] = b"mdc-num-dest\0";
+pub const AERON_COUNTER_CHANNEL_NUM_DESTINATIONS_TYPE_ID: u32 = 18;
+pub const AERON_COUNTER_SENDER_NAKS_RECEIVED_NAME: &[u8; 18] = b"snd-naks-received\0";
+pub const AERON_COUNTER_SENDER_NAKS_RECEIVED_TYPE_ID: u32 = 19;
+pub const AERON_COUNTER_RECEIVER_NAKS_SENT_NAME: &[u8; 14] = b"rcv-naks-sent\0";
+pub const AERON_COUNTER_RECEIVER_NAKS_SENT_TYPE_ID: u32 = 20;
+pub const AERON_COUNTER_NAME_RESOLVER_BOOTSTRAP_NEIGHBOR_COUNTER_TYPE_ID: u32 = 21;
+pub const AERON_COUNTER_EF_VI_PORT_INFO_TYPE_ID: u32 = 50;
+pub const AERON_COUNTER_EF_VI_TRANSPORT_TYPE_ID: u32 = 51;
+pub const AERON_COUNTER_EF_VI_TX_NOBUFS_TYPE_ID: u32 = 52;
+pub const AERON_COUNTER_EF_VI_TX_EAGAIN_TYPE_ID: u32 = 53;
+pub const AERON_COUNTER_EF_VI_TX_ERROR_TYPE_ID: u32 = 54;
+pub const AERON_COUNTER_EF_VI_RX_DISCARD_TYPE_ID: u32 = 55;
+pub const AERON_COUNTER_EF_VI_RX_INVALID_TYPE_ID: u32 = 56;
+pub const AERON_COUNTER_EF_VI_RX_PKTS_TYPE_ID: u32 = 57;
+pub const AERON_COUNTER_EF_VI_RX_BYTES_TYPE_ID: u32 = 58;
+pub const AERON_COUNTER_EF_VI_TX_PKTS_TYPE_ID: u32 = 59;
+pub const AERON_COUNTER_EF_VI_TX_BYTES_TYPE_ID: u32 = 60;
+pub const AERON_COUNTER_VMA_TRANSPORTS_TYPE_ID: u32 = 61;
+pub const AERON_COUNTER_VMA_RX_ZERO_COPY_BYTES_TYPE_ID: u32 = 62;
+pub const AERON_COUNTER_VMA_RX_DATA_COPY_BYTES_TYPE_ID: u32 = 63;
+pub const AERON_COUNTER_ATS_TRANSPORTS_TYPE_ID: u32 = 65;
+pub const AERON_COUNTER_ATS_DISCARDS_NON_ATS_TYPE_ID: u32 = 66;
+pub const AERON_COUNTER_ATS_BYTES_ENCRYPTED_TYPE_ID: u32 = 67;
+pub const AERON_COUNTER_ATS_BYTES_DECRYPTED_TYPE_ID: u32 = 68;
+pub const AERON_COUNTER_ATS_AEAD_ERRORS_TYPE_ID: u32 = 69;
+pub const AERON_COUNTER_ATS_RSA_KEY_UNKNOWN_TYPE_ID: u32 = 70;
+pub const AERON_COUNTER_ATS_EC_KEY_SIG_ERRORS_TYPE_ID: u32 = 71;
+pub const AERON_COUNTER_ATS_UNICAST_RE_KEYINGS_TYPE_ID: u32 = 72;
+pub const AERON_COUNTER_ATS_UNICAST_RE_KEYING_RSA_KEY_MISMATCH_TYPE_ID: u32 = 73;
+pub const AERON_COUNTER_ATS_DROPPED_SM_TYPE_ID: u32 = 74;
+pub const AERON_COUNTER_DPDK_PORT_INFO_TYPE_ID: u32 = 75;
+pub const AERON_COUNTER_DPDK_TRANSPORT_TYPE_ID: u32 = 76;
+pub const AERON_COUNTER_DPDK_NOBUFS_TYPE_ID: u32 = 77;
+pub const AERON_COUNTER_DPDK_TX_EAGAIN_TYPE_ID: u32 = 78;
+pub const AERON_COUNTER_DPDK_ERROR_TYPE_ID: u32 = 79;
+pub const AERON_COUNTER_DPDK_PKTS_TYPE_ID: u32 = 82;
+pub const AERON_COUNTER_DPDK_BYTES_TYPE_ID: u32 = 83;
+pub const AERON_COUNTER_DPDK_MISSED_PACKETS_TYPE_ID: u32 = 84;
+pub const AERON_COUNTER_DPDK_ARP_MISS_TYPE_ID: u32 = 85;
+pub const AERON_COUNTER_DPDK_RX_SENDER_DISCARD_TYPE_ID: u32 = 86;
+pub const AERON_COUNTER_DPDK_POLLER_TYPE_ID: u32 = 87;
+pub const AERON_COUNTER_DPDK_QUEUE_DROP_COUNT_TYPE_ID: u32 = 88;
+pub const AERON_COUNTER_DPDK_CHECKSUM_FAILURE_TYPE_ID: u32 = 89;
+pub const AERON_COUNTER_DPDK_FRAGMENTED_PACKETS_TYPE_ID: u32 = 90;
+pub const AERON_COUNTER_DPDK_MEMPOOL_AVAILABLE_TYPE_ID: u32 = 91;
+pub const AERON_COUNTER_DPDK_EXTENDED_STATS_TYPE_ID: u32 = 92;
+pub const AERON_COUNTER_DPDK_RX_UNSUPPORTED_ETHERNET_TYPE_TYPE_ID: u32 = 93;
+pub const AERON_COUNTER_DPDK_RX_UNSUPPORTED_PROTOCOL_TYPE_ID: u32 = 94;
+pub const AERON_COUNTER_DPDK_RX_RECEIVER_DISCARD_TYPE_ID: u32 = 95;
+pub const AERON_COUNTER_ARCHIVE_RECORDING_POSITION_TYPE_ID: u32 = 100;
+pub const AERON_COUNTER_ARCHIVE_ERROR_COUNT_TYPE_ID: u32 = 101;
+pub const AERON_COUNTER_ARCHIVE_CONTROL_SESSIONS_TYPE_ID: u32 = 102;
+pub const AERON_COUNTER_ARCHIVE_MAX_CYCLE_TIME_TYPE_ID: u32 = 103;
+pub const AERON_COUNTER_ARCHIVE_CYCLE_TIME_THRESHOLD_EXCEEDED_TYPE_ID: u32 = 104;
+pub const AERON_COUNTER_ARCHIVE_RECORDER_MAX_WRITE_TIME_TYPE_ID: u32 = 105;
+pub const AERON_COUNTER_ARCHIVE_RECORDER_TOTAL_WRITE_BYTES_TYPE_ID: u32 = 106;
+pub const AERON_COUNTER_ARCHIVE_RECORDER_TOTAL_WRITE_TIME_TYPE_ID: u32 = 107;
+pub const AERON_COUNTER_ARCHIVE_REPLAYER_MAX_READ_TIME_TYPE_ID: u32 = 108;
+pub const AERON_COUNTER_ARCHIVE_REPLAYER_TOTAL_READ_BYTES_TYPE_ID: u32 = 109;
+pub const AERON_COUNTER_ARCHIVE_REPLAYER_TOTAL_READ_TIME_TYPE_ID: u32 = 110;
+pub const AERON_COUNTER_ARCHIVE_REPLAY_SESSION_COUNT_TYPE_ID: u32 = 112;
+pub const AERON_PERSISTENT_SUBSCRIPTION_STATE_TYPE_ID: u32 = 114;
+pub const AERON_PERSISTENT_SUBSCRIPTION_JOIN_DIFFERENCE_TYPE_ID: u32 = 115;
+pub const AERON_PERSISTENT_SUBSCRIPTION_LIVE_LEFT_COUNT_TYPE_ID: u32 = 116;
+pub const AERON_PERSISTENT_SUBSCRIPTION_LIVE_JOINED_COUNT_TYPE_ID: u32 = 117;
+pub const AERON_COUNTER_CLUSTER_CONSENSUS_MODULE_STATE_TYPE_ID: u32 = 200;
+pub const AERON_COUNTER_CLUSTER_NODE_ROLE_TYPE_ID: u32 = 201;
+pub const AERON_COUNTER_CLUSTER_CONTROL_TOGGLE_TYPE_ID: u32 = 202;
+pub const AERON_COUNTER_CLUSTER_COMMIT_POSITION_TYPE_ID: u32 = 203;
+pub const AERON_COUNTER_CLUSTER_RECOVERY_STATE_TYPE_ID: u32 = 204;
+pub const AERON_COUNTER_CLUSTER_SNAPSHOT_COUNTER_TYPE_ID: u32 = 205;
+pub const AERON_COUNTER_CLUSTER_ELECTION_STATE_TYPE_ID: u32 = 207;
+pub const AERON_COUNTER_CLUSTER_BACKUP_STATE_TYPE_ID: u32 = 208;
+pub const AERON_COUNTER_CLUSTER_BACKUP_LIVE_LOG_POSITION_TYPE_ID: u32 = 209;
+pub const AERON_COUNTER_CLUSTER_BACKUP_QUERY_DEADLINE_TYPE_ID: u32 = 210;
+pub const AERON_COUNTER_CLUSTER_BACKUP_ERROR_COUNT_TYPE_ID: u32 = 211;
+pub const AERON_COUNTER_CLUSTER_CONSENSUS_MODULE_ERROR_COUNT_TYPE_ID: u32 = 212;
+pub const AERON_COUNTER_CLUSTER_CLIENT_TIMEOUT_COUNT_TYPE_ID: u32 = 213;
+pub const AERON_COUNTER_CLUSTER_INVALID_REQUEST_COUNT_TYPE_ID: u32 = 214;
+pub const AERON_COUNTER_CLUSTER_CLUSTERED_SERVICE_ERROR_COUNT_TYPE_ID: u32 = 215;
+pub const AERON_COUNTER_CLUSTER_MAX_CYCLE_TIME_TYPE_ID: u32 = 216;
+pub const AERON_COUNTER_CLUSTER_CYCLE_TIME_THRESHOLD_EXCEEDED_TYPE_ID: u32 = 217;
+pub const AERON_COUNTER_CLUSTER_CLUSTERED_SERVICE_MAX_CYCLE_TIME_TYPE_ID: u32 = 218;
+pub const AERON_COUNTER_CLUSTER_CLUSTERED_SERVICE_CYCLE_TIME_THRESHOLD_EXCEEDED_TYPE_ID: u32 = 219;
+pub const AERON_COUNTER_CLUSTER_STANDBY_STATE_TYPE_ID: u32 = 220;
+pub const AERON_COUNTER_CLUSTER_STANDBY_ERROR_COUNT_TYPE_ID: u32 = 221;
+pub const AERON_COUNTER_CLUSTER_STANDBY_HEARTBEAT_RESPONSE_COUNT_TYPE_ID: u32 = 222;
+pub const AERON_COUNTER_CLUSTER_STANDBY_CONTROL_TOGGLE_TYPE_ID: u32 = 223;
+pub const AERON_COUNTER_CLUSTER_TRANSITION_MODULE_STATE_TYPE_ID: u32 = 224;
+pub const AERON_COUNTER_CLUSTER_TRANSITION_MODULE_ERROR_COUNT_TYPE_ID: u32 = 226;
+pub const AERON_COUNTER_CLUSTER_STANDBY_MAX_CYCLE_TIME_TYPE_ID: u32 = 227;
+pub const AERON_COUNTER_CLUSTER_STANDBY_CYCLE_TIME_THRESHOLD_EXCEEDED_TYPE_ID: u32 = 228;
+pub const AERON_COUNTER_CLUSTER_TRANSITION_MODULE_MAX_CYCLE_TIME_TYPE_ID: u32 = 229;
+pub const AERON_COUNTER_CLUSTER_TRANSITION_MODULE_CYCLE_TIME_THRESHOLD_EXCEEDED_TYPE_ID: u32 = 230;
+pub const AERON_COUNTER_CLUSTER_STANDBY_SOURCE_MEMBER_ID_TYPE_ID: u32 = 231;
+pub const AERON_COUNTER_CLUSTER_TOTAL_SNAPSHOT_DURATION_THRESHOLD_EXCEEDED_TYPE_ID: u32 = 235;
+pub const AERON_COUNTER_CLUSTERED_SERVICE_SNAPSHOT_DURATION_THRESHOLD_EXCEEDED_TYPE_ID: u32 = 237;
+pub const AERON_COUNTER_CLUSTER_ELECTION_COUNT_TYPE_ID: u32 = 238;
+pub const AERON_COUNTER_CLUSTER_LEADERSHIP_TERM_ID_TYPE_ID: u32 = 239;
+pub const AERON_COUNTER_SELECTOR_CLIENTS_COUNTER_TYPE_ID: u32 = 300;
+pub const AERON_COUNTER_SELECTOR_SUBSCRIPTIONS_COUNTER_TYPE_ID: u32 = 301;
+pub const AERON_COUNTER_SELECTOR_MAX_CYCLE_TIME_TYPE_ID: u32 = 302;
+pub const AERON_COUNTER_SELECTOR_CYCLE_TIME_THRESHOLD_EXCEEDED_TYPE_ID: u32 = 303;
+pub const AERON_COUNTER_SEQUENCER_INDEX_COUNTER_TYPE_ID: u32 = 500;
+pub const AERON_COUNTER_SEQUENCER_GROUP_HWM_COUNTER_TYPE_ID: u32 = 501;
+pub const AERON_COUNTER_SEQUENCER_SESSION_GREATEST_MESSAGE_ID_COUNTER_TYPE_ID: u32 = 502;
+pub const AERON_COUNTER_SEQUENCER_SESSION_MESSAGES_COUNTER_TYPE_ID: u32 = 503;
+pub const AERON_COUNTER_SEQUENCER_SESSION_GREATEST_MESSAGE_TIMESTAMP_COUNTER_TYPE_ID: u32 = 504;
+pub const AERON_COUNTER_SEQUENCER_CLIENT_SNAPSHOT_ID_COUNTER_TYPE_ID: u32 = 505;
+pub const AERON_COUNTER_SEQUENCER_APPLICATION_SEQUENCE_INDEX_COUNTER_TYPE_ID: u32 = 507;
+pub const AERON_COUNTER_SEQUENCER_APPLICATION_STATE_COUNTER_TYPE_ID: u32 = 508;
+pub const AERON_COUNTER_SEQUENCER_APPLICATION_ERROR_COUNT_TYPE_ID: u32 = 509;
+pub const AERON_COUNTER_SEQUENCER_APPLICATION_MAX_SERVICE_TIME_TYPE_ID: u32 = 510;
+pub const AERON_COUNTER_SEQUENCER_APPLICATION_SERVICE_TIME_THRESHOLD_EXCEEDED_COUNT_TYPE_ID: u32 = 511;
+pub const AERON_COUNTER_SEQUENCER_APPLICATION_INTERVAL_SERVICE_TIME_TYPE_ID: u32 = 512;
+pub const AERON_COUNTER_SEQUENCER_APPLICATION_INTERVAL_MAX_SERVICE_TIME_TYPE_ID: u32 = 513;
+pub const AERON_COUNTER_SEQUENCER_APPLICATION_INTERVAL_TOTAL_INVOCATIONS_TYPE_ID: u32 = 514;
+pub const AERON_COUNTER_SEQUENCER_APPLICATION_SNAPSHOT_LOAD_TIME_TYPE_ID: u32 = 515;
+pub const AERON_COUNTER_SEQUENCER_APPLICATION_SNAPSHOT_STORE_TIME_TYPE_ID: u32 = 516;
+pub const AERON_COUNTER_SEQUENCER_APPLICATION_TAKE_SNAPSHOT_FAILURES_TYPE_ID: u32 = 517;
+pub const AERON_COUNTER_SEQUENCER_APPLICATION_TAKE_SNAPSHOT_COUNT_TYPE_ID: u32 = 518;
+pub const AERON_COUNTER_SEQUENCER_APPLICATION_SESSION_ID_TYPE_ID: u32 = 519;
+pub const AERON_COUNTER_SEQUENCER_REPLAY_INDEX_MIN_SEQUENCE_INDEX_COUNTER_TYPE_ID: u32 = 520;
+pub const AERON_COUNTER_SEQUENCER_REPLAY_INDEX_MIN_SEQUENCE_LOG_POSITION_COUNTER_TYPE_ID: u32 = 521;
+pub const AERON_COUNTER_SEQUENCER_REPLAY_INDEX_MAX_SEQUENCE_INDEX_COUNTER_TYPE_ID: u32 = 522;
+pub const AERON_COUNTER_SEQUENCER_REPLAY_INDEX_MAX_SEQUENCE_LOG_POSITION_COUNTER_TYPE_ID: u32 = 523;
+pub const AERON_COUNTER_SEQUENCER_REPLAY_INDEX_INITIAL_SEQUENCE_INDEX_COUNTER_TYPE_ID: u32 = 524;
+pub const AERON_COUNTER_SEQUENCER_REPLAY_INDEX_INITIAL_SEQUENCE_LOG_POSITION_COUNTER_TYPE_ID: u32 = 525;
+pub const AERON_AGENT_STATE_UNUSED: u32 = 0;
+pub const AERON_AGENT_STATE_INITED: u32 = 1;
+pub const AERON_AGENT_STATE_STARTED: u32 = 2;
+pub const AERON_AGENT_STATE_MANUAL: u32 = 3;
+pub const AERON_AGENT_STATE_STOPPING: u32 = 4;
+pub const AERON_AGENT_STATE_STOPPED: u32 = 5;
+pub const AERON_IDLE_STRATEGY_BACKOFF_MAX_SPINS: u32 = 10;
+pub const AERON_IDLE_STRATEGY_BACKOFF_MAX_YIELDS: u32 = 20;
+pub const AERON_IDLE_STRATEGY_BACKOFF_MIN_PARK_PERIOD_NS: u32 = 1000;
+pub const AERON_IDLE_STRATEGY_BACKOFF_MAX_PARK_PERIOD_NS: u32 = 1000000;
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct __darwin_pthread_handler_rec {
@@ -5979,4 +6209,165 @@ unsafe extern "C" {
         entry_func: aeron_loss_reporter_read_entry_func_t,
         clientd: *mut ::std::os::raw::c_void,
     ) -> usize;
+}
+pub type aeron_agent_do_work_func_t =
+    ::std::option::Option<unsafe extern "C" fn(arg1: *mut ::std::os::raw::c_void) -> ::std::os::raw::c_int>;
+pub type aeron_agent_on_close_func_t = ::std::option::Option<unsafe extern "C" fn(arg1: *mut ::std::os::raw::c_void)>;
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct aeron_idle_strategy_stct {
+    pub idle: aeron_idle_strategy_func_t,
+    pub init: aeron_idle_strategy_init_func_t,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of aeron_idle_strategy_stct"][::std::mem::size_of::<aeron_idle_strategy_stct>() - 16usize];
+    ["Alignment of aeron_idle_strategy_stct"][::std::mem::align_of::<aeron_idle_strategy_stct>() - 8usize];
+    ["Offset of field: aeron_idle_strategy_stct::idle"]
+        [::std::mem::offset_of!(aeron_idle_strategy_stct, idle) - 0usize];
+    ["Offset of field: aeron_idle_strategy_stct::init"]
+        [::std::mem::offset_of!(aeron_idle_strategy_stct, init) - 8usize];
+};
+pub type aeron_idle_strategy_t = aeron_idle_strategy_stct;
+unsafe extern "C" {
+    pub fn aeron_idle_strategy_sleeping_idle(state: *mut ::std::os::raw::c_void, work_count: ::std::os::raw::c_int);
+}
+unsafe extern "C" {
+    pub fn aeron_idle_strategy_yielding_idle(state: *mut ::std::os::raw::c_void, work_count: ::std::os::raw::c_int);
+}
+unsafe extern "C" {
+    pub fn aeron_idle_strategy_busy_spinning_idle(
+        state: *mut ::std::os::raw::c_void,
+        work_count: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn aeron_idle_strategy_noop_idle(state: *mut ::std::os::raw::c_void, work_count: ::std::os::raw::c_int);
+}
+unsafe extern "C" {
+    pub fn aeron_idle_strategy_backoff_idle(state: *mut ::std::os::raw::c_void, work_count: ::std::os::raw::c_int);
+}
+unsafe extern "C" {
+    pub fn aeron_idle_strategy_backoff_state_init(
+        state: *mut *mut ::std::os::raw::c_void,
+        max_spins: u64,
+        max_yields: u64,
+        min_park_period_ns: u64,
+        max_park_period_ns: u64,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn aeron_idle_strategy_init_null(
+        state: *mut *mut ::std::os::raw::c_void,
+        env_var: *const ::std::os::raw::c_char,
+        load_args: *const ::std::os::raw::c_char,
+    ) -> ::std::os::raw::c_int;
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct aeron_agent_runner_stct {
+    pub role_name: *const ::std::os::raw::c_char,
+    pub agent_state: *mut ::std::os::raw::c_void,
+    pub idle_strategy_state: *mut ::std::os::raw::c_void,
+    pub on_start_state: *mut ::std::os::raw::c_void,
+    pub on_start: aeron_agent_on_start_func_t,
+    pub do_work: aeron_agent_do_work_func_t,
+    pub on_close: aeron_agent_on_close_func_t,
+    pub idle_strategy: aeron_idle_strategy_func_t,
+    pub thread: aeron_thread_t,
+    pub running: bool,
+    pub state: u8,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of aeron_agent_runner_stct"][::std::mem::size_of::<aeron_agent_runner_stct>() - 80usize];
+    ["Alignment of aeron_agent_runner_stct"][::std::mem::align_of::<aeron_agent_runner_stct>() - 8usize];
+    ["Offset of field: aeron_agent_runner_stct::role_name"]
+        [::std::mem::offset_of!(aeron_agent_runner_stct, role_name) - 0usize];
+    ["Offset of field: aeron_agent_runner_stct::agent_state"]
+        [::std::mem::offset_of!(aeron_agent_runner_stct, agent_state) - 8usize];
+    ["Offset of field: aeron_agent_runner_stct::idle_strategy_state"]
+        [::std::mem::offset_of!(aeron_agent_runner_stct, idle_strategy_state) - 16usize];
+    ["Offset of field: aeron_agent_runner_stct::on_start_state"]
+        [::std::mem::offset_of!(aeron_agent_runner_stct, on_start_state) - 24usize];
+    ["Offset of field: aeron_agent_runner_stct::on_start"]
+        [::std::mem::offset_of!(aeron_agent_runner_stct, on_start) - 32usize];
+    ["Offset of field: aeron_agent_runner_stct::do_work"]
+        [::std::mem::offset_of!(aeron_agent_runner_stct, do_work) - 40usize];
+    ["Offset of field: aeron_agent_runner_stct::on_close"]
+        [::std::mem::offset_of!(aeron_agent_runner_stct, on_close) - 48usize];
+    ["Offset of field: aeron_agent_runner_stct::idle_strategy"]
+        [::std::mem::offset_of!(aeron_agent_runner_stct, idle_strategy) - 56usize];
+    ["Offset of field: aeron_agent_runner_stct::thread"]
+        [::std::mem::offset_of!(aeron_agent_runner_stct, thread) - 64usize];
+    ["Offset of field: aeron_agent_runner_stct::running"]
+        [::std::mem::offset_of!(aeron_agent_runner_stct, running) - 72usize];
+    ["Offset of field: aeron_agent_runner_stct::state"]
+        [::std::mem::offset_of!(aeron_agent_runner_stct, state) - 73usize];
+};
+impl Default for aeron_agent_runner_stct {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+pub type aeron_agent_runner_t = aeron_agent_runner_stct;
+unsafe extern "C" {
+    pub fn aeron_idle_strategy_load(
+        idle_strategy_name: *const ::std::os::raw::c_char,
+        idle_strategy_state: *mut *mut ::std::os::raw::c_void,
+        env_var: *const ::std::os::raw::c_char,
+        load_args: *const ::std::os::raw::c_char,
+    ) -> aeron_idle_strategy_func_t;
+}
+unsafe extern "C" {
+    pub fn aeron_agent_on_start_load(name: *const ::std::os::raw::c_char) -> aeron_agent_on_start_func_t;
+}
+unsafe extern "C" {
+    pub fn aeron_agent_init(
+        runner: *mut aeron_agent_runner_t,
+        role_name: *const ::std::os::raw::c_char,
+        state: *mut ::std::os::raw::c_void,
+        on_start: aeron_agent_on_start_func_t,
+        on_start_state: *mut ::std::os::raw::c_void,
+        do_work: aeron_agent_do_work_func_t,
+        on_close: aeron_agent_on_close_func_t,
+        idle_strategy_func: aeron_idle_strategy_func_t,
+        idle_strategy_state: *mut ::std::os::raw::c_void,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn aeron_agent_start(runner: *mut aeron_agent_runner_t) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn aeron_agent_stop(runner: *mut aeron_agent_runner_t) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn aeron_agent_close(runner: *mut aeron_agent_runner_t) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn aeron_local_sockaddr_find_addrs(
+        reader: *mut aeron_counters_reader_t,
+        channel_status_indicator_id: i32,
+        address_vec: *mut aeron_iovec_t,
+        address_vec_len: usize,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn aeron_archive_client_version_text() -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn aeron_archive_client_version_git_sha() -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn aeron_archive_client_version_major() -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn aeron_archive_client_version_minor() -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn aeron_archive_client_version_patch() -> ::std::os::raw::c_int;
 }

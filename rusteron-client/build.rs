@@ -213,11 +213,33 @@ fn build_from_source(docs_rs: &Path) {
     #[allow(unused_mut)]
     let mut c_flags = "-fcommon".to_string();
     let mut cxx_flags = String::new();
-    if let Ok(san) = std::env::var("RUSTERON_SANITIZE") {
-        if !san.is_empty() {
+    println!("cargo:rerun-if-env-changed=RUSTERON_SANITIZE");
+    // the `sanitize-address` feature is the discoverable way to turn this on;
+    // RUSTERON_SANITIZE remains for other sanitizers (thread, undefined, ...)
+    let san_env = std::env::var("RUSTERON_SANITIZE").ok().filter(|s| !s.is_empty());
+    let san = if std::env::var("CARGO_FEATURE_SANITIZE_ADDRESS").is_ok() {
+        Some(san_env.unwrap_or_else(|| "address".to_string()))
+    } else {
+        san_env
+    };
+    if let Some(san) = san {
+        {
             let san_flags = format!("-fsanitize={} -fno-omit-frame-pointer -g -O1", san);
             c_flags = format!("{} {}", san_flags, c_flags);
             cxx_flags = san_flags;
+        }
+        // rustc links with -nodefaultlibs, so the sanitizer runtime the instrumented C
+        // objects need must be put on the link line explicitly. On macOS use Apple
+        // clang's runtime (mixing rustc's own runtime with Apple-clang-instrumented
+        // objects trips the asan version-mismatch check).
+        if san == "address" && std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+            if let Ok(output) = std::process::Command::new("clang").arg("-print-resource-dir").output() {
+                let resource_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !resource_dir.is_empty() {
+                    println!("cargo:rustc-link-search=native={resource_dir}/lib/darwin");
+                    println!("cargo:rustc-link-lib=dylib=clang_rt.asan_osx_dynamic");
+                }
+            }
         }
     }
     config.define("CMAKE_C_FLAGS", &c_flags);

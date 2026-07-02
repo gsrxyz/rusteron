@@ -56,59 +56,72 @@ When using the default dynamic configuration, you must ensure Aeron C libraries 
 ## General Patterns
 
 - **`new()` Initialization**: Automatically calls the corresponding `*_init` method.
+- **One-liner connect**: `Aeron::connect(Some(dir))?` builds the context, client, and starts the conductor; build the `AeronContext` yourself for tuned setups. (`AeronArchive::connect(...)` in rusteron-archive.)
+- **Retained images auto-release**: `subscription.image_at_index(i)` / `image_by_session_id(id)` return `Option<AeronImage>` that releases back to the subscription on drop; `for_each_image(|img| …)` borrows without bookkeeping.
 - **Automatic Cleanup (Partial)**: When possible, `Drop` will invoke the appropriate `*_close` or `*_destroy` methods.
 - **Manual Resource Responsibility**: For methods like `set_aeron()` or where lifetimes aren't managed internally, users are responsible for safety.
-- **Handlers Must Be Leaked and Released**: Callbacks passed to the C layer require explicit memory management using `Handlers::leak(...)` and `Handlers::release(...)`.
+- **Handlers Are Reference-Counted**: Wrap callbacks with `Handler::new(...)`. Methods that register a callback the C client retains keep a clone alive inside the registering resource, so the value is freed automatically — no manual `release()`.
 
 ---
 
 ## Handlers and Callbacks
 
-Handlers allow users to customize responses to Aeron events (errors, image availability, etc). There are two ways to use them:
+Two kinds of callbacks, two rules:
 
-### 1. Implementing a Trait (Recommended)
+### 1. Retained callbacks (error handler, image/counter lifecycle, notifications)
 
-This is the most performant and idiomatic approach for long-lived handlers (e.g. an error handler installed on the context).
-
-```rust,no_ignore
-use rusteron_client::*;
-
-pub struct MyErrorHandler;
-
-impl AeronErrorHandlerCallback for MyErrorHandler {
-    fn handle_aeron_error_handler(&mut self, code: i32, msg: &str) {
-        eprintln!("Aeron error ({}): {}", code, msg);
-    }
-}
-```
-
-Wrap it with `Handler::leak(...)` to pass it into the C layer, and call `release()` once it's no longer needed:
+The C client stores these and invokes them later from the conductor thread. Setters take the
+callback **by value** — a closure or any type implementing the callback trait — heap-allocate
+it internally, and keep it alive for as long as C can call it. Nothing to free:
 
 ```rust,ignore
-let handler = Handler::leak(MyErrorHandler);
-ctx.set_error_handler(Some(&handler))?;
-// ...when done:
-handler.release();
+ctx.set_error_handler(Some(|code: i32, msg: &str| eprintln!("aeron error {code}: {msg}")))?;
 ```
 
-### 2. Short-lived Polls: Closures
-
-For one-off message consumption, skip the trait and pass a closure directly to `poll_once` — no leak/release bookkeeping needed:
+Need to read the callback's state later? Keep the returned [`Handler`]:
 
 ```rust,ignore
-subscription.poll_once(
-    |buf: &[u8], header: AeronHeader| {
-        println!("received {} bytes at position {:?}", buf.len(), header.position());
-    },
-    10,
-)?;
+let counts = ctx.set_error_handler(Some(ErrorCounter::default()))?.unwrap();
+// ... later: counts.errors
 ```
 
-> For messages larger than the MTU that need reassembling, use a fragment assembler with `subscription.poll(Some(&handler), limit)` — `poll_once` delivers raw fragments and does not reassemble.
+Registration methods that return a resource (e.g. `add_subscription` with image handlers) take
+`Option<&Handler<T>>` instead and keep a clone — same lifetime guarantee.
 
-No handler needed for an optional slot? Use the typed `None` helpers, e.g. `Handlers::no_error_handler_handler()`.
+### 2. Synchronous callbacks (`poll`, `controlled_poll`, log readers)
+
+Only invoked *during* the call, so the `_once` variants borrow a stack closure — zero
+allocation, may borrow local state:
+
+```rust,ignore
+subscription.poll_once(|buf: &[u8], header: AeronHeader| {
+    println!("received {} bytes at position {:?}", buf.len(), header.position());
+}, 10)?;
+```
+
+> For messages larger than the MTU use a fragment assembler with `subscription.poll(Some(&handler), limit)` — `poll_once` delivers raw fragments and does not reassemble.
+
+No handler for an optional slot? Pass the typed `None` helper, e.g. `Handlers::no_available_image_handler()`.
 
 ---
+
+## Building channel URIs
+
+Prefer the typed [`AeronUriStringBuilder`] over hand-written URI strings — parameters are
+typed setters, so misspelled keys and malformed values are caught before they reach the
+driver:
+
+```rust,ignore
+let channel = AeronUriStringBuilder::udp("localhost:20121")?.build(256)?;
+let mds_sub = AeronUriStringBuilder::udp_control("localhost:9998", ControlMode::Manual)?.build(256)?;
+let response = AeronUriStringBuilder::udp_control("localhost:9999", ControlMode::Response)?
+    .response_correlation_id(id)?
+    .build(256)?;
+```
+
+Constructors: `ipc()`, `udp(endpoint)`, `udp_control(control, ControlMode)`; plus ~50 typed
+setters (`session_id`, `mtu_length`, `term_length`, `fc`, `gtag`, `reliable`, …). See
+`examples/multi_destination_subscription.rs` and `examples/request_response.rs`.
 
 ## Minimal Pub/Sub
 
@@ -118,8 +131,7 @@ use std::time::Duration;
 
 let ctx = AeronContext::new()?;
 // Reuse the built-in logger for async client errors (Aeron samples always set one).
-let mut error_handler = Handler::leak(AeronErrorHandlerLogger);
-ctx.set_error_handler(Some(&error_handler))?;
+ctx.set_error_handler(Some(AeronErrorHandlerLogger))?;
 let aeron = Aeron::new(&ctx)?;
 aeron.start()?;
 
@@ -138,19 +150,93 @@ let subscription = aeron
 // offer() returns the log position (>0) or a negative code — see "Errors & offer results".
 while publication.offer(b"hello", Handlers::no_reserved_value_supplier_handler()) <= 0 {}
 subscription.poll_once(|buf: &[u8], _hdr: AeronHeader| println!("got {} bytes", buf.len()), 10)?;
-error_handler.release();
 ```
+
+## AddressSanitizer
+
+The `sanitize-address` feature compiles the Aeron C sources with `-fsanitize=address`
+(implies `build-from-source`), so use-after-free / double-free across the FFI boundary are
+caught in **your** tests:
+
+```bash
+# macOS — stable rustc; Apple's ASan runtime is linked automatically, it just needs to be
+# on the loader path:
+export DYLD_LIBRARY_PATH="$(clang -print-resource-dir)/lib/darwin"
+ASAN_OPTIONS=detect_leaks=0 cargo test --features rusteron-client/sanitize-address
+
+# Linux — nightly, additionally instruments the Rust side:
+RUSTFLAGS="-Zsanitizer=address" cargo +nightly test -Zbuild-std \
+  --target x86_64-unknown-linux-gnu --features rusteron-client/sanitize-address
+```
+
+Notes: leak detection is noisy with a media driver in-process — keep `detect_leaks=0`;
+other sanitizers (`thread`, `undefined`) can be selected with the `RUSTERON_SANITIZE`
+env var instead of the feature. In this repo, `just test-asan` runs the client suite this way.
+
+## Resource Lifecycle & close()
+
+The C client owns every child resource (publications, subscriptions, counters) and frees them
+all in `aeron_close`. rusteron therefore reference-counts teardown:
+
+- `aeron.close()` (and `drop`) is **deferred** while any child handle or clone is alive — the
+  surviving handles remain fully usable; the C close runs when the last reference releases.
+- Leaf resources (`publication.close()` etc.) close immediately; clones of that handle see a
+  nulled pointer and become inert.
+- `unsafe aeron.close_now()` forces the C close immediately. Every surviving child handle then
+  dangles — even its `Drop` is a double free — so `mem::forget` survivors or never return.
+
+Which structures get which behaviour:
+
+| Behaviour | Types |
+|---|---|
+| **Deferred** `close()` + `unsafe close_now()` | `Aeron`, `AeronArchive` (rusteron-archive) |
+| **Immediate** `close(self)` (+ `close_with_handler` for a close-complete notification); clones become inert | `AeronPublication`, `AeronExclusivePublication`, `AeronSubscription`, `AeronCounter` |
+| **No public close** — freed when the last reference drops (the client holds an internal clone, so they always outlive it) | `AeronContext`, `AeronArchiveContext`, `AeronDriverContext` |
+| **No close at all** — the C client frees them when their `poll()` completes (created, errored, or cancelled) | `AeronAsyncAdd*` pollers, `AeronAsyncDestination` |
+
+Ordering is structurally safe in any combination: children hold references to the client, the
+client holds its context, and closing/dropping in *any* order defers the C teardown until the
+last handle releases (verified by the `complex_object_graph_close_is_safe_in_any_order` test).
+
+## Migrating 0.1 → 0.2
+
+Breaking changes, made because the old design allowed double frees and use-after-free
+(see [PR #50](https://github.com/gsrxyz/rusteron/pull/50)):
+
+| 0.1 | 0.2 |
+|---|---|
+| `Handler::leak(h)` + manual `release()` | `Handler::new(h)`; freed automatically (`Arc`-counted, resources keep clones) |
+| `ctx.set_error_handler(Some(&handler))` | `ctx.set_error_handler(Some(h))` — takes the value (closures work), returns the `Handler` |
+| `set_error_handler_once(closure)` (UB: C retained a stack closure) | removed; `_once` now exists only for synchronous callbacks like `poll_once` |
+| `aeron.close()` freed children immediately (UAF on surviving handles) | deferred until the last reference drops; `unsafe close_now()` is the escape hatch |
+| `Handler` was `Sync` | `Send` only (conductor thread may invoke callbacks) |
+| `offer()`/`try_claim()` returned raw `i64` sentinels | return `Result<i64, AeronOfferError>` with `is_retryable()`; raw variants: `offer_raw()`/`try_claim_raw()` |
+
+## Examples
+
+- [`examples/basic_pub_sub.rs`](./examples/basic_pub_sub.rs) — minimal pub/sub with fragment assembly
+- [`examples/streaming_rate.rs`](./examples/streaming_rate.rs) — streaming publisher + rate-reporting subscriber (port of `streaming_publisher.c` + `rate_subscriber.c`)
+- [`examples/multi_destination_subscription.rs`](./examples/multi_destination_subscription.rs) — MDS: one manual-control subscription aggregating several endpoints (port of `basic_mds_subscriber.c`)
+- [`examples/driver_stats.rs`](./examples/driver_stats.rs) — CnC tooling: counters, distinct error log, loss report (ports of `aeron_stat.c` / `error_stat.c` / `loss_stat.c`)
+- [`examples/embedded_ping_pong.rs`](./examples/embedded_ping_pong.rs) — RTT ping/pong with `try_claim` (port of `cping`/`cpong`)
+- [`examples/embedded_exclusive_ipc_throughput.rs`](./examples/embedded_exclusive_ipc_throughput.rs) — exclusive-publication IPC throughput
+- [`examples/request_response.rs`](./examples/request_response.rs) — response channels (aeron 1.44+): request/response wiring via `control-mode=response` + `response-correlation-id` (port of `response_server.c`/`response_client.c`)
+- [`examples/file_transfer.rs`](./examples/file_transfer.rs) — chunked file transfer with fragment reassembly and verification (port of `FileSender`/`FileReceiver`)
 
 ## Errors & offer results
 
-- **Client errors**: install an error handler on the context (`ctx.set_error_handler(Some(&handler))`) so async errors aren't silently lost — Aeron's samples always do. Leaked handlers must be `release()`d.
-- **`offer()` / `try_claim()` results**: a positive value is the resulting log position; the negatives are classified by the `PUBLICATION_*` constants. `PUBLICATION_CLOSED`, `PUBLICATION_MAX_POSITION_EXCEEDED`, and `PUBLICATION_ERROR` are **fatal** (stop offering); `PUBLICATION_BACK_PRESSURED`, `PUBLICATION_NOT_CONNECTED`, and `PUBLICATION_ADMIN_ACTION` are **transient** (retry, ideally with an idle strategy). This mirrors Aeron's `BasicPublisher.checkResult`.
+- **Client errors**: install an error handler on the context (`ctx.set_error_handler(Some(handler))`) so async errors aren't silently lost — Aeron's samples always do.
+- **`offer()` / `try_claim()` results**: `Result<i64, AeronOfferError>` — `Ok` is the new log position; the error is a typed sentinel with `is_retryable()` (back-pressured, admin action, not connected — retry, ideally with an idle strategy) vs fatal (closed, max position exceeded). This mirrors Aeron's `BasicPublisher.checkResult` without magic numbers:
   ```rust,ignore
-  let r = publication.offer(msg, Handlers::no_reserved_value_supplier_handler());
-  if r == PUBLICATION_CLOSED || r == PUBLICATION_MAX_POSITION_EXCEEDED {
-      return Err("publication gone".into());
+  match publication.offer_simple(msg) {
+      Ok(_) => {}
+      Err(e) if e.is_retryable() => idle.idle(), // retry
+      Err(e) => return Err(e.into()),            // publication gone
   }
   ```
+  For branch-free hot paths, `offer_raw()` / `try_claim_raw()` return the raw `i64` sentinel —
+  though measured on `benches/offer_claim_poll.rs` the typed path is within noise of raw
+  (~2.9ns vs ~2.8ns per offer): the error enum only materialises on the error path.
 - **Image handlers**: `Handlers::no_available_image_handler()` / `no_unavailable_image_handler()` are fine as a default, but real apps usually react to image availability (logging, synchronization) — Aeron's `Ping` sample uses one as a latch.
 
 ## Idle strategies
@@ -172,6 +258,14 @@ loop {
 Available: [`BusySpinIdleStrategy`] (lowest latency, pins a core), [`YieldingIdleStrategy`],
 [`SleepingIdleStrategy`] (fixed sleep), [`BackoffIdleStrategy`] (adaptive, general-purpose),
 [`NoOpIdleStrategy`]. Latency benchmarks should keep busy-spin.
+
+Need exact parity with Aeron's C/Java implementations (e.g. cross-language latency
+comparisons)? [`CIdleStrategy`] wraps the C reference strategies behind the same trait:
+`CIdleStrategy::backoff()?` / `busy_spinning()` / `yielding()` / `noop()`. The conductor's
+own idle strategy is configured on the context — use the typed enum
+(`ctx.set_idle_strategy_kind(AeronIdleStrategyKind::Backoff)?`, which also sets coherent
+init args) — and likewise the media driver's per-agent strategies
+(`set_conductor_idle_strategy_kind` etc. on `AeronDriverContext`).
 
 For recording, replay, and **persistent subscriptions** (replay history, then seamlessly join a live stream), see [`rusteron-archive`](../rusteron-archive/README.md#persistent-subscriptions).
 

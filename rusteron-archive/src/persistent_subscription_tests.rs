@@ -99,9 +99,8 @@ mod tests {
         aeron_context.set_dir(&aeron_dir.into_c_string())?;
         aeron_context.set_client_name(&format!("test-{}", aeron_dir_suffix).into_c_string())?;
 
-        let error_handler = Handler::leak(ErrorCount::default());
-        let error_handler_ref = &error_handler;
-        aeron_context.set_error_handler(Some(error_handler_ref))?;
+        let error_handler = Handler::new(ErrorCount::default());
+        aeron_context.set_error_handler(Some(error_handler.clone()))?;
 
         // Create aeron and archive context
         let aeron = Aeron::new(&aeron_context)?;
@@ -111,7 +110,7 @@ mod tests {
         archive_context.set_control_request_channel(&request_control_channel.into_c_string())?;
         archive_context.set_control_response_channel(&response_control_channel.into_c_string())?;
         archive_context.set_recording_events_channel(&recording_events_channel.into_c_string())?;
-        archive_context.set_error_handler(Some(error_handler_ref))?;
+        archive_context.set_error_handler(Some(error_handler.clone()))?;
 
         Ok((aeron, archive_context, archive_media_driver, error_handler))
     }
@@ -130,7 +129,7 @@ mod tests {
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
         // Start Archive/Publisher Driver
-        let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
+        let (aeron_archive, archive_context, _media_driver_archive, archive_error_handler) =
             start_aeron_archive_with_config("archive_live_source", 8000)?;
 
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
@@ -183,7 +182,7 @@ mod tests {
             }
         }
 
-        let mut handler = Handler::leak(MessageHandler::default());
+        let mut handler = Handler::new(MessageHandler::default());
 
         // Drain the subscription's image into existence before publishing.
         let start = Instant::now();
@@ -198,7 +197,7 @@ mod tests {
 
         for i in 0..message_count {
             let message = format!("Live Message {}", i);
-            while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -217,12 +216,10 @@ mod tests {
             "Should receive all messages from live stream"
         );
 
-        handler.release();
         subscription.close()?;
         drop(publication);
         drop(archive);
         drop(aeron_archive);
-        archive_error_handler.release();
 
         Ok(())
     }
@@ -241,7 +238,7 @@ mod tests {
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
         // Start Archive/Publisher Driver
-        let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
+        let (aeron_archive, archive_context, _media_driver_archive, archive_error_handler) =
             start_aeron_archive_with_config("archive_replay_live", 8100)?;
 
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
@@ -268,7 +265,7 @@ mod tests {
         for i in 0..initial_message_count {
             let message = format!("Replay Message {}", i);
             let deadline = Instant::now() + Duration::from_secs(10);
-            while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 if Instant::now() > deadline {
                     return Err("timed out offering replay message".into());
                 }
@@ -329,7 +326,7 @@ mod tests {
                 }
             }
         }
-        let mut handler = Handler::leak(PhaseHandler::default());
+        let mut handler = Handler::new(PhaseHandler::default());
 
         let start = Instant::now();
         while handler.replay_count < initial_message_count && start.elapsed() < Duration::from_secs(20) {
@@ -363,7 +360,7 @@ mod tests {
         for i in 0..live_message_count {
             let message = format!("Live Message {}", i);
             let deadline = Instant::now() + Duration::from_secs(10);
-            while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 if Instant::now() > deadline {
                     return Err("timed out offering live message".into());
                 }
@@ -382,12 +379,10 @@ mod tests {
             handler.live_count
         );
 
-        handler.release();
         subscription.close()?;
         drop(publication);
         drop(archive);
         drop(aeron_archive);
-        archive_error_handler.release();
 
         Ok(())
     }
@@ -406,7 +401,7 @@ mod tests {
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
         // Start Archive/Publisher Driver
-        let (aeron_archive, archive_context, media_driver_archive, mut archive_error_handler) =
+        let (aeron_archive, archive_context, media_driver_archive, archive_error_handler) =
             start_aeron_archive_with_config("archive_recovery", 8200)?;
 
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
@@ -429,7 +424,7 @@ mod tests {
         let message_count = 20;
         for i in 0..message_count {
             let message = format!("Message {}", i);
-            while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -501,7 +496,6 @@ mod tests {
         drop(archive_reconnected);
         drop(aeron_archive);
         drop(media_driver_archive);
-        archive_error_handler.release();
 
         Ok(())
     }
@@ -520,7 +514,7 @@ mod tests {
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
         // Start and verify media driver
-        let (aeron_archive, archive_context, media_driver_archive, mut archive_error_handler) =
+        let (aeron_archive, archive_context, media_driver_archive, archive_error_handler) =
             start_aeron_archive_with_config("archive_lifecycle", 8300)?;
 
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
@@ -549,7 +543,7 @@ mod tests {
         let message_count = 5;
         for i in 0..message_count {
             let message = format!("Lifecycle Test Message {}", i);
-            while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -568,7 +562,6 @@ mod tests {
 
         // Verify cleanup happens via Drop trait
         drop(media_driver_archive);
-        archive_error_handler.release();
 
         Ok(())
     }
@@ -587,7 +580,7 @@ mod tests {
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
         // Start Archive/Publisher Driver
-        let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
+        let (aeron_archive, archive_context, _media_driver_archive, archive_error_handler) =
             start_aeron_archive_with_config("archive_integration", 8400)?;
 
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
@@ -613,7 +606,7 @@ mod tests {
         let message_count = 15;
         for i in 0..message_count {
             let message = format!("Archive Integration Message {}", i);
-            while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -651,7 +644,6 @@ mod tests {
 
         drop(archive);
         drop(aeron_archive);
-        archive_error_handler.release();
 
         Ok(())
     }
@@ -670,7 +662,7 @@ mod tests {
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
         // Start Archive/Publisher Driver
-        let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
+        let (aeron_archive, archive_context, _media_driver_archive, archive_error_handler) =
             start_aeron_archive_with_config("archive_data_verify", 8500)?;
 
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
@@ -704,7 +696,7 @@ mod tests {
 
         for msg in &test_messages {
             let serialized = format!("{}:{}", msg.sequence, msg.data);
-            while publication.offer(serialized.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(serialized.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -763,7 +755,7 @@ mod tests {
             }
         }
 
-        let mut handler = Handler::leak(VerificationHandler::default());
+        let mut handler = Handler::new(VerificationHandler::default());
 
         // Poll for all messages
         let start = Instant::now();
@@ -789,10 +781,8 @@ mod tests {
         // Release handlers in reverse order of creation to avoid
         // Handler leak warnings during cleanup
         subscription.close()?;
-        handler.release();
 
         // Explicitly release the error handler before dropping archive objects
-        archive_error_handler.release();
 
         drop(archive);
         drop(aeron_archive);
@@ -814,7 +804,7 @@ mod tests {
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
         // Start Archive/Publisher Driver
-        let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
+        let (aeron_archive, archive_context, _media_driver_archive, archive_error_handler) =
             start_aeron_archive_with_config("archive_errors", 8600)?;
 
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
@@ -849,7 +839,6 @@ mod tests {
 
         drop(archive);
         drop(aeron_archive);
-        archive_error_handler.release();
 
         Ok(())
     }
@@ -864,7 +853,7 @@ mod tests {
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
         // Start Archive/Publisher Driver
-        let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
+        let (aeron_archive, archive_context, _media_driver_archive, archive_error_handler) =
             start_aeron_archive_with_config("archive_sub_errors", 8700)?;
 
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
@@ -902,7 +891,6 @@ mod tests {
 
         drop(archive);
         drop(aeron_archive);
-        archive_error_handler.release();
 
         Ok(())
     }
@@ -917,7 +905,7 @@ mod tests {
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
         // Start Archive/Publisher Driver
-        let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
+        let (aeron_archive, archive_context, _media_driver_archive, archive_error_handler) =
             start_aeron_archive_with_config("archive_pos_validate", 8800)?;
 
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
@@ -940,7 +928,7 @@ mod tests {
         let message_count = 10;
         for i in 0..message_count {
             let message = format!("Position Test Message {}", i);
-            while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -979,7 +967,6 @@ mod tests {
 
         drop(archive);
         drop(aeron_archive);
-        archive_error_handler.release();
 
         Ok(())
     }
@@ -994,7 +981,7 @@ mod tests {
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
         // Start Archive/Publisher Driver
-        let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
+        let (aeron_archive, archive_context, _media_driver_archive, archive_error_handler) =
             start_aeron_archive_with_config("archive_concurrent", 8900)?;
 
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
@@ -1033,7 +1020,7 @@ mod tests {
                 }
             }
 
-            let handler = Handler::leak(ConcurrentHandler::default());
+            let handler = Handler::new(ConcurrentHandler::default());
             handlers.push(handler);
 
             let sub = aeron_archive
@@ -1069,7 +1056,7 @@ mod tests {
         for i in 0..message_count {
             let message = format!("Concurrent Test Message {}", i);
             let deadline = Instant::now() + Duration::from_secs(10);
-            while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 if Instant::now() > deadline {
                     return Err(format!("timed out offering concurrent message {i}").into());
                 }
@@ -1106,13 +1093,10 @@ mod tests {
         for sub in subscriptions {
             sub.close()?;
         }
-        for mut handler in handlers {
-            handler.release();
-        }
+        for handler in handlers {}
 
         drop(archive);
         drop(aeron_archive);
-        archive_error_handler.release();
 
         Ok(())
     }
@@ -1136,7 +1120,7 @@ mod tests {
 
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
-        let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
+        let (aeron_archive, archive_context, _media_driver_archive, archive_error_handler) =
             start_aeron_archive_with_config("ps_listener", 9700)?;
 
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
@@ -1161,7 +1145,7 @@ mod tests {
         for i in 0..10 {
             let message = format!("Seed-{}", i);
             let deadline = Instant::now() + Duration::from_secs(10);
-            while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 if Instant::now() > deadline {
                     return Err("timed out offering seed message".into());
                 }
@@ -1234,7 +1218,7 @@ mod tests {
                     errors.lock().unwrap().clone()
                 );
             }
-            let _ = publication.offer(
+            let _ = publication.offer_raw(
                 format!("Live-{i}").as_bytes(),
                 Handlers::no_reserved_value_supplier_handler(),
             );
@@ -1252,7 +1236,6 @@ mod tests {
         drop(publication);
         drop(archive);
         drop(aeron_archive);
-        archive_error_handler.release();
 
         assert!(
             join_count >= 1,
@@ -1279,7 +1262,7 @@ mod tests {
 
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
-        let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
+        let (aeron_archive, archive_context, _media_driver_archive, archive_error_handler) =
             start_aeron_archive_with_config("ps_resilience", 9800)?;
 
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
@@ -1301,7 +1284,7 @@ mod tests {
         }
         for i in 0..10 {
             let m = format!("Seed-{i}");
-            while publication.offer(m.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(m.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
                 sleep(Duration::from_millis(1));
             }
         }
@@ -1349,7 +1332,7 @@ mod tests {
             .build()?;
 
         let poll_drive = |ps: &AeronArchivePersistentSubscription, pub_ref: &AeronExclusivePublication| {
-            let _ = pub_ref.offer(b"live-beat", Handlers::no_reserved_value_supplier_handler());
+            let _ = pub_ref.offer_raw(b"live-beat", Handlers::no_reserved_value_supplier_handler());
             ps.poll_once(|_buf, _hdr| {}, 100)
         };
 
@@ -1394,7 +1377,6 @@ mod tests {
         drop(publication);
         drop(archive);
         drop(aeron_archive);
-        archive_error_handler.release();
 
         assert!(
             joined_count >= 2,

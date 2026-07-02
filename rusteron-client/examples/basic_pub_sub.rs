@@ -12,8 +12,8 @@ pub fn main() -> Result<(), Box<dyn error::Error>> {
 
     // Install the built-in error logger so async client errors are surfaced (Aeron samples
     // always set an error handler on the context). Keep it alive for the run, then release.
-    let mut error_handler = Handler::leak(AeronErrorHandlerLogger);
-    ctx.set_error_handler(Some(&error_handler))?;
+    let error_handler = Handler::new(AeronErrorHandlerLogger);
+    ctx.set_error_handler(Some(error_handler.clone()))?;
 
     println!("creating client");
     let aeron = Aeron::new(&ctx)?;
@@ -47,20 +47,14 @@ pub fn main() -> Result<(), Box<dyn error::Error>> {
 
     let _publisher_handler = {
         std::thread::spawn(move || loop {
-            let result = publisher.offer(
-                "1".repeat(large_string_len).as_bytes(),
-                Handlers::no_reserved_value_supplier_handler(),
-            );
-            // Fatal codes -> stop the publisher; transient negatives -> keep trying.
-            if result == PUBLICATION_CLOSED
-                || result == PUBLICATION_MAX_POSITION_EXCEEDED
-                || result == PUBLICATION_ERROR
-            {
-                error!("publication closed (result {result}); stopping publisher thread");
-                break;
-            }
-            if result < 1 {
-                error!("failed to send message (result {result})");
+            // Typed offer: retry the retryable errors, stop on fatal ones.
+            match publisher.offer_simple("1".repeat(large_string_len).as_bytes()) {
+                Ok(_) => {}
+                Err(e) if e.is_retryable() => error!("failed to send message ({e}); retrying"),
+                Err(e) => {
+                    error!("publication gone ({e}); stopping publisher thread");
+                    break;
+                }
             }
         })
     };
@@ -85,8 +79,8 @@ pub fn main() -> Result<(), Box<dyn error::Error>> {
             assert_eq!(buffer, "1".repeat(self.large_string_len).as_bytes());
         }
     }
-    // if you don't need fragmentation support use Handler::leak instead
-    let (closure, _inner) = Handler::leak_with_fragment_assembler(FragmentHandler {
+    // if you don't need fragmentation support use Handler::new instead
+    let (closure, _inner) = Handler::with_fragment_assembler(FragmentHandler {
         count: Cell::new(0),
         large_string_len,
     })?;
@@ -103,7 +97,6 @@ pub fn main() -> Result<(), Box<dyn error::Error>> {
     }
 
     println!("stopping client");
-    error_handler.release();
 
     Ok(())
 }

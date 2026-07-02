@@ -92,7 +92,9 @@ Automatic cleanup applies **only** to `new()` constructors. Other methods (e.g. 
 
 ### Manual Handler Management
 
-Handlers must be passed into C bindings using `Handlers::leak(...)` and explicitly cleaned up using `release()` when no longer needed.
+Connect in one call — `AeronArchive::connect(&aeron, request_channel, response_channel, Some(events_channel), timeout)?` — or build the `AeronArchiveContext` yourself for credentials/handlers. Replay and replication parameters have fluent builders (`AeronArchiveReplayParams::builder().position(0).follow_live().build()?`, `AeronArchiveReplicationParams::builder().build()?`) with aeron's defaults.
+
+Retained-callback setters take the callback by value (a closure or trait impl), keep it alive inside the registering resource, and return the `Handler` for optional state access. See the rusteron-client README for the full handler and 0.1 → 0.2 migration guide.
 
 For short-lived operations such as polling, closures can be used directly:
 
@@ -128,11 +130,11 @@ impl AeronErrorHandlerCallback for AeronErrorHandlerLogger {
 }
 ```
 
-You then wrap the implementation in a handler using `Handlers::leak(...)`.
+You then pass the implementation directly to the registration method (it is wrapped in a `Handler` internally).
 
 ### 2. Wrapping Callbacks with `Handler`
 
-Regardless of approach, callbacks must be wrapped in a `Handler` to interact with Aeron's C bindings. Use `Handlers::leak(...)` to pass it into the system, and call `release()` once cleanup is needed.
+Callbacks are owned by the resource that registers them and freed automatically when it closes; methods that accept `Option<&Handler<T>>` keep a clone with the same guarantee.
 
 ---
 
@@ -179,7 +181,7 @@ The `AeronCError` struct exposes these enums alongside descriptive messages.
 
 1. **Aeron Lifetime** – The `AeronArchive` depends on an external `Aeron` instance. Ensure `Aeron` outlives all references to the archive.
 2. **Unsafe Bindings** – The module interfaces directly with Aeron’s C API. Improper resource handling can cause undefined behavior.
-3. **Manual Cleanup** – Handlers and other leaked objects must be manually cleaned up using `.release()`.
+3. **Automatic Handler Cleanup** – Handlers are reference-counted; registered callbacks live as long as the resource that registered them and are freed automatically.
 4. **Thread Safety** – Use care when accessing Aeron objects across threads. Synchronize access appropriately.
 
 ---
@@ -252,6 +254,11 @@ ps.close()?;
 
 For a fully runnable version, see the example and integration tests:
 - [`examples/persistent_subscription.rs`](./examples/persistent_subscription.rs) — standalone demo (run with `cargo run --release --features "static precompile" --example persistent_subscription`)
+- [`examples/archive_error_handling.rs`](./examples/archive_error_handling.rs) — error handlers on both contexts, recording signals, typed control-session errors via `archive.poll_for_error()` / `AeronArchiveError::parse` (the archive's `errorCode=N` recovered from the message text), and detecting/reconnecting after the archive goes down
+- [`examples/persistent_subscription_failover.rs`](./examples/persistent_subscription_failover.rs) — failure modes: live stream dies → automatic fallback to replay (`on_live_left`), then rejoins live when it returns
+- [`examples/replay_merge.rs`](./examples/replay_merge.rs) — late-joiner catch-up: replay recorded history, then merge seamlessly onto the live MDC stream (`AeronArchiveReplayMerge`)
+- [`examples/recording_throughput.rs`](./examples/recording_throughput.rs) — recording throughput measurement (publish rate vs archiver catch-up) and `list_recordings` descriptor enumeration
+- [`examples/recording_replication.rs`](./examples/recording_replication.rs) — archive-to-archive replication (`archive.replicate`): a destination archive pulls a finished recording from a source archive and the copy is verified (port of `RecordingReplicator`)
 - `persistent_subscription_tests::test_persistent_subscription_listener_live_joined` (callback wiring)
 - `persistent_subscription_integration::test_end_to_end_persistent_subscription` (record → replay → live)
 

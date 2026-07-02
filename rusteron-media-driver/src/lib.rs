@@ -37,6 +37,33 @@ unsafe impl Send for AeronDriverContext {}
 unsafe impl Sync for AeronDriver {}
 unsafe impl Send for AeronDriver {}
 
+impl AeronDriverContext {
+    /// Typed variant of [`Self::set_conductor_idle_strategy`].
+    pub fn set_conductor_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {
+        self.set_conductor_idle_strategy(&kind.name().into_c_string())
+    }
+
+    /// Typed variant of [`Self::set_sender_idle_strategy`].
+    pub fn set_sender_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {
+        self.set_sender_idle_strategy(&kind.name().into_c_string())
+    }
+
+    /// Typed variant of [`Self::set_receiver_idle_strategy`].
+    pub fn set_receiver_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {
+        self.set_receiver_idle_strategy(&kind.name().into_c_string())
+    }
+
+    /// Typed variant of [`Self::set_sharednetwork_idle_strategy`].
+    pub fn set_sharednetwork_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {
+        self.set_sharednetwork_idle_strategy(&kind.name().into_c_string())
+    }
+
+    /// Typed variant of [`Self::set_shared_idle_strategy`].
+    pub fn set_shared_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {
+        self.set_shared_idle_strategy(&kind.name().into_c_string())
+    }
+}
+
 impl AeronDriver {
     pub fn launch_embedded(
         aeron_context: AeronDriverContext,
@@ -133,6 +160,25 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn driver_idle_strategy_kinds_round_trip() {
+        let ctx = AeronDriverContext::new().unwrap();
+        for (kind, name) in [
+            (AeronIdleStrategyKind::Sleeping, "sleeping"),
+            (AeronIdleStrategyKind::Yielding, "yield"),
+            (AeronIdleStrategyKind::BusySpin, "spin"),
+            (AeronIdleStrategyKind::NoOp, "noop"),
+            (AeronIdleStrategyKind::Backoff, "backoff"),
+        ] {
+            ctx.set_conductor_idle_strategy_kind(kind).unwrap();
+            assert_eq!(name, ctx.get_conductor_idle_strategy(), "conductor {kind:?}");
+            ctx.set_sender_idle_strategy_kind(kind).unwrap();
+            ctx.set_receiver_idle_strategy_kind(kind).unwrap();
+            ctx.set_sharednetwork_idle_strategy_kind(kind).unwrap();
+            ctx.set_shared_idle_strategy_kind(kind).unwrap();
+        }
+    }
+
+    #[test]
     fn version_check() {
         let major = unsafe { crate::aeron_version_major() };
         let minor = unsafe { crate::aeron_version_minor() };
@@ -180,8 +226,8 @@ mod tests {
             }
         }
 
-        let mut error_handler = Handler::leak(ErrorCount::default());
-        ctx.set_error_handler(Some(&error_handler))?;
+        let error_handler = Handler::new(ErrorCount::default());
+        ctx.set_error_handler(Some(error_handler.clone()))?;
 
         struct Test {}
         impl AeronAvailableCounterCallback for Test {
@@ -206,9 +252,9 @@ mod tests {
                 info!("on new publication {channel} {stream_id} {session_id} {correlation_id}")
             }
         }
-        let mut handler = Handler::leak(Test {});
-        ctx.set_on_available_counter(Some(&handler))?;
-        ctx.set_on_new_publication(Some(&handler))?;
+        let handler = Handler::new(Test {});
+        ctx.set_on_available_counter(Some(handler.clone()))?;
+        ctx.set_on_new_publication(Some(handler.clone()))?;
 
         client.start()?;
         info!("aeron driver started");
@@ -234,8 +280,6 @@ mod tests {
         drop(counter);
         drop(client);
         stop.store(true, Ordering::SeqCst);
-        error_handler.release();
-        handler.release();
 
         Ok(())
     }
@@ -261,12 +305,11 @@ mod tests {
             }
         }
 
-        let mut agent_handler = Handler::leak(AgentStartHandler { ctx: ctx.clone() });
-        ctx.set_agent_on_start_function(Some(&agent_handler))?;
+        let agent_handler = Handler::new(AgentStartHandler { ctx: ctx.clone() });
+        ctx.set_agent_on_start_function(Some(agent_handler.clone()))?;
 
         println!("{:#?}", ctx);
 
-        agent_handler.release();
         Ok(())
     }
 }

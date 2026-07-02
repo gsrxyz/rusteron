@@ -63,6 +63,7 @@ precompile-rustls = ["dep:reqwest", "dep:flate2", "dep:tar", "rustls-tls"]  # Us
 native-tls        = ["reqwest?/native-tls"]   # Use native-tls for reqwest
 rustls-tls        = ["reqwest?/rustls"]         # Use rustls instead of native-tls for reqwest
 build-from-source = ["dep:bindgen", "dep:cmake", "dep:dunce", "dep:proc-macro2"]  # Builds Aeron C from source (requires cmake and a C++ compiler)
+sanitize-address = ["build-from-source"]  # Compiles the Aeron C sources with -fsanitize=address (use with RUSTFLAGS="-Zsanitizer=address")
 
 [package.metadata.docs.rs]
 features        = ["static", "precompile"]

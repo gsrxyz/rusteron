@@ -79,7 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     for i in 0..10 {
         let msg = format!("History-{i}");
-        while publication.offer(msg.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+        while publication.offer_simple(msg.as_bytes()).is_err() {
             sleep(Duration::from_millis(1));
         }
     }

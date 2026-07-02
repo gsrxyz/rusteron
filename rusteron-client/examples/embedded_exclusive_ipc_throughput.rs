@@ -28,8 +28,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let running_subscriber = Arc::clone(&running);
 
     let ctx = AeronContext::new()?;
-    let mut error_handler = Handler::leak(AeronErrorHandlerLogger);
-    ctx.set_error_handler(Some(&error_handler))?;
+    let error_handler = Handler::new(AeronErrorHandlerLogger);
+    ctx.set_error_handler(Some(error_handler.clone()))?;
     let dir = std::env::var("AERON_DIR").expect("AERON_DIR must be set");
     ctx.set_dir(&dir.into_c_string())?;
     let aeron = Aeron::new(&ctx)?;
@@ -56,7 +56,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Publisher::new(running_publisher, publication).run();
     subscriber_thread.join().expect("Subscriber thread failed").unwrap();
-    error_handler.release();
 
     Ok(())
 }
@@ -78,20 +77,15 @@ impl Publisher {
 
         while self.running.load(Ordering::Acquire) {
             loop {
-                let result = self
-                    .publication
-                    .offer(&buffer, Handlers::no_reserved_value_supplier_handler());
-                if result > 0 {
-                    break;
-                }
-                // Fatal -> publication gone; stop the benchmark instead of spinning.
-                if result == PUBLICATION_CLOSED
-                    || result == PUBLICATION_MAX_POSITION_EXCEEDED
-                    || result == PUBLICATION_ERROR
-                {
-                    eprintln!("publication closed (result {result}); stopping");
-                    self.running.store(false, Ordering::Release);
-                    break;
+                match self.publication.offer_simple(&buffer) {
+                    Ok(_) => break,
+                    Err(e) if e.is_fatal() => {
+                        // Fatal -> publication gone; stop the benchmark instead of spinning.
+                        eprintln!("publication gone ({e}); stopping");
+                        self.running.store(false, Ordering::Release);
+                        break;
+                    }
+                    Err(_) => {}
                 }
                 back_pressure_count += 1;
                 if !self.running.load(Ordering::Acquire) {
@@ -128,7 +122,7 @@ impl AeronFragmentHandlerCallback for MsgCount {
 
 impl ImageRateSubscriber {
     fn new(running: Arc<AtomicBool>, subscription: AeronSubscription, message_length: usize) -> Self {
-        let poll_handler = Handler::leak(MsgCount { message_count: 0 });
+        let poll_handler = Handler::new(MsgCount { message_count: 0 });
         ImageRateSubscriber {
             running,
             subscription,

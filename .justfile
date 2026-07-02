@@ -168,6 +168,19 @@ test:
   cargo test  --workspace --doc
   cargo test  --workspace --all-targets --all-features -- --nocapture
 
+# Run client tests with AddressSanitizer on the Aeron C sources (see README "AddressSanitizer")
+test-asan:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  export ASAN_OPTIONS="detect_leaks=0:${ASAN_OPTIONS:-}"
+  if [[ "$(uname)" == "Darwin" ]]; then
+    export DYLD_LIBRARY_PATH="$(clang -print-resource-dir)/lib/darwin:${DYLD_LIBRARY_PATH:-}"
+    cargo test -p rusteron-client --features sanitize-address -- --nocapture
+  else
+    RUSTFLAGS="-Zsanitizer=address" cargo +nightly test -p rusteron-client -Zbuild-std \
+      --target "$(rustc -vV | sed -n 's/host: //p')" --features sanitize-address -- --nocapture
+  fi
+
 # Run slow consumer tests (normally ignored)
 slow-tests:
   cargo test --package rusteron-archive --lib --features "precompile static" -- --ignored --nocapture

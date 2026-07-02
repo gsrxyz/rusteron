@@ -22,19 +22,6 @@ unsafe impl Send for AeronSubscription {}
 unsafe impl Send for AeronPublication {}
 unsafe impl Send for AeronCounter {}
 
-/// Map an Aeron publication position to a `Result`: a non-negative value is the
-/// new stream position (`Ok`); a negative value is a wire-level Aeron error code
-/// mapped to the matching [`AeronCError`] (e.g. back-pressure, closed,
-/// not-connected). This is the mapping consumers such as wingfoil/aerofoil have
-/// had to hand-roll on top of the raw-`i64` `offer`/`try_claim` returns.
-fn publication_position_to_result(position: i64) -> Result<i64, AeronCError> {
-    if position < 0 {
-        Err(AeronCError::from_code(position as i32))
-    } else {
-        Ok(position)
-    }
-}
-
 /// High-level connection state of a publication or subscription.
 ///
 /// [`AeronPublication::status`] / [`AeronSubscription::status`] derive
@@ -58,12 +45,86 @@ impl AeronStatus {
     /// Derive a status from an `offer` / `try_claim` error when it corresponds
     /// to a known transition (`BackPressured` / `Closed`). Returns `None` for
     /// errors that are not status-like (e.g. `MaxPositionExceeded`).
-    pub fn from_error(error: &AeronCError) -> Option<Self> {
-        match error.kind() {
-            AeronErrorType::PublicationBackPressured => Some(Self::BackPressured),
-            AeronErrorType::PublicationClosed => Some(Self::Closed),
+    pub fn from_error(error: &AeronOfferError) -> Option<Self> {
+        match error {
+            AeronOfferError::BackPressured => Some(Self::BackPressured),
+            AeronOfferError::Closed => Some(Self::Closed),
+            AeronOfferError::NotConnected => Some(Self::Disconnected),
             _ => None,
         }
+    }
+}
+
+/// Aeron's named idle strategies, as accepted by the context / media-driver
+/// `set_*_idle_strategy` options (the C `aeron_idle_strategy_load` symbol table).
+///
+/// For [`AeronIdleStrategyKind::Sleeping`], the sleep period is configured separately via
+/// `set_idle_strategy_init_args` (nanoseconds as a string).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AeronIdleStrategyKind {
+    /// Sleep when idle (`"sleeping"`); period from the init args.
+    Sleeping,
+    /// Yield the OS thread when idle (`"yield"`).
+    Yielding,
+    /// Busy-spin (`"spin"`) — lowest latency, pins a core.
+    BusySpin,
+    /// Never back off (`"noop"`).
+    NoOp,
+    /// Spin, then yield, then park with exponential backoff (`"backoff"`) — the default.
+    Backoff,
+}
+
+impl AeronIdleStrategyKind {
+    /// The name the C loader expects.
+    pub const fn name(&self) -> &'static str {
+        match self {
+            AeronIdleStrategyKind::Sleeping => "sleeping",
+            AeronIdleStrategyKind::Yielding => "yield",
+            AeronIdleStrategyKind::BusySpin => "spin",
+            AeronIdleStrategyKind::NoOp => "noop",
+            AeronIdleStrategyKind::Backoff => "backoff",
+        }
+    }
+}
+
+impl AeronIdleStrategyKind {
+    /// Default init args accepted by this strategy's loader (the C client validates the
+    /// currently-set init args when the strategy is set, so they must be coherent):
+    /// sleeping takes a period in ns; backoff takes `maxSpins-maxYields-minParkNs-maxParkNs`
+    /// (hyphen-separated); the rest ignore init args.
+    pub const fn default_init_args(&self) -> &'static str {
+        match self {
+            AeronIdleStrategyKind::Sleeping => "1000000", // 1ms
+            AeronIdleStrategyKind::Backoff => "10-20-1000-1000000", // aeron defaults
+            _ => "",
+        }
+    }
+}
+
+impl Aeron {
+    /// Connect to a media driver in one call: context, client, and conductor start.
+    ///
+    /// `dir` is the media driver directory (`None` uses the aeron default). For tuned
+    /// setups — error handlers, driver timeout, idle strategy — build the
+    /// [`AeronContext`] yourself and use [`Aeron::new`].
+    pub fn connect(dir: Option<&str>) -> Result<Aeron, AeronCError> {
+        let ctx = AeronContext::new()?;
+        if let Some(dir) = dir {
+            ctx.set_dir(&dir.into_c_string())?;
+        }
+        let aeron = Aeron::new(&ctx)?;
+        aeron.start()?;
+        Ok(aeron)
+    }
+}
+
+impl AeronContext {
+    /// Typed variant of [`Self::set_idle_strategy`]: configures the conductor's idle
+    /// strategy without stringly-typed names, setting coherent default init args
+    /// (override afterwards with [`Self::set_idle_strategy_init_args`] if needed).
+    pub fn set_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {
+        self.set_idle_strategy_init_args(&kind.default_init_args().into_c_string())?;
+        self.set_idle_strategy(&kind.name().into_c_string())
     }
 }
 
@@ -389,7 +450,76 @@ impl AeronCncMetadata {
     }
 }
 
+unsafe extern "C" fn rusteron_image_visitor<F: FnMut(&AeronImage)>(
+    image: *mut aeron_image_t,
+    clientd: *mut ::std::os::raw::c_void,
+) {
+    let f = &mut *(clientd as *mut F);
+    let image = AeronImage {
+        inner: CResource::Borrowed(image),
+    };
+    f(&image);
+}
+
 impl AeronSubscription {
+    /// A retained image handle for `index`, or `None` when no such image exists.
+    ///
+    /// The C client retains the image on this call; the returned [`AeronImage`] releases it
+    /// automatically when the last clone drops (no manual `aeron_image_release`). If the
+    /// subscription is closed first, the release is skipped — the C client has already
+    /// reclaimed the image.
+    pub fn image_at_index(&self, index: usize) -> Option<AeronImage> {
+        let image = unsafe { aeron_subscription_image_at_index(self.get_inner(), index) };
+        self.wrap_retained_image(image)
+    }
+
+    /// A retained image handle for `session_id`, or `None` when no such image exists.
+    /// Same automatic-release semantics as [`Self::image_at_index`].
+    pub fn image_by_session_id(&self, session_id: i32) -> Option<AeronImage> {
+        let image = unsafe { aeron_subscription_image_by_session_id(self.get_inner(), session_id) };
+        self.wrap_retained_image(image)
+    }
+
+    fn wrap_retained_image(&self, image: *mut aeron_image_t) -> Option<AeronImage> {
+        if image.is_null() {
+            return None;
+        }
+        let subscription = self.clone();
+        let resource = ManagedCResource::new(
+            move |ctx| {
+                unsafe { *ctx = image };
+                0
+            },
+            Some(Box::new(move |ctx| unsafe {
+                // skip the release if the subscription was closed first — the C client
+                // reclaimed the image during the subscription close
+                if !subscription.get_inner().is_null() {
+                    aeron_subscription_image_release(subscription.get_inner(), *ctx)
+                } else {
+                    0
+                }
+            })),
+            false,
+        )
+        .ok()?;
+        Some(AeronImage {
+            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+        })
+    }
+
+    /// Borrow-scoped iteration over the current images — zero retain/release bookkeeping.
+    /// The borrowed [`AeronImage`] is only valid inside the closure; call
+    /// [`Self::image_at_index`] / [`Self::image_by_session_id`] for a handle that outlives it.
+    pub fn for_each_image<F: FnMut(&AeronImage)>(&self, mut f: F) {
+        unsafe {
+            aeron_subscription_for_each_image(
+                self.get_inner(),
+                Some(rusteron_image_visitor::<F>),
+                &mut f as *mut _ as *mut ::std::os::raw::c_void,
+            )
+        }
+    }
+
     pub fn async_add_destination(
         &mut self,
         client: &Aeron,
@@ -631,6 +761,32 @@ impl std::error::Error for AeronCError {}
 const PARSE_CSTR_ERROR_CODE: i32 = -132131;
 
 impl AeronUriStringBuilder {
+    /// Fresh builder for an `aeron:ipc` channel.
+    pub fn ipc() -> Result<Self, AeronCError> {
+        let builder = AeronUriStringBuilder::new_zeroed_on_heap();
+        builder.init_new()?;
+        builder.media(Media::Ipc)?;
+        Ok(builder)
+    }
+
+    /// Fresh builder for an `aeron:udp` channel with the given `endpoint` (`host:port`).
+    pub fn udp(endpoint: &str) -> Result<Self, AeronCError> {
+        let builder = AeronUriStringBuilder::new_zeroed_on_heap();
+        builder.init_new()?;
+        builder.media(Media::Udp)?.endpoint(endpoint)?;
+        Ok(builder)
+    }
+
+    /// Fresh builder for an `aeron:udp` multi-destination channel with the given
+    /// `control` endpoint and [`ControlMode`] (`Dynamic` for MDC publications,
+    /// `Manual` for MDS subscriptions/publications, `Response` for response channels).
+    pub fn udp_control(control: &str, mode: ControlMode) -> Result<Self, AeronCError> {
+        let builder = AeronUriStringBuilder::new_zeroed_on_heap();
+        builder.init_new()?;
+        builder.media(Media::Udp)?.control(control)?.control_mode(mode)?;
+        Ok(builder)
+    }
+
     /// Close previous builder state and run a re-init function.
     ///
     /// Closes the previous C builder state directly (reserving the cleanup
@@ -995,6 +1151,36 @@ impl AeronUriStringBuilder {
 }
 
 impl AeronCountersReader {
+    /// Find the first counter of `type_id` whose key matches `predicate`.
+    ///
+    /// The type ids are the bindgen'd `AERON_COUNTER_*_TYPE_ID` constants; the key layout
+    /// is type-specific (see `aeron_counters.h`). Mirrors Java's `CountersReader` lookups.
+    pub fn find_by_type_id(&self, type_id: i32, mut predicate: impl FnMut(&[u8]) -> bool) -> Option<i32> {
+        let mut found = None;
+        self.foreach_counter_once(|_value, id, counter_type_id, key, _label| {
+            if found.is_none() && counter_type_id == type_id && predicate(key) {
+                found = Some(id);
+            }
+        });
+        found
+    }
+
+    /// Find the first counter of `type_id` keyed by `registration_id` — the layout used by
+    /// aeron's per-stream counters (publisher limit/position, sender/receiver positions,
+    /// subscriber position: the key starts with the registration id as a little-endian
+    /// `i64`). Mirrors Java's `findCounterIdByRegistration`-style helpers, e.g.:
+    ///
+    /// ```no_compile
+    /// let registration_id = publication.get_constants()?.registration_id;
+    /// let limit_counter = counters_reader
+    ///     .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, registration_id);
+    /// ```
+    pub fn find_by_type_and_registration_id(&self, type_id: i32, registration_id: i64) -> Option<i32> {
+        self.find_by_type_id(type_id, |key| {
+            key.len() >= 8 && i64::from_le_bytes(key[..8].try_into().unwrap()) == registration_id
+        })
+    }
+
     #[inline]
     #[doc = "Get the label for a counter."]
     #[doc = ""]
@@ -1126,27 +1312,45 @@ impl AeronControlledFragmentHandlerCallback for AeronControlledFragmentAssembler
     }
 }
 
-impl<T: AeronFragmentHandlerCallback> Handler<T> {
-    pub fn leak_with_fragment_assembler(
+impl<T: AeronFragmentHandlerCallback + 'static> Handler<T> {
+    /// Wrap `handler` in a fragment assembler; both are reference-counted and freed
+    /// automatically when the last clones drop (the assembler keeps the delegate alive).
+    pub fn with_fragment_assembler(
         handler: T,
     ) -> Result<(Handler<AeronFragmentAssembler>, Handler<T>), AeronCError> {
-        let handler = Handler::leak(handler);
+        let handler = Handler::new(handler);
         Ok((
-            Handler::leak(AeronFragmentAssembler::new(Some(&handler))?),
+            Handler::new(AeronFragmentAssembler::new(Some(&handler))?),
             handler,
         ))
     }
+
+    #[deprecated(note = "handlers no longer leak; use Handler::with_fragment_assembler")]
+    pub fn leak_with_fragment_assembler(
+        handler: T,
+    ) -> Result<(Handler<AeronFragmentAssembler>, Handler<T>), AeronCError> {
+        Self::with_fragment_assembler(handler)
+    }
 }
 
-impl<T: AeronControlledFragmentHandlerCallback> Handler<T> {
+impl<T: AeronControlledFragmentHandlerCallback + 'static> Handler<T> {
+    /// Wrap `handler` in a controlled fragment assembler; both are reference-counted and
+    /// freed automatically when the last clones drop.
+    pub fn with_controlled_fragment_assembler(
+        handler: T,
+    ) -> Result<(Handler<AeronControlledFragmentAssembler>, Handler<T>), AeronCError> {
+        let handler = Handler::new(handler);
+        Ok((
+            Handler::new(AeronControlledFragmentAssembler::new(Some(&handler))?),
+            handler,
+        ))
+    }
+
+    #[deprecated(note = "handlers no longer leak; use Handler::with_controlled_fragment_assembler")]
     pub fn leak_with_controlled_fragment_assembler(
         handler: T,
     ) -> Result<(Handler<AeronControlledFragmentAssembler>, Handler<T>), AeronCError> {
-        let handler = Handler::leak(handler);
-        Ok((
-            Handler::leak(AeronControlledFragmentAssembler::new(Some(&handler))?),
-            handler,
-        ))
+        Self::with_controlled_fragment_assembler(handler)
     }
 }
 
@@ -1245,44 +1449,74 @@ impl Drop for AeronClaim {
 }
 
 impl AeronPublication {
-    /// Like [`AeronPublication::offer`](AeronPublication::offer) but maps a
-    /// negative Aeron code to a typed [`AeronCError`] (e.g. back-pressure,
-    /// closed, not-connected) instead of returning a raw `i64`.
+    /// Raw, branch-free variant of [`Self::offer`]: returns the new stream position, or a
+    /// negative Aeron sentinel (see [`AeronOfferError::from_position`]).
     #[inline]
-    pub fn offer_result<H: AeronReservedValueSupplierCallback>(
+    pub fn offer_raw<H: AeronReservedValueSupplierCallback>(
         &self,
         buffer: &[u8],
         reserved_value_supplier: Option<&Handler<H>>,
-    ) -> Result<i64, AeronCError> {
-        publication_position_to_result(self.offer::<H>(buffer, reserved_value_supplier))
+    ) -> i64 {
+        unsafe {
+            aeron_publication_offer(
+                self.get_inner(),
+                buffer.as_ptr() as *mut _,
+                buffer.len(),
+                {
+                    let callback: aeron_reserved_value_supplier_t = if reserved_value_supplier.is_none() {
+                        None
+                    } else {
+                        Some(aeron_reserved_value_supplier_t_callback::<H>)
+                    };
+                    callback
+                },
+                reserved_value_supplier
+                    .map(|m| m.as_raw())
+                    .unwrap_or_else(|| std::ptr::null_mut()),
+            )
+        }
     }
 
-    /// Convenience for [`AeronPublication::offer_result`](Self::offer_result)
-    /// with no reserved-value supplier.
+    /// Non-blocking publish of `buffer`, returning the new stream position.
+    ///
+    /// Errors are typed: check [`AeronOfferError::is_retryable`] to drive retry
+    /// loops (back pressure / admin action / not connected) vs fatal conditions
+    /// (closed, max position exceeded). Use [`Self::offer_raw`] for the raw sentinel.
     #[inline]
-    pub fn offer_result_simple(&self, buffer: &[u8]) -> Result<i64, AeronCError> {
-        self.offer_result::<AeronReservedValueSupplierLogger>(
-            buffer,
-            Handlers::no_reserved_value_supplier_handler(),
-        )
-    }
-
-    /// Like [`AeronPublication::try_claim`](AeronPublication::try_claim) but
-    /// maps a negative Aeron code to a typed [`AeronCError`].
-    #[inline]
-    pub fn try_claim_result(
+    pub fn offer<H: AeronReservedValueSupplierCallback>(
         &self,
-        length: usize,
-        buffer_claim: &AeronBufferClaim,
-    ) -> Result<i64, AeronCError> {
-        publication_position_to_result(self.try_claim(length, buffer_claim))
+        buffer: &[u8],
+        reserved_value_supplier: Option<&Handler<H>>,
+    ) -> Result<i64, AeronOfferError> {
+        AeronOfferError::from_position(self.offer_raw(buffer, reserved_value_supplier))
+    }
+
+    /// [`Self::offer`] with no reserved-value supplier.
+    #[inline]
+    pub fn offer_simple(&self, buffer: &[u8]) -> Result<i64, AeronOfferError> {
+        self.offer::<AeronReservedValueSupplierLogger>(buffer, Handlers::no_reserved_value_supplier_handler())
+    }
+
+    /// Raw, branch-free variant of [`Self::try_claim`]: position or negative sentinel.
+    #[inline]
+    pub fn try_claim_raw(&self, length: usize, buffer_claim: &AeronBufferClaim) -> i64 {
+        unsafe { aeron_publication_try_claim(self.get_inner(), length, buffer_claim.get_inner()) }
+    }
+
+    /// Zero-copy claim of `length` bytes; write into the claim then `commit()`.
+    ///
+    /// Same typed-error semantics as [`Self::offer`]. Prefer
+    /// [`Self::try_claim_owned`] for RAII abort-on-drop.
+    #[inline]
+    pub fn try_claim(&self, length: usize, buffer_claim: &AeronBufferClaim) -> Result<i64, AeronOfferError> {
+        AeronOfferError::from_position(self.try_claim_raw(length, buffer_claim))
     }
 
     /// Zero-copy claim returning a RAII [`AeronClaim`] that is auto-aborted on
     /// drop unless explicitly committed or aborted.
-    pub fn try_claim_owned(&self, length: usize) -> Result<AeronClaim, AeronCError> {
+    pub fn try_claim_owned(&self, length: usize) -> Result<AeronClaim, AeronOfferError> {
         let claim = AeronBufferClaim::new_zeroed_on_stack();
-        let position = publication_position_to_result(self.try_claim(length, &claim))?;
+        let position = self.try_claim(length, &claim)?;
         Ok(AeronClaim {
             claim,
             position,
@@ -1304,45 +1538,74 @@ impl AeronPublication {
 }
 
 impl AeronExclusivePublication {
-    /// Like [`AeronExclusivePublication::offer`](AeronExclusivePublication::offer)
-    /// but maps a negative Aeron code to a typed [`AeronCError`].
+    /// Raw, branch-free variant of [`Self::offer`]: returns the new stream position, or a
+    /// negative Aeron sentinel (see [`AeronOfferError::from_position`]).
     #[inline]
-    pub fn offer_result<H: AeronReservedValueSupplierCallback>(
+    pub fn offer_raw<H: AeronReservedValueSupplierCallback>(
         &self,
         buffer: &[u8],
         reserved_value_supplier: Option<&Handler<H>>,
-    ) -> Result<i64, AeronCError> {
-        publication_position_to_result(self.offer::<H>(buffer, reserved_value_supplier))
+    ) -> i64 {
+        unsafe {
+            aeron_exclusive_publication_offer(
+                self.get_inner(),
+                buffer.as_ptr() as *mut _,
+                buffer.len(),
+                {
+                    let callback: aeron_reserved_value_supplier_t = if reserved_value_supplier.is_none() {
+                        None
+                    } else {
+                        Some(aeron_reserved_value_supplier_t_callback::<H>)
+                    };
+                    callback
+                },
+                reserved_value_supplier
+                    .map(|m| m.as_raw())
+                    .unwrap_or_else(|| std::ptr::null_mut()),
+            )
+        }
     }
 
-    /// Convenience for
-    /// [`AeronExclusivePublication::offer_result`](Self::offer_result) with no
-    /// reserved-value supplier.
+    /// Non-blocking publish of `buffer`, returning the new stream position.
+    ///
+    /// Errors are typed: check [`AeronOfferError::is_retryable`] to drive retry
+    /// loops (back pressure / admin action / not connected) vs fatal conditions
+    /// (closed, max position exceeded). Use [`Self::offer_raw`] for the raw sentinel.
     #[inline]
-    pub fn offer_result_simple(&self, buffer: &[u8]) -> Result<i64, AeronCError> {
-        self.offer_result::<AeronReservedValueSupplierLogger>(
-            buffer,
-            Handlers::no_reserved_value_supplier_handler(),
-        )
-    }
-
-    /// Like [`AeronExclusivePublication::try_claim`]
-    /// (AeronExclusivePublication::try_claim) but maps a negative Aeron code to
-    /// a typed [`AeronCError`].
-    #[inline]
-    pub fn try_claim_result(
+    pub fn offer<H: AeronReservedValueSupplierCallback>(
         &self,
-        length: usize,
-        buffer_claim: &AeronBufferClaim,
-    ) -> Result<i64, AeronCError> {
-        publication_position_to_result(self.try_claim(length, buffer_claim))
+        buffer: &[u8],
+        reserved_value_supplier: Option<&Handler<H>>,
+    ) -> Result<i64, AeronOfferError> {
+        AeronOfferError::from_position(self.offer_raw(buffer, reserved_value_supplier))
+    }
+
+    /// [`Self::offer`] with no reserved-value supplier.
+    #[inline]
+    pub fn offer_simple(&self, buffer: &[u8]) -> Result<i64, AeronOfferError> {
+        self.offer::<AeronReservedValueSupplierLogger>(buffer, Handlers::no_reserved_value_supplier_handler())
+    }
+
+    /// Raw, branch-free variant of [`Self::try_claim`]: position or negative sentinel.
+    #[inline]
+    pub fn try_claim_raw(&self, length: usize, buffer_claim: &AeronBufferClaim) -> i64 {
+        unsafe { aeron_exclusive_publication_try_claim(self.get_inner(), length, buffer_claim.get_inner()) }
+    }
+
+    /// Zero-copy claim of `length` bytes; write into the claim then `commit()`.
+    ///
+    /// Same typed-error semantics as [`Self::offer`]. Prefer
+    /// [`Self::try_claim_owned`] for RAII abort-on-drop.
+    #[inline]
+    pub fn try_claim(&self, length: usize, buffer_claim: &AeronBufferClaim) -> Result<i64, AeronOfferError> {
+        AeronOfferError::from_position(self.try_claim_raw(length, buffer_claim))
     }
 
     /// Zero-copy claim returning a RAII [`AeronClaim`] that is auto-aborted on
     /// drop unless explicitly committed or aborted.
-    pub fn try_claim_owned(&self, length: usize) -> Result<AeronClaim, AeronCError> {
+    pub fn try_claim_owned(&self, length: usize) -> Result<AeronClaim, AeronOfferError> {
         let claim = AeronBufferClaim::new_zeroed_on_stack();
-        let position = publication_position_to_result(self.try_claim(length, &claim))?;
+        let position = self.try_claim(length, &claim)?;
         Ok(AeronClaim {
             claim,
             position,
@@ -1464,21 +1727,16 @@ impl FnMutMessageHandler {
 }
 
 pub struct AeronFragmentClosureAssembler {
-    assembler: AeronFragmentAssembler,
+    assembler: Handler<AeronFragmentAssembler>,
     handler: Handler<FnMutMessageHandler>,
-    assembler_handler: Handler<AeronFragmentAssembler>,
 }
 
 impl AeronFragmentClosureAssembler {
     pub fn new() -> Result<Self, AeronCError> {
-        let handler = Handler::leak(FnMutMessageHandler::new());
+        let handler = Handler::new(FnMutMessageHandler::new());
         Ok(Self {
-            assembler: AeronFragmentAssembler::new(Some(&handler))?,
+            assembler: Handler::new(AeronFragmentAssembler::new(Some(&handler))?),
             handler,
-            assembler_handler: Handler {
-                raw_ptr: std::ptr::null_mut(),
-                should_drop: false,
-            },
         })
     }
 
@@ -1488,13 +1746,7 @@ impl AeronFragmentClosureAssembler {
         func: fn(&mut T, &[u8], AeronHeader),
     ) -> Option<&Handler<AeronFragmentAssembler>> {
         self.handler.set(ctx, func);
-        self.assembler_handler.raw_ptr = &mut self.assembler as *mut _;
-        Some(&self.assembler_handler)
-    }
-}
-impl Drop for AeronFragmentClosureAssembler {
-    fn drop(&mut self) {
-        self.handler.release();
+        Some(&self.assembler)
     }
 }
 
@@ -1562,21 +1814,16 @@ impl AeronControlledFragmentHandlerCallback for FnMutControlledMessageHandler {
 }
 
 pub struct AeronControlledFragmentClosureAssembler {
-    assembler: AeronControlledFragmentAssembler,
+    assembler: Handler<AeronControlledFragmentAssembler>,
     handler: Handler<FnMutControlledMessageHandler>,
-    assembler_handler: Handler<AeronControlledFragmentAssembler>,
 }
 
 impl AeronControlledFragmentClosureAssembler {
     pub fn new() -> Result<Self, AeronCError> {
-        let handler = Handler::leak(FnMutControlledMessageHandler::new());
+        let handler = Handler::new(FnMutControlledMessageHandler::new());
         Ok(Self {
-            assembler: AeronControlledFragmentAssembler::new(Some(&handler))?,
+            assembler: Handler::new(AeronControlledFragmentAssembler::new(Some(&handler))?),
             handler,
-            assembler_handler: Handler {
-                raw_ptr: std::ptr::null_mut(),
-                should_drop: false,
-            },
         })
     }
 
@@ -1586,14 +1833,7 @@ impl AeronControlledFragmentClosureAssembler {
         func: fn(&mut T, &[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     ) -> Option<&Handler<AeronControlledFragmentAssembler>> {
         self.handler.set(ctx, func);
-        self.assembler_handler.raw_ptr = &mut self.assembler as *mut _;
-        Some(&self.assembler_handler)
-    }
-}
-
-impl Drop for AeronControlledFragmentClosureAssembler {
-    fn drop(&mut self) {
-        self.handler.release();
+        Some(&self.assembler)
     }
 }
 
@@ -1833,46 +2073,58 @@ mod aeron_custom_tests {
     use super::*;
 
     #[test]
-    fn position_to_result_positive_is_ok_position() {
-        assert_eq!(super::publication_position_to_result(0), Ok(0));
-        assert_eq!(super::publication_position_to_result(12_345), Ok(12_345));
+    fn from_position_positive_is_ok_position() {
+        assert_eq!(AeronOfferError::from_position(0), Ok(0));
+        assert_eq!(AeronOfferError::from_position(12_345), Ok(12_345));
     }
 
     #[test]
-    fn position_to_result_back_pressure_is_minus_two() {
-        let err = super::publication_position_to_result(-2).expect_err("-2 is an error");
-        assert!(err.is_back_pressured());
-        assert_eq!(err.kind(), AeronErrorType::PublicationBackPressured);
+    fn from_position_maps_every_sentinel_distinctly() {
+        assert_eq!(
+            AeronOfferError::from_position(-1),
+            Err(AeronOfferError::NotConnected)
+        );
+        assert_eq!(
+            AeronOfferError::from_position(-2),
+            Err(AeronOfferError::BackPressured)
+        );
+        assert_eq!(
+            AeronOfferError::from_position(-3),
+            Err(AeronOfferError::AdminAction)
+        );
+        assert_eq!(AeronOfferError::from_position(-4), Err(AeronOfferError::Closed));
+        assert_eq!(
+            AeronOfferError::from_position(-5),
+            Err(AeronOfferError::MaxPositionExceeded)
+        );
     }
 
     #[test]
-    fn position_to_result_closed_is_minus_four() {
-        let err = super::publication_position_to_result(-4).expect_err("-4 is an error");
-        assert_eq!(err.kind(), AeronErrorType::PublicationClosed);
+    fn retryable_vs_fatal_classification() {
+        assert!(AeronOfferError::NotConnected.is_retryable());
+        assert!(AeronOfferError::BackPressured.is_retryable());
+        assert!(AeronOfferError::AdminAction.is_retryable());
+        assert!(AeronOfferError::Closed.is_fatal());
+        assert!(AeronOfferError::MaxPositionExceeded.is_fatal());
+        assert!(AeronOfferError::Error(AeronCError::from_code(-99)).is_fatal());
     }
 
     #[test]
-    fn position_to_result_not_connected_is_minus_one() {
-        let err = super::publication_position_to_result(-1).expect_err("-1 is an error");
-        assert_eq!(err.code, -1);
-        assert_eq!(err.kind(), AeronErrorType::GenericError);
-    }
-
-    #[test]
-    fn position_to_result_unknown_negative_preserves_code() {
-        let err = super::publication_position_to_result(-99).expect_err("-99 is an error");
-        assert_eq!(err.code, -99);
-        assert_eq!(err.kind(), AeronErrorType::Unknown(-99));
+    fn from_position_unknown_negative_preserves_code() {
+        match AeronOfferError::from_position(-99) {
+            Err(AeronOfferError::Error(e)) => assert_eq!(e.code, -99),
+            other => panic!("expected Error variant, got {other:?}"),
+        }
     }
 
     #[test]
     fn status_from_error_maps_back_pressure_and_closed() {
         assert_eq!(
-            AeronStatus::from_error(&AeronCError::from_code(-2)),
+            AeronStatus::from_error(&AeronOfferError::BackPressured),
             Some(AeronStatus::BackPressured)
         );
         assert_eq!(
-            AeronStatus::from_error(&AeronCError::from_code(-4)),
+            AeronStatus::from_error(&AeronOfferError::Closed),
             Some(AeronStatus::Closed)
         );
     }
@@ -1880,7 +2132,10 @@ mod aeron_custom_tests {
     #[test]
     fn status_from_error_returns_none_for_non_status_errors() {
         // PublicationMaxPositionExceeded (-5) is not a status-like transition.
-        assert_eq!(AeronStatus::from_error(&AeronCError::from_code(-5)), None);
+        assert_eq!(
+            AeronStatus::from_error(&AeronOfferError::MaxPositionExceeded),
+            None
+        );
     }
 
     #[test]

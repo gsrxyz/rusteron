@@ -76,8 +76,8 @@ mod tests {
         aeron_context.set_dir(&aeron_dir.into_c_string())?;
         aeron_context.set_client_name(&format!("test-{}", aeron_dir_suffix).into_c_string())?;
 
-        let mut error_handler = Handler::leak(ErrorCount::default());
-        aeron_context.set_error_handler(Some(&error_handler))?;
+        let error_handler = Handler::new(ErrorCount::default());
+        aeron_context.set_error_handler(Some(error_handler.clone()))?;
 
         // Use inner closure so we can call release() on any error path after handler is created
         let inner: Result<(Aeron, AeronArchiveContext), Box<dyn Error>> = (|| {
@@ -88,16 +88,13 @@ mod tests {
             archive_context.set_control_request_channel(&request_control_channel.as_str().into_c_string())?;
             archive_context.set_control_response_channel(&response_control_channel.as_str().into_c_string())?;
             archive_context.set_recording_events_channel(&recording_events_channel.as_str().into_c_string())?;
-            archive_context.set_error_handler(Some(&error_handler))?;
+            archive_context.set_error_handler(Some(error_handler.clone()))?;
             Ok((aeron, archive_context))
         })();
 
         match inner {
             Ok((aeron, archive_context)) => Ok((aeron, archive_context, archive_media_driver, error_handler)),
-            Err(e) => {
-                error_handler.release();
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     }
 
@@ -120,7 +117,7 @@ mod tests {
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
         // 1. Start Archive/Publisher Driver
-        let (aeron_archive, archive_context, _media_driver_archive, mut archive_error_handler) =
+        let (aeron_archive, archive_context, _media_driver_archive, archive_error_handler) =
             start_aeron_archive_with_config("archive", 8000)?;
 
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?;
@@ -129,7 +126,7 @@ mod tests {
             .expect("failed to connect to archive");
 
         // 2. Start Subscriber Driver
-        let (aeron_subscriber, _subscriber_archive_context, _media_driver_subscriber, mut subscriber_error_handler) =
+        let (aeron_subscriber, _subscriber_archive_context, _media_driver_subscriber, subscriber_error_handler) =
             start_aeron_archive_with_config("subscriber", 9000)?;
 
         let recording_port = find_unused_udp_port(20121).unwrap();
@@ -188,7 +185,7 @@ mod tests {
             let mut seq = 0u64;
             while running_clone.load(Ordering::Acquire) {
                 let message = seq.to_le_bytes();
-                while publication_clone.offer(&message, Handlers::no_reserved_value_supplier_handler()) <= 0 {
+                while publication_clone.offer_raw(&message, Handlers::no_reserved_value_supplier_handler()) <= 0 {
                     if !running_clone.load(Ordering::Acquire) {
                         break;
                     }
@@ -214,8 +211,8 @@ mod tests {
 
         // 3. Create Subscription on Subscriber Driver with localhost:0
         let subscription_channel_template = "aeron:udp?endpoint=localhost:0";
-        let mut avail_image_handler = Handler::leak(AeronAvailableImageLogger);
-        let mut unavail_image_handler = Handler::leak(AeronUnavailableImageLogger);
+        let avail_image_handler = Handler::new(AeronAvailableImageLogger);
+        let unavail_image_handler = Handler::new(AeronUnavailableImageLogger);
         let subscription = aeron_subscriber
             .async_add_subscription(
                 &subscription_channel_template.into_c_string(),
@@ -270,7 +267,7 @@ mod tests {
             expected_seq: 0,
             gaps: 0,
         };
-        let mut handler_box = Handler::leak(handler); // Leak to pass to C callback safely
+        let handler_box = Handler::new(handler); // Leak to pass to C callback safely
 
         info!("Starting slow consumer loop");
         while start_check.elapsed() < test_duration {
@@ -302,11 +299,6 @@ mod tests {
         drop(archive);
         drop(aeron_archive);
         drop(aeron_subscriber);
-        handler_box.release();
-        avail_image_handler.release();
-        unavail_image_handler.release();
-        archive_error_handler.release();
-        subscriber_error_handler.release();
         Ok(())
     }
 

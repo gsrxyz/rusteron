@@ -260,6 +260,10 @@ impl<T> ManagedCResource<T> {
     #[inline]
     pub fn mark_resource_released(&self) {
         self.resource_released.set(true);
+        // The C client frees async resources when their poll completes (created,
+        // errored, or cancelled). Null the stale pointer so any later use faults
+        // deterministically on null instead of reading freed memory.
+        self.resource.set(std::ptr::null_mut());
     }
 
     /// Closes the resource through a shared reference.
@@ -314,7 +318,10 @@ impl<T> ManagedCResource<T> {
     /// second time.  If the custom close fails, the default cleanup is restored
     /// and the resource remains retryable.
     #[allow(dead_code)]
-    pub(crate) fn close_shared_with(&self, mut custom_cleanup: impl FnMut(*mut *mut T) -> i32) -> Result<(), AeronCError> {
+    pub(crate) fn close_shared_with(
+        &self,
+        mut custom_cleanup: impl FnMut(*mut *mut T) -> i32,
+    ) -> Result<(), AeronCError> {
         if self.close_already_called.get() {
             return Ok(());
         }
@@ -525,100 +532,163 @@ impl AeronCError {
     }
 }
 
+/// Typed error for `offer` / `try_claim` on a publication.
+///
+/// Aeron returns a negative *sentinel* instead of a stream position. These are not
+/// errno-style codes — `-1` here means "not connected", not a generic error — hence
+/// this dedicated type. Use [`Self::is_retryable`] to drive retry loops.
+#[derive(Clone, PartialEq, Eq)]
+pub enum AeronOfferError {
+    /// No subscriber is connected (`-1`). Usually transient: a subscriber may
+    /// connect later. Retryable.
+    NotConnected,
+    /// Flow control or a full term buffer is applying back pressure (`-2`).
+    /// Retry after idling. Retryable.
+    BackPressured,
+    /// An administrative action (e.g. term rotation) is in progress (`-3`).
+    /// Retry immediately. Retryable.
+    AdminAction,
+    /// The publication is closed (`-4`). Fatal for this handle.
+    Closed,
+    /// The maximum stream position was reached (`-5`). Fatal: a new publication
+    /// (new session) is required.
+    MaxPositionExceeded,
+    /// Any other negative value (`-6` / unexpected). Fatal; inspect the inner
+    /// [`AeronCError`] and `Aeron::errmsg()` for detail.
+    Error(AeronCError),
+}
+
+impl AeronOfferError {
+    /// Maps a raw offer/try_claim return to `Ok(position)` or a typed error.
+    #[inline]
+    pub fn from_position(position: i64) -> Result<i64, Self> {
+        if position >= 0 {
+            return Ok(position);
+        }
+        Err(match position {
+            -1 => AeronOfferError::NotConnected,
+            -2 => AeronOfferError::BackPressured,
+            -3 => AeronOfferError::AdminAction,
+            -4 => AeronOfferError::Closed,
+            -5 => AeronOfferError::MaxPositionExceeded,
+            _ => AeronOfferError::Error(AeronCError::from_code(position as i32)),
+        })
+    }
+
+    /// A retry (possibly after idling / waiting for a subscriber) can succeed.
+    #[inline]
+    pub fn is_retryable(&self) -> bool {
+        matches!(
+            self,
+            AeronOfferError::NotConnected | AeronOfferError::BackPressured | AeronOfferError::AdminAction
+        )
+    }
+
+    /// The publication will never accept this offer again; recreate or give up.
+    #[inline]
+    pub fn is_fatal(&self) -> bool {
+        !self.is_retryable()
+    }
+}
+
+impl std::fmt::Display for AeronOfferError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AeronOfferError::NotConnected => write!(f, "publication not connected"),
+            AeronOfferError::BackPressured => write!(f, "publication back pressured"),
+            AeronOfferError::AdminAction => write!(f, "publication admin action in progress"),
+            AeronOfferError::Closed => write!(f, "publication closed"),
+            AeronOfferError::MaxPositionExceeded => write!(f, "publication max position exceeded"),
+            AeronOfferError::Error(e) => write!(f, "publication error (code {})", e.code),
+        }
+    }
+}
+
+impl std::fmt::Debug for AeronOfferError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, f)
+    }
+}
+
+impl std::error::Error for AeronOfferError {}
+
 /// # Handler
 ///
-/// `Handler` is a struct that wraps a raw pointer and a drop flag.
+/// `Handler` is a reference-counted callback holder passed to Aeron C callbacks as the
+/// `clientd` pointer.
 ///
-/// Memory is freed automatically when `Handler` goes out of scope (via `Drop`).
-/// You must ensure the `Handler` outlives the Aeron session that uses it, since Aeron
-/// holds a raw `clientd` pointer to the boxed value and will call callbacks until closed.
+/// The callback value is freed automatically when the last `Handler` clone drops. Methods
+/// that register a callback the C client retains (e.g. `AeronContext::set_error_handler`,
+/// image lifecycle handlers on subscription add) store a clone of the `Handler` inside the
+/// registering resource, so the value is guaranteed to outlive the C side's use of it —
+/// no manual `release()` is needed.
 ///
-/// Call `release()` early if you want to free the memory before the `Handler` drops.
+/// The reference count is atomic (`Arc`), so a `Handler` may be moved to another thread;
+/// it is deliberately not `Sync` — callbacks may be invoked from the conductor thread and
+/// must not be shared concurrently.
 ///
 /// ## Example
 ///
 /// ```no_compile
 /// use rusteron_code_gen::Handler;
-/// let handler = Handler::leak(your_value);
-/// // handler is freed automatically when it goes out of scope
+/// let handler = Handler::new(your_value);
+/// // the value is freed when the last clone of `handler` goes out of scope
 /// ```
 pub struct Handler<T> {
-    raw_ptr: *mut T,
-    should_drop: bool,
+    inner: std::sync::Arc<UnsafeCell<T>>,
 }
 
-unsafe impl<T> Send for Handler<T> {}
-unsafe impl<T> Sync for Handler<T> {}
+// Arc's refcount is atomic, so moving a Handler (or a clone) to another thread is fine
+// as long as T itself is Send. No Sync: the C conductor thread may call into T via the
+// raw clientd pointer, so shared &Handler across threads would race on T.
+unsafe impl<T: Send> Send for Handler<T> {}
+
+impl<T> Clone for Handler<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
 
 /// Utility method for setting empty handlers
 pub struct Handlers;
 
 impl<T> Handler<T> {
-    pub fn leak(handler: T) -> Self {
-        let raw_ptr = Box::into_raw(Box::new(handler)) as *mut _;
+    pub fn new(handler: T) -> Self {
+        let inner = std::sync::Arc::new(UnsafeCell::new(handler));
         #[cfg(feature = "extra-logging")]
-        log::info!("creating handler {:?}", raw_ptr);
-        Self {
-            raw_ptr,
-            should_drop: true,
-        }
+        log::info!("creating handler {:?}", inner.get());
+        Self { inner }
     }
 
-    pub fn is_none(&self) -> bool {
-        self.raw_ptr.is_null()
+    #[deprecated(note = "handlers no longer leak; use Handler::new — the value is freed when the last clone drops")]
+    pub fn leak(handler: T) -> Self {
+        Self::new(handler)
     }
 
+    #[deprecated(note = "no longer needed; the handler is freed automatically when the last clone drops")]
+    pub fn release(&mut self) {}
+
+    #[inline(always)]
     pub fn as_raw(&self) -> *mut std::os::raw::c_void {
-        self.raw_ptr as *mut std::os::raw::c_void
-    }
-
-    pub fn release(&mut self) {
-        if self.should_drop && !self.raw_ptr.is_null() {
-            unsafe {
-                #[cfg(feature = "extra-logging")]
-                log::info!("dropping handler {:?}", self.raw_ptr);
-                let _ = Box::from_raw(self.raw_ptr as *mut T);
-                self.should_drop = false;
-                // Null the pointer so a subsequent `Deref`/`DerefMut`/`is_none()`
-                // cannot reach freed memory. Without this, `release()` left
-                // `raw_ptr` dangling (freed-but-not-nulled) and any later deref
-                // would be use-after-free. `Drop` only acts when `should_drop`,
-                // which we already cleared, so the null is safe.
-                self.raw_ptr = std::ptr::null_mut();
-            }
-        }
-    }
-
-    pub unsafe fn new(raw_ptr: *mut T, should_drop: bool) -> Self {
-        Self { raw_ptr, should_drop }
-    }
-}
-
-impl<T> Drop for Handler<T> {
-    fn drop(&mut self) {
-        if self.should_drop && !self.raw_ptr.is_null() {
-            log::error!(
-                "Handler<{}> at {:?} is being dropped but release() was never called — \
-                 memory leak: {} bytes. Call release() explicitly when the C side no longer holds the pointer.",
-                std::any::type_name::<T>(),
-                self.raw_ptr,
-                std::mem::size_of::<T>(),
-            );
-        }
+        self.inner.get() as *mut std::os::raw::c_void
     }
 }
 
 impl<T> Deref for Handler<T> {
     type Target = T;
 
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
-        unsafe { &*self.raw_ptr as &T }
+        unsafe { &*self.inner.get() }
     }
 }
 
 impl<T> DerefMut for Handler<T> {
+    #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.raw_ptr as &mut T }
+        unsafe { &mut *self.inner.get() }
     }
 }
 
@@ -770,7 +840,21 @@ pub(crate) mod test_alloc {
         let mut lock = fd_lock::RwLock::new(file);
         let lock = lock.write().expect("Failed to acquire file lock");
 
-        let before = current_allocs();
+        // Background threads from earlier #[serial] tests (driver/conductor shutdown,
+        // captured log buffers) can allocate or free during our window and produce
+        // spurious deltas. Take the baseline only once the global count is stable.
+        let mut before = current_allocs();
+        let settle_deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            let now = current_allocs();
+            if now == before || std::time::Instant::now() > settle_deadline {
+                before = now;
+                break;
+            }
+            before = now;
+        }
+
         f();
         let after = current_allocs();
         let diff = (after - before).abs();
@@ -819,34 +903,31 @@ mod handler_tests {
     use super::*;
 
     #[test]
-    fn release_nulls_pointer_so_is_none_is_true() {
-        let mut handler = Handler::leak(42u32);
-        // Boxed value lives on the heap before release.
-        assert!(!handler.is_none(), "freshly leaked handler must be non-null");
-
-        handler.release();
-
-        // After release the inner pointer is nulled, not dangling — so a later
-        // Deref/is_none cannot reach freed memory.
-        assert!(handler.is_none(), "release() must null raw_ptr (was a UAF)");
+    fn clones_share_the_same_clientd_pointer() {
+        let handler = Handler::new(42u32);
+        let clone = handler.clone();
+        // C receives the same clientd pointer regardless of which clone
+        // registered it, so callbacks always see the same value.
+        assert_eq!(handler.as_raw(), clone.as_raw());
+        assert_eq!(*handler, 42);
     }
 
     #[test]
-    fn release_is_idempotent_no_double_free() {
-        let mut handler = Handler::leak(99u64);
-        handler.release();
-        // A second release must be a no-op: the guard `should_drop && !null`
-        // is false, so Box::from_raw is not called again (no double-free).
-        handler.release();
-        assert!(handler.is_none());
-    }
+    fn value_dropped_exactly_once_when_last_clone_drops() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static DROPS: AtomicUsize = AtomicUsize::new(0);
+        struct Counted;
+        impl Drop for Counted {
+            fn drop(&mut self) {
+                DROPS.fetch_add(1, Ordering::SeqCst);
+            }
+        }
 
-    #[test]
-    fn release_then_drop_is_silent() {
-        // After release, should_drop is false and raw_ptr is null, so Drop must
-        // not log the "memory leak" warning nor touch freed memory.
-        let mut handler = Handler::leak(7u16);
-        handler.release();
+        let handler = Handler::new(Counted);
+        let clone = handler.clone();
         drop(handler);
+        assert_eq!(DROPS.load(Ordering::SeqCst), 0, "value must outlive remaining clones");
+        drop(clone);
+        assert_eq!(DROPS.load(Ordering::SeqCst), 1, "value freed exactly once on last drop");
     }
 }

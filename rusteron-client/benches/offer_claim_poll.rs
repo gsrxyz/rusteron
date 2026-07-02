@@ -84,13 +84,13 @@ fn bench_offer(c: &mut Criterion) {
             b.iter(|| {
                 let _ = black_box(
                     h.publisher
-                        .offer(black_box(&payload), Handlers::no_reserved_value_supplier_handler()),
+                        .offer_raw(black_box(&payload), Handlers::no_reserved_value_supplier_handler()),
                 );
             });
         });
         g.bench_function("offer_result_simple", |b| {
             b.iter(|| {
-                let _ = black_box(h.publisher.offer_result_simple(black_box(&payload)));
+                let _ = black_box(h.publisher.offer_simple(black_box(&payload)));
             });
         });
         g.finish();
@@ -100,7 +100,7 @@ fn bench_offer(c: &mut Criterion) {
         let mut g = c.benchmark_group("claim");
         g.bench_function("raw_try_claim_commit", |b| {
             b.iter(|| {
-                if h.publisher.try_claim(PAYLOAD_LEN, &claim_buf) >= 0 {
+                if h.publisher.try_claim_raw(PAYLOAD_LEN, &claim_buf) >= 0 {
                     let _ = claim_buf.commit();
                 }
             });

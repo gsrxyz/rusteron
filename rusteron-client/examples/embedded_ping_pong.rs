@@ -54,8 +54,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn run_pong(running_pong: Arc<AtomicBool>) -> Result<(), Box<dyn std::error::Error>> {
     let context = AeronContext::new()?;
-    let mut error_handler = Handler::leak(AeronErrorHandlerLogger);
-    context.set_error_handler(Some(&error_handler))?;
+    let error_handler = Handler::new(AeronErrorHandlerLogger);
+    context.set_error_handler(Some(error_handler.clone()))?;
     let dir = std::env::var("AERON_DIR").expect("AERON_DIR must be set");
     context.set_dir(&dir.into_c_string())?;
     context.set_idle_sleep_duration_ns(0)?;
@@ -90,16 +90,11 @@ fn run_pong(running_pong: Arc<AtomicBool>) -> Result<(), Box<dyn std::error::Err
             let flags = self.header_values.frame.flags;
 
             loop {
-                let result = self.publisher.try_claim(buffer.len(), &self.buffer_claim);
-                if result >= 0 {
-                    break;
-                }
-                // Fatal -> publication gone; abandon this fragment rather than spin forever.
-                if result == PUBLICATION_CLOSED
-                    || result == PUBLICATION_MAX_POSITION_EXCEEDED
-                    || result == PUBLICATION_ERROR
-                {
-                    return;
+                match self.publisher.try_claim(buffer.len(), &self.buffer_claim) {
+                    Ok(_) => break,
+                    Err(e) if e.is_retryable() => continue,
+                    // Fatal -> publication gone; abandon this fragment rather than spin forever.
+                    Err(_) => return,
                 }
             }
             self.buffer_claim.frame_header_mut().flags = flags;
@@ -108,7 +103,7 @@ fn run_pong(running_pong: Arc<AtomicBool>) -> Result<(), Box<dyn std::error::Err
         }
     }
 
-    let handler = Handler::leak(PongRoundTripHandler {
+    let handler = Handler::new(PongRoundTripHandler {
         publisher: ping_publication,
         buffer_claim: Default::default(),
         header_values: Default::default(),
@@ -117,14 +112,13 @@ fn run_pong(running_pong: Arc<AtomicBool>) -> Result<(), Box<dyn std::error::Err
         let _ = pong_subscription.poll(Some(&handler), FRAGMENT_COUNT_LIMIT);
     }
     println!("Shutting down pong thread");
-    error_handler.release();
     Ok(())
 }
 
 fn run_ping(running: Arc<AtomicBool>, pong_thread: JoinHandle<()>) -> Result<Histogram<u64>, Box<dyn Error>> {
     let context = AeronContext::new()?;
-    let mut error_handler = Handler::leak(AeronErrorHandlerLogger);
-    context.set_error_handler(Some(&error_handler))?;
+    let error_handler = Handler::new(AeronErrorHandlerLogger);
+    context.set_error_handler(Some(error_handler.clone()))?;
     let dir = std::env::var("AERON_DIR").expect("AERON_DIR must be set");
     println!("idle sleep {}", context.get_idle_sleep_duration_ns());
     context.set_idle_sleep_duration_ns(0)?;
@@ -149,7 +143,7 @@ fn run_ping(running: Arc<AtomicBool>, pong_thread: JoinHandle<()>) -> Result<His
 
     let mut buffer = vec![0u8; MESSAGE_LENGTH];
 
-    let (mut handler, mut inner_handler) = Handler::leak_with_fragment_assembler(PingRoundTripHandler {
+    let (mut handler, mut inner_handler) = Handler::with_fragment_assembler(PingRoundTripHandler {
         histogram: Histogram::new(3)?,
     })
     .unwrap();
@@ -167,7 +161,6 @@ fn run_ping(running: Arc<AtomicBool>, pong_thread: JoinHandle<()>) -> Result<His
     running.store(false, Ordering::SeqCst);
     pong_thread.join().expect("Failed to join pong thread");
 
-    error_handler.release();
     let hist = &inner_handler.histogram;
     Ok(hist.clone())
 }
@@ -199,13 +192,11 @@ fn record_rtt(
     let now = Aeron::nano_clock();
     write_i64(buffer, &now);
     loop {
-        let result = pong_publication.offer(buffer, Handlers::no_reserved_value_supplier_handler());
-        if result > 0 {
-            break;
-        }
-        // Fatal -> publication gone; stop trying to send this ping.
-        if result == PUBLICATION_CLOSED || result == PUBLICATION_MAX_POSITION_EXCEEDED || result == PUBLICATION_ERROR {
-            return;
+        match pong_publication.offer_simple(buffer) {
+            Ok(_) => break,
+            Err(e) if e.is_retryable() => continue,
+            // Fatal -> publication gone; stop trying to send this ping.
+            Err(_) => return,
         }
     }
 
