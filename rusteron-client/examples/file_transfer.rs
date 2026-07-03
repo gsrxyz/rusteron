@@ -83,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let offer = |publication: &AeronPublication, message: &[u8]| -> Result<(), AeronOfferError> {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            match publication.offer_simple(message) {
+            match publication.offer(message) {
                 Ok(_) => return Ok(()),
                 Err(e) if e.is_retryable() && Instant::now() < deadline => std::hint::spin_loop(),
                 Err(e) => return Err(e),
@@ -110,8 +110,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         offset = end;
 
         // drain the subscription as we go (single process; a real receiver is remote)
-        subscription.poll(
-            assembler.process(&mut receiver, |receiver, buf, _hdr| match buf[0] {
+        assembler.poll(
+            &subscription,
+            &mut receiver,
+            |receiver, buf, _hdr| match buf[0] {
                 TAG_HEADER => {
                     receiver.correlation_id = i64::from_le_bytes(buf[1..9].try_into().unwrap());
                     receiver.expected_len = u64::from_le_bytes(buf[9..17].try_into().unwrap());
@@ -128,7 +130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     receiver.received += payload.len() as u64;
                 }
                 other => panic!("unknown message tag {other}"),
-            }),
+            },
             64,
         )?;
     }
@@ -136,15 +138,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // drain the tail until every byte has arrived
     let deadline = Instant::now() + Duration::from_secs(10);
     while receiver.received < FILE_SIZE as u64 && Instant::now() < deadline {
-        if subscription.poll(
-            assembler.process(&mut receiver, |receiver, buf, _hdr| {
+        if assembler.poll(
+            &subscription,
+            &mut receiver,
+            |receiver, buf, _hdr| {
                 if buf[0] == TAG_CHUNK {
                     let chunk_offset = u64::from_le_bytes(buf[9..17].try_into().unwrap()) as usize;
                     let payload = &buf[17..];
                     receiver.data[chunk_offset..chunk_offset + payload.len()].copy_from_slice(payload);
                     receiver.received += payload.len() as u64;
                 }
-            }),
+            },
             64,
         )? == 0
         {

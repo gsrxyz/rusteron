@@ -77,7 +77,7 @@ impl Publisher {
 
         while self.running.load(Ordering::Acquire) {
             loop {
-                match self.publication.offer_simple(&buffer) {
+                match self.publication.offer(&buffer) {
                     Ok(_) => break,
                     Err(e) if e.is_fatal() => {
                         // Fatal -> publication gone; stop the benchmark instead of spinning.

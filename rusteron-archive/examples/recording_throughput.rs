@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let publish_start = Instant::now();
     let mut sent = 0u64;
     while sent < MESSAGES {
-        match publication.offer_simple(&message) {
+        match publication.offer(&message) {
             Ok(_) => sent += 1,
             Err(e) if e.is_retryable() => {
                 back_pressure += 1;

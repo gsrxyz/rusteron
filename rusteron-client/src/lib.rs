@@ -523,7 +523,7 @@ mod tests {
                 let mut got = false;
                 let read_start = Instant::now();
                 while read_start.elapsed() < Duration::from_millis(500) {
-                    let _ = subscription.poll_once(
+                    let _ = subscription.poll_fn(
                         |msg, _hdr| {
                             if msg == payload {
                                 got = true;
@@ -621,7 +621,7 @@ mod tests {
         let offer_start = Instant::now();
         let mut offered = false;
         while offer_start.elapsed() < Duration::from_secs(2) {
-            if let Ok(pos) = publisher.offer_simple(payload) {
+            if let Ok(pos) = publisher.offer(payload) {
                 if pos >= payload.len() as i64 {
                     offered = true;
                     break;
@@ -655,7 +655,7 @@ mod tests {
         let header_ids = std::cell::Cell::new(Option::<(i32, i32)>::None);
         let read_start = Instant::now();
         while read_start.elapsed() < Duration::from_secs(2) && !(received_offer.get() && received_claim.get()) {
-            let _ = subscription.poll_once(
+            let _ = subscription.poll_fn(
                 |msg, header| {
                     header_ids.set(Some((
                         header.session_id().unwrap_or(0),
@@ -778,7 +778,7 @@ mod tests {
         let received = std::cell::Cell::new(false);
         let read_start = Instant::now();
         while read_start.elapsed() < Duration::from_secs(2) && !received.get() {
-            let _ = subscription.poll_once(
+            let _ = subscription.poll_fn(
                 |msg, _header| {
                     if msg == claim_payload {
                         received.set(true);
@@ -890,7 +890,7 @@ mod tests {
         let offer_start = Instant::now();
         let mut offered = false;
         while offer_start.elapsed() < Duration::from_secs(2) && !offered {
-            if let Ok(pos) = publisher.offer_simple(marker_payload) {
+            if let Ok(pos) = publisher.offer(marker_payload) {
                 if pos >= marker_payload.len() as i64 {
                     offered = true;
                 }
@@ -905,7 +905,7 @@ mod tests {
         let received_marker = std::cell::Cell::new(false);
         let read_start = Instant::now();
         while read_start.elapsed() < Duration::from_secs(2) && !(received_marker.get() || received_dropped.get()) {
-            let _ = subscription.poll_once(
+            let _ = subscription.poll_fn(
                 |msg, _header| {
                     if msg == dropped_payload {
                         received_dropped.set(true);
@@ -930,7 +930,7 @@ mod tests {
         let final_start = Instant::now();
         let mut final_offered = false;
         while final_start.elapsed() < Duration::from_secs(2) && !final_offered {
-            if let Ok(pos) = publisher.offer_simple(final_payload) {
+            if let Ok(pos) = publisher.offer(final_payload) {
                 if pos >= final_payload.len() as i64 {
                     final_offered = true;
                 }
@@ -1042,7 +1042,7 @@ mod tests {
         let offer_start = Instant::now();
         let mut offered = false;
         while offer_start.elapsed() < Duration::from_secs(2) && !offered {
-            if let Ok(pos) = publisher.offer_simple(valid_payload) {
+            if let Ok(pos) = publisher.offer(valid_payload) {
                 if pos >= valid_payload.len() as i64 {
                     offered = true;
                 }
@@ -1419,7 +1419,7 @@ mod tests {
         )?;
         info!("created subscription");
 
-        subscription.poll_once(|msg, header| println!("foo"), 1024).unwrap();
+        subscription.poll_fn(|msg, header| println!("foo"), 1024).unwrap();
 
         // pick a large enough size to confirm fragement assembler is working
         let string_len = media_driver_ctx.ipc_mtu_length * 100;
@@ -1514,8 +1514,8 @@ mod tests {
                 assert_eq!(buffer, "1".repeat(ctx.string_len).as_bytes());
             }
 
-            subscription.poll(assembler.process(&mut context, process_msg), 128)?;
-            assert_eq!(123, subscription.get_constants().unwrap().stream_id);
+            assembler.poll(&subscription, &mut context, process_msg, 128)?;
+            assert_eq!(123, subscription.stream_id().unwrap());
         };
 
         subscription.close()?;
@@ -1916,7 +1916,7 @@ mod tests {
 
         // Poll using the inline closure via poll_once until we receive at least 50 messages.
         while count.load(Ordering::SeqCst) < 50 && start_time.elapsed() < poll_timeout {
-            let _ = subscription.poll_once(
+            let _ = subscription.poll_fn(
                 |_msg, _header| {
                     count.fetch_add(1, Ordering::SeqCst);
                 },
@@ -1992,13 +1992,13 @@ mod tests {
         while (count1.load(Ordering::SeqCst) < 1 || count2.load(Ordering::SeqCst) < 1)
             && start_time.elapsed() < Duration::from_secs(5)
         {
-            let _ = subscription1.poll_once(
+            let _ = subscription1.poll_fn(
                 |_msg, _header| {
                     count1.fetch_add(1, Ordering::SeqCst);
                 },
                 128,
             )?;
-            let _ = subscription2.poll_once(
+            let _ = subscription2.poll_fn(
                 |_msg, _header| {
                     count2.fetch_add(1, Ordering::SeqCst);
                 },
@@ -2141,7 +2141,7 @@ mod tests {
         assert!(result > 0);
 
         while !empty_received.load(Ordering::SeqCst) && start_time.elapsed() < Duration::from_secs(5) {
-            let _ = subscription.poll_once(
+            let _ = subscription.poll_fn(
                 |msg, _header| {
                     if msg.is_empty() {
                         empty_received.store(true, Ordering::SeqCst);
@@ -2316,7 +2316,7 @@ mod tests {
 
             while test_start.elapsed() < test_duration {
                 let _ = subscription
-                    .poll_once(
+                    .poll_fn(
                         |msg, _header| {
                             if msg.len() < 16 {
                                 return;
@@ -2480,13 +2480,13 @@ mod tests {
             }
         }
 
-        sub.poll_once(
+        sub.poll_fn(
             |msg, _header| {
                 println!("Received message: {:?}", msg);
             },
             128,
         )?;
-        sub2.poll_once(
+        sub2.poll_fn(
             |msg, _header| {
                 println!("Received message: {:?}", msg);
             },
@@ -2575,7 +2575,7 @@ mod tests {
         let mut offered_pos = None;
         let offer_start = Instant::now();
         while offer_start.elapsed() < Duration::from_secs(2) && offered_pos.is_none() {
-            if let Ok(pos) = exclusive.offer_simple(payload) {
+            if let Ok(pos) = exclusive.offer(payload) {
                 offered_pos = Some(pos);
             }
             #[cfg(debug_assertions)]
@@ -2733,12 +2733,12 @@ mod tests {
         use rusteron_media_driver::AeronDriverContext;
         use serial_test::serial;
 
-        /// Tests the `for_each_fragment` ergonomic helper on `AeronSubscription`.
-        /// Verifies that the new helper receives all published messages without
+        /// Tests the `poll_fn` closure-poll on `AeronSubscription`.
+        /// Verifies that it receives all published messages without
         /// allocations on the hot path.
         #[test]
         #[serial]
-        fn for_each_fragment_receives_all_messages_no_alloc() -> Result<(), Box<dyn error::Error>> {
+        fn poll_fn_receives_all_messages_no_alloc() -> Result<(), Box<dyn error::Error>> {
             rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
 
             let media_driver_ctx = AeronDriverContext::new()?;
@@ -2810,7 +2810,7 @@ mod tests {
                 let offer_start = Instant::now();
                 let mut offered = false;
                 while offer_start.elapsed() < Duration::from_secs(2) {
-                    if let Ok(pos) = publisher.offer_simple(payload) {
+                    if let Ok(pos) = publisher.offer(payload) {
                         if pos >= payload.len() as i64 {
                             offered = true;
                             break;
@@ -2822,15 +2822,18 @@ mod tests {
                 assert!(offered, "Failed to offer message");
             }
 
-            // Use for_each_fragment to receive all messages (spin-poll pattern)
+            // Use poll_fn to receive all messages (spin-poll pattern)
             let mut received_count = 0;
             let max_iterations = 1000;
 
             for _ in 0..max_iterations {
-                let fragments = subscription.for_each_fragment(1024, |data, _header| {
-                    received_count += 1;
-                    info!("Received fragment {} bytes", data.len());
-                })?;
+                let fragments = subscription.poll_fn(
+                    |data, _header| {
+                        received_count += 1;
+                        info!("Received fragment {} bytes", data.len());
+                    },
+                    1024,
+                )?;
 
                 if fragments > 0 {
                     // Got some messages, exit spin
@@ -2853,9 +2856,12 @@ mod tests {
             let mut alloc_free_count = 0;
             let spin_alloc_test = || {
                 for _ in 0..10 {
-                    let _ = subscription.for_each_fragment(1024, |data, _header| {
-                        alloc_free_count += 1;
-                    });
+                    let _ = subscription.poll_fn(
+                        |data, _header| {
+                            alloc_free_count += 1;
+                        },
+                        1024,
+                    );
                 }
             };
 
@@ -2864,7 +2870,7 @@ mod tests {
             let alloc_after = current_allocs();
             assert!(
                 (alloc_after - alloc_before).abs() < 10,
-                "Expected no net allocation in for_each_fragment hot path"
+                "Expected no net allocation in poll_fn hot path"
             );
 
             // Cleanup
@@ -3213,7 +3219,7 @@ mod tests {
         let read_start = Instant::now();
         while received.load(Ordering::SeqCst) == 0 && read_start.elapsed() < Duration::from_secs(5) {
             subscription
-                .poll_once(
+                .poll_fn(
                     |buffer, _header| {
                         assert_eq!(buffer, payload);
                         received_copy.fetch_add(1, Ordering::SeqCst);
@@ -3505,20 +3511,20 @@ mod tests {
         let start = Instant::now();
         let mut sent = false;
         while start.elapsed() < Duration::from_secs(5) {
-            if publication.offer_simple(payload).is_ok() {
+            if publication.offer(payload).is_ok() {
                 sent = true;
                 break;
             }
             sleep(Duration::from_millis(5));
         }
         assert!(sent, "publication must work after deferred client close");
-        assert!(exclusive.offer_simple(payload).is_ok() || !exclusive.is_connected());
+        assert!(exclusive.offer(payload).is_ok() || !exclusive.is_connected());
         let received = Arc::new(AtomicUsize::new(0));
         let received_copy = received.clone();
         let read_start = Instant::now();
         while received.load(Ordering::SeqCst) == 0 && read_start.elapsed() < Duration::from_secs(5) {
             subscription
-                .poll_once(
+                .poll_fn(
                     |_buf, _hdr| {
                         received_copy.fetch_add(1, Ordering::SeqCst);
                     },
@@ -3642,7 +3648,7 @@ mod tests {
             .unwrap();
         let start = Instant::now();
         while subscription.image_count().unwrap_or(0) == 0 && start.elapsed() < Duration::from_secs(5) {
-            let _ = publisher.offer_simple(b"image-wake");
+            let _ = publisher.offer(b"image-wake");
             sleep(Duration::from_millis(10));
         }
         assert!(subscription.image_count().unwrap() >= 1);
@@ -3664,7 +3670,7 @@ mod tests {
             drop(image); // releases via aeron_subscription_image_release
         }
         // still healthy afterwards: roundtrip works
-        assert!(subscription.poll_once(|_, _| {}, 4).is_ok());
+        assert!(subscription.poll_fn(|_, _| {}, 4).is_ok());
 
         // adversarial order: subscription closed while a retained image handle lives
         let image = subscription.image_at_index(0).expect("image at 0");
@@ -3750,7 +3756,7 @@ mod tests {
         let read_start = Instant::now();
         while received.load(Ordering::SeqCst) == 0 && read_start.elapsed() < Duration::from_secs(5) {
             subscription
-                .poll_once(
+                .poll_fn(
                     |buffer, _| {
                         assert_eq!(buffer, payload);
                         received_copy.fetch_add(1, Ordering::SeqCst);
@@ -3815,7 +3821,7 @@ mod tests {
 
         // sanity roundtrip while the driver is up
         let send_start = Instant::now();
-        while publisher.offer_simple(b"pre-shutdown").is_err() && send_start.elapsed() < Duration::from_secs(5) {
+        while publisher.offer(b"pre-shutdown").is_err() && send_start.elapsed() < Duration::from_secs(5) {
             sleep(Duration::from_millis(10));
         }
 
@@ -3827,8 +3833,8 @@ mod tests {
         let start = Instant::now();
         while errors.load(Ordering::SeqCst) == 0 && start.elapsed() < Duration::from_secs(15) {
             // keep exercising the handles: must return errors, never crash
-            let _ = publisher.offer_simple(b"post-shutdown");
-            let _ = subscription.poll_once(|_, _| {}, 4);
+            let _ = publisher.offer(b"post-shutdown");
+            let _ = subscription.poll_fn(|_, _| {}, 4);
             sleep(Duration::from_millis(50));
         }
         assert!(
@@ -3837,7 +3843,7 @@ mod tests {
         );
 
         // handles remain safe after the client flags the failure
-        match publisher.offer_simple(b"after-error") {
+        match publisher.offer(b"after-error") {
             Ok(_) => {}
             Err(e) => assert!(e.is_retryable() || e.is_fatal()), // typed, not UB
         }

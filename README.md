@@ -104,13 +104,13 @@ use rusteron_client::{
     Aeron, AeronContext, AeronErrorHandlerLogger, AeronHeader, Handler, Handlers, IntoCString,
 };
 use rusteron_media_driver::{AeronDriver, AeronDriverContext};
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Embedded media driver
+    // Embedded media driver. `launch_embedded_guard` returns a RAII guard that
+    // stops the driver on drop — no manual `stop` flag / join needed.
     let driver_ctx = AeronDriverContext::new()?;
-    let (stop, driver) = AeronDriver::launch_embedded(driver_ctx.clone(), false);
+    let driver = AeronDriver::launch_embedded_guard(driver_ctx.clone(), false);
 
     let ctx = AeronContext::new()?;
     ctx.set_dir(&driver_ctx.get_dir().into_c_string())?;
@@ -131,21 +131,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?
         .poll_blocking(Duration::from_secs(5))?;
 
-    // offer() returns the log position (>0) or a negative code; retry until sent.
-    while publication.offer(b"Hello, Aeron!", Handlers::no_reserved_value_supplier_handler()) <= 0
-    {
-    }
+    // offer_simple returns Ok(position) or a typed AeronOfferError; retry the
+    // retryable ones (back-pressure / admin action / not connected).
+    while publication.offer(b"Hello, Aeron!").is_err() {}
 
-    // `poll_once` runs the closure per fragment; use a fragment assembler for messages
-    // larger than the MTU.
-    subscription.poll_once(
+    // `poll_fn` runs the closure per fragment (zero allocation); use a fragment
+    // assembler for messages larger than the MTU.
+    subscription.poll_fn(
         |msg: &[u8], header: AeronHeader| {
             println!("received {} bytes at position {:?}", msg.len(), header.position());
         },
         10,
     )?;
 
-    stop.store(true, Ordering::SeqCst);
     driver.join().ok();
     Ok(())
 }

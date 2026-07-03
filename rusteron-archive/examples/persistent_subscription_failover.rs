@@ -70,7 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     for i in 0..10 {
         let m = format!("Seed-{i}");
-        while publication.offer_simple(m.as_bytes()).is_err() {
+        while publication.offer(m.as_bytes()).is_err() {
             sleep(Duration::from_millis(1));
         }
     }
@@ -130,7 +130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (code, msg) = ps.get_failure_reason().unwrap_or((-1, "unknown".into()));
             return Err(format!("persistent subscription failed ({code}): {msg}").into());
         }
-        let _ = publication.offer_simple(b"live-beat");
+        let _ = publication.offer(b"live-beat");
         ps.poll_once(|_buf, _hdr| {}, 100)?;
         sleep(Duration::from_millis(1));
     }
@@ -162,7 +162,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (code, msg) = ps.get_failure_reason().unwrap_or((-1, "unknown".into()));
             return Err(format!("persistent subscription failed on rejoin ({code}): {msg}").into());
         }
-        let _ = publication.offer_simple(b"live-beat");
+        let _ = publication.offer(b"live-beat");
         ps.poll_once(|_buf, _hdr| {}, 100)?;
         sleep(Duration::from_millis(1));
     }

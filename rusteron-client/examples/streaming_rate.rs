@@ -99,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
     let mut sent = 0u64;
     'publish: while sent < MESSAGES && running.load(Ordering::Acquire) {
-        match publication.offer_simple(&message) {
+        match publication.offer(&message) {
             Ok(_) => sent += 1,
             Err(e) if e.is_retryable() => {
                 // back-pressure/admin-action/not-connected: idle and retry

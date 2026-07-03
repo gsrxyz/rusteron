@@ -244,7 +244,7 @@ while !ps.is_live() {
     if ps.has_failed() {
         panic!("persistent subscription failed: {:?}", ps.get_failure_reason());
     }
-    let _ = publication.offer(b"live", Handlers::no_reserved_value_supplier_handler());
+    let _ = publication.offer_with_reserved_value(b"live", Handlers::no_reserved_value_supplier_handler());
     ps.poll_once(|buf, _hdr| { /* an assembled replayed or live message */ }, 100)?;
 }
 ps.close()?;

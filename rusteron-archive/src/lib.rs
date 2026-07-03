@@ -1001,7 +1001,7 @@ mod tests {
         let mut reply_count = 0;
         while !replay_merge.is_merged() {
             assert!(!replay_merge.has_failed());
-            if replay_merge.poll_once(
+            if replay_merge.poll_fn(
                 |buffer, _header| {
                     reply_count += 1;
                     if reply_count % 10_000 == 0 {

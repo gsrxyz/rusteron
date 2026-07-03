@@ -192,7 +192,7 @@ fn record_rtt(
     let now = Aeron::nano_clock();
     write_i64(buffer, &now);
     loop {
-        match pong_publication.offer_simple(buffer) {
+        match pong_publication.offer(buffer) {
             Ok(_) => break,
             Err(e) if e.is_retryable() => continue,
             // Fatal -> publication gone; stop trying to send this ping.

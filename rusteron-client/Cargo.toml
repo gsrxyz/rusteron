@@ -77,6 +77,16 @@ name              = "basic_pub_sub"
 path              = "examples/basic_pub_sub.rs"
 
 [[example]]
+name              = "basic_publisher"
+path              = "examples/basic_publisher.rs"
+required-features = ["examples"]
+
+[[example]]
+name              = "basic_subscriber"
+path              = "examples/basic_subscriber.rs"
+required-features = ["examples"]
+
+[[example]]
 name              = "embedded_ping_pong"
 path              = "examples/embedded_ping_pong.rs"
 required-features = ["examples"]

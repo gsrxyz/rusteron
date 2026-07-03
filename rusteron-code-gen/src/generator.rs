@@ -287,7 +287,7 @@ impl ReturnType {
         if convert_errors && self.original.is_c_raw_int() {
             quote! {
                 if result < 0 {
-                    return Err(AeronCError::from_code(result));
+                    return Err(AeronCError::from_c_code(result));
                 } else {
                     return Ok(result)
                 }
@@ -654,7 +654,7 @@ impl CWrapper {
                     return_type = quote! { Result<Option<Handler<#new_type>>, AeronCError> };
                     converter = quote! {
                         if result < 0 {
-                            return Err(AeronCError::from_code(result));
+                            return Err(AeronCError::from_c_code(result));
                         } else {
                             return Ok(#name);
                         }
@@ -706,8 +706,14 @@ impl CWrapper {
                 Self::add_getter_instead_of_mut_arg_if_applicable(wrappers, method, &fn_name, &where_clause, &possible_self, &method_docs, &mut additional_methods, debug_fields);
 
                 // `_once` stack-closure variant, emitted straight from the plan (sync-only:
-                // a stack closure handed to a retained callback would dangle).
-                if plan.once_capable {
+                // a stack closure handed to a retained callback would dangle). Skipped when
+                // aeron_custom.rs hand-writes a method of the same `<name>_once` name, so
+                // custom code can override/deprecate a generated `_once` variant.
+                if plan.once_capable
+                    && !self
+                        .skipped_methods
+                        .contains(&format!("{}_once", method.struct_method_name))
+                {
                     let once_fn_name = format_ident!("{}_once", fn_name);
                     let once_generics = plan.once_generics();
                     let once_where = if once_generics.is_empty() {
@@ -818,7 +824,7 @@ impl CWrapper {
                                 log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
 
                                 if err_code < 0 {
-                                    return Err(AeronCError::from_code(err_code));
+                                    return Err(AeronCError::from_c_code(err_code));
                                 } else {
                                     return Ok(mut_result);
                                 }
@@ -2587,7 +2593,7 @@ pub fn generate_rust_code(
                                     }
                                     Ok(Some(result))
                                 }
-                                Err(AeronCError {code }) if code == 0 => {
+                                Err(e) if e.code == 0 => {
                                   Ok(None) // try again
                                 }
                                 Err(e) => {

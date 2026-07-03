@@ -48,7 +48,7 @@ pub fn main() -> Result<(), Box<dyn error::Error>> {
     let _publisher_handler = {
         std::thread::spawn(move || loop {
             // Typed offer: retry the retryable errors, stop on fatal ones.
-            match publisher.offer_simple("1".repeat(large_string_len).as_bytes()) {
+            match publisher.offer("1".repeat(large_string_len).as_bytes()) {
                 Ok(_) => {}
                 Err(e) if e.is_retryable() => error!("failed to send message ({e}); retrying"),
                 Err(e) => {

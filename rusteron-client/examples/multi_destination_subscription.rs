@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         builder.media(Media::Udp)?.control_mode(ControlMode::Manual)?;
         builder.build(256)?
     };
-    let mut subscription = aeron
+    let subscription = aeron
         .async_add_subscription(
             &mds_channel.into_c_string(),
             STREAM_ID,
@@ -49,8 +49,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let port_b = find_unused_udp_port(port_a + 1).expect("no free port");
     let destination_a = AeronUriStringBuilder::udp(&format!("127.0.0.1:{port_a}"))?.build(256)?;
     let destination_b = AeronUriStringBuilder::udp(&format!("127.0.0.1:{port_b}"))?.build(256)?;
-    subscription.add_destination(&aeron, &destination_a.clone().into_c_string(), Duration::from_secs(5))?;
-    subscription.add_destination(&aeron, &destination_b.clone().into_c_string(), Duration::from_secs(5))?;
+    subscription.add_destination(&destination_a.clone().into_c_string(), Duration::from_secs(5))?;
+    subscription.add_destination(&destination_b.clone().into_c_string(), Duration::from_secs(5))?;
     println!("subscription aggregating {destination_a} + {destination_b}");
 
     let publication_a = aeron
@@ -76,7 +76,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (publication, tag) in [(&publication_a, "feed-A"), (&publication_b, "feed-B")] {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            match publication.offer_simple(tag.as_bytes()) {
+            match publication.offer(tag.as_bytes()) {
                 Ok(_) => break,
                 Err(e) if e.is_retryable() && Instant::now() < deadline => sleep(Duration::from_millis(1)),
                 Err(e) => return Err(format!("offer on {tag} failed: {e}").into()),
@@ -87,7 +87,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut seen: HashSet<String> = HashSet::new();
     let deadline = Instant::now() + Duration::from_secs(5);
     while seen.len() < 2 && Instant::now() < deadline {
-        subscription.poll_once(
+        subscription.poll_fn(
             |buf, _hdr| {
                 let msg = String::from_utf8_lossy(buf).to_string();
                 println!("received {msg}");

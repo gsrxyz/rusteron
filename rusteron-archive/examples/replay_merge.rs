@@ -88,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             while running.load(Ordering::Acquire) {
                 let message = format!("message-{n}");
                 loop {
-                    match publication.offer_simple(message.as_bytes()) {
+                    match publication.offer(message.as_bytes()) {
                         Ok(_) => break,
                         Err(e) if e.is_retryable() => sleep(Duration::from_millis(1)),
                         Err(e) => {
@@ -147,7 +147,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if Instant::now() > deadline {
             return Err("timed out waiting for replay merge".into());
         }
-        if replay_merge.poll_once(|_buf, _hdr| received += 1, 256)? == 0 {
+        if replay_merge.poll_fn(|_buf, _hdr| received += 1, 256)? == 0 {
             if let Some(err) = archive.poll_for_error()? {
                 return Err(format!("archive error during merge: {err}").into());
             }
@@ -164,7 +164,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut live_received = 0u64;
     let deadline = Instant::now() + Duration::from_secs(10);
     while live_received < 1_000 && Instant::now() < deadline {
-        subscription.poll_once(|_buf, _hdr| live_received += 1, 256)?;
+        subscription.poll_fn(|_buf, _hdr| live_received += 1, 256)?;
     }
     assert!(live_received >= 1_000, "expected live traffic after the merge");
     println!("received {live_received} further messages live; replay-merge complete");

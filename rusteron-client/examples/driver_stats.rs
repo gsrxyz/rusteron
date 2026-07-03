@@ -43,8 +43,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )?
                 .poll_blocking(Duration::from_secs(5))?;
             for _ in 0..100 {
-                let _ = publication.offer_simple(b"stats-traffic");
-                subscription.poll_once(|_, _| {}, 16)?;
+                let _ = publication.offer(b"stats-traffic");
+                subscription.poll_fn(|_, _| {}, 16)?;
             }
             // seed the error log with a deliberately invalid channel
             let _ = aeron

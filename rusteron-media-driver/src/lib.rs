@@ -37,6 +37,51 @@ unsafe impl Send for AeronDriverContext {}
 unsafe impl Sync for AeronDriver {}
 unsafe impl Send for AeronDriver {}
 
+/// RAII guard for an embedded media driver launched via
+/// [`AeronDriver::launch_embedded_guard`]. Signals stop on drop so the driver
+/// thread always joins even on panic / early return.
+pub struct EmbeddedMediaDriver {
+    stop: Option<Arc<AtomicBool>>,
+    handle: Option<JoinHandle<Result<(), AeronCError>>>,
+}
+
+impl EmbeddedMediaDriver {
+    /// Signal the driver thread to stop (idempotent; the thread exits on its next
+    /// idle cycle). Blocks until it joins when consumed by [`Self::join`].
+    pub fn stop(&self) {
+        if let Some(stop) = &self.stop {
+            stop.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// Whether the driver thread has finished.
+    pub fn is_finished(&self) -> bool {
+        self.handle.as_ref().map_or(true, |h| h.is_finished())
+    }
+
+    /// Signal stop and block until the driver thread joins, returning its result.
+    pub fn join(mut self) -> Result<(), AeronCError> {
+        self.stop();
+        if let Some(h) = self.handle.take() {
+            // Flatten JoinHandle<Result<..>>: a panic becomes an AeronCError,
+            // the inner AeronCError is propagated.
+            return h.join().map_err(|_| AeronCError::from_code(-1)).and_then(|r| r);
+        }
+        Ok(())
+    }
+}
+
+impl Drop for EmbeddedMediaDriver {
+    fn drop(&mut self) {
+        if let Some(stop) = &self.stop {
+            stop.store(true, Ordering::SeqCst);
+        }
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+}
+
 pub mod testing;
 
 impl AeronDriverContext {
@@ -118,6 +163,20 @@ impl AeronDriver {
         info!("started media driver [dir={}]", dir);
 
         (stop_copy, handle)
+    }
+
+    /// Launch an embedded media driver, returning a RAII guard that stops the
+    /// driver on drop (so a panic or early return can't leak a driver process).
+    ///
+    /// Prefer this over [`Self::launch_embedded`], which returns a raw
+    /// `(Arc<AtomicBool>, JoinHandle)` tuple the caller must remember to drive.
+    /// `register_sigint` is `true` to mirror the standalone binary.
+    pub fn launch_embedded_guard(aeron_context: AeronDriverContext, register_sigint: bool) -> EmbeddedMediaDriver {
+        let (stop, handle) = Self::launch_embedded(aeron_context, register_sigint);
+        EmbeddedMediaDriver {
+            stop: Some(stop),
+            handle: Some(handle),
+        }
     }
 
     /// if you have existing shm files and its before the driver timeout it will try to reuse it and fail

@@ -87,7 +87,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..MESSAGES {
         let message = format!("replicated-{i}");
         loop {
-            match publication.offer_simple(message.as_bytes()) {
+            match publication.offer(message.as_bytes()) {
                 Ok(_) => break,
                 Err(e) if e.is_retryable() => sleep(Duration::from_millis(1)),
                 Err(e) => return Err(format!("offer failed: {e}").into()),

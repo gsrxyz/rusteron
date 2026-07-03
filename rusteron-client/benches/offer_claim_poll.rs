@@ -90,7 +90,7 @@ fn bench_offer(c: &mut Criterion) {
         });
         g.bench_function("offer_result_simple", |b| {
             b.iter(|| {
-                let _ = black_box(h.publisher.offer_simple(black_box(&payload)));
+                let _ = black_box(h.publisher.offer(black_box(&payload)));
             });
         });
         g.finish();

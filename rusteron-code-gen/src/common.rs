@@ -476,12 +476,26 @@ impl AeronErrorType {
 
 /// Represents an Aeron-specific error with a code and an optional message.
 ///
-/// The error code is derived from Aeron C API calls.
-/// Use `get_last_err_message()` to retrieve the last human-readable message, if available.
-#[derive(Eq, PartialEq, Clone)]
+/// The error code is derived from Aeron C API calls. When the error is created from a
+/// live C call (`from_c_code`), the human-readable `aeron_errmsg()` text is snapshotted
+/// eagerly for non-retryable codes, so it still describes *this* error when displayed
+/// later — see [`Self::message`].
+#[derive(Clone)]
 pub struct AeronCError {
     pub code: i32,
+    /// Message snapshotted from `aeron_errmsg()` at construction time (non-retryable
+    /// codes constructed via `from_c_code` only). `None` for sentinel/retryable codes,
+    /// where allocating would tax retry loops.
+    msg: Option<Box<str>>,
 }
+
+/// Equality is on `code` only — the snapshotted message is advisory.
+impl PartialEq for AeronCError {
+    fn eq(&self, other: &Self) -> bool {
+        self.code == other.code
+    }
+}
+impl Eq for AeronCError {}
 
 impl AeronCError {
     /// Creates an AeronError from the error code returned by Aeron.
@@ -522,7 +536,22 @@ impl AeronCError {
                 );
             }
         }
-        AeronCError { code }
+        AeronCError { code, msg: None }
+    }
+
+    /// Like [`Self::from_code`], but attaching a human-readable message captured at
+    /// the error site (e.g. a snapshot of `aeron_errmsg()`).
+    pub fn with_message(code: i32, msg: impl Into<Box<str>>) -> Self {
+        let mut err = Self::from_code(code);
+        err.msg = Some(msg.into());
+        err
+    }
+
+    /// Message snapshotted when this error was created, if any. Unlike reading the
+    /// global `aeron_errmsg()` later, this cannot be overwritten by a subsequent
+    /// error on the same thread.
+    pub fn message(&self) -> Option<&str> {
+        self.msg.as_deref()
     }
 
     pub fn kind(&self) -> AeronErrorType {
@@ -725,6 +754,49 @@ impl ChannelUri {
     pub const AERON_SCHEME: &'static str = "aeron";
     pub const SPY_QUALIFIER: &'static str = "aeron-spy";
     pub const MAX_URI_LENGTH: usize = 4095;
+
+    /// Return `channel` with a `session-id` param added (replacing any existing one).
+    ///
+    /// Mirrors Java's `ChannelUri.addSessionId` — the standard way to build a channel
+    /// that joins a specific session, e.g. when subscribing to an archive replay:
+    ///
+    /// ```
+    /// # use rusteron_code_gen::ChannelUri;
+    /// assert_eq!(
+    ///     ChannelUri::add_session_id("aeron:ipc", 42),
+    ///     "aeron:ipc?session-id=42"
+    /// );
+    /// assert_eq!(
+    ///     ChannelUri::add_session_id("aeron:udp?endpoint=localhost:20121", -123),
+    ///     "aeron:udp?endpoint=localhost:20121|session-id=-123"
+    /// );
+    /// ```
+    pub fn add_session_id(channel: &str, session_id: i32) -> String {
+        Self::set_param(channel, "session-id", &session_id.to_string())
+    }
+
+    /// Return `channel` with URI param `key=value` set, replacing an existing `key`
+    /// param if present. Other params keep their relative order; `key` goes last.
+    pub fn set_param(channel: &str, key: &str, value: &str) -> String {
+        let (base, params) = match channel.split_once('?') {
+            None => (channel, ""),
+            Some((base, params)) => (base, params),
+        };
+        let mut out = String::with_capacity(channel.len() + key.len() + value.len() + 2);
+        out.push_str(base);
+        out.push('?');
+        for param in params.split('|') {
+            if param.is_empty() || param.split('=').next() == Some(key) {
+                continue;
+            }
+            out.push_str(param);
+            out.push('|');
+        }
+        out.push_str(key);
+        out.push('=');
+        out.push_str(value);
+        out
+    }
 }
 
 pub const DRIVER_TIMEOUT_MS_DEFAULT: u64 = 10_000;

@@ -45,6 +45,9 @@ pub struct PlannedArg {
     pub generic: Option<TokenStream>,
     /// Post-call dependency registration for retained handlers.
     pub registration: Option<TokenStream>,
+    /// Statement(s) emitted before the FFI call (e.g. the `IntoCStr` shadow for
+    /// C-string args so the `Cow` outlives the call).
+    pub prelude: Option<TokenStream>,
     /// `_once` variant fragments (sync handlers swap Handler for a stack closure).
     pub once_signature: Option<TokenStream>,
     pub once_call: Option<TokenStream>,
@@ -75,6 +78,11 @@ impl MethodPlan {
 
     pub fn registrations(&self) -> Vec<TokenStream> {
         self.args.iter().filter_map(|a| a.registration.clone()).collect()
+    }
+
+    /// Statements emitted before the FFI call (e.g. `IntoCStr` shadows).
+    pub fn preludes(&self) -> Vec<TokenStream> {
+        self.args.iter().filter_map(|a| a.prelude.clone()).collect()
     }
 
     pub fn once_signatures(&self) -> Vec<TokenStream> {
@@ -174,6 +182,7 @@ fn plan_arg(
         call: None,
         generic: None,
         registration: None,
+        prelude: None,
         once_signature: None,
         once_call: None,
         once_generic: None,

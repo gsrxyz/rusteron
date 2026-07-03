@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("[server] response publication ready for client image {correlation_id}");
                     responders.push(publication);
                 }
-                server_subscription.poll_once(|buf, _hdr| inbox.push(buf.to_vec()), 16)?;
+                server_subscription.poll_fn(|buf, _hdr| inbox.push(buf.to_vec()), 16)?;
                 for request in inbox.drain(..) {
                     let reply = String::from_utf8_lossy(&request).to_uppercase();
                     println!(
@@ -93,7 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     for publication in &responders {
                         let deadline = Instant::now() + Duration::from_secs(5);
                         loop {
-                            match publication.offer_simple(reply.as_bytes()) {
+                            match publication.offer(reply.as_bytes()) {
                                 Ok(_) => break,
                                 Err(e) if e.is_retryable() && Instant::now() < deadline => {
                                     sleep(Duration::from_millis(1))
@@ -137,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. send a request (retry until the server's subscription connects)
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        match request_publication.offer_simple(b"hello response channels") {
+        match request_publication.offer(b"hello response channels") {
             Ok(_) => break,
             Err(e) if e.is_retryable() && Instant::now() < deadline => sleep(Duration::from_millis(10)),
             Err(e) => return Err(format!("request failed: {e}").into()),
@@ -149,7 +149,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reply_sink = reply.clone();
     let deadline = Instant::now() + Duration::from_secs(10);
     while reply.lock().unwrap().is_none() && Instant::now() < deadline {
-        response_subscription.poll_once(
+        response_subscription.poll_fn(
             |buf, _hdr| {
                 *reply_sink.lock().unwrap() = Some(String::from_utf8_lossy(buf).to_string());
             },

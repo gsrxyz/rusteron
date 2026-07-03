@@ -148,7 +148,7 @@ let subscription = aeron
     .poll_blocking(Duration::from_secs(5))?;
 
 // offer() returns the log position (>0) or a negative code — see "Errors & offer results".
-while publication.offer(b"hello", Handlers::no_reserved_value_supplier_handler()) <= 0 {}
+while publication.offer_with_reserved_value(b"hello", Handlers::no_reserved_value_supplier_handler()) <= 0 {}
 subscription.poll_once(|buf: &[u8], _hdr: AeronHeader| println!("got {} bytes", buf.len()), 10)?;
 ```
 
@@ -228,7 +228,7 @@ Breaking changes, made because the old design allowed double frees and use-after
 - **Client errors**: install an error handler on the context (`ctx.set_error_handler(Some(handler))`) so async errors aren't silently lost — Aeron's samples always do.
 - **`offer()` / `try_claim()` results**: `Result<i64, AeronOfferError>` — `Ok` is the new log position; the error is a typed sentinel with `is_retryable()` (back-pressured, admin action, not connected — retry, ideally with an idle strategy) vs fatal (closed, max position exceeded). This mirrors Aeron's `BasicPublisher.checkResult` without magic numbers:
   ```rust,ignore
-  match publication.offer_simple(msg) {
+  match publication.offer(msg) {
       Ok(_) => {}
       Err(e) if e.is_retryable() => idle.idle(), // retry
       Err(e) => return Err(e.into()),            // publication gone

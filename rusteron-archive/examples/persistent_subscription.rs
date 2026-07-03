@@ -74,7 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     for i in 0..10 {
         let msg = format!("History-{i}");
-        while publication.offer_simple(msg.as_bytes()).is_err() {
+        while publication.offer(msg.as_bytes()).is_err() {
             sleep(Duration::from_millis(1));
         }
     }
@@ -144,7 +144,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         live_sent += 1;
         let msg = format!("Live-{live_sent}");
-        let _ = publication.offer(msg.as_bytes(), Handlers::no_reserved_value_supplier_handler());
+        let _ = publication.offer_with_reserved_value(msg.as_bytes(), Handlers::no_reserved_value_supplier_handler());
         let fragments = ps.poll_once(|buf, _hdr| println!("  fragment ({} bytes)", buf.len()), 100)?;
         if fragments == 0 {
             sleep(Duration::from_millis(1));

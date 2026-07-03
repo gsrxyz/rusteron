@@ -95,7 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if Instant::now() > deadline {
                 return Err("timed out offering a message".into());
             }
-            match publication.offer_simple(msg.as_bytes()) {
+            match publication.offer(msg.as_bytes()) {
                 Ok(_) => break,
                 Err(e) if e.is_retryable() => sleep(Duration::from_millis(1)),
                 Err(e) => return Err(format!("publication gone: {e}").into()),
@@ -105,7 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("recorded {MSG_COUNT} messages");
 
     // 4. Resolve the recording id (wait for the recorder to flush what we published).
-    let session_id = publication.get_constants()?.session_id;
+    let session_id = publication.session_id();
     let counters = aeron.counters_reader();
     let counter_id = RecordingPos::find_counter_id_by_session(&counters, session_id);
     let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
@@ -120,7 +120,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let replay_params = AeronArchiveReplayParams::builder().position(0).follow_live().build()?;
     let replay_session_id =
         archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)?;
-    let replay_channel = format!("{channel}?session-id={}", replay_session_id as i32).into_c_string();
+    let replay_channel = ChannelUri::add_session_id(channel, replay_session_id as i32).into_c_string();
     let replay_sub = retry_transient(Instant::now() + Duration::from_secs(10), || {
         aeron
             .async_add_subscription(
@@ -136,7 +136,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let deadline = Instant::now() + Duration::from_secs(20);
     while received < MSG_COUNT && Instant::now() < deadline {
         // poll returns the fragment count; 0 means nothing to do this cycle.
-        let n = replay_sub.poll_once(
+        let n = replay_sub.poll_fn(
             |buf, _hdr| {
                 if let Ok(s) = std::str::from_utf8(buf) {
                     println!("replayed: {s}");
