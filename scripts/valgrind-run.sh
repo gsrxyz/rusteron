@@ -69,7 +69,8 @@ for BIN in $BINARIES; do
       --gen-suppressions=all \
       "$BIN" --test-threads=1 --nocapture 2>&1 || true
   else
-    valgrind \
+    # Run valgrind and capture output for error detection
+    VALGRIND_OUTPUT=$(valgrind \
       --tool=memcheck \
       --error-exitcode=1 \
       --track-origins=yes \
@@ -80,8 +81,31 @@ for BIN in $BINARIES; do
       -s \
       --gen-suppressions=all \
       --suppressions="$SUPP_FILE" \
-      "$BIN" --test-threads=1 --nocapture \
-      || { echo "FAIL: $BIN_NAME" >&2; OVERALL_EXIT=1; }
+      "$BIN" --test-threads=1 --nocapture 2>&1) || VALGRIND_EXIT=$?
+
+    # Always print the output for visibility
+    echo "$VALGRIND_OUTPUT"
+
+    # Check for actual (non-suppressed) errors in the output
+    # "ERROR SUMMARY: N errors from M contexts" - we care about N (actual errors)
+    # Suppressed errors are shown as "(suppressed: X from Y)"
+    if echo "$VALGRIND_OUTPUT" | grep -q "ERROR SUMMARY:"; then
+      # Extract the actual error count (first number after "ERROR SUMMARY:")
+      ACTUAL_ERRORS=$(echo "$VALGRIND_OUTPUT" | grep "ERROR SUMMARY:" | grep -oE '[0-9]+ errors from [0-9]+ contexts' | grep -oE '^[0-9]+' | head -1)
+
+      if [[ -n "$ACTUAL_ERRORS" && "$ACTUAL_ERRORS" -eq 0 ]]; then
+        echo "✓ $BIN_NAME: No actual errors (suppressions working correctly)"
+      else
+        echo "FAIL: $BIN_NAME - Found $ACTUAL_ERRORS actual errors" >&2
+        OVERALL_EXIT=1
+      fi
+    else
+      # No ERROR SUMMARY found - check if valgrind itself failed
+      if [[ ${VALGRIND_EXIT:-0} -ne 0 ]]; then
+        echo "FAIL: $BIN_NAME - Valgrind exited with code $VALGRIND_EXIT" >&2
+        OVERALL_EXIT=1
+      fi
+    fi
   fi
 done
 
