@@ -1496,8 +1496,20 @@ impl Drop for AeronClaim {
 }
 
 impl AeronPublication {
-    /// Raw, branch-free variant of [`Self::offer`]: returns the new stream position, or a
-    /// negative Aeron sentinel (see [`AeronOfferError::from_position`]).
+    /// Publish `buffer`, returning the **raw** `i64` from `aeron_publication_offer` with
+    /// no error mapping: a non-negative value is the new stream log position; a negative
+    /// value is an Aeron sentinel (`-1` not-connected, `-2` back-pressured, `-3`
+    /// admin-action, `-4` closed, `-5` max-position-exceeded, `-6`/other error).
+    ///
+    /// This is the **branch-free** variant of [`Self::offer`] / [`Self::offer_with_reserved_value`]:
+    /// it skips the `AeronOfferError::from_position` match and `Result` construction that
+    /// the typed variants do on every call. Use it in a tight publish loop where you check
+    /// `position < 0` yourself anyway — the typed `Result` is redundant overhead there (the
+    /// `offer_claim_poll` bench measures raw offer ~0.2 ns cheaper per call than typed).
+    ///
+    /// For everything else prefer [`Self::offer`] (typed, with `is_retryable()` /
+    /// `is_fatal()`). To decode a raw sentinel into a typed error, use
+    /// [`AeronOfferError::from_position`].
     #[inline]
     pub fn offer_raw<H: AeronReservedValueSupplierCallback>(
         &self,
@@ -1603,8 +1615,20 @@ impl AeronPublication {
 }
 
 impl AeronExclusivePublication {
-    /// Raw, branch-free variant of [`Self::offer`]: returns the new stream position, or a
-    /// negative Aeron sentinel (see [`AeronOfferError::from_position`]).
+    /// Publish `buffer`, returning the **raw** `i64` from `aeron_publication_offer` with
+    /// no error mapping: a non-negative value is the new stream log position; a negative
+    /// value is an Aeron sentinel (`-1` not-connected, `-2` back-pressured, `-3`
+    /// admin-action, `-4` closed, `-5` max-position-exceeded, `-6`/other error).
+    ///
+    /// This is the **branch-free** variant of [`Self::offer`] / [`Self::offer_with_reserved_value`]:
+    /// it skips the `AeronOfferError::from_position` match and `Result` construction that
+    /// the typed variants do on every call. Use it in a tight publish loop where you check
+    /// `position < 0` yourself anyway — the typed `Result` is redundant overhead there (the
+    /// `offer_claim_poll` bench measures raw offer ~0.2 ns cheaper per call than typed).
+    ///
+    /// For everything else prefer [`Self::offer`] (typed, with `is_retryable()` /
+    /// `is_fatal()`). To decode a raw sentinel into a typed error, use
+    /// [`AeronOfferError::from_position`].
     #[inline]
     pub fn offer_raw<H: AeronReservedValueSupplierCallback>(
         &self,
