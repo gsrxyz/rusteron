@@ -281,17 +281,49 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
         let san_flags = format!("-fsanitize={} -fno-omit-frame-pointer -g -O1", san);
         c_flags = format!("{} {}", san_flags, c_flags);
         cxx_flags = san_flags;
-        // rustc links with -nodefaultlibs, so the sanitizer runtime the instrumented C
-        // objects need must be put on the link line explicitly. On macOS use Apple
-        // clang's runtime (mixing rustc's own runtime with Apple-clang-instrumented
-        // objects trips the asan version-mismatch check).
-        if san == "address" && std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
-            if let Ok(output) = std::process::Command::new("clang").arg("-print-resource-dir").output() {
-                let resource_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !resource_dir.is_empty() {
-                    println!("cargo:rustc-link-search=native={resource_dir}/lib/darwin");
-                    println!("cargo:rustc-link-lib=dylib=clang_rt.asan_osx_dynamic");
+        // The instrumented Aeron C objects reference __asan_* symbols, so the
+        // crate's test/example link step needs an ASan runtime on the link line.
+        // cargo:rustc-link-arg scopes this to THIS crate's own binaries — build
+        // scripts and proc-macros are not instrumented and stay unaffected. We do
+        // NOT use `-Z sanitizer=address` (rustc's own runtime): on Linux CI the
+        // bundled LLVM (20+) is ABI-incompatible with Ubuntu's clang (14), so two
+        // runtimes abort at startup with "incompatible ASan runtimes". Instead we
+        // link the single clang/gcc libasan whose __asan_* API matches the
+        // clang-instrumented C objects.
+        if san == "address" {
+            match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
+                Ok("macos") => {
+                    if let Ok(output) =
+                        std::process::Command::new("clang").arg("-print-resource-dir").output()
+                    {
+                        let resource_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                        if !resource_dir.is_empty() {
+                            println!("cargo:rustc-link-search=native={resource_dir}/lib/darwin");
+                            println!("cargo:rustc-link-lib=dylib=clang_rt.asan_osx_dynamic");
+                        }
+                    }
                 }
+                Ok("linux") => {
+                    // Prefer clang's own runtime (exact match for the instrumentation);
+                    // fall back to the system libasan if clang's runtime dir can't be found.
+                    let linked = (|| {
+                        let out = std::process::Command::new("clang")
+                            .arg("-print-runtime-dir")
+                            .output()
+                            .ok()?;
+                        let dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                        if dir.is_empty() {
+                            return None;
+                        }
+                        println!("cargo:rustc-link-search=native={dir}");
+                        println!("cargo:rustc-link-arg=-l:libclang_rt.asan-x86_64.so");
+                        Some(())
+                    })();
+                    if linked.is_none() {
+                        println!("cargo:rustc-link-arg=-lasan");
+                    }
+                }
+                _ => {}
             }
         }
     }

@@ -120,7 +120,10 @@ jobs:
           CC: clang
           CXX: clang++
           RUSTERON_SANITIZE: address
-          RUSTFLAGS: "-C link-arg=-fsanitize=address -C link-arg=-fno-omit-frame-pointer -C target-cpu=x86-64"
+          # The build script (build_common.rs) compiles Aeron C with clang
+          # -fsanitize=address and links clang's libasan into this crate's own
+          # binaries via cargo:rustc-link-arg — single runtime, no rustc runtime.
+          RUSTFLAGS: "-C target-cpu=x86-64"
         run: cargo test -p rusteron-client --features sanitize-address -- --nocapture
 
   build:
