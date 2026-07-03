@@ -292,22 +292,33 @@ mod tests {
 
         println!("{:#?}", ctx);
 
+        // Capture the raw context pointer, NOT a context clone: the handler is
+        // owned by `ctx` (set_agent_on_start_function stores it as a dependency),
+        // so a clone would form a strong-reference cycle (ctx -> handler -> ctx)
+        // that close_resource_deferred_if_shared can never drain, leaking the C
+        // context. The raw pointer is sound because the handler cannot outlive
+        // the context that owns it.
         struct AgentStartHandler {
-            ctx: AeronDriverContext,
+            ctx_ptr: *mut aeron_driver_context_t,
         }
+        // SAFETY: see comment above — handler is owned by the context and only
+        // dereferenced on the driver agent thread while the context is alive.
+        unsafe impl Send for AgentStartHandler {}
 
         impl AeronAgentStartFuncCallback for AgentStartHandler {
             fn handle_aeron_agent_on_start_func(&mut self, role: &str) -> () {
                 unsafe {
                     aeron_set_thread_affinity_on_start(
-                        self.ctx.get_inner() as *mut _,
+                        self.ctx_ptr as *mut _,
                         std::ffi::CString::new(role).unwrap().into_raw(),
                     );
                 }
             }
         }
 
-        let agent_handler = Handler::new(AgentStartHandler { ctx: ctx.clone() });
+        let agent_handler = Handler::new(AgentStartHandler {
+            ctx_ptr: ctx.get_inner(),
+        });
         ctx.set_agent_on_start_function(Some(agent_handler.clone()))?;
 
         println!("{:#?}", ctx);

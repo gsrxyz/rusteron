@@ -427,7 +427,12 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     append_to_file(aeron.to_str().unwrap(), &formatted_code).expect("Failed to write generated code to file");
 
     if std::env::var("COPY_BINDINGS").is_ok() {
-        // helps with easier testing — refresh the committed bindings snapshot
+        // Deliberate snapshot regeneration: refresh BOTH committed snapshots from
+        // this build's output so they stay mutually consistent. Must be gated —
+        // bindings/ and docs-rs/ are platform-specific (e.g. Darwin vs Linux
+        // pthread types), so writing them on every build would corrupt whichever
+        // platform differs from the committed snapshots and trip the snapshot
+        // tests in rusteron-code-gen on CI.
         let cargo_base_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let custom_bindings_path = cargo_base_dir.join(format!("../rusteron-code-gen/bindings/{}", config.bindings_snapshot));
         if custom_bindings_path.exists() {
@@ -443,19 +448,18 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
                 custom_bindings_path.display()
             );
         }
+
+        // copy generated source so docs.rs / precompile paths don't need to build C
+        let _ = std::fs::create_dir_all(docs_rs);
+        for rs in [&aeron, &aeron_custom, &out] {
+            fs::copy(rs, docs_rs.join(rs.file_name().unwrap())).expect("Failed to copy source code for docs-rs");
+        }
     }
 
     #[cfg(feature = "static")]
     if publish_binaries {
         let cmake_lib_dir = cmake_output;
         publish_artifacts(&cmake_lib_dir).expect("Failed to publish artifacts");
-    }
-
-    // copy source code so docs-rs does not need to compile it
-    let _ = std::fs::create_dir_all(docs_rs);
-
-    for rs in [&aeron, &aeron_custom, &out] {
-        fs::copy(rs, docs_rs.join(rs.file_name().unwrap())).expect("Failed to copy source code for docs-rs");
     }
 }
 
