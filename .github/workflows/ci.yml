@@ -110,20 +110,19 @@ jobs:
           RESOURCE_DIR=$(clang -print-resource-dir)
           echo "Clang resource dir: $RESOURCE_DIR"
 
-          # Try the new path first (Ubuntu 22.04+), then legacy path
-          ASAN_PATH="$RESOURCE_DIR/lib/x86_64-unknown-linux-gnu/libclang_rt.asan.so"
-          LEGACY_PATH="$RESOURCE_DIR/lib/libclang_rt.asan-x86_64.so"
+          # Search for the ASan runtime library - try multiple possible paths
+          # Ubuntu 22.04 with LLVM-14 uses different paths than expected
+          ASAN_PATH=$(find "$RESOURCE_DIR" -name "libclang_rt.asan*.so" -o -name "libasan.so" | head -1)
 
-          if [ -f "$ASAN_PATH" ]; then
-            echo "Found ASan runtime at: $ASAN_PATH"
-            echo "path=$ASAN_PATH" >> $GITHUB_OUTPUT
-          elif [ -f "$LEGACY_PATH" ]; then
-            echo "Found ASan runtime at: $LEGACY_PATH"
-            echo "path=$LEGACY_PATH" >> $GITHUB_OUTPUT
-          else
+          if [ -z "$ASAN_PATH" ] || [ ! -f "$ASAN_PATH" ]; then
             echo "ERROR: ASan runtime not found in clang resource directory"
+            echo "Contents of $RESOURCE_DIR:"
+            ls -la "$RESOURCE_DIR" || echo "Cannot list directory"
             exit 1
           fi
+
+          echo "Found ASan runtime at: $ASAN_PATH"
+          echo "path=$ASAN_PATH" >> $GITHUB_OUTPUT
 
       - name: Clean up any stale build artifacts
         run: rm -rf target
