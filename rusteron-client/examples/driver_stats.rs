@@ -16,8 +16,7 @@
 //! ```
 
 use rusteron_client::*;
-use rusteron_media_driver::{AeronDriver, AeronDriverContext};
-use std::sync::atomic::Ordering;
+use rusteron_media_driver::testing::EmbeddedDriver;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -26,14 +25,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (dir, _embedded) = match std::env::var("AERON_DIR") {
         Ok(dir) => (dir, None),
         Err(_) => {
-            let driver_ctx = AeronDriverContext::new()?;
-            driver_ctx.set_dir_delete_on_shutdown(true)?;
-            driver_ctx.set_dir_delete_on_start(true)?;
-            driver_ctx.set_dir(&format!("{}{}", driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
-            let (stop, driver_handle) = AeronDriver::launch_embedded(driver_ctx.clone(), false);
+            let driver = EmbeddedDriver::launch()?;
 
             let ctx = AeronContext::new()?;
-            ctx.set_dir(&driver_ctx.get_dir().into_c_string())?;
+            ctx.set_dir(&driver.dir().into_c_string())?;
             let aeron = Aeron::new(&ctx)?;
             aeron.start()?;
             let publication = aeron
@@ -57,11 +52,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .and_then(|p| p.poll_blocking(Duration::from_secs(1)));
             sleep(Duration::from_millis(200));
 
-            let dir = driver_ctx.get_dir().to_string();
-            (
-                dir,
-                Some((aeron, publication, subscription, stop, driver_handle, driver_ctx)),
-            )
+            let dir = driver.dir().to_string();
+            (dir, Some((aeron, publication, subscription, driver)))
         }
     };
 
@@ -103,12 +95,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     println!("({entries} loss entrie(s))");
 
-    if let Some((aeron, publication, subscription, stop, driver_handle, _driver_ctx)) = _embedded {
+    if let Some((aeron, publication, subscription, driver)) = _embedded {
         drop(publication);
         drop(subscription);
         drop(aeron);
-        stop.store(true, Ordering::SeqCst);
-        driver_handle.join().ok();
+        drop(driver); // stops + joins
     }
     Ok(())
 }

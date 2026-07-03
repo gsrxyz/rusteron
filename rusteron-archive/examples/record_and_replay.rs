@@ -15,15 +15,10 @@
 //! See the archive README and the upstream sample
 //! <https://github.com/aeron-io/aeron/tree/main/aeron-samples/src/main/java/io/aeron/samples/archive>.
 
-use rusteron_archive::testing::EmbeddedArchiveMediaDriverProcess;
+use rusteron_archive::testing::{find_unused_udp_port, EmbeddedArchiveMediaDriverProcess};
 use rusteron_archive::*;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-
-/// Picks the first UDP port >= `start` that binds on localhost.
-fn find_unused_udp_port(start: u16) -> Option<u16> {
-    (start..65535).find(|p| std::net::UdpSocket::bind(("127.0.0.1", *p)).is_ok())
-}
 
 /// Retry `op` while it fails with a **retryable** (transient) error — back off between attempts.
 /// Abort immediately on an **unrecoverable** error, or when `deadline` passes. This is the

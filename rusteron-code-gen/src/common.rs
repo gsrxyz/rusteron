@@ -1,3 +1,13 @@
+// ─── Compilation contexts (read before adding code here) ────────────────────────────
+// This file compiles in TWO contexts:
+//   1. as `mod common` inside rusteron-code-gen itself (unit tests, shared types), and
+//   2. verbatim inside every generated crate's `aeron.rs` (via COMMON_CODE include_str).
+// Consequence: nothing here may depend on impls that live in `aeron_custom*.rs` — those
+// exist only in context 2 (e.g. AeronCError's Debug/Display). That is why AeronOfferError
+// hand-rolls its Debug. Crate-specific code belongs in `aeron_custom.rs` (all crates) or
+// `aeron_custom_<crate>.rs` (one crate); build-script-only code goes in `build_common.rs`.
+// ─────────────────────────────────────────────────────────────────────────────────────
+
 use crate::AeronErrorType::Unknown;
 #[cfg(feature = "backtrace")]
 use std::backtrace::Backtrace;

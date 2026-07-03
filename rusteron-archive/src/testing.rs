@@ -394,3 +394,8 @@ pub fn set_panic_hook() {
         process::abort();
     }))
 }
+
+/// First free UDP port at or above `start` (binds a probe socket to check).
+pub fn find_unused_udp_port(start: u16) -> Option<u16> {
+    (start..65535).find(|p| std::net::UdpSocket::bind(("127.0.0.1", *p)).is_ok())
+}

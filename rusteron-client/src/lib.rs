@@ -41,43 +41,6 @@ pub const PUBLICATION_ERROR: i64 = bindings::AERON_PUBLICATION_ERROR as i64;
 include!(concat!(env!("OUT_DIR"), "/aeron.rs"));
 include!(concat!(env!("OUT_DIR"), "/aeron_custom.rs"));
 
-// Retryable / unrecoverable classification for Aeron errors (hand-written — the codegen drops
-// doc-commented methods from common.rs). GenericError(-1) and Unknown(_) are intentionally
-// neither: `-1` is Aeron's catch-all and could mean anything, so the caller must decide.
-impl AeronErrorType {
-    /// Transient — retry the operation (back off first): back-pressure, admin action, a full
-    /// client buffer, or a polling timeout.
-    pub fn is_retryable(&self) -> bool {
-        self == &AeronErrorType::PublicationBackPressured
-            || self == &AeronErrorType::PublicationAdminAction
-            || self == &AeronErrorType::ClientErrorBufferFull
-            || self == &AeronErrorType::TimedOut
-    }
-
-    /// Definitively terminal — retrying will not help. Not exhaustive: ambiguous codes
-    /// (`GenericError` / `Unknown`) are neither retryable nor unrecoverable.
-    pub fn is_unrecoverable(&self) -> bool {
-        self == &AeronErrorType::PublicationClosed
-            || self == &AeronErrorType::PublicationMaxPositionExceeded
-            || self == &AeronErrorType::PublicationError
-            || self == &AeronErrorType::ClientErrorDriverTimeout
-            || self == &AeronErrorType::ClientErrorClientTimeout
-            || self == &AeronErrorType::ClientErrorConductorServiceTimeout
-    }
-}
-
-impl AeronCError {
-    /// Transient failure — retry the operation (back off first). See [`AeronErrorType::is_retryable`].
-    pub fn is_retryable(&self) -> bool {
-        self.kind().is_retryable()
-    }
-
-    /// Definitively terminal — abort the operation. See [`AeronErrorType::is_unrecoverable`].
-    pub fn is_unrecoverable(&self) -> bool {
-        self.kind().is_unrecoverable()
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Idle strategies for poll loops. Pure-Rust port of Aeron's `IdleStrategy`
 // (Java/C++): pass the work count from the last `poll` to `idle(work_count)`; it returns
@@ -2918,39 +2881,30 @@ mod tests {
     /// Helper: set up an embedded media driver + Aeron client.
     fn setup_aeron_for_uaf_test() -> (
         Aeron,
-        std::sync::Arc<std::sync::atomic::AtomicBool>,
-        std::thread::JoinHandle<Result<(), rusteron_media_driver::AeronCError>>,
+        rusteron_media_driver::testing::EmbeddedDriver,
         Handler<TestErrorCount>,
     ) {
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
 
-        let media_driver_ctx = AeronDriverContext::new().unwrap();
-        media_driver_ctx.set_dir_delete_on_shutdown(true).unwrap();
-        media_driver_ctx.set_dir_delete_on_start(true).unwrap();
-        media_driver_ctx
-            .set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())
-            .unwrap();
-        let (stop, driver_handle) =
-            rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
+        let driver = rusteron_media_driver::testing::EmbeddedDriver::launch().unwrap();
 
         let ctx = AeronContext::new().unwrap();
-        ctx.set_dir(&media_driver_ctx.get_dir().into_c_string()).unwrap();
+        ctx.set_dir(&driver.dir().into_c_string()).unwrap();
         let error_handler = Handler::new(TestErrorCount::default());
         ctx.set_error_handler(Some(error_handler.clone())).unwrap();
 
         let aeron = Aeron::new(&ctx).unwrap();
         aeron.start().unwrap();
 
-        (aeron, stop, driver_handle, error_handler)
+        (aeron, driver, error_handler)
     }
 
     fn teardown_aeron_after_uaf_test(
-        stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
-        driver_handle: std::thread::JoinHandle<Result<(), rusteron_media_driver::AeronCError>>,
+        driver: rusteron_media_driver::testing::EmbeddedDriver,
         error_handler: Handler<TestErrorCount>,
     ) {
-        stop.store(true, Ordering::SeqCst);
-        let _ = driver_handle.join();
+        drop(driver); // stops + joins on Drop
+        drop(error_handler);
     }
 
     /// Prove structural safety: drop(aeron) while children hold Rc references.
@@ -2965,7 +2919,7 @@ mod tests {
     #[test]
     #[serial]
     fn drop_client_before_children_is_safe_test() {
-        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
 
         // Create all resource types.
         let publisher = aeron
@@ -3014,13 +2968,13 @@ mod tests {
         drop(excl_pub);
 
         // Teardown.
-        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+        teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
     #[test]
     #[serial]
     fn cloned_leaf_handles_close_once_and_null_all_clones() {
-        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
 
         let publisher = aeron
             .add_publication(AERON_IPC_STREAM, 1101, Duration::from_secs(5))
@@ -3065,13 +3019,13 @@ mod tests {
         assert!(exclusive_publisher_clone.close().is_ok());
 
         assert!(aeron.close().is_ok());
-        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+        teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
     #[test]
     #[serial]
     fn close_with_handler_invokes_publication_close_notification_and_nulls_clones() {
-        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
 
         let notification_count = Arc::new(AtomicUsize::new(0));
         let close_handler = Handler::new(CloseNotificationCount {
@@ -3096,13 +3050,13 @@ mod tests {
         assert_eq!(1, notification_count.load(Ordering::SeqCst));
 
         assert!(aeron.close().is_ok());
-        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+        teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
     #[test]
     #[serial]
     fn explicit_client_close_defers_while_children_are_alive() {
-        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
 
         let publisher = aeron
             .add_publication(AERON_IPC_STREAM, 1201, Duration::from_secs(5))
@@ -3151,13 +3105,13 @@ mod tests {
         drop(exclusive_publisher);
 
         assert!(aeron.close().is_ok());
-        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+        teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
     #[test]
     #[serial]
     fn explicit_client_clone_close_defers_and_original_remains_usable() {
-        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
 
         let aeron_clone = aeron.clone();
         assert!(aeron_clone.close().is_ok());
@@ -3169,13 +3123,13 @@ mod tests {
         assert!(publisher.close().is_ok());
 
         assert!(aeron.close().is_ok());
-        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+        teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
     #[test]
     #[serial]
     fn closing_leaf_resource_does_not_poison_client_or_siblings() {
-        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
 
         let publisher = aeron
             .add_publication(AERON_IPC_STREAM, 1401, Duration::from_secs(5))
@@ -3202,7 +3156,7 @@ mod tests {
         assert!(subscription.close().is_ok());
         assert!(next_publisher.close().is_ok());
         assert!(aeron.close().is_ok());
-        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+        teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
     /// After `aeron.close()` the surviving handles must remain fully usable —
@@ -3211,7 +3165,7 @@ mod tests {
     #[test]
     #[serial]
     fn client_close_defers_and_children_remain_fully_usable() {
-        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
 
         let publisher = aeron
             .add_publication(AERON_IPC_STREAM, 1501, Duration::from_secs(5))
@@ -3264,7 +3218,7 @@ mod tests {
         drop(publisher);
         drop(subscription);
         assert!(aeron.close().is_ok());
-        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+        teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
     struct CountingAvailableImageHandler {
@@ -3291,7 +3245,7 @@ mod tests {
     #[test]
     #[serial]
     fn retained_image_handler_outlives_callers_drop_and_frees_exactly_once() {
-        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
 
         let available = Arc::new(AtomicUsize::new(0));
         let drops = Arc::new(AtomicUsize::new(0));
@@ -3344,7 +3298,7 @@ mod tests {
             drops.load(Ordering::SeqCst),
             "handler must be freed exactly once after its owning resources close"
         );
-        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+        teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
     /// Dropping an async poller *without polling it* must not free its retained
@@ -3354,7 +3308,7 @@ mod tests {
     #[test]
     #[serial]
     fn unpolled_async_subscription_drop_keeps_image_handler_alive() {
-        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
 
         let available = Arc::new(AtomicUsize::new(0));
         let drops = Arc::new(AtomicUsize::new(0));
@@ -3401,7 +3355,7 @@ mod tests {
         drop(publisher);
         drop(aeron);
         assert_eq!(1, drops.load(Ordering::SeqCst), "freed exactly once at client close");
-        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+        teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
     /// A failed async add (invalid URI) must fail cleanly: the error surfaces from
@@ -3410,7 +3364,7 @@ mod tests {
     #[test]
     #[serial]
     fn async_add_subscription_invalid_uri_fails_cleanly() {
-        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
 
         let bad_uri = &"aeron:udp?endpoint=not-a-real-host:0|interface=500.500.500.500".into_c_string();
         match aeron.async_add_subscription(
@@ -3449,7 +3403,7 @@ mod tests {
         assert!(!publisher.get_inner().is_null());
         assert!(publisher.close().is_ok());
         assert!(aeron.close().is_ok());
-        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+        teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
     /// The full dependency graph at once — context (with error handler), client + clone,
@@ -3607,7 +3561,7 @@ mod tests {
     #[test]
     #[serial]
     fn counters_can_be_found_by_type_and_registration_id() {
-        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
 
         let publisher = aeron
             .add_publication(AERON_IPC_STREAM, 1951, Duration::from_secs(5))
@@ -3649,7 +3603,7 @@ mod tests {
         drop(publisher);
         drop(subscription);
         drop(aeron);
-        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+        teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
     /// Retained images are released back to the subscription automatically when the
@@ -3658,7 +3612,7 @@ mod tests {
     #[test]
     #[serial]
     fn retained_images_release_automatically_in_any_drop_order() {
-        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
 
         let publisher = aeron
             .add_publication(AERON_IPC_STREAM, 1901, Duration::from_secs(5))
@@ -3705,7 +3659,7 @@ mod tests {
 
         drop(publisher);
         drop(aeron);
-        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+        teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
     /// `close_now` is the unsafe escape hatch: the C close runs immediately.
@@ -3714,7 +3668,7 @@ mod tests {
     #[test]
     #[serial]
     fn close_now_with_clones_only_is_safe() {
-        let (aeron, stop, driver_handle, error_handler) = setup_aeron_for_uaf_test();
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
 
         let clone = aeron.clone();
         unsafe {
@@ -3722,7 +3676,7 @@ mod tests {
         }
         assert!(clone.get_inner().is_null(), "clones must see the nulled pointer");
         assert!(clone.close().is_ok(), "closing an already-closed clone is a no-op");
-        teardown_aeron_after_uaf_test(stop, driver_handle, error_handler);
+        teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
     /// The client stores the raw context pointer in C for its entire life, so the
@@ -3981,7 +3935,7 @@ mod tests {
                 signal(SIGBUS, uaf_sigbus_handler);
                 signal(SIGSEGV, uaf_sigbus_handler);
 
-                let (aeron, stop, _driver_handle, error_handler) = setup_aeron_for_uaf_test();
+                let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
                 let publisher = aeron
                     .add_publication(AERON_IPC_STREAM, 1006, Duration::from_secs(5))
                     .unwrap();
@@ -4014,7 +3968,7 @@ mod tests {
 
                 // mprotect not supported on this platform — clean exit.
                 drop(error_handler);
-                let _ = stop;
+                std::mem::forget(driver); // child process: no clean driver teardown needed
                 _exit(0);
             }
 

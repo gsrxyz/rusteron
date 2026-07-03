@@ -13,17 +13,12 @@
 //! See the archive README's "Persistent Subscriptions" section and the upstream docs:
 //! <https://github.com/aeron-io/aeron/wiki/Persistent-Subscriptions>
 
-use rusteron_archive::testing::EmbeddedArchiveMediaDriverProcess;
+use rusteron_archive::testing::{find_unused_udp_port, EmbeddedArchiveMediaDriverProcess};
 use rusteron_archive::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-
-/// Picks the first UDP port >= `start` that binds on localhost.
-fn find_unused_udp_port(start: u16) -> Option<u16> {
-    (start..65535).find(|p| std::net::UdpSocket::bind(("127.0.0.1", *p)).is_ok())
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();

@@ -608,196 +608,25 @@ impl CWrapper {
                 let mut return_type = return_type_helper.get_new_return_type(true, false);
                 let ffi_call = Ident::new(&method.fn_name, proc_macro2::Span::call_site());
 
-                // Retained-callback setters (single retained handler arg, int return, &self)
-                // take the callback value by ownership: the wrapper heap-allocates it into a
-                // Handler, registers it as a dependency of this resource, and returns it so
-                // the caller can optionally keep access to its state.
-                let uses_self_precheck = method
-                    .arguments
-                    .iter()
-                    .any(|arg| arg.is_single_mut_pointer() && arg.c_type.ends_with(self.type_name.as_str()));
-                let handler_value_args: Vec<&Arg> = method
-                    .arguments
-                    .iter()
-                    .filter(|a| matches!(a.processing, ArgProcessing::Handler(_)) && !a.is_mut_pointer())
-                    .collect();
-                let has_mut_primitive = method.arguments.iter().any(|a| a.is_mut_pointer() && a.is_primitive());
-                let owned_retained_handler: Option<Arg> = if uses_self_precheck
-                    && !has_mut_primitive
-                    && method.return_type.is_c_raw_int()
-                    && handler_value_args.len() == 1
-                {
-                    let a = handler_value_args[0];
-                    if let ArgProcessing::Handler(hc) = &a.processing {
-                        if !is_sync_handler_type(&hc[0].c_type) {
-                            Some(a.clone())
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-                let is_owned_handler_arg =
-                    |arg: &Arg| owned_retained_handler.as_ref().map(|o| o.name == arg.name).unwrap_or(false);
+                // One classification pass: every argument becomes a PlannedArg carrying its
+                // signature/call/generic/registration/_once fragments (see plan.rs). All
+                // emitters below consume the plan — no parallel loops to keep in sync.
+                let plan = crate::plan::plan_method(method, &self.type_name, wrappers, closure_handlers);
+                let uses_self = plan.uses_self;
+                let owned_retained_handler = plan.owned_retained.clone();
 
-                // Filter out arguments that are `*mut` of the struct's type
-                let generic_types: Vec<TokenStream> = method
-                    .arguments
-                    .iter()
-                    .flat_map(|arg| {
-                        ReturnType::new(arg.clone(), wrappers.clone())
-                            .method_generics_for_where(false)
-                            .into_iter()
-                    })
-                    .collect_vec();
+                let generic_types: Vec<TokenStream> = plan.generics();
                 let where_clause = if generic_types.is_empty() {
                     quote! {}
                 } else {
                     quote! { <#(#generic_types),*> }
                 };
 
-                let fn_arguments: Vec<TokenStream> = method
-                    .arguments
-                    .iter()
-                    .filter_map(|arg| {
-                        let ty = &arg.c_type;
-                        let t = if arg.is_single_mut_pointer() {
-                            ty.split(" ").last().unwrap()
-                        } else {
-                            "notfound"
-                        };
-                        if let Some(matching_wrapper) = wrappers.get(t) {
-                            if matching_wrapper.type_name == self.type_name {
-                                None
-                            } else {
-                                let arg_name = arg.as_ident();
-                                let arg_type = ReturnType::new(arg.clone(), wrappers.clone())
-                                    .get_new_return_type(false, true);
-                                if arg_type.is_empty() {
-                                    None
-                                } else {
-                                    Some(quote! { #arg_name: #arg_type })
-                                }
-                            }
-                        } else if is_owned_handler_arg(arg) {
-                            let arg_name = arg.as_ident();
-                            let new_type = parse_str::<Type>(&format!(
-                                "{}HandlerImpl",
-                                snake_to_pascal_case(&arg.c_type)
-                            ))
-                            .expect("Invalid class name in wrapper");
-                            Some(quote! { #arg_name: Option<#new_type> })
-                        } else {
-                            let arg_name = arg.as_ident();
-                            let arg_type = ReturnType::new(arg.clone(), wrappers.clone())
-                                .get_new_return_type(false, true);
-                            if arg_type.is_empty() {
-                                None
-                            } else {
-                                Some(quote! { #arg_name: #arg_type })
-                            }
-                        }
-                    })
-                    .filter(|t| !t.is_empty())
-                    .collect();
-
-                let mut uses_self = false;
-
-                // Filter out argument names for the FFI call
-                let mut arg_names: Vec<TokenStream> = method
-                    .arguments
-                    .iter()
-                    .filter_map(|arg| {
-                        let ty = &arg.c_type;
-                        let t = if arg.is_single_mut_pointer() {
-                            ty.split(" ").last().unwrap()
-                        } else {
-                            "notfound"
-                        };
-                        if let Some(_matching_wrapper) = wrappers.get(t) {
-                            let field_name = arg.as_ident();
-                            if ty.ends_with(self.type_name.as_str()) {
-                                uses_self = true;
-                                Some(quote! { self.get_inner() })
-                            } else {
-                                Some(quote! { #field_name.get_inner() })
-                            }
-                        } else if is_owned_handler_arg(arg) {
-                            // The prelude has already heap-allocated the callback into
-                            // `#name` (Handler) and captured its clientd as `#name_raw`,
-                            // so the FFI call only sees Copy raw parts.
-                            if let ArgProcessing::Handler(handler_client) = &arg.processing {
-                                let handler = handler_client.get(0).unwrap();
-                                let handler_type = handler.as_type();
-                                let raw_name = format_ident!("{}_raw", arg.name);
-                                let shim = format_ident!("{}_callback", handler.c_type);
-                                let new_type = parse_str::<Type>(&format!(
-                                    "{}HandlerImpl",
-                                    snake_to_pascal_case(&arg.c_type)
-                                ))
-                                .expect("Invalid class name in wrapper");
-                                Some(quote! {
-                                    {
-                                        let callback: #handler_type = if #raw_name.is_null() {
-                                            None
-                                        } else {
-                                            Some(#shim::<#new_type>)
-                                        };
-                                        callback
-                                    },
-                                    #raw_name
-                                })
-                            } else {
-                                unreachable!("owned handler arg must have Handler processing")
-                            }
-                        } else {
-                            let arg_name = arg.as_ident();
-                            let arg_name = quote! { #arg_name };
-                            let arg_name = ReturnType::new(arg.clone(), wrappers.clone())
-                                .handle_rs_to_c_return(arg_name, false);
-                            Some(quote! { #arg_name })
-                        }
-                    })
-                    .filter(|t| !t.is_empty())
-                    .collect();
+                let fn_arguments: Vec<TokenStream> = plan.signatures();
+                let mut arg_names: Vec<TokenStream> = plan.calls();
+                let retained_handler_registrations: Vec<TokenStream> = plan.registrations();
 
                 let mut converter = return_type_helper.handle_c_to_rs_return(quote! { result }, true, false);
-
-                // For callbacks the C client retains beyond this call (everything not in
-                // SYNC_HANDLER_TYPES), clone the Handler into this resource's dependencies
-                // so the callback value stays alive until the C resource is closed.
-                let retained_handler_registrations: Vec<TokenStream> = method
-                    .arguments
-                    .iter()
-                    .filter_map(|arg| {
-                        if let ArgProcessing::Handler(handler_client) = &arg.processing {
-                            if !arg.is_mut_pointer() {
-                                let handler = handler_client.get(0).unwrap();
-                                if !is_sync_handler_type(&handler.c_type) {
-                                    let name = arg.as_ident();
-                                    // Owned setters hold `Option<Handler<T>>` (borrow it);
-                                    // borrow-style methods hold `Option<&Handler<T>>` (Copy).
-                                    let matched = if is_owned_handler_arg(arg) {
-                                        quote! { &#name }
-                                    } else {
-                                        quote! { #name }
-                                    };
-                                    return Some(quote! {
-                                        if let Some(__handler) = #matched {
-                                            if let Some(__inner) = self.inner.as_owned() {
-                                                __inner.add_dependency(__handler.clone());
-                                            }
-                                        }
-                                    });
-                                }
-                            }
-                        }
-                        None
-                    })
-                    .collect();
 
                 // Heap-allocate the owned callback and capture its raw clientd before the
                 // FFI call, so the Handler itself stays available for registration/return.
@@ -876,7 +705,47 @@ impl CWrapper {
                 // getter methods
                 Self::add_getter_instead_of_mut_arg_if_applicable(wrappers, method, &fn_name, &where_clause, &possible_self, &method_docs, &mut additional_methods, debug_fields);
 
-                Self::add_once_methods_for_handlers(closure_handlers, method, &fn_name, &return_type, &ffi_call, &where_clause, &fn_arguments, &mut arg_names, &converter, &possible_self, &method_docs, &mut additional_methods, &set_closed);
+                // `_once` stack-closure variant, emitted straight from the plan (sync-only:
+                // a stack closure handed to a retained callback would dangle).
+                if plan.once_capable {
+                    let once_fn_name = format_ident!("{}_once", fn_name);
+                    let once_generics = plan.once_generics();
+                    let once_where = if once_generics.is_empty() {
+                        quote! {}
+                    } else {
+                        quote! { <#(#once_generics),*> }
+                    };
+                    let once_args = plan.once_signatures();
+                    let once_calls = plan.once_calls();
+                    let once_log_expr = Self::generate_arg_logging(&method.arguments, &once_calls);
+                    additional_methods.push(quote! {
+                        #[inline]
+                        #(#method_docs)*
+                        ///
+                        ///
+                        /// `_once` variant: the closure is borrowed for this call only — the callback fires
+                        /// synchronously inside it, so nothing is stored and no allocation occurs. It may
+                        /// borrow local state. Only generated for callbacks the C client does not retain.
+                        pub fn #once_fn_name #once_where(#possible_self #(#once_args),*) -> #return_type {
+                            #set_closed
+                            unsafe {
+                                #[cfg(feature = "log-c-bindings")]
+                                log::info!(
+                                    "{}({})",
+                                    stringify!(#ffi_call),
+                                    #once_log_expr
+                                );
+
+                                let result = #ffi_call(#(#once_calls),*);
+
+                                #[cfg(feature = "log-c-bindings")]
+                                log::info!("  -> {:?}", result);
+
+                                #converter
+                            }
+                        }
+                    });
+                }
 
                 let mut_primitivies = method.arguments.iter()
                     .filter(|a| a.is_mut_pointer() && a.is_primitive())
@@ -1012,145 +881,6 @@ impl CWrapper {
                 None
             })
             .collect()
-    }
-
-    fn add_once_methods_for_handlers(
-        closure_handlers: &Vec<CHandler>,
-        method: &Method,
-        fn_name: &Ident,
-        return_type: &TokenStream,
-        ffi_call: &Ident,
-        where_clause: &TokenStream,
-        fn_arguments: &Vec<TokenStream>,
-        arg_names: &mut Vec<TokenStream>,
-        converter: &TokenStream,
-        possible_self: &TokenStream,
-        method_docs: &Vec<TokenStream>,
-        additional_methods: &mut Vec<TokenStream>,
-        set_closed: &TokenStream,
-    ) {
-        // Only generate `_once` stack-closure variants when every callback is invoked
-        // synchronously during the FFI call. For retained callbacks (the C client stores
-        // the clientd pointer and calls back later) a stack closure would dangle — those
-        // methods only accept a `Handler`, which is kept alive via the resource's
-        // dependencies.
-        let handler_args: Vec<&Arg> = method
-            .arguments
-            .iter()
-            .filter(|arg| matches!(arg.processing, ArgProcessing::Handler(_)) && !arg.is_mut_pointer())
-            .collect();
-        let all_handlers_sync = !handler_args.is_empty()
-            && handler_args.iter().all(|arg| {
-                if let ArgProcessing::Handler(handler_client) = &arg.processing {
-                    is_sync_handler_type(&handler_client[0].c_type)
-                } else {
-                    false
-                }
-            });
-        if all_handlers_sync {
-            let fn_name = format_ident!("{}_once", fn_name);
-
-            // replace type to be FnMut
-            let mut where_clause = where_clause.to_string();
-
-            for c in closure_handlers.iter() {
-                if !c.closure_type_name.is_empty() {
-                    where_clause =
-                        where_clause.replace(&c.closure_type_name.to_string(), &c.fn_mut_signature.to_string());
-                }
-            }
-            let where_clause = parse_str::<TokenStream>(&where_clause).unwrap();
-
-            // replace arguments from Handler to Closure
-            let fn_arguments = fn_arguments.iter().map(|arg| {
-                let mut arg = arg.clone();
-                let str = arg.to_string();
-                if str.contains("& Handler ") {
-                    // e.g. callback : Option < & Handler < AeronErrorLogReaderFuncHandlerImpl >>
-                    let parts = str.split(" ").collect_vec();
-                    let variable_name = parse_str::<TokenStream>(parts[0]).unwrap();
-                    let closure_type = parse_str::<TokenStream>(parts[parts.len() - 2]).unwrap();
-                    arg = quote! { mut #variable_name : #closure_type };
-                }
-
-                arg
-            });
-
-            // update code to directly call closure without need of box or handler
-            let arg_names = arg_names.iter().map(|x| {
-                let mut str = x.to_string()
-                    .replace("_callback :: <", "_callback_for_once_closure :: <")
-                    ;
-
-                if str.contains("_callback_for_once_closure") {
-                    /*
-                        let callback: aeron_counters_reader_foreach_counter_func_t = if func.is_none() {
-                                None
-                            } else {
-                                Some(
-                                    aeron_counters_reader_foreach_counter_func_t_callback_for_once_closure::<
-                                        AeronCountersReaderForeachCounterFuncHandlerImpl,
-                                    >,
-                                )
-                            };
-                            callback
-                        },
-                        func.map(|m| m.as_raw())
-                            .unwrap_or_else(|| std::ptr::null_mut()),
-
-                     */
-                    let caps = regex::Regex::new(
-                        r#"let callback\s*:\s*(?P<type>[\w_]+)\s*=\s*if\s*(?P<handler_var_name>[\w_]+)\s*\.\s*is_none\s*\(\).*Some\s*\(\s*(?P<callback>[\w_]+)\s*::\s*<\s*(?P<handler>[\w_]+)\s*>\s*\).*"#
-                    )
-                        .unwrap()
-                        .captures(&str)
-                        .expect(&format!("regex failed for {str}"));
-                    let func_type = parse_str::<TokenStream>(&caps["type"]).unwrap();
-                    let handler_var_name = parse_str::<TokenStream>(&caps["handler_var_name"]).unwrap();
-                    let callback = parse_str::<TokenStream>(&caps["callback"]).unwrap();
-                    let handler_type = parse_str::<TokenStream>(&caps["handler"]).unwrap();
-
-                    let new_code = quote! {
-                                Some(#callback::<#handler_type>),
-                                &mut #handler_var_name as *mut _ as *mut std::os::raw::c_void
-                            };
-                    str = new_code.to_string();
-                }
-
-                parse_str::<TokenStream>(&str).unwrap()
-            }).collect_vec();
-
-            // Generate logging expression for arguments
-            let args_log_expr = Self::generate_arg_logging(&method.arguments, &arg_names);
-
-            additional_methods.push(quote! {
-                #[inline]
-                #(#method_docs)*
-                ///
-                ///
-                /// `_once` variant: the closure is borrowed for this call only — the callback fires
-                /// synchronously inside it, so nothing is stored and no allocation occurs. It may
-                /// borrow local state. Only generated for callbacks the C client does not retain.
-                pub fn #fn_name #where_clause(#possible_self #(#fn_arguments),*) -> #return_type {
-                    #set_closed
-                    unsafe {
-                        #[cfg(feature = "log-c-bindings")]
-                        log::info!(
-                            "{}({})",
-                            stringify!(#ffi_call),
-                            #args_log_expr
-                        );
-
-                        let result = #ffi_call(#(#arg_names),*);
-
-                        #[cfg(feature = "log-c-bindings")]
-                        log::info!("  -> {:?}", result);
-
-                        #converter
-                    }
-                }
-            })
-        }
     }
 
     fn add_getter_instead_of_mut_arg_if_applicable(

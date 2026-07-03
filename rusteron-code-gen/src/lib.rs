@@ -10,11 +10,13 @@
 mod common;
 mod generator;
 mod parser;
+mod plan;
 pub mod test_logger;
 
 pub use common::*;
 pub use generator::*;
 pub use parser::*;
+pub use plan::*;
 
 use proc_macro2::TokenStream;
 use std::fs::OpenOptions;
@@ -23,6 +25,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 pub const CUSTOM_AERON_CODE: &str = include_str!("./aeron_custom.rs");
+pub const CUSTOM_ARCHIVE_CODE: &str = include_str!("./aeron_custom_archive.rs");
 pub const COMMON_CODE: &str = include_str!("./common.rs");
 
 pub fn append_to_file(file_path: &str, code: &str) -> std::io::Result<()> {
@@ -355,17 +358,28 @@ mod tests {
     /// of truth (`rusteron-code-gen/src/aeron_custom.rs`).
     #[test]
     fn aeron_custom_rs_snapshots_match_source() {
-        let source = CUSTOM_AERON_CODE.trim();
-        for crate_name in ["client", "archive", "media-driver"] {
+        // each crate's committed aeron_custom.rs = the common custom code plus any
+        // per-crate custom code appended by its build config (archive only, today)
+        let no_extra: &[&str] = &[];
+        for (crate_name, extra) in [
+            ("client", no_extra),
+            ("archive", &[crate::CUSTOM_ARCHIVE_CODE][..]),
+            ("media-driver", no_extra),
+        ] {
+            // emulate append_to_file: each chunk is written as "\n{chunk}\n"
+            let mut source = format!("\n{}\n", CUSTOM_AERON_CODE);
+            for code in extra {
+                source.push_str(&format!("\n{}\n", code));
+            }
             let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join(format!("../rusteron-{crate_name}/docs-rs/aeron_custom.rs"));
             let committed = fs::read_to_string(&path)
                 .unwrap_or_else(|_| panic!("missing committed aeron_custom.rs: {}", path.display()));
             assert_eq!(
                 committed.trim(),
-                source,
+                source.trim(),
                 "rusteron-{crate_name}/docs-rs/aeron_custom.rs drifted from \
-                 rusteron-code-gen/src/aeron_custom.rs. Rebuild with `COPY_BINDINGS=true`.",
+                 rusteron-code-gen/src/aeron_custom*.rs. Rebuild with `COPY_BINDINGS=true`.",
             );
         }
     }

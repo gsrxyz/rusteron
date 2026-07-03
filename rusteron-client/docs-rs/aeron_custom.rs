@@ -2345,3 +2345,43 @@ mod aeron_custom_tests {
     }
 }
 
+// Retryable / unrecoverable classification for Aeron errors. Lives in hand-written code rather
+// than the codegen `common.rs` because the generator drops methods that carry multi-line doc
+// comments. GenericError(-1) and Unknown(_) are intentionally neither — `-1` is Aeron's catch-all
+// and could mean anything, so the caller must decide (treat as fatal if unsure).
+impl AeronErrorType {
+    /// Transient — retry the operation (back off first): back-pressure, admin action, a full
+    /// client buffer, or a polling timeout.
+    pub fn is_retryable(&self) -> bool {
+        self == &AeronErrorType::PublicationBackPressured
+            || self == &AeronErrorType::PublicationAdminAction
+            || self == &AeronErrorType::ClientErrorBufferFull
+            || self == &AeronErrorType::TimedOut
+    }
+
+    /// Definitively terminal — retrying will not help: the publication is closed / exhausted /
+    /// errored, or the driver or client has timed out (effectively dead). Not exhaustive: an
+    /// ambiguous code (`GenericError` / `Unknown`) is neither retryable nor unrecoverable.
+    pub fn is_unrecoverable(&self) -> bool {
+        self == &AeronErrorType::PublicationClosed
+            || self == &AeronErrorType::PublicationMaxPositionExceeded
+            || self == &AeronErrorType::PublicationError
+            || self == &AeronErrorType::ClientErrorDriverTimeout
+            || self == &AeronErrorType::ClientErrorClientTimeout
+            || self == &AeronErrorType::ClientErrorConductorServiceTimeout
+    }
+}
+
+impl AeronCError {
+    /// Transient failure — retry the operation (back off first). See [`AeronErrorType::is_retryable`].
+    pub fn is_retryable(&self) -> bool {
+        self.kind().is_retryable()
+    }
+
+    /// Definitively terminal — abort the operation. See [`AeronErrorType::is_unrecoverable`].
+    /// Not exhaustive: ambiguous codes are neither retryable nor unrecoverable.
+    pub fn is_unrecoverable(&self) -> bool {
+        self.kind().is_unrecoverable()
+    }
+}
+

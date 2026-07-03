@@ -37,6 +37,8 @@ unsafe impl Send for AeronDriverContext {}
 unsafe impl Sync for AeronDriver {}
 unsafe impl Send for AeronDriver {}
 
+pub mod testing;
+
 impl AeronDriverContext {
     /// Typed variant of [`Self::set_conductor_idle_strategy`].
     pub fn set_conductor_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {

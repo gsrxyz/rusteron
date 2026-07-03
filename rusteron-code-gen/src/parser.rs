@@ -8,6 +8,12 @@ use std::path::PathBuf;
 use syn::{Attribute, Item, ItemForeignMod, ItemStruct, ItemType, Lit, Meta, MetaNameValue};
 
 pub fn parse_bindings(out: &PathBuf) -> CBinding {
+    parse_bindings_with_custom(out, &[])
+}
+
+/// Like [`parse_bindings`], additionally scanning per-crate custom code (appended after the
+/// common `aeron_custom.rs`) so its hand-written methods are skipped during generation.
+pub fn parse_bindings_with_custom(out: &PathBuf, extra_custom_code: &[&str]) -> CBinding {
     let file_content = fs::read_to_string(out.clone()).expect("Unable to read file");
     let syntax_tree = syn::parse_file(&file_content).expect("Unable to parse file");
     let mut wrappers = BTreeMap::new();
@@ -80,7 +86,12 @@ pub fn parse_bindings(out: &PathBuf) -> CBinding {
         .collect_vec();
     assert_eq!(Vec::<(String, CWrapper)>::new(), mismatched_types);
 
-    let custom = parse_custom_methods(crate::CUSTOM_AERON_CODE);
+    let mut custom = parse_custom_methods(crate::CUSTOM_AERON_CODE);
+    for code in extra_custom_code {
+        for (class, methods) in parse_custom_methods(code) {
+            custom.entry(class).or_default().extend(methods);
+        }
+    }
     for wrapper in bindings.wrappers.values_mut() {
         if let Some(methods) = custom.get(&wrapper.class_name) {
             wrapper.skipped_methods = methods.clone();

@@ -16,16 +16,12 @@
 //! cargo run --release --features "static precompile" --example archive_error_handling
 //! ```
 
-use rusteron_archive::testing::EmbeddedArchiveMediaDriverProcess;
+use rusteron_archive::testing::{find_unused_udp_port, EmbeddedArchiveMediaDriverProcess};
 use rusteron_archive::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-
-fn find_unused_udp_port(start: u16) -> Option<u16> {
-    (start..65535).find(|p| std::net::UdpSocket::bind(("127.0.0.1", *p)).is_ok())
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
@@ -72,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     struct SignalLogger;
     impl AeronArchiveRecordingSignalConsumerFuncCallback for SignalLogger {
         fn handle_aeron_archive_recording_signal_consumer_func(&mut self, signal: AeronArchiveRecordingSignal) {
-            println!("[recording signal] {:?}", signal.recording_signal_code());
+            println!("[recording signal] {:?}", signal.signal());
         }
     }
     archive_context.set_recording_signal_consumer(Some(SignalLogger))?;

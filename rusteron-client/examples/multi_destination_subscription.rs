@@ -10,26 +10,19 @@
 //! ```
 
 use rusteron_client::*;
-use rusteron_media_driver::{AeronDriver, AeronDriverContext};
+use rusteron_media_driver::testing::{find_unused_udp_port, EmbeddedDriver};
 use std::collections::HashSet;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 const STREAM_ID: i32 = 1003;
 
-fn find_unused_udp_port(start: u16) -> Option<u16> {
-    (start..65535).find(|p| std::net::UdpSocket::bind(("127.0.0.1", *p)).is_ok())
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let driver_ctx = AeronDriverContext::new()?;
-    driver_ctx.set_dir_delete_on_shutdown(true)?;
-    driver_ctx.set_dir_delete_on_start(true)?;
-    driver_ctx.set_dir(&format!("{}{}", driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
-    let (stop, driver_handle) = AeronDriver::launch_embedded(driver_ctx.clone(), false);
+    // embedded media driver with RAII teardown (stops + joins on drop)
+    let driver = EmbeddedDriver::launch()?;
 
     let ctx = AeronContext::new()?;
-    ctx.set_dir(&driver_ctx.get_dir().into_c_string())?;
+    ctx.set_dir(&driver.dir().into_c_string())?;
     ctx.set_error_handler(Some(|code: i32, msg: &str| eprintln!("aeron error {code}: {msg}")))?;
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
@@ -114,7 +107,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop(publication_b);
     drop(subscription);
     drop(aeron);
-    stop.store(true, std::sync::atomic::Ordering::SeqCst);
-    driver_handle.join().ok();
     Ok(())
 }

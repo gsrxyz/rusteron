@@ -13,17 +13,13 @@
 //! cargo run --release --features "static precompile" --example recording_replication
 //! ```
 
-use rusteron_archive::testing::EmbeddedArchiveMediaDriverProcess;
+use rusteron_archive::testing::{find_unused_udp_port, EmbeddedArchiveMediaDriverProcess};
 use rusteron_archive::*;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 const STREAM_ID: i32 = 1060;
 const MESSAGES: u64 = 10_000;
-
-fn find_unused_udp_port(start: u16) -> Option<u16> {
-    (start..65535).find(|p| std::net::UdpSocket::bind(("127.0.0.1", *p)).is_ok())
-}
 
 struct ArchiveInstance {
     aeron: Aeron,

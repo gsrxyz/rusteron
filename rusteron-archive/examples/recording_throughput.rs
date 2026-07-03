@@ -11,7 +11,7 @@
 //! cargo run --release --features "static precompile" --example recording_throughput
 //! ```
 
-use rusteron_archive::testing::EmbeddedArchiveMediaDriverProcess;
+use rusteron_archive::testing::{find_unused_udp_port, EmbeddedArchiveMediaDriverProcess};
 use rusteron_archive::*;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -19,10 +19,6 @@ use std::time::{Duration, Instant};
 const STREAM_ID: i32 = 1050;
 const MESSAGE_LENGTH: usize = 256;
 const MESSAGES: u64 = 500_000;
-
-fn find_unused_udp_port(start: u16) -> Option<u16> {
-    (start..65535).find(|p| std::net::UdpSocket::bind(("127.0.0.1", *p)).is_ok())
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();

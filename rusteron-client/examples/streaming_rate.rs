@@ -13,7 +13,7 @@
 //! ```
 
 use rusteron_client::*;
-use rusteron_media_driver::{AeronDriver, AeronDriverContext};
+use rusteron_media_driver::testing::EmbeddedDriver;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -30,14 +30,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ctrlc::set_handler(move || running_ctrl_c.store(false, Ordering::SeqCst))?;
 
     // Embedded media driver (the C samples assume an external `aeronmd`).
-    let driver_ctx = AeronDriverContext::new()?;
-    driver_ctx.set_dir_delete_on_shutdown(true)?;
-    driver_ctx.set_dir_delete_on_start(true)?;
-    driver_ctx.set_dir(&format!("{}{}", driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
-    let (stop, driver_handle) = AeronDriver::launch_embedded(driver_ctx.clone(), false);
+    // embedded media driver with RAII teardown (stops + joins on drop)
+    let driver = EmbeddedDriver::launch()?;
 
     let ctx = AeronContext::new()?;
-    ctx.set_dir(&driver_ctx.get_dir().into_c_string())?;
+    ctx.set_dir(&driver.dir().into_c_string())?;
     ctx.set_error_handler(Some(|code: i32, msg: &str| eprintln!("aeron error {code}: {msg}")))?;
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
@@ -136,7 +133,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     drop(publication);
     drop(aeron);
-    stop.store(true, Ordering::SeqCst);
-    driver_handle.join().ok();
     Ok(())
 }
