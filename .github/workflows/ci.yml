@@ -117,7 +117,10 @@ jobs:
         env:
           RUSTERON_SANITIZE: address
           RUSTUP_TOOLCHAIN: nightly
-          RUSTFLAGS: "-Z sanitizer=address -Z build-std=std,panic_abort -C target-cpu=x86-64"
+          # -Z sanitizer=address is a rustc flag (goes in RUSTFLAGS); -Z build-std
+          # is a *cargo* flag and must go on the cargo command line below, not
+          # here — rustc rejects it with "unknown unstable option: build-std".
+          RUSTFLAGS: "-Z sanitizer=address -C target-cpu=x86-64"
         run: |
           cargo test -p rusteron-client --features sanitize-address \
             -Z build-std --target "$(rustc -vV | sed -n 's/host: //p')" -- --nocapture
