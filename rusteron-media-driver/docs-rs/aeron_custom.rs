@@ -117,6 +117,20 @@ impl Aeron {
         aeron.start()?;
         Ok(aeron)
     }
+
+    /// Connect to a media driver in the default aeron directory. Equivalent to
+    /// [`Self::connect`]`(None)`, but reads more naturally at the call site.
+    #[inline]
+    pub fn connect_default() -> Result<Aeron, AeronCError> {
+        Self::connect(None)
+    }
+
+    /// Connect to a media driver in `dir`. Equivalent to
+    /// [`Self::connect`]`(Some(dir))`.
+    #[inline]
+    pub fn connect_dir(dir: &str) -> Result<Aeron, AeronCError> {
+        Self::connect(Some(dir))
+    }
 }
 
 impl AeronContext {
@@ -522,20 +536,27 @@ impl AeronSubscription {
     }
 
     pub fn async_add_destination(
-        &mut self,
+        &self,
         client: &Aeron,
         destination: &std::ffi::CStr,
     ) -> Result<AeronAsyncDestination, AeronCError> {
         AeronAsyncDestination::aeron_subscription_async_add_destination(client, self, destination)
     }
 
+    /// Add `destination`, polling until the driver acknowledges or `timeout` elapses.
+    /// The owning [`Aeron`] client is retrieved automatically from the subscription's
+    /// dependency graph — pass it explicitly via [`Self::async_add_destination`] only
+    /// when you hold it already.
     pub fn add_destination(
-        &mut self,
-        client: &Aeron,
+        &self,
         destination: &std::ffi::CStr,
         timeout: std::time::Duration,
     ) -> Result<(), AeronCError> {
-        let result = self.async_add_destination(client, destination)?;
+        let client = self
+            .inner
+            .get_dependency::<Aeron>()
+            .ok_or_else(|| AeronCError::with_message(-1, "subscription has no owning Aeron client"))?;
+        let result = self.async_add_destination(&client, destination)?;
         if result
             .aeron_subscription_async_destination_poll()
             .unwrap_or_default()
@@ -561,60 +582,52 @@ impl AeronSubscription {
 
     // ===== Spin-poll ergonomics =====
 
-    /// Ergonomic, allocation-free single-poll convenience that invokes a closure
-    /// for each message fragment received.
+    /// Poll delivering each fragment to `handler`, borrowing the closure only for
+    /// this call (zero allocation on the hot path).
     ///
-    /// This is a zero-allocation alternative to repeatedly calling `poll_once`
-    /// with manual handler state. It performs exactly one polling operation and
-    /// calls `f` for each fragment received (up to `max_per_poll` fragments).
+    /// This is the recommended poll for non-fragmented messages. For messages that
+    /// may exceed the MTU, use [`AeronFragmentClosureAssembler::poll`] (or an
+    /// [`AeronFragmentAssembler`]) to reassemble fragments before delivery.
     ///
-    /// # Spin-poll idiom
-    /// For tight polling loops (common in latency-sensitive trading systems),
-    /// combine this with a bounded spin loop:
-    ///
-    /// ```ignore
-    /// let mut received = 0;
-    /// let max_iterations = 1000;
-    ///
-    /// for _ in 0..max_iterations {
-    ///     let fragments = subscription.for_each_fragment(10, |data, header| {
-    ///         // Process `data` (message payload) and `header` (metadata)
-    ///         received += 1;
-    ///     })?;
-    ///
-    ///     if fragments > 0 {
-    ///         break; // Got some messages, exit spin
-    ///     }
-    /// }
-    /// ```
-    ///
-    /// # Parameters
-    /// - `max_per_poll`: Maximum number of fragments to process in this single poll
-    /// - `f`: Closure called for each fragment, receives `&[u8]` payload and `AeronHeader`
-    ///
-    /// # Returns
-    /// - `Ok(fragment_count)`: Number of fragments actually processed (0 if no messages)
-    /// - `Err(AeronCError)`: Aeron-level error (e.g., subscription closed)
-    ///
-    /// # Allocation guarantee
-    /// This method is allocation-free on the hot path (no heap allocations during
-    /// polling). The closure is called directly via FFI without intermediate boxing.
-    ///
-    /// # Thread safety
-    /// This is a synchronous, single-threaded API. Do not call the same subscription
-    /// from multiple threads concurrently.
+    /// Returns the number of fragments delivered (0 if nothing was available).
     #[inline]
-    pub fn for_each_fragment<F>(&self, max_per_poll: usize, f: F) -> Result<i32, AeronCError>
-    where
-        F: FnMut(&[u8], AeronHeader),
-    {
-        self.poll_once(f, max_per_poll)
+    pub fn poll_fn<H: FnMut(&[u8], AeronHeader)>(
+        &self,
+        mut handler: H,
+        fragment_limit: usize,
+    ) -> Result<i32, AeronCError> {
+        let result = unsafe {
+            aeron_subscription_poll(
+                self.get_inner(),
+                Some(aeron_fragment_handler_t_callback_for_once_closure::<H>),
+                &mut handler as *mut _ as *mut std::os::raw::c_void,
+                fragment_limit.into(),
+            )
+        };
+        if result < 0 {
+            Err(AeronCError::from_c_code(result))
+        } else {
+            Ok(result)
+        }
+    }
+
+    /// Deprecated alias for [`Self::poll_fn`]. The `_once` suffix was widely read
+    /// as "poll one fragment"; [`Self::poll_fn`] makes the closure semantics
+    /// explicit and aligns with the retained-handler [`Self::poll`].
+    #[deprecated(since = "0.1.169", note = "use `poll_fn` instead")]
+    #[inline]
+    pub fn poll_once<H: FnMut(&[u8], AeronHeader)>(
+        &self,
+        handler: H,
+        fragment_limit: usize,
+    ) -> Result<i32, AeronCError> {
+        self.poll_fn(handler, fragment_limit)
     }
 }
 
 impl AeronExclusivePublication {
     pub fn async_add_destination(
-        &mut self,
+        &self,
         client: &Aeron,
         destination: &std::ffi::CStr,
     ) -> Result<AeronAsyncDestination, AeronCError> {
@@ -625,13 +638,18 @@ impl AeronExclusivePublication {
         )
     }
 
+    /// Add `destination` (see [`AeronSubscription::add_destination`]); the owning
+    /// [`Aeron`] client is retrieved from the publication's dependency graph.
     pub fn add_destination(
-        &mut self,
-        client: &Aeron,
+        &self,
         destination: &std::ffi::CStr,
         timeout: std::time::Duration,
     ) -> Result<(), AeronCError> {
-        let result = self.async_add_destination(client, destination)?;
+        let client = self
+            .inner
+            .get_dependency::<Aeron>()
+            .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
+        let result = self.async_add_destination(&client, destination)?;
         if result
             .aeron_subscription_async_destination_poll()
             .unwrap_or_default()
@@ -658,20 +676,25 @@ impl AeronExclusivePublication {
 
 impl AeronPublication {
     pub fn async_add_destination(
-        &mut self,
+        &self,
         client: &Aeron,
         destination: &std::ffi::CStr,
     ) -> Result<AeronAsyncDestination, AeronCError> {
         AeronAsyncDestination::aeron_publication_async_add_destination(client, self, destination)
     }
 
+    /// Add `destination` (see [`AeronSubscription::add_destination`]); the owning
+    /// [`Aeron`] client is retrieved from the publication's dependency graph.
     pub fn add_destination(
-        &mut self,
-        client: &Aeron,
+        &self,
         destination: &std::ffi::CStr,
         timeout: std::time::Duration,
     ) -> Result<(), AeronCError> {
-        let result = self.async_add_destination(client, destination)?;
+        let client = self
+            .inner
+            .get_dependency::<Aeron>()
+            .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
+        let result = self.async_add_destination(&client, destination)?;
         if result
             .aeron_subscription_async_destination_poll()
             .unwrap_or_default()
@@ -731,7 +754,31 @@ impl Default for AeronUriStringBuilder {
 
 impl AeronCError {
     pub fn get_last_err_message(&self) -> &str {
-        Aeron::errmsg()
+        self.message().unwrap_or_else(|| Aeron::errmsg())
+    }
+
+    /// Construct from a live C error code returned by an Aeron FFI call, eagerly
+    /// snapshotting the current `aeron_errmsg()` text for non-retryable codes.
+    ///
+    /// Unlike reading `aeron_errmsg()` (via [`Self::get_last_err_message`]) at
+    /// `Display` time — by which point another error on the same thread may have
+    /// overwritten the buffer — the snapshot is taken at the error site and is
+    /// stable for the lifetime of this `AeronCError`.
+    ///
+    /// Retryable codes (`AeronErrorType::is_retryable`: back-pressure, admin
+    /// action, buffer-full, timeout) skip the snapshot so retry loops stay
+    /// allocation-free. They can reconstruct the message later via
+    /// [`Self::get_last_err_message`] if needed.
+    ///
+    /// This is what generated wrappers call; user code constructing an error from
+    /// a known code should use [`Self::from_code`]
+    /// (no message capture) or [`Self::with_message`].
+    pub fn from_c_code(code: i32) -> Self {
+        let mut err = Self::from_code(code);
+        if code < 0 && !err.kind().is_retryable() {
+            err.msg = Some(Aeron::errmsg().into());
+        }
+        err
     }
 }
 
@@ -1480,22 +1527,24 @@ impl AeronPublication {
 
     /// Non-blocking publish of `buffer`, returning the new stream position.
     ///
-    /// Errors are typed: check [`AeronOfferError::is_retryable`] to drive retry
-    /// loops (back pressure / admin action / not connected) vs fatal conditions
-    /// (closed, max position exceeded). Use [`Self::offer_raw`] for the raw sentinel.
+    /// This is the common case (no reserved-value supplier). Errors are typed:
+    /// check [`AeronOfferError::is_retryable`] to drive retry loops (back pressure
+    /// / admin action / not connected) vs fatal conditions (closed, max position
+    /// exceeded). Use [`Self::offer_raw`] for the raw sentinel, or
+    /// [`Self::offer_with_reserved_value`] to supply a reserved value.
     #[inline]
-    pub fn offer<H: AeronReservedValueSupplierCallback>(
+    pub fn offer(&self, buffer: &[u8]) -> Result<i64, AeronOfferError> {
+        AeronOfferError::from_position(self.offer_raw::<AeronReservedValueSupplierLogger>(buffer, None))
+    }
+
+    /// [`Self::offer`] with a reserved-value supplier.
+    #[inline]
+    pub fn offer_with_reserved_value<H: AeronReservedValueSupplierCallback>(
         &self,
         buffer: &[u8],
         reserved_value_supplier: Option<&Handler<H>>,
     ) -> Result<i64, AeronOfferError> {
         AeronOfferError::from_position(self.offer_raw(buffer, reserved_value_supplier))
-    }
-
-    /// [`Self::offer`] with no reserved-value supplier.
-    #[inline]
-    pub fn offer_simple(&self, buffer: &[u8]) -> Result<i64, AeronOfferError> {
-        self.offer::<AeronReservedValueSupplierLogger>(buffer, Handlers::no_reserved_value_supplier_handler())
     }
 
     /// Raw, branch-free variant of [`Self::try_claim`]: position or negative sentinel.
@@ -1536,6 +1585,22 @@ impl AeronPublication {
             AeronStatus::Disconnected
         }
     }
+
+    /// Convenience accessor for the registration id (no direct C accessor exists;
+    /// backed by [`Self::get_constants`]). `session_id`, `stream_id` and `channel`
+    /// have cheap direct getters — prefer those; for `registration_id` /
+    /// `max_payload_length` in a hot loop, call [`Self::get_constants`] once and
+    /// reuse the returned [`AeronPublicationConstants`].
+    #[inline]
+    pub fn registration_id(&self) -> Result<i64, AeronCError> {
+        self.get_constants().map(|c| c.registration_id())
+    }
+
+    /// Convenience accessor for the max payload length (see [`Self::registration_id`]).
+    #[inline]
+    pub fn max_payload_length(&self) -> Result<usize, AeronCError> {
+        self.get_constants().map(|c| c.max_payload_length())
+    }
 }
 
 impl AeronExclusivePublication {
@@ -1569,22 +1634,24 @@ impl AeronExclusivePublication {
 
     /// Non-blocking publish of `buffer`, returning the new stream position.
     ///
-    /// Errors are typed: check [`AeronOfferError::is_retryable`] to drive retry
-    /// loops (back pressure / admin action / not connected) vs fatal conditions
-    /// (closed, max position exceeded). Use [`Self::offer_raw`] for the raw sentinel.
+    /// This is the common case (no reserved-value supplier). Errors are typed:
+    /// check [`AeronOfferError::is_retryable`] to drive retry loops (back pressure
+    /// / admin action / not connected) vs fatal conditions (closed, max position
+    /// exceeded). Use [`Self::offer_raw`] for the raw sentinel, or
+    /// [`Self::offer_with_reserved_value`] to supply a reserved value.
     #[inline]
-    pub fn offer<H: AeronReservedValueSupplierCallback>(
+    pub fn offer(&self, buffer: &[u8]) -> Result<i64, AeronOfferError> {
+        AeronOfferError::from_position(self.offer_raw::<AeronReservedValueSupplierLogger>(buffer, None))
+    }
+
+    /// [`Self::offer`] with a reserved-value supplier.
+    #[inline]
+    pub fn offer_with_reserved_value<H: AeronReservedValueSupplierCallback>(
         &self,
         buffer: &[u8],
         reserved_value_supplier: Option<&Handler<H>>,
     ) -> Result<i64, AeronOfferError> {
         AeronOfferError::from_position(self.offer_raw(buffer, reserved_value_supplier))
-    }
-
-    /// [`Self::offer`] with no reserved-value supplier.
-    #[inline]
-    pub fn offer_simple(&self, buffer: &[u8]) -> Result<i64, AeronOfferError> {
-        self.offer::<AeronReservedValueSupplierLogger>(buffer, Handlers::no_reserved_value_supplier_handler())
     }
 
     /// Raw, branch-free variant of [`Self::try_claim`]: position or negative sentinel.
@@ -1625,6 +1692,20 @@ impl AeronExclusivePublication {
             AeronStatus::Disconnected
         }
     }
+
+    /// Convenience accessor for the registration id (no direct C accessor exists;
+    /// backed by [`Self::get_constants`]). See [`AeronPublication::registration_id`]
+    /// for the hot-loop caching note.
+    #[inline]
+    pub fn registration_id(&self) -> Result<i64, AeronCError> {
+        self.get_constants().map(|c| c.registration_id())
+    }
+
+    /// Convenience accessor for the max payload length (see [`AeronPublication::registration_id`]).
+    #[inline]
+    pub fn max_payload_length(&self) -> Result<usize, AeronCError> {
+        self.get_constants().map(|c| c.max_payload_length())
+    }
 }
 
 impl AeronSubscription {
@@ -1639,9 +1720,67 @@ impl AeronSubscription {
             AeronStatus::Disconnected
         }
     }
+
+    /// Convenience accessor for the stream id (no direct C accessor exists for
+    /// subscriptions; backed by [`Self::get_constants`]). For a hot loop, call
+    /// [`Self::get_constants`] once and reuse the returned
+    /// [`AeronSubscriptionConstants`].
+    #[inline]
+    pub fn stream_id(&self) -> Result<i32, AeronCError> {
+        self.get_constants().map(|c| c.stream_id())
+    }
+
+    /// Convenience accessor for the channel (see [`Self::stream_id`]).
+    #[inline]
+    pub fn channel(&self) -> Result<String, AeronCError> {
+        self.get_constants().map(|c| c.channel().to_string())
+    }
+
+    /// Convenience accessor for the registration id (see [`Self::stream_id`]).
+    #[inline]
+    pub fn registration_id(&self) -> Result<i64, AeronCError> {
+        self.get_constants().map(|c| c.registration_id())
+    }
 }
 
 impl AeronImage {
+    /// Poll delivering each fragment of this image to `handler`, borrowing the
+    /// closure only for this call (zero allocation). Use for image-scoped receive
+    /// loops; use a fragment assembler for messages that may exceed the MTU.
+    ///
+    /// Returns the number of fragments delivered (0 if nothing was available).
+    #[inline]
+    pub fn poll_fn<H: FnMut(&[u8], AeronHeader)>(
+        &self,
+        mut handler: H,
+        fragment_limit: usize,
+    ) -> Result<i32, AeronCError> {
+        let result = unsafe {
+            aeron_image_poll(
+                self.get_inner(),
+                Some(aeron_fragment_handler_t_callback_for_once_closure::<H>),
+                &mut handler as *mut _ as *mut std::os::raw::c_void,
+                fragment_limit.into(),
+            )
+        };
+        if result < 0 {
+            Err(AeronCError::from_c_code(result))
+        } else {
+            Ok(result)
+        }
+    }
+
+    /// Deprecated alias for [`Self::poll_fn`].
+    #[deprecated(since = "0.1.169", note = "use `poll_fn` instead")]
+    #[inline]
+    pub fn poll_once<H: FnMut(&[u8], AeronHeader)>(
+        &self,
+        handler: H,
+        fragment_limit: usize,
+    ) -> Result<i32, AeronCError> {
+        self.poll_fn(handler, fragment_limit)
+    }
+
     /// Instrumented wrapper around [`AeronImage::poll`] that adds tracing spans
     /// when the `instrument-ops` feature is enabled.
     #[inline]
@@ -1653,7 +1792,7 @@ impl AeronImage {
         self.poll(handler, fragment_limit)
     }
 
-    /// Instrumented wrapper around [`AeronImage::poll_once`] that adds tracing spans
+    /// Instrumented wrapper around [`AeronImage::poll_fn`] that adds tracing spans
     /// when the `instrument-ops` feature is enabled.
     #[inline]
     pub fn poll_once_instrumented<
@@ -1663,10 +1802,17 @@ impl AeronImage {
         handler: AeronFragmentHandlerHandlerImpl,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
-        self.poll_once(handler, fragment_limit)
+        self.poll_fn(handler, fragment_limit)
     }
 }
 
+/// Production error handler that routes Aeron async errors through the Rust `log`
+/// facade at **error** level with a concise format — the recommended default for
+/// `AeronContext::set_error_handler`.
+///
+/// Not to be confused with the generated [`AeronErrorHandlerLogger`], which is the
+/// codegen's generic callback tracer (info level, verbose per-call format, useful
+/// only behind `--features log-c-bindings`-style debugging).
 pub struct AeronErrorLogger;
 impl AeronErrorHandlerCallback for AeronErrorLogger {
     fn handle_aeron_error_handler(&mut self, error_code: std::ffi::c_int, msg: &str) -> () {
@@ -1716,6 +1862,17 @@ impl FnMutMessageHandler {
         (self.func)(self.ctx, msg, header);
     }
 
+    /// Drop the borrowed `ctx` so a later stray [`call`](Self::call) is a safe no-op
+    /// (the `noop` func is restored and the pointer nulled) rather than a use-after-free.
+    ///
+    /// [`AeronFragmentClosureAssembler::poll`] calls this before returning so the
+    /// raw pointer never outlives the borrow it was created from.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.func = Self::noop;
+        self.ctx = std::ptr::null_mut();
+    }
+
     #[inline]
     fn wrap<T>(f: fn(&mut T, &[u8], AeronHeader)) -> fn(*mut (), &[u8], AeronHeader) {
         // SAFETY: `fn(&mut T,…)` and `fn(*mut(),…)` have the same ABI/representation
@@ -1741,6 +1898,35 @@ impl AeronFragmentClosureAssembler {
         })
     }
 
+    /// Poll `subscription`, dispatching each reassembled message to `func` with
+    /// `ctx`, borrowing `ctx` only for the duration of this call.
+    ///
+    /// Unlike the deprecated [`Self::process`], the raw `ctx` pointer is cleared
+    /// before returning, so it can never be dereferenced after `ctx` goes out of
+    /// scope — the borrow checker's lifetime on `ctx: &mut T` is now the real
+    /// safety contract, not a comment the caller must uphold.
+    ///
+    /// Returns the fragment count from the underlying poll.
+    pub fn poll<T>(
+        &mut self,
+        subscription: &AeronSubscription,
+        ctx: &mut T,
+        func: fn(&mut T, &[u8], AeronHeader),
+        fragment_limit: usize,
+    ) -> Result<i32, AeronCError> {
+        self.handler.set(ctx, func);
+        let result = subscription.poll(Some(&self.assembler), fragment_limit);
+        self.handler.clear();
+        result
+    }
+
+    /// Deprecated two-phase pattern: point the assembler at `ctx`/`func` and return
+    /// the assembler handler for a later `subscription.poll(...)`.
+    ///
+    /// **Unsafe by construction**: `ctx` is stored as a raw pointer that escapes
+    /// the borrow — calling `subscription.poll(...)` after `ctx` is dropped is
+    /// use-after-free. Prefer [`Self::poll`], which scopes the borrow.
+    #[deprecated(since = "0.1.169", note = "use `poll(subscription, ctx, func, limit)` instead — it clears the ctx pointer on return")]
     pub fn process<T>(
         &mut self,
         ctx: &mut T,
@@ -1790,6 +1976,14 @@ impl FnMutControlledMessageHandler {
         header: AeronHeader,
     ) -> aeron_controlled_fragment_handler_action_t {
         (self.func)(self.ctx, msg, header)
+    }
+
+    /// Drop the borrowed `ctx` (cf. [`FnMutMessageHandler::clear`]) so a later stray
+    /// [`call`](Self::call) returns `CONTINUE` instead of dereferencing a stale pointer.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.func = Self::noop;
+        self.ctx = std::ptr::null_mut();
     }
 
     #[inline]

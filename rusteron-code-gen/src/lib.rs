@@ -253,7 +253,12 @@ mod tests {
     /// the whole stream, test-modules disabled) and assert it byte-matches the
     /// committed `docs-rs/aeron.rs`. Catches "forgot to rebuild with
     /// `COPY_BINDINGS=true`" drift as a CI failure instead of a stale docs.rs.
-    fn assert_aeron_rs_snapshot_matches(bindings_file: &str, snapshot_rel_path: &str, skip_filter: fn(&str) -> bool) {
+    fn assert_aeron_rs_snapshot_matches(
+        bindings_file: &str,
+        snapshot_rel_path: &str,
+        skip_filter: fn(&str) -> bool,
+        extra_custom_code: &[&str],
+    ) {
         if running_under_valgrind() {
             return;
         }
@@ -263,7 +268,7 @@ mod tests {
             .join(bindings_file);
         let snapshot_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(snapshot_rel_path);
 
-        let mut bindings = parse_bindings(&bindings_path);
+        let mut bindings = crate::parse_bindings_with_custom(&bindings_path, extra_custom_code);
         // First pass: populate FnMut(...) names required by generate_rust_code.
         let bindings_copy = bindings.clone();
         for handler in bindings.handlers.iter_mut() {
@@ -333,14 +338,23 @@ mod tests {
     #[test]
     #[cfg(not(target_os = "windows"))]
     fn client_aeron_rs_matches_committed_snapshot() {
-        assert_aeron_rs_snapshot_matches("client.rs", "../rusteron-client/docs-rs/aeron.rs", |_| true);
+        assert_aeron_rs_snapshot_matches("client.rs", "../rusteron-client/docs-rs/aeron.rs", |_| true, &[]);
     }
 
     #[test]
     #[cfg(not(target_os = "windows"))]
     #[cfg(target_os = "macos")]
     fn archive_aeron_rs_matches_committed_snapshot() {
-        assert_aeron_rs_snapshot_matches("archive.rs", "../rusteron-archive/docs-rs/aeron.rs", |_| true);
+        // Archive's build.rs merges CUSTOM_ARCHIVE_CODE into the generator skip-list
+        // (so hand-written archive methods like ReplayMerge::poll_fn/poll_once suppress
+        // the generated variant). The snapshot regeneration must mirror that, or the
+        // committed snapshot (built with the merge) drifts from the regeneration.
+        assert_aeron_rs_snapshot_matches(
+            "archive.rs",
+            "../rusteron-archive/docs-rs/aeron.rs",
+            |_| true,
+            &[crate::CUSTOM_ARCHIVE_CODE],
+        );
     }
 
     #[test]
@@ -348,9 +362,12 @@ mod tests {
     #[cfg(target_os = "macos")]
     fn media_driver_aeron_rs_matches_committed_snapshot() {
         // Mirrors the media_driver trybuild test's filter.
-        assert_aeron_rs_snapshot_matches("media-driver.rs", "../rusteron-media-driver/docs-rs/aeron.rs", |t| {
-            !t.contains("_t_") && t != "in_addr"
-        });
+        assert_aeron_rs_snapshot_matches(
+            "media-driver.rs",
+            "../rusteron-media-driver/docs-rs/aeron.rs",
+            |t| !t.contains("_t_") && t != "in_addr",
+            &[],
+        );
     }
 
     /// `aeron_custom.rs` is a verbatim copy (not generated) into each crate's
