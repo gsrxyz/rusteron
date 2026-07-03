@@ -122,10 +122,9 @@ jobs:
           RUSTERON_SANITIZE: address
           # The build script (build_common.rs) compiles Aeron C with clang
           # -fsanitize=address and links clang's libasan into this crate's own
-          # binaries via cargo:rustc-link-lib — single runtime, no rustc runtime.
-          # LD_PRELOAD ensures the ASan runtime loads before any C library that
-          # depends on it (libaeron.so was compiled with -fsanitize=address).
-          LD_PRELOAD: /usr/lib/x86_64-linux-gnu/libasan.so
+          # binaries via cargo:rustc-link-lib=asan — single runtime, no rustc runtime.
+          # No LD_PRELOAD needed: the dynamic linker will find libasan.so via the
+          # regular library search path since we linked it properly.
           RUSTFLAGS: "-C target-cpu=x86-64"
         run: cargo test -p rusteron-client --features sanitize-address -- --nocapture
 
