@@ -87,14 +87,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@master
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: nightly
-          # rust-src for -Z build-std; rustfmt because RUSTUP_TOOLCHAIN=nightly
-          # makes the build scripts' format_with_rustfmt resolve to nightly's
-          # rustfmt, which isn't installed by default.
-          components: rust-src, rustfmt
+          toolchain: 1.95.0
+          components: rustfmt
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y curl pkg-config libssl-dev libbsd-dev uuid-dev ca-certificates make cmake gcc g++ clang zlib1g-dev
@@ -109,24 +106,22 @@ jobs:
       - name: Clean up any stale build artifacts
         run: rm -rf target
 
-      # Mirrors `just test-asan` (Linux path): nightly is required because
-      # `-Z sanitizer=address` / `-Z build-std` are nightly-only, and the
-      # repo's rust-toolchain.toml pins stable 1.95.0 — so we force nightly
-      # via RUSTUP_TOOLCHAIN (overrides the toolchain file) and build std
-      # with the sanitizer so the C bindings AND the Rust wrappers are
-      # instrumented. `sanitize-address` compiles Aeron C with
-      # `-fsanitize=address`.
+      # Single-runtime ASan (mirrors the macOS design in build_common.rs): the
+      # `sanitize-address` feature compiles Aeron C with clang's
+      # `-fsanitize=address`, and we link clang's libasan into the test binary
+      # via the cc linker driver — NO `-Z sanitizer=address`, so rustc does not
+      # pull in its own (incompatible) runtime. Using two runtimes (rustc's
+      # LLVM-20 vs Ubuntu 22's clang LLVM-14) aborts at startup with
+      # "linked against incompatible ASan runtimes". The C side — where the
+      # UAF/double-free risks are — is fully instrumented; Rust wrapper code is
+      # not, which is the same trade-off as the macOS ASan path.
       - name: Test with AddressSanitizer
         env:
+          CC: clang
+          CXX: clang++
           RUSTERON_SANITIZE: address
-          RUSTUP_TOOLCHAIN: nightly
-          # -Z sanitizer=address is a rustc flag (goes in RUSTFLAGS); -Z build-std
-          # is a *cargo* flag and must go on the cargo command line below, not
-          # here — rustc rejects it with "unknown unstable option: build-std".
-          RUSTFLAGS: "-Z sanitizer=address -C target-cpu=x86-64"
-        run: |
-          cargo test -p rusteron-client --features sanitize-address \
-            -Z build-std --target "$(rustc -vV | sed -n 's/host: //p')" -- --nocapture
+          RUSTFLAGS: "-C link-arg=-fsanitize=address -C link-arg=-fno-omit-frame-pointer -C target-cpu=x86-64"
+        run: cargo test -p rusteron-client --features sanitize-address -- --nocapture
 
   build:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
