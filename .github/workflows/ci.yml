@@ -143,13 +143,12 @@ jobs:
           CC: clang
           CXX: clang++
           RUSTERON_SANITIZE: address
-          # Find clang's ASan runtime path for LD_PRELOAD. This ensures the ASan
-          # runtime loads before any other library, which is required to avoid
-          # "ASan runtime does not come first in initial library list" errors.
-          # The build script links the runtime, but LD_PRELOAD ensures load order.
-          LD_PRELOAD: ${{ steps.asan-path.outputs.path }}
           RUSTFLAGS: "-C target-cpu=x86-64"
-        run: cargo test -p rusteron-client --features sanitize-address -- --nocapture
+        # Build first WITHOUT LD_PRELOAD (otherwise rustc segfaults)
+        run: |
+          cargo test -p rusteron-client --features sanitize-address --no-run
+          # Then run tests WITH LD_PRELOAD only on the test binary
+          LD_PRELOAD=${{ steps.asan-path.outputs.path }} cargo test -p rusteron-client --features sanitize-address -- --nocapture
 
   build:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
