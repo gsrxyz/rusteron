@@ -123,12 +123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let replay_channel = ChannelUri::add_session_id(channel, replay_session_id as i32).into_c_string();
     let replay_sub = retry_transient(Instant::now() + Duration::from_secs(10), || {
         aeron
-            .async_add_subscription(
-                &replay_channel,
-                replay_stream_id,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
-            )?
+            .async_add_subscription(&replay_channel, replay_stream_id, Handlers::none(), Handlers::none())?
             .poll_blocking(Duration::from_secs(2))
     })?;
 

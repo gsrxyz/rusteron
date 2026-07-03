@@ -693,6 +693,29 @@ impl<T> Clone for Handler<T> {
 /// Utility method for setting empty handlers
 pub struct Handlers;
 
+/// Type-level "no callback" sentinel.
+///
+/// Pass [`Handlers::none()`] (which is `None::<&Handler<NoHandler>>`) to any
+/// callback-accepting method to leave that callback unset. `NoHandler` implements
+/// every generated callback trait, so the method's callback generic is inferred as
+/// `NoHandler` without a per-callback helper or turbofish — including methods with
+/// several callback parameters (e.g. `async_add_subscription`'s image handlers).
+/// Its callback methods are unreachable: the C side is handed a null callback +
+/// null clientd, so they can never fire.
+pub struct NoHandler;
+
+impl Handlers {
+    /// `None` for any callback parameter — pins the callback generic to
+    /// [`NoHandler`] so type inference works without a per-callback helper or
+    /// turbofish. Replaces `Handlers::no_available_image_handler()` /
+    /// `no_unavailable_image_handler()` / `no_reserved_value_supplier_handler()`
+    /// / … with one method.
+    #[inline]
+    pub fn none() -> Option<&'static Handler<NoHandler>> {
+        None::<&'static Handler<NoHandler>>
+    }
+}
+
 impl<T> Handler<T> {
     pub fn new(handler: T) -> Self {
         let inner = std::sync::Arc::new(UnsafeCell::new(handler));

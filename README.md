@@ -126,8 +126,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let subscription = aeron
         .async_add_subscription(
             channel, 123,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::none(),
+            Handlers::none(),
         )?
         .poll_blocking(Duration::from_secs(5))?;
 

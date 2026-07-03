@@ -2150,9 +2150,20 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
         }
 
         impl Handlers {
-            /// No handler is set i.e. None with correct type
+            /// No handler is set i.e. None with correct type.
+            /// Prefer [`Handlers::none`](Handlers::none) (works for any callback).
             pub fn #no_method_name() -> Option<&'static Handler<#logger_type_name>> {
                 None::<&Handler<#logger_type_name>>
+            }
+        }
+
+        // `NoHandler` implements every generated callback trait so that
+        // `Handlers::none()` (= `None::<&Handler<NoHandler>>`) can pin the callback
+        // generic at any call site. Its body is unreachable: the C side receives a
+        // null callback + null clientd, so this method can never be invoked.
+        impl #closure_type_name for NoHandler {
+            fn #handle_method_name(&mut self, #(#closure_args),*) -> #closure_return_type {
+                unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
             }
         }
 
