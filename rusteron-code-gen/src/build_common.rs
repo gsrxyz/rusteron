@@ -304,24 +304,13 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
                     }
                 }
                 Ok("linux") => {
-                    // Prefer clang's own runtime (exact match for the instrumentation);
-                    // fall back to the system libasan if clang's runtime dir can't be found.
-                    let linked = (|| {
-                        let out = std::process::Command::new("clang")
-                            .arg("-print-runtime-dir")
-                            .output()
-                            .ok()?;
-                        let dir = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                        if dir.is_empty() {
-                            return None;
-                        }
-                        println!("cargo:rustc-link-search=native={dir}");
-                        println!("cargo:rustc-link-lib=clang_rt.asan-x86_64");
-                        Some(())
-                    })();
-                    if linked.is_none() {
-                        println!("cargo:rustc-link-lib=asan");
-                    }
+                    // Link the system libasan.so (in /usr/lib/x86_64-linux-gnu/)
+                    // instead of clang's runtime lib. clang's libclang_rt.asan-x86_64.so
+                    // is a shared library that's not in the standard runtime search paths,
+                    // causing "error while loading shared libraries" at test binary start.
+                    // The system libasan provides the same __asan_* symbols and is
+                    // already in the dynamic loader's search paths.
+                    println!("cargo:rustc-link-lib=asan");
                 }
                 _ => {}
             }
