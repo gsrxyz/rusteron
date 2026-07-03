@@ -1348,12 +1348,19 @@ mod tests {
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
         media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
-        // Under Valgrind execution is ~10x slower; increase liveness timeouts so the
-        // driver doesn't evict the client before the test finishes.
-        media_driver_ctx.set_client_liveness_timeout_ns(60_000_000_000)?; // 60 s
-        media_driver_ctx.set_image_liveness_timeout_ns(60_000_000_000)?; // 60 s
-        media_driver_ctx.set_publication_unblock_timeout_ns(65_000_000_000)?; // 65 s
-        media_driver_ctx.set_driver_timeout_ms(60_000)?; // 60 s
+        // Under Valgrind execution can be ~20-30x slower on CI runners; a 140 KB
+        // IPC send + poll cycle has measured a ~98 s gap between client keepalives,
+        // so the default 60 s liveness timeout evicts the client mid-test. Extend
+        // timeouts substantially when running under Valgrind.
+        let (liveness_ns, unblock_ns, driver_timeout_ms) = if running_under_valgrind() {
+            (180_000_000_000u64, 185_000_000_000u64, 180_000)
+        } else {
+            (60_000_000_000u64, 65_000_000_000u64, 60_000)
+        };
+        media_driver_ctx.set_client_liveness_timeout_ns(liveness_ns)?;
+        media_driver_ctx.set_image_liveness_timeout_ns(liveness_ns)?;
+        media_driver_ctx.set_publication_unblock_timeout_ns(unblock_ns)?;
+        media_driver_ctx.set_driver_timeout_ms(driver_timeout_ms)?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
@@ -1361,7 +1368,7 @@ mod tests {
         ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
         assert_eq!(media_driver_ctx.get_dir(), ctx.get_dir());
         // Keep client-side keepalive threshold aligned with the slow Valgrind environment.
-        ctx.set_driver_timeout_ms(60_000)?;
+        ctx.set_driver_timeout_ms(driver_timeout_ms)?;
         // Handlers are reference-counted: the context/resources keep clones alive,
         // and the values are freed automatically when the last reference drops.
         let error_handler = Handler::new(ErrorCount::default());
@@ -1561,12 +1568,19 @@ mod tests {
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
         media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
-        // Under Valgrind execution is ~10x slower; increase liveness timeouts so the
-        // driver doesn't evict the client before the test finishes.
-        media_driver_ctx.set_client_liveness_timeout_ns(60_000_000_000)?; // 60 s
-        media_driver_ctx.set_image_liveness_timeout_ns(60_000_000_000)?; // 60 s
-        media_driver_ctx.set_publication_unblock_timeout_ns(65_000_000_000)?; // 65 s
-        media_driver_ctx.set_driver_timeout_ms(60_000)?; // 60 s
+        // Under Valgrind execution can be ~20-30x slower on CI runners; a 140 KB
+        // IPC send + poll cycle has measured a ~98 s gap between client keepalives,
+        // so the default 60 s liveness timeout evicts the client mid-test. Extend
+        // timeouts substantially when running under Valgrind.
+        let (liveness_ns, unblock_ns, driver_timeout_ms) = if running_under_valgrind() {
+            (180_000_000_000u64, 185_000_000_000u64, 180_000)
+        } else {
+            (60_000_000_000u64, 65_000_000_000u64, 60_000)
+        };
+        media_driver_ctx.set_client_liveness_timeout_ns(liveness_ns)?;
+        media_driver_ctx.set_image_liveness_timeout_ns(liveness_ns)?;
+        media_driver_ctx.set_publication_unblock_timeout_ns(unblock_ns)?;
+        media_driver_ctx.set_driver_timeout_ms(driver_timeout_ms)?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
@@ -1574,7 +1588,7 @@ mod tests {
         ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
         assert_eq!(media_driver_ctx.get_dir(), ctx.get_dir());
         // Keep client-side keepalive threshold aligned with slow Valgrind environment.
-        ctx.set_driver_timeout_ms(60_000)?;
+        ctx.set_driver_timeout_ms(driver_timeout_ms)?;
         let error_handler = Handler::new(ErrorCount::default());
         ctx.set_error_handler(Some(error_handler.clone()))?;
 

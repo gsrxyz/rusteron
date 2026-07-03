@@ -91,7 +91,10 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly
-          components: rust-src
+          # rust-src for -Z build-std; rustfmt because RUSTUP_TOOLCHAIN=nightly
+          # makes the build scripts' format_with_rustfmt resolve to nightly's
+          # rustfmt, which isn't installed by default.
+          components: rust-src, rustfmt
 
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y curl pkg-config libssl-dev libbsd-dev uuid-dev ca-certificates make cmake gcc g++ clang zlib1g-dev
