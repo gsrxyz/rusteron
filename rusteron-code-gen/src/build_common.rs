@@ -316,11 +316,11 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
                             return None;
                         }
                         println!("cargo:rustc-link-search=native={dir}");
-                        println!("cargo:rustc-link-arg=-l:libclang_rt.asan-x86_64.so");
+                        println!("cargo:rustc-link-lib=clang_rt.asan-x86_64");
                         Some(())
                     })();
                     if linked.is_none() {
-                        println!("cargo:rustc-link-arg=-lasan");
+                        println!("cargo:rustc-link-lib=asan");
                     }
                 }
                 _ => {}
