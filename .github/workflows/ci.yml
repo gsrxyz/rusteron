@@ -103,6 +103,28 @@ jobs:
           distribution: 'temurin'
           java-version: '23'
 
+      - name: Find ASan runtime path
+        id: asan-path
+        run: |
+          # Get clang's resource directory
+          RESOURCE_DIR=$(clang -print-resource-dir)
+          echo "Clang resource dir: $RESOURCE_DIR"
+
+          # Try the new path first (Ubuntu 22.04+), then legacy path
+          ASAN_PATH="$RESOURCE_DIR/lib/x86_64-unknown-linux-gnu/libclang_rt.asan.so"
+          LEGACY_PATH="$RESOURCE_DIR/lib/libclang_rt.asan-x86_64.so"
+
+          if [ -f "$ASAN_PATH" ]; then
+            echo "Found ASan runtime at: $ASAN_PATH"
+            echo "path=$ASAN_PATH" >> $GITHUB_OUTPUT
+          elif [ -f "$LEGACY_PATH" ]; then
+            echo "Found ASan runtime at: $LEGACY_PATH"
+            echo "path=$LEGACY_PATH" >> $GITHUB_OUTPUT
+          else
+            echo "ERROR: ASan runtime not found in clang resource directory"
+            exit 1
+          fi
+
       - name: Clean up any stale build artifacts
         run: rm -rf target
 
@@ -120,11 +142,11 @@ jobs:
           CC: clang
           CXX: clang++
           RUSTERON_SANITIZE: address
-          # The build script (build_common.rs) compiles Aeron C with clang
-          # -fsanitize=address and links clang's libasan into this crate's own
-          # binaries via cargo:rustc-link-lib=asan — single runtime, no rustc runtime.
-          # No LD_PRELOAD needed: the dynamic linker will find libasan.so via the
-          # regular library search path since we linked it properly.
+          # Find clang's ASan runtime path for LD_PRELOAD. This ensures the ASan
+          # runtime loads before any other library, which is required to avoid
+          # "ASan runtime does not come first in initial library list" errors.
+          # The build script links the runtime, but LD_PRELOAD ensures load order.
+          LD_PRELOAD: ${{ steps.asan-path.outputs.path }}
           RUSTFLAGS: "-C target-cpu=x86-64"
         run: cargo test -p rusteron-client --features sanitize-address -- --nocapture
 

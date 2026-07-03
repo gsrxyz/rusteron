@@ -304,13 +304,34 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
                     }
                 }
                 Ok("linux") => {
-                    // Link the system libasan.so (in /usr/lib/x86_64-linux-gnu/)
-                    // instead of clang's runtime lib. clang's libclang_rt.asan-x86_64.so
-                    // is a shared library that's not in the standard runtime search paths,
-                    // causing "error while loading shared libraries" at test binary start.
-                    // The system libasan provides the same __asan_* symbols and is
-                    // already in the dynamic loader's search paths.
-                    println!("cargo:rustc-link-lib=asan");
+                    // Link clang's ASan runtime and output its path for LD_PRELOAD.
+                    // We use clang's resource-dir to find the exact libclang_rt.asan
+                    // path, then emit it so the CI workflow can LD_PRELOAD it to ensure
+                    // the ASan runtime loads before any other library (required to avoid
+                    // "ASan runtime does not come first in initial library list" errors).
+                    if let Ok(output) =
+                        std::process::Command::new("clang").arg("-print-resource-dir").output()
+                    {
+                        let resource_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                        if !resource_dir.is_empty() {
+                            // Try both possible paths for the ASan runtime library
+                            let asan_path = format!("{}/lib/x86_64-unknown-linux-gnu/libclang_rt.asan.so", resource_dir);
+                            let asan_path_legacy = format!("{}/lib/libclang_rt.asan-x86_64.so", resource_dir);
+
+                            if std::path::Path::new(&asan_path).exists() {
+                                println!("cargo:rustc-link-search=native={resource_dir}/lib/x86_64-unknown-linux-gnu");
+                                println!("cargo:rustc-link-lib=dylib=clang_rt.asan");
+                                println!("cargo:warning=ASAN_RUNTIME_PATH={}", asan_path);
+                            } else if std::path::Path::new(&asan_path_legacy).exists() {
+                                println!("cargo:rustc-link-search=native={resource_dir}/lib");
+                                println!("cargo:rustc-link-lib=dylib=clang_rt.asan-x86_64");
+                                println!("cargo:warning=ASAN_RUNTIME_PATH={}", asan_path_legacy);
+                            } else {
+                                // Fallback to system libasan if clang's runtime isn't found
+                                println!("cargo:rustc-link-lib=asan");
+                            }
+                        }
+                    }
                 }
                 _ => {}
             }
