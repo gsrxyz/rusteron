@@ -110,14 +110,16 @@ jobs:
           RESOURCE_DIR=$(clang -print-resource-dir)
           echo "Clang resource dir: $RESOURCE_DIR"
 
-          # Search for the ASan runtime library - try multiple possible paths
-          # Ubuntu 22.04 with LLVM-14 uses different paths than expected
-          ASAN_PATH=$(find "$RESOURCE_DIR" -name "libclang_rt.asan*.so" -o -name "libasan.so" | head -1)
+          # Search for the x86_64 ASan runtime library specifically
+          # We need the 64-bit version, not i386 (32-bit)
+          ASAN_PATH=$(find "$RESOURCE_DIR" -name "libclang_rt.asan-x86_64.so" -o -name "libclang_rt.asan-x86_64.so.*" | head -1)
 
           if [ -z "$ASAN_PATH" ] || [ ! -f "$ASAN_PATH" ]; then
-            echo "ERROR: ASan runtime not found in clang resource directory"
+            echo "ERROR: ASan runtime (x86_64) not found in clang resource directory"
             echo "Contents of $RESOURCE_DIR:"
             ls -la "$RESOURCE_DIR" || echo "Cannot list directory"
+            echo "Searching for any ASan libraries:"
+            find "$RESOURCE_DIR" -name "*asan*" 2>/dev/null || true
             exit 1
           fi
 
