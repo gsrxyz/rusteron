@@ -1437,10 +1437,37 @@ mod tests {
 
         archive.close()?;
 
-        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?;
-        let new_archive = archive_connector
-            .poll_blocking(Duration::from_secs(30))
-            .expect("failed to reconnect to archive");
+        // Retry reconnection with exponential backoff to handle race condition
+        // where close() is async and the endpoint may still be CLOSING
+        let mut retry_delay = Duration::from_millis(100);
+        let max_retries = 10;
+        let mut new_archive = None;
+
+        for attempt in 0..max_retries {
+            let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?;
+            match archive_connector.poll_blocking(Duration::from_secs(5)) {
+                Ok(archive) => {
+                    new_archive = Some(archive);
+                    break;
+                }
+                Err(e) if attempt < max_retries - 1 => {
+                    // Check if error is about CLOSING state - retry with backoff
+                    let error_msg = e.to_string();
+                    if error_msg.contains("CLOSING") || error_msg.contains("temporarily unavailable") {
+                        std::thread::sleep(retry_delay);
+                        retry_delay = retry_delay.saturating_mul(2);
+                        continue;
+                    }
+                    // Other errors should fail immediately
+                    return Err(format!("Failed to reconnect to archive: {}", e).into());
+                }
+                Err(e) => {
+                    return Err(format!("Failed to reconnect to archive after {} retries: {}", max_retries, e).into());
+                }
+            }
+        }
+
+        let new_archive = new_archive.expect("failed to reconnect to archive after retries");
         assert!(
             new_archive.get_archive_id() > 0,
             "Reconnected archive should have a valid archive id"
