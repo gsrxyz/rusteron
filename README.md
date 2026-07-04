@@ -97,19 +97,17 @@ rusteron-client = { version = "0.2", features = ["multi-threaded"] }
 ```
 
 ```rust,ignore
-// Share a publication across threads for concurrent offer (Aeron C documents
-// aeron_publication_offer as thread-safe).
-let pub_arc = Arc::new(publication);
-let t1 = { let p = pub_arc.clone(); thread::spawn(move || { p.offer(b"hello")?; }) };
-let t2 = { let p = pub_arc.clone(); thread::spawn(move || { p.offer(b"world")?; }) };
+// Clone the handle per thread — under `multi-threaded` the handle is internally
+// Arc-refcounted, so each clone shares the same underlying C publication
+// (Aeron C documents aeron_publication_offer as thread-safe).
+let t1 = { let p = publication.clone(); thread::spawn(move || { p.offer(b"hello")?; }) };
+let t2 = { let p = publication.clone(); thread::spawn(move || { p.offer(b"world")?; }) };
 ```
 
-The Arc atomic refcount is **not on the hot path** — `offer` / `poll` read the inner C
-pointer via a `Cell`/field load (no refcount), so the feature adds zero measurable
-overhead. The `unsafe impl Sync` follows the same "accepted unsoundness" policy as the
-existing `unsafe impl Send`: the `UnsafeCell` fields inside `ManagedCResource` are only
-mutated during construction and close (single-threaded), never during the shared-read
-window. The deferred close + dependency graph (shipped in 0.2) structurally prevents the
+The `unsafe impl Sync` follows the same "accepted unsoundness" policy as the existing
+`unsafe impl Send`: the `UnsafeCell` fields inside `ManagedCResource` are only mutated
+during construction and close (single-threaded), never during the shared-read window. The
+deferred close + dependency graph (shipped in 0.2) structurally prevents the
 close-while-shared race described in
 [PR #50](https://github.com/gsrxyz/rusteron/pull/50) — children keep parents alive.
 
@@ -145,7 +143,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ctx = AeronContext::new()?;
     ctx.set_dir(&driver_ctx.get_dir().into_c_string())?;
-    // Reuse the built-in logger for async client errors (Aeron samples always set one).
+    // Error handler is Option (None = silently drop async client errors).
+    // The Aeron samples always set a logger so failures are visible.
     ctx.set_error_handler(Some(AeronErrorHandlerLogger))?;
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
@@ -164,8 +163,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .poll_blocking(Duration::from_secs(5))?;
 
     // offer returns Ok(position) or a typed AeronOfferError; retry the
-    // retryable ones (back-pressure / admin action / not connected).
-    while publication.offer(b"Hello, Aeron!").is_err() {}
+    // retryable ones (back-pressure / admin action / not connected),
+    // surface the fatal ones (closed / max position exceeded).
+    loop {
+        match publication.offer(b"Hello, Aeron!") {
+            Ok(_) => break,
+            Err(e) if e.is_retryable() => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
 
     // `poll_fn` runs the closure per fragment (zero allocation); use a fragment
     // assembler for messages larger than the MTU.
@@ -185,9 +191,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### C strings without hidden allocations
 
-Every channel/URI argument is a `&CStr` (the C API's type), so allocations stay **explicit
-and greppable** — important when reviewing latency-sensitive code. The recommended
-three-tier pattern, cheapest first:
+Every channel/URI argument is a `&CStr` (the C API's type), so every heap allocation is
+visible at the call site. Recommended three-tier pattern, cheapest first:
 
 ```rust,ignore
 // 1. Constant channels: c"..." literals — compile-time &'static CStr, zero runtime cost.
@@ -225,15 +230,18 @@ reference-counted (`Arc`) and freed automatically — resources that retain a ca
 clone alive, so the C side can never fire a freed callback. Retained-callback setters now
 take the value (a closure or trait impl works directly) and return the `Handler` for
 optional state access. For "no callback", one constant fits every parameter:
-`Handlers::NONE`. Docs now spell out heap (retained `Handler`) vs stack
-(`poll_fn`/`*_once` borrowed closures — zero allocation) semantics.
+`Handlers::NONE`. Docs now spell out heap (retained `Handler`, `Arc`-backed) vs stack
+(`poll_fn`/`*_once` borrowed closures — no `Arc`, no heap, zero allocation) semantics.
 
 **Error handling.** `offer`/`try_claim` return `Result<i64, AeronOfferError>` — a typed
 enum over Aeron's negative sentinels with `is_retryable()` (back-pressure / admin action /
 not connected) vs fatal (closed / max position). `AeronCError` now snapshots
-`aeron_errmsg()` **at the error site** for non-retryable codes, so `Display` shows the
-message of the error that actually happened, not whatever a later error overwrote the
-global buffer with. Archive control operations (`begin_replay`, `start_recording`, …)
+`aeron_errmsg()` **at the error site** — but only for non-retryable (fatal) codes, so the
+hot retry loop stays allocation-free (retryable codes skip the snapshot). The single
+`String` allocation happens only on a fatal error you're bailing out on anyway, and it
+ensures `Display` shows the message of the error that actually happened, not whatever a
+later error overwrote the global buffer with. Archive control operations (`begin_replay`,
+`start_recording`, …)
 return `Result<_, AeronArchiveError>` with the parsed `AeronArchiveErrorCode` and message;
 constructors, async-connect, and context setters keep `AeronCError`, with
 `From<AeronArchiveError> for AeronCError` for `?` interop.

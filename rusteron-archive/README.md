@@ -92,8 +92,6 @@ Automatic cleanup applies **only** to `new()` constructors. Other methods (e.g. 
 
 ### Manual Handler Management
 
-Connect in one call — `AeronArchive::connect(&aeron, request_channel, response_channel, Some(events_channel), timeout)?` — or build the `AeronArchiveContext` yourself for credentials/handlers. Replay and replication parameters have fluent builders (`AeronArchiveReplayParams::builder().position(0).follow_live().build()?`, `AeronArchiveReplicationParams::builder().build()?`) with aeron's defaults.
-
 Retained-callback setters take the callback by value (a closure or trait impl), keep it alive inside the registering resource, and return the `Handler` for optional state access. See the rusteron-client README for the full handler and 0.1 → 0.2 migration guide.
 
 For short-lived operations such as polling, closures can be used directly:
