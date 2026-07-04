@@ -769,7 +769,7 @@ impl CWrapper {
 
                 // in aeron some methods return error code but have &mut primitive
                 // ideally we should return that primitive instead of forcing user to pass it in
-                if single_mut_field {
+                let __method_tokens = if single_mut_field {
                     let mut_field = mut_primitivies.first().unwrap();
                     let rt: Type = parse_str(mut_field.c_type.split_whitespace().last().unwrap()).unwrap();
                     let return_type = quote! { Result<#rt, AeronCError> };
@@ -869,6 +869,21 @@ impl CWrapper {
 
                         #(#additional_methods)*
                     }
+                };
+
+                // Archive control operations surface typed errors (AeronArchiveError) so
+                // callers can match on the structured code. Apply uniformly at the token
+                // level to every method on `aeron_archive_t` — the main body plus the
+                // `additional_methods` (_once variants, out-param getters, string getters)
+                // which all live in this same closure scope.
+                if self.type_name == "aeron_archive_t" {
+                    __method_tokens
+                        .to_string()
+                        .replace("AeronCError", "AeronArchiveError")
+                        .parse()
+                        .expect("AeronArchiveError token substitution must yield valid tokens")
+                } else {
+                    __method_tokens
                 }
             })
             .collect()
@@ -2852,7 +2867,8 @@ pub fn generate_rust_code(
                     /// More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)
                     pub fn clone_struct(&self) -> Self {
                         let copy = Self::default();
-                        copy.get_inner_mut().clone_from(self.deref());
+                        // SAFETY: `copy` was created just above and is not aliased yet.
+                        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
                         copy
                     }
                 }
@@ -2896,9 +2912,16 @@ pub fn generate_rust_code(
                 self.inner.get()
             }
 
+            /// Mutable access to the underlying C struct, minted from `&self`: nothing
+            /// prevents two live `&mut` at once, so the caller must ensure exclusive
+            /// access for the lifetime of the returned reference.
+            ///
+            /// # Safety
+            /// No other reference (`&` or `&mut`) to the underlying struct may be
+            /// alive while the returned `&mut` is in use.
             #[inline(always)]
-            pub fn get_inner_mut(&self) -> &mut #type_name {
-                unsafe { &mut *self.inner.get() }
+            pub unsafe fn get_inner_mut(&self) -> &mut #type_name {
+                &mut *self.inner.get()
             }
 
             #[inline(always)]

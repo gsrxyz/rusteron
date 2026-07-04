@@ -58,12 +58,12 @@ mod tests {
     /// (GenericError, "no error") while the Java archive / conductor settles under
     /// CI load — and that code is **not** `is_retryable()`, so the
     /// `retry_transient`-style helpers don't catch it. This wrapper retries on any
-    /// `AeronCError` for a short window, which makes the integration tests
+    /// archive control error for a short window, which makes the integration tests
     /// deterministic under load without slowing the success path (the op almost
     /// always succeeds on the first try).
-    fn retry_archive_op<T, F>(deadline: Instant, mut op: F) -> Result<T, AeronCError>
+    fn retry_archive_op<T, F>(deadline: Instant, mut op: F) -> Result<T, AeronArchiveError>
     where
-        F: FnMut() -> Result<T, AeronCError>,
+        F: FnMut() -> Result<T, AeronArchiveError>,
     {
         loop {
             match op() {

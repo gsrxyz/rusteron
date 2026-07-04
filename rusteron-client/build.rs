@@ -14,7 +14,7 @@ pub fn main() {
         cmake_defines: &[],
         allow_multiple_definition: false,
         precompile_linux_extra_lib: None,
-        wrapper_type_filter: RusteronBuildConfig::no_filter,
+        wrapper_type_filter: RusteronBuildConfig::aeron_only,
         expected_wrapper: None,
         extra_custom_code: &[],
         bindings_snapshot: "client.rs",

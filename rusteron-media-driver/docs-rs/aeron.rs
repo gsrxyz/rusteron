@@ -1,35 +1,68 @@
 
 type aeron_client_registering_resource_t = aeron_client_registering_resource_stct;
 #[derive(Clone)]
-pub struct DarwinPthreadHandlerRec {
-    inner: CResource<__darwin_pthread_handler_rec>,
+pub struct Addrinfo {
+    inner: CResource<addrinfo>,
 }
-impl core::fmt::Debug for DarwinPthreadHandlerRec {
+impl core::fmt::Debug for Addrinfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.inner.get().is_null() {
-            f.debug_struct(stringify!(DarwinPthreadHandlerRec))
-                .field("inner", &"null")
-                .finish()
+            f.debug_struct(stringify!(Addrinfo)).field("inner", &"null").finish()
         } else {
-            f.debug_struct(stringify!(DarwinPthreadHandlerRec))
+            f.debug_struct(stringify!(Addrinfo))
                 .field("inner", &self.inner)
+                .field(stringify!(ai_canonname), &self.ai_canonname())
                 .finish()
         }
     }
 }
-impl DarwinPthreadHandlerRec {
+impl Addrinfo {
+    #[inline]
+    pub fn new(
+        ai_flags: ::std::os::raw::c_int,
+        ai_family: ::std::os::raw::c_int,
+        ai_socktype: ::std::os::raw::c_int,
+        ai_protocol: ::std::os::raw::c_int,
+        ai_addrlen: socklen_t,
+        ai_canonname: *mut ::std::os::raw::c_char,
+        ai_addr: &Sockaddr,
+        ai_next: &Addrinfo,
+    ) -> Result<Self, AeronCError> {
+        let ai_addr_copy = ai_addr.clone();
+        let ai_next_copy = ai_next.clone();
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = addrinfo {
+                    ai_flags: ai_flags.into(),
+                    ai_family: ai_family.into(),
+                    ai_socktype: ai_socktype.into(),
+                    ai_protocol: ai_protocol.into(),
+                    ai_addrlen: ai_addrlen.into(),
+                    ai_canonname: ai_canonname.into(),
+                    ai_addr: ai_addr.into(),
+                    ai_next: ai_next.into(),
+                };
+                let inner_ptr: *mut addrinfo = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
+        };
+        Ok(result)
+    }
     #[inline]
     #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(__darwin_pthread_handler_rec)
-                );
-                let inst: __darwin_pthread_handler_rec = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut __darwin_pthread_handler_rec = Box::into_raw(Box::new(inst));
+                log::info!("creating zeroed empty resource on heap {}", stringify!(addrinfo));
+                let inst: addrinfo = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut addrinfo = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
             },
@@ -46,77 +79,138 @@ impl DarwinPthreadHandlerRec {
     #[doc = r" _(Use with care)_"]
     pub fn new_zeroed_on_stack() -> Self {
         #[cfg(feature = "extra-logging")]
-        log::debug!(
-            "creating zeroed empty resource on stack {}",
-            stringify!(__darwin_pthread_handler_rec)
-        );
+        log::debug!("creating zeroed empty resource on stack {}", stringify!(addrinfo));
         Self {
             inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
         }
     }
+    #[inline]
+    pub fn ai_flags(&self) -> ::std::os::raw::c_int {
+        self.ai_flags.into()
+    }
+    #[inline]
+    pub fn ai_family(&self) -> ::std::os::raw::c_int {
+        self.ai_family.into()
+    }
+    #[inline]
+    pub fn ai_socktype(&self) -> ::std::os::raw::c_int {
+        self.ai_socktype.into()
+    }
+    #[inline]
+    pub fn ai_protocol(&self) -> ::std::os::raw::c_int {
+        self.ai_protocol.into()
+    }
+    #[inline]
+    pub fn ai_addrlen(&self) -> socklen_t {
+        self.ai_addrlen.into()
+    }
+    #[inline]
+    pub fn ai_canonname(&self) -> &str {
+        if self.ai_canonname.is_null() {
+            ""
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(self.ai_canonname).to_str().unwrap_or("") }
+        }
+    }
+    #[inline]
+    pub fn ai_addr(&self) -> Sockaddr {
+        self.ai_addr.into()
+    }
+    #[inline]
+    pub fn ai_next(&self) -> Addrinfo {
+        self.ai_next.into()
+    }
     #[inline(always)]
-    pub fn get_inner(&self) -> *mut __darwin_pthread_handler_rec {
+    pub fn get_inner(&self) -> *mut addrinfo {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut __darwin_pthread_handler_rec {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut addrinfo {
+        &mut *self.inner.get()
     }
     #[inline(always)]
-    pub fn get_inner_ref(&self) -> &__darwin_pthread_handler_rec {
+    pub fn get_inner_ref(&self) -> &addrinfo {
         unsafe { &*self.inner.get() }
     }
 }
-impl std::ops::Deref for DarwinPthreadHandlerRec {
-    type Target = __darwin_pthread_handler_rec;
+impl std::ops::Deref for Addrinfo {
+    type Target = addrinfo;
     fn deref(&self) -> &Self::Target {
         self.get_inner_ref()
     }
 }
-impl From<*mut __darwin_pthread_handler_rec> for DarwinPthreadHandlerRec {
+impl From<*mut addrinfo> for Addrinfo {
     #[inline]
-    fn from(value: *mut __darwin_pthread_handler_rec) -> Self {
-        DarwinPthreadHandlerRec {
+    fn from(value: *mut addrinfo) -> Self {
+        Addrinfo {
             inner: CResource::Borrowed(value),
         }
     }
 }
-impl From<DarwinPthreadHandlerRec> for *mut __darwin_pthread_handler_rec {
+impl From<Addrinfo> for *mut addrinfo {
     #[inline]
-    fn from(value: DarwinPthreadHandlerRec) -> Self {
+    fn from(value: Addrinfo) -> Self {
         value.get_inner()
     }
 }
-impl From<&DarwinPthreadHandlerRec> for *mut __darwin_pthread_handler_rec {
+impl From<&Addrinfo> for *mut addrinfo {
     #[inline]
-    fn from(value: &DarwinPthreadHandlerRec) -> Self {
+    fn from(value: &Addrinfo) -> Self {
         value.get_inner()
     }
 }
-impl From<DarwinPthreadHandlerRec> for __darwin_pthread_handler_rec {
+impl From<Addrinfo> for addrinfo {
     #[inline]
-    fn from(value: DarwinPthreadHandlerRec) -> Self {
+    fn from(value: Addrinfo) -> Self {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const __darwin_pthread_handler_rec> for DarwinPthreadHandlerRec {
+impl From<*const addrinfo> for Addrinfo {
     #[inline]
-    fn from(value: *const __darwin_pthread_handler_rec) -> Self {
-        DarwinPthreadHandlerRec {
-            inner: CResource::Borrowed(value as *mut __darwin_pthread_handler_rec),
+    fn from(value: *const addrinfo) -> Self {
+        Addrinfo {
+            inner: CResource::Borrowed(value as *mut addrinfo),
         }
     }
 }
-impl From<__darwin_pthread_handler_rec> for DarwinPthreadHandlerRec {
+impl From<addrinfo> for Addrinfo {
     #[inline]
-    fn from(value: __darwin_pthread_handler_rec) -> Self {
-        DarwinPthreadHandlerRec {
+    fn from(value: addrinfo) -> Self {
+        Addrinfo {
             inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
         }
     }
 }
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for Addrinfo {
+    fn default() -> Self {
+        Addrinfo::new_zeroed_on_heap()
+    }
+}
+impl Addrinfo {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+        copy
+    }
+}
 #[cfg(test)]
-mod __darwin_pthread_handler_rec_allocation_tests {
+mod addrinfo_allocation_tests {
     use super::*;
     use serial_test::file_serial;
     #[test]
@@ -124,7 +218,16 @@ mod __darwin_pthread_handler_rec_allocation_tests {
     fn test_new_on_stack() {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
-                let _ = DarwinPthreadHandlerRec::new_zeroed_on_stack();
+                let _ = Addrinfo::new_zeroed_on_stack();
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = Addrinfo::default();
             }
         });
     }
@@ -344,9 +447,14 @@ impl<T> ManagedCResource<T> {
     pub fn get(&self) -> *mut T {
         self.resource.get()
     }
+    #[doc = " Mutable access to the underlying C struct, minted from `&self`."]
+    #[doc = ""]
+    #[doc = " # Safety"]
+    #[doc = " No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = " alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_mut(&self) -> &mut T {
-        unsafe { &mut *self.resource.get() }
+    pub unsafe fn get_mut(&self) -> &mut T {
+        &mut *self.resource.get()
     }
     #[inline]
     pub fn add_dependency<D: std::any::Any>(&self, dep: D) {
@@ -1074,747 +1182,6 @@ mod handler_tests {
     }
 }
 #[derive(Clone)]
-pub struct OpaquePthreadAttr {
-    inner: CResource<_opaque_pthread_attr_t>,
-}
-impl core::fmt::Debug for OpaquePthreadAttr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.inner.get().is_null() {
-            f.debug_struct(stringify!(OpaquePthreadAttr))
-                .field("inner", &"null")
-                .finish()
-        } else {
-            f.debug_struct(stringify!(OpaquePthreadAttr))
-                .field("inner", &self.inner)
-                .finish()
-        }
-    }
-}
-impl OpaquePthreadAttr {
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
-    pub fn new_zeroed_on_heap() -> Self {
-        let resource = ManagedCResource::new(
-            move |ctx_field| {
-                #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(_opaque_pthread_attr_t)
-                );
-                let inst: _opaque_pthread_attr_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut _opaque_pthread_attr_t = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )
-        .unwrap();
-        Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
-        }
-    }
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
-    #[doc = r" _(Use with care)_"]
-    pub fn new_zeroed_on_stack() -> Self {
-        #[cfg(feature = "extra-logging")]
-        log::debug!(
-            "creating zeroed empty resource on stack {}",
-            stringify!(_opaque_pthread_attr_t)
-        );
-        Self {
-            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
-        }
-    }
-    #[inline(always)]
-    pub fn get_inner(&self) -> *mut _opaque_pthread_attr_t {
-        self.inner.get()
-    }
-    #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut _opaque_pthread_attr_t {
-        unsafe { &mut *self.inner.get() }
-    }
-    #[inline(always)]
-    pub fn get_inner_ref(&self) -> &_opaque_pthread_attr_t {
-        unsafe { &*self.inner.get() }
-    }
-}
-impl std::ops::Deref for OpaquePthreadAttr {
-    type Target = _opaque_pthread_attr_t;
-    fn deref(&self) -> &Self::Target {
-        self.get_inner_ref()
-    }
-}
-impl From<*mut _opaque_pthread_attr_t> for OpaquePthreadAttr {
-    #[inline]
-    fn from(value: *mut _opaque_pthread_attr_t) -> Self {
-        OpaquePthreadAttr {
-            inner: CResource::Borrowed(value),
-        }
-    }
-}
-impl From<OpaquePthreadAttr> for *mut _opaque_pthread_attr_t {
-    #[inline]
-    fn from(value: OpaquePthreadAttr) -> Self {
-        value.get_inner()
-    }
-}
-impl From<&OpaquePthreadAttr> for *mut _opaque_pthread_attr_t {
-    #[inline]
-    fn from(value: &OpaquePthreadAttr) -> Self {
-        value.get_inner()
-    }
-}
-impl From<OpaquePthreadAttr> for _opaque_pthread_attr_t {
-    #[inline]
-    fn from(value: OpaquePthreadAttr) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const _opaque_pthread_attr_t> for OpaquePthreadAttr {
-    #[inline]
-    fn from(value: *const _opaque_pthread_attr_t) -> Self {
-        OpaquePthreadAttr {
-            inner: CResource::Borrowed(value as *mut _opaque_pthread_attr_t),
-        }
-    }
-}
-impl From<_opaque_pthread_attr_t> for OpaquePthreadAttr {
-    #[inline]
-    fn from(value: _opaque_pthread_attr_t) -> Self {
-        OpaquePthreadAttr {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
-        }
-    }
-}
-#[cfg(test)]
-mod _opaque_pthread_attr_t_allocation_tests {
-    use super::*;
-    use serial_test::file_serial;
-    #[test]
-    #[file_serial(global)]
-    fn test_new_on_stack() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = OpaquePthreadAttr::new_zeroed_on_stack();
-            }
-        });
-    }
-}
-#[derive(Clone)]
-pub struct OpaquePthreadCond {
-    inner: CResource<_opaque_pthread_cond_t>,
-}
-impl core::fmt::Debug for OpaquePthreadCond {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.inner.get().is_null() {
-            f.debug_struct(stringify!(OpaquePthreadCond))
-                .field("inner", &"null")
-                .finish()
-        } else {
-            f.debug_struct(stringify!(OpaquePthreadCond))
-                .field("inner", &self.inner)
-                .finish()
-        }
-    }
-}
-impl OpaquePthreadCond {
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
-    pub fn new_zeroed_on_heap() -> Self {
-        let resource = ManagedCResource::new(
-            move |ctx_field| {
-                #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(_opaque_pthread_cond_t)
-                );
-                let inst: _opaque_pthread_cond_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut _opaque_pthread_cond_t = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )
-        .unwrap();
-        Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
-        }
-    }
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
-    #[doc = r" _(Use with care)_"]
-    pub fn new_zeroed_on_stack() -> Self {
-        #[cfg(feature = "extra-logging")]
-        log::debug!(
-            "creating zeroed empty resource on stack {}",
-            stringify!(_opaque_pthread_cond_t)
-        );
-        Self {
-            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
-        }
-    }
-    #[inline(always)]
-    pub fn get_inner(&self) -> *mut _opaque_pthread_cond_t {
-        self.inner.get()
-    }
-    #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut _opaque_pthread_cond_t {
-        unsafe { &mut *self.inner.get() }
-    }
-    #[inline(always)]
-    pub fn get_inner_ref(&self) -> &_opaque_pthread_cond_t {
-        unsafe { &*self.inner.get() }
-    }
-}
-impl std::ops::Deref for OpaquePthreadCond {
-    type Target = _opaque_pthread_cond_t;
-    fn deref(&self) -> &Self::Target {
-        self.get_inner_ref()
-    }
-}
-impl From<*mut _opaque_pthread_cond_t> for OpaquePthreadCond {
-    #[inline]
-    fn from(value: *mut _opaque_pthread_cond_t) -> Self {
-        OpaquePthreadCond {
-            inner: CResource::Borrowed(value),
-        }
-    }
-}
-impl From<OpaquePthreadCond> for *mut _opaque_pthread_cond_t {
-    #[inline]
-    fn from(value: OpaquePthreadCond) -> Self {
-        value.get_inner()
-    }
-}
-impl From<&OpaquePthreadCond> for *mut _opaque_pthread_cond_t {
-    #[inline]
-    fn from(value: &OpaquePthreadCond) -> Self {
-        value.get_inner()
-    }
-}
-impl From<OpaquePthreadCond> for _opaque_pthread_cond_t {
-    #[inline]
-    fn from(value: OpaquePthreadCond) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const _opaque_pthread_cond_t> for OpaquePthreadCond {
-    #[inline]
-    fn from(value: *const _opaque_pthread_cond_t) -> Self {
-        OpaquePthreadCond {
-            inner: CResource::Borrowed(value as *mut _opaque_pthread_cond_t),
-        }
-    }
-}
-impl From<_opaque_pthread_cond_t> for OpaquePthreadCond {
-    #[inline]
-    fn from(value: _opaque_pthread_cond_t) -> Self {
-        OpaquePthreadCond {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
-        }
-    }
-}
-#[cfg(test)]
-mod _opaque_pthread_cond_t_allocation_tests {
-    use super::*;
-    use serial_test::file_serial;
-    #[test]
-    #[file_serial(global)]
-    fn test_new_on_stack() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = OpaquePthreadCond::new_zeroed_on_stack();
-            }
-        });
-    }
-}
-#[derive(Clone)]
-pub struct OpaquePthreadMutex {
-    inner: CResource<_opaque_pthread_mutex_t>,
-}
-impl core::fmt::Debug for OpaquePthreadMutex {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.inner.get().is_null() {
-            f.debug_struct(stringify!(OpaquePthreadMutex))
-                .field("inner", &"null")
-                .finish()
-        } else {
-            f.debug_struct(stringify!(OpaquePthreadMutex))
-                .field("inner", &self.inner)
-                .finish()
-        }
-    }
-}
-impl OpaquePthreadMutex {
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
-    pub fn new_zeroed_on_heap() -> Self {
-        let resource = ManagedCResource::new(
-            move |ctx_field| {
-                #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(_opaque_pthread_mutex_t)
-                );
-                let inst: _opaque_pthread_mutex_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut _opaque_pthread_mutex_t = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )
-        .unwrap();
-        Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
-        }
-    }
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
-    #[doc = r" _(Use with care)_"]
-    pub fn new_zeroed_on_stack() -> Self {
-        #[cfg(feature = "extra-logging")]
-        log::debug!(
-            "creating zeroed empty resource on stack {}",
-            stringify!(_opaque_pthread_mutex_t)
-        );
-        Self {
-            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
-        }
-    }
-    #[inline(always)]
-    pub fn get_inner(&self) -> *mut _opaque_pthread_mutex_t {
-        self.inner.get()
-    }
-    #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut _opaque_pthread_mutex_t {
-        unsafe { &mut *self.inner.get() }
-    }
-    #[inline(always)]
-    pub fn get_inner_ref(&self) -> &_opaque_pthread_mutex_t {
-        unsafe { &*self.inner.get() }
-    }
-}
-impl std::ops::Deref for OpaquePthreadMutex {
-    type Target = _opaque_pthread_mutex_t;
-    fn deref(&self) -> &Self::Target {
-        self.get_inner_ref()
-    }
-}
-impl From<*mut _opaque_pthread_mutex_t> for OpaquePthreadMutex {
-    #[inline]
-    fn from(value: *mut _opaque_pthread_mutex_t) -> Self {
-        OpaquePthreadMutex {
-            inner: CResource::Borrowed(value),
-        }
-    }
-}
-impl From<OpaquePthreadMutex> for *mut _opaque_pthread_mutex_t {
-    #[inline]
-    fn from(value: OpaquePthreadMutex) -> Self {
-        value.get_inner()
-    }
-}
-impl From<&OpaquePthreadMutex> for *mut _opaque_pthread_mutex_t {
-    #[inline]
-    fn from(value: &OpaquePthreadMutex) -> Self {
-        value.get_inner()
-    }
-}
-impl From<OpaquePthreadMutex> for _opaque_pthread_mutex_t {
-    #[inline]
-    fn from(value: OpaquePthreadMutex) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const _opaque_pthread_mutex_t> for OpaquePthreadMutex {
-    #[inline]
-    fn from(value: *const _opaque_pthread_mutex_t) -> Self {
-        OpaquePthreadMutex {
-            inner: CResource::Borrowed(value as *mut _opaque_pthread_mutex_t),
-        }
-    }
-}
-impl From<_opaque_pthread_mutex_t> for OpaquePthreadMutex {
-    #[inline]
-    fn from(value: _opaque_pthread_mutex_t) -> Self {
-        OpaquePthreadMutex {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
-        }
-    }
-}
-#[cfg(test)]
-mod _opaque_pthread_mutex_t_allocation_tests {
-    use super::*;
-    use serial_test::file_serial;
-    #[test]
-    #[file_serial(global)]
-    fn test_new_on_stack() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = OpaquePthreadMutex::new_zeroed_on_stack();
-            }
-        });
-    }
-}
-#[derive(Clone)]
-pub struct OpaquePthread {
-    inner: CResource<_opaque_pthread_t>,
-}
-impl core::fmt::Debug for OpaquePthread {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.inner.get().is_null() {
-            f.debug_struct(stringify!(OpaquePthread))
-                .field("inner", &"null")
-                .finish()
-        } else {
-            f.debug_struct(stringify!(OpaquePthread))
-                .field("inner", &self.inner)
-                .finish()
-        }
-    }
-}
-impl OpaquePthread {
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
-    pub fn new_zeroed_on_heap() -> Self {
-        let resource = ManagedCResource::new(
-            move |ctx_field| {
-                #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(_opaque_pthread_t)
-                );
-                let inst: _opaque_pthread_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut _opaque_pthread_t = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )
-        .unwrap();
-        Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
-        }
-    }
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
-    #[doc = r" _(Use with care)_"]
-    pub fn new_zeroed_on_stack() -> Self {
-        #[cfg(feature = "extra-logging")]
-        log::debug!(
-            "creating zeroed empty resource on stack {}",
-            stringify!(_opaque_pthread_t)
-        );
-        Self {
-            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
-        }
-    }
-    #[inline(always)]
-    pub fn get_inner(&self) -> *mut _opaque_pthread_t {
-        self.inner.get()
-    }
-    #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut _opaque_pthread_t {
-        unsafe { &mut *self.inner.get() }
-    }
-    #[inline(always)]
-    pub fn get_inner_ref(&self) -> &_opaque_pthread_t {
-        unsafe { &*self.inner.get() }
-    }
-}
-impl std::ops::Deref for OpaquePthread {
-    type Target = _opaque_pthread_t;
-    fn deref(&self) -> &Self::Target {
-        self.get_inner_ref()
-    }
-}
-impl From<*mut _opaque_pthread_t> for OpaquePthread {
-    #[inline]
-    fn from(value: *mut _opaque_pthread_t) -> Self {
-        OpaquePthread {
-            inner: CResource::Borrowed(value),
-        }
-    }
-}
-impl From<OpaquePthread> for *mut _opaque_pthread_t {
-    #[inline]
-    fn from(value: OpaquePthread) -> Self {
-        value.get_inner()
-    }
-}
-impl From<&OpaquePthread> for *mut _opaque_pthread_t {
-    #[inline]
-    fn from(value: &OpaquePthread) -> Self {
-        value.get_inner()
-    }
-}
-impl From<OpaquePthread> for _opaque_pthread_t {
-    #[inline]
-    fn from(value: OpaquePthread) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const _opaque_pthread_t> for OpaquePthread {
-    #[inline]
-    fn from(value: *const _opaque_pthread_t) -> Self {
-        OpaquePthread {
-            inner: CResource::Borrowed(value as *mut _opaque_pthread_t),
-        }
-    }
-}
-impl From<_opaque_pthread_t> for OpaquePthread {
-    #[inline]
-    fn from(value: _opaque_pthread_t) -> Self {
-        OpaquePthread {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
-        }
-    }
-}
-#[cfg(test)]
-mod _opaque_pthread_t_allocation_tests {
-    use super::*;
-    use serial_test::file_serial;
-    #[test]
-    #[file_serial(global)]
-    fn test_new_on_stack() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = OpaquePthread::new_zeroed_on_stack();
-            }
-        });
-    }
-}
-#[derive(Clone)]
-pub struct Addrinfo {
-    inner: CResource<addrinfo>,
-}
-impl core::fmt::Debug for Addrinfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.inner.get().is_null() {
-            f.debug_struct(stringify!(Addrinfo)).field("inner", &"null").finish()
-        } else {
-            f.debug_struct(stringify!(Addrinfo))
-                .field("inner", &self.inner)
-                .field(stringify!(ai_canonname), &self.ai_canonname())
-                .finish()
-        }
-    }
-}
-impl Addrinfo {
-    #[inline]
-    pub fn new(
-        ai_flags: ::std::os::raw::c_int,
-        ai_family: ::std::os::raw::c_int,
-        ai_socktype: ::std::os::raw::c_int,
-        ai_protocol: ::std::os::raw::c_int,
-        ai_addrlen: socklen_t,
-        ai_canonname: *mut ::std::os::raw::c_char,
-        ai_addr: &Sockaddr,
-        ai_next: &Addrinfo,
-    ) -> Result<Self, AeronCError> {
-        let ai_addr_copy = ai_addr.clone();
-        let ai_next_copy = ai_next.clone();
-        let r_constructor = ManagedCResource::new(
-            move |ctx_field| {
-                let inst = addrinfo {
-                    ai_flags: ai_flags.into(),
-                    ai_family: ai_family.into(),
-                    ai_socktype: ai_socktype.into(),
-                    ai_protocol: ai_protocol.into(),
-                    ai_addrlen: ai_addrlen.into(),
-                    ai_canonname: ai_canonname.into(),
-                    ai_addr: ai_addr.into(),
-                    ai_next: ai_next.into(),
-                };
-                let inner_ptr: *mut addrinfo = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )?;
-        let result = Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
-        };
-        Ok(result)
-    }
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
-    pub fn new_zeroed_on_heap() -> Self {
-        let resource = ManagedCResource::new(
-            move |ctx_field| {
-                #[cfg(feature = "extra-logging")]
-                log::info!("creating zeroed empty resource on heap {}", stringify!(addrinfo));
-                let inst: addrinfo = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut addrinfo = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )
-        .unwrap();
-        Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
-        }
-    }
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
-    #[doc = r" _(Use with care)_"]
-    pub fn new_zeroed_on_stack() -> Self {
-        #[cfg(feature = "extra-logging")]
-        log::debug!("creating zeroed empty resource on stack {}", stringify!(addrinfo));
-        Self {
-            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
-        }
-    }
-    #[inline]
-    pub fn ai_flags(&self) -> ::std::os::raw::c_int {
-        self.ai_flags.into()
-    }
-    #[inline]
-    pub fn ai_family(&self) -> ::std::os::raw::c_int {
-        self.ai_family.into()
-    }
-    #[inline]
-    pub fn ai_socktype(&self) -> ::std::os::raw::c_int {
-        self.ai_socktype.into()
-    }
-    #[inline]
-    pub fn ai_protocol(&self) -> ::std::os::raw::c_int {
-        self.ai_protocol.into()
-    }
-    #[inline]
-    pub fn ai_addrlen(&self) -> socklen_t {
-        self.ai_addrlen.into()
-    }
-    #[inline]
-    pub fn ai_canonname(&self) -> &str {
-        if self.ai_canonname.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(self.ai_canonname).to_str().unwrap_or("") }
-        }
-    }
-    #[inline]
-    pub fn ai_addr(&self) -> Sockaddr {
-        self.ai_addr.into()
-    }
-    #[inline]
-    pub fn ai_next(&self) -> Addrinfo {
-        self.ai_next.into()
-    }
-    #[inline(always)]
-    pub fn get_inner(&self) -> *mut addrinfo {
-        self.inner.get()
-    }
-    #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut addrinfo {
-        unsafe { &mut *self.inner.get() }
-    }
-    #[inline(always)]
-    pub fn get_inner_ref(&self) -> &addrinfo {
-        unsafe { &*self.inner.get() }
-    }
-}
-impl std::ops::Deref for Addrinfo {
-    type Target = addrinfo;
-    fn deref(&self) -> &Self::Target {
-        self.get_inner_ref()
-    }
-}
-impl From<*mut addrinfo> for Addrinfo {
-    #[inline]
-    fn from(value: *mut addrinfo) -> Self {
-        Addrinfo {
-            inner: CResource::Borrowed(value),
-        }
-    }
-}
-impl From<Addrinfo> for *mut addrinfo {
-    #[inline]
-    fn from(value: Addrinfo) -> Self {
-        value.get_inner()
-    }
-}
-impl From<&Addrinfo> for *mut addrinfo {
-    #[inline]
-    fn from(value: &Addrinfo) -> Self {
-        value.get_inner()
-    }
-}
-impl From<Addrinfo> for addrinfo {
-    #[inline]
-    fn from(value: Addrinfo) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const addrinfo> for Addrinfo {
-    #[inline]
-    fn from(value: *const addrinfo) -> Self {
-        Addrinfo {
-            inner: CResource::Borrowed(value as *mut addrinfo),
-        }
-    }
-}
-impl From<addrinfo> for Addrinfo {
-    #[inline]
-    fn from(value: addrinfo) -> Self {
-        Addrinfo {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
-        }
-    }
-}
-#[doc = r" This will create an instance where the struct is zeroed, use with care"]
-impl Default for Addrinfo {
-    fn default() -> Self {
-        Addrinfo::new_zeroed_on_heap()
-    }
-}
-impl Addrinfo {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
-    #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
-        let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
-        copy
-    }
-}
-#[cfg(test)]
-mod addrinfo_allocation_tests {
-    use super::*;
-    use serial_test::file_serial;
-    #[test]
-    #[file_serial(global)]
-    fn test_new_on_stack() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = Addrinfo::new_zeroed_on_stack();
-            }
-        });
-    }
-    #[test]
-    #[file_serial(global)]
-    fn test_default() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = Addrinfo::default();
-            }
-        });
-    }
-}
-#[derive(Clone)]
 pub struct AeronAgentRunner {
     inner: CResource<aeron_agent_runner_t>,
 }
@@ -2094,9 +1461,16 @@ impl AeronAgentRunner {
     pub fn get_inner(&self) -> *mut aeron_agent_runner_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_agent_runner_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_agent_runner_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_agent_runner_t {
@@ -2168,7 +1542,7 @@ impl AeronAgentRunner {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -2272,9 +1646,16 @@ impl AeronAsyncAddCounter {
     pub fn get_inner(&self) -> *mut aeron_async_add_counter_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_async_add_counter_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_async_add_counter_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_async_add_counter_t {
@@ -2541,33 +1922,6 @@ impl AeronAsyncAddExclusivePublication {
     #[doc = " succeeds or errors is undefined behaviour. As the async_add_exclusive_publication_t may have been freed."]
     #[doc = ""]
     #[doc = " \n# Return\n registration id for the exclusive_publication."]
-    #[deprecated]
-    #[doc = " @deprecated Use aeron_async_add_exclusive_publication_get_registration_id instead."]
-    pub fn aeron_async_add_exclusive_exclusive_publication_get_registration_id(&self) -> i64 {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_async_add_exclusive_exclusive_publication_get_registration_id),
-                [concat!(
-                    "add_exclusive_publication",
-                    ": ",
-                    stringify!(*mut aeron_async_add_exclusive_publication_t)
-                )
-                .to_string()]
-                .join(", ")
-            );
-            let result = aeron_async_add_exclusive_exclusive_publication_get_registration_id(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    #[doc = "Gets the registration id for addition of the exclusive_publication. Note that using this after a call to poll the"]
-    #[doc = " succeeds or errors is undefined behaviour. As the async_add_exclusive_publication_t may have been freed."]
-    #[doc = ""]
-    #[doc = " \n# Return\n registration id for the exclusive_publication."]
     pub fn get_registration_id(&self) -> i64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -2592,9 +1946,16 @@ impl AeronAsyncAddExclusivePublication {
     pub fn get_inner(&self) -> *mut aeron_async_add_exclusive_publication_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_async_add_exclusive_publication_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_async_add_exclusive_publication_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_async_add_exclusive_publication_t {
@@ -2879,9 +2240,16 @@ impl AeronAsyncAddPublication {
     pub fn get_inner(&self) -> *mut aeron_async_add_publication_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_async_add_publication_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_async_add_publication_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_async_add_publication_t {
@@ -3162,9 +2530,16 @@ impl AeronAsyncAddSubscription {
     pub fn get_inner(&self) -> *mut aeron_async_add_subscription_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_async_add_subscription_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_async_add_subscription_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_async_add_subscription_t {
@@ -3504,9 +2879,16 @@ impl AeronAsyncDestinationById {
     pub fn get_inner(&self) -> *mut aeron_async_destination_by_id_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_async_destination_by_id_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_async_destination_by_id_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_async_destination_by_id_t {
@@ -3804,9 +3186,16 @@ impl AeronAsyncDestination {
     pub fn get_inner(&self) -> *mut aeron_async_destination_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_async_destination_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_async_destination_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_async_destination_t {
@@ -4158,9 +3547,16 @@ impl AeronAsyncExecutor {
     pub fn get_inner(&self) -> *mut aeron_async_executor_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_async_executor_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_async_executor_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_async_executor_t {
@@ -4232,7 +3628,7 @@ impl AeronAsyncExecutor {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -4415,9 +3811,16 @@ impl AeronAsyncExecutorTask {
     pub fn get_inner(&self) -> *mut aeron_async_executor_task_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_async_executor_task_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_async_executor_task_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_async_executor_task_t {
@@ -4489,7 +3892,7 @@ impl AeronAsyncExecutorTask {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -4607,9 +4010,16 @@ impl AeronAsyncGetNextAvailableSessionId {
     pub fn get_inner(&self) -> *mut aeron_async_get_next_available_session_id_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_async_get_next_available_session_id_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_async_get_next_available_session_id_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_async_get_next_available_session_id_t {
@@ -4722,9 +4132,16 @@ impl AeronAtomicCounter {
     pub fn get_inner(&self) -> *mut aeron_atomic_counter_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_atomic_counter_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_atomic_counter_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_atomic_counter_t {
@@ -4987,9 +4404,16 @@ impl AeronBlockingLinkedQueue {
     pub fn get_inner(&self) -> *mut aeron_blocking_linked_queue_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_blocking_linked_queue_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_blocking_linked_queue_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_blocking_linked_queue_t {
@@ -5061,7 +4485,7 @@ impl AeronBlockingLinkedQueue {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -5192,9 +4616,16 @@ impl AeronBroadcastDescriptor {
     pub fn get_inner(&self) -> *mut aeron_broadcast_descriptor_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_broadcast_descriptor_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_broadcast_descriptor_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_broadcast_descriptor_t {
@@ -5266,7 +4697,7 @@ impl AeronBroadcastDescriptor {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -5381,9 +4812,16 @@ impl AeronBroadcastRecordDescriptor {
     pub fn get_inner(&self) -> *mut aeron_broadcast_record_descriptor_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_broadcast_record_descriptor_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_broadcast_record_descriptor_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_broadcast_record_descriptor_t {
@@ -5455,7 +4893,7 @@ impl AeronBroadcastRecordDescriptor {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -5641,9 +5079,16 @@ impl AeronBroadcastTransmitter {
     pub fn get_inner(&self) -> *mut aeron_broadcast_transmitter_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_broadcast_transmitter_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_broadcast_transmitter_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_broadcast_transmitter_t {
@@ -5715,7 +5160,7 @@ impl AeronBroadcastTransmitter {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -5885,9 +5330,16 @@ impl AeronBufferClaim {
     pub fn get_inner(&self) -> *mut aeron_buffer_claim_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_buffer_claim_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_buffer_claim_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_buffer_claim_t {
@@ -5959,7 +5411,7 @@ impl AeronBufferClaim {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -6073,9 +5525,16 @@ impl AeronChannelEndpointStatusKeyLayout {
     pub fn get_inner(&self) -> *mut aeron_channel_endpoint_status_key_layout_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_channel_endpoint_status_key_layout_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_channel_endpoint_status_key_layout_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_channel_endpoint_status_key_layout_t {
@@ -6147,7 +5606,7 @@ impl AeronChannelEndpointStatusKeyLayout {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -6232,9 +5691,16 @@ impl AeronClientRegisteringResource {
     pub fn get_inner(&self) -> *mut aeron_client_registering_resource_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_client_registering_resource_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_client_registering_resource_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_client_registering_resource_t {
@@ -6437,9 +5903,16 @@ impl AeronClient {
     pub fn get_inner(&self) -> *mut aeron_client_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_client_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_client_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_client_t {
@@ -6511,7 +5984,7 @@ impl AeronClient {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -6620,9 +6093,16 @@ impl AeronClientTimeout {
     pub fn get_inner(&self) -> *mut aeron_client_timeout_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_client_timeout_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_client_timeout_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_client_timeout_t {
@@ -6694,7 +6174,7 @@ impl AeronClientTimeout {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -6901,9 +6381,16 @@ impl AeronClockCache {
     pub fn get_inner(&self) -> *mut aeron_clock_cache_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_clock_cache_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_clock_cache_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_clock_cache_t {
@@ -7111,9 +6598,16 @@ impl AeronCncConstants {
     pub fn get_inner(&self) -> *mut aeron_cnc_constants_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_cnc_constants_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_cnc_constants_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_cnc_constants_t {
@@ -7185,7 +6679,7 @@ impl AeronCncConstants {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -7380,9 +6874,16 @@ impl AeronCncMetadata {
     pub fn get_inner(&self) -> *mut aeron_cnc_metadata_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_cnc_metadata_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_cnc_metadata_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_cnc_metadata_t {
@@ -7454,7 +6955,7 @@ impl AeronCncMetadata {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -7845,9 +7346,16 @@ impl AeronCnc {
     pub fn get_inner(&self) -> *mut aeron_cnc_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_cnc_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_cnc_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_cnc_t {
@@ -8007,9 +7515,16 @@ impl AeronCongestionControlStrategy {
     pub fn get_inner(&self) -> *mut aeron_congestion_control_strategy_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_congestion_control_strategy_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_congestion_control_strategy_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_congestion_control_strategy_t {
@@ -9281,9 +8796,16 @@ impl AeronContext {
     pub fn get_inner(&self) -> *mut aeron_context_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_context_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_context_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_context_t {
@@ -9494,9 +9016,16 @@ impl AeronControlledFragmentAssembler {
     pub fn get_inner(&self) -> *mut aeron_controlled_fragment_assembler_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_controlled_fragment_assembler_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_controlled_fragment_assembler_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_controlled_fragment_assembler_t {
@@ -9639,9 +9168,16 @@ impl AeronCorrelatedCommand {
     pub fn get_inner(&self) -> *mut aeron_correlated_command_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_correlated_command_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_correlated_command_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_correlated_command_t {
@@ -9713,7 +9249,7 @@ impl AeronCorrelatedCommand {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -9828,9 +9364,16 @@ impl AeronCounterCommand {
     pub fn get_inner(&self) -> *mut aeron_counter_command_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_counter_command_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_counter_command_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_counter_command_t {
@@ -9902,7 +9445,7 @@ impl AeronCounterCommand {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -10024,9 +9567,16 @@ impl AeronCounterConstants {
     pub fn get_inner(&self) -> *mut aeron_counter_constants_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_counter_constants_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_counter_constants_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_counter_constants_t {
@@ -10098,7 +9648,7 @@ impl AeronCounterConstants {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -10213,9 +9763,16 @@ impl AeronCounterLink {
     pub fn get_inner(&self) -> *mut aeron_counter_link_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_counter_link_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_counter_link_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_counter_link_t {
@@ -10287,7 +9844,7 @@ impl AeronCounterLink {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -10434,9 +9991,16 @@ impl AeronCounterMetadataDescriptor {
     pub fn get_inner(&self) -> *mut aeron_counter_metadata_descriptor_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_counter_metadata_descriptor_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_counter_metadata_descriptor_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_counter_metadata_descriptor_t {
@@ -10508,7 +10072,7 @@ impl AeronCounterMetadataDescriptor {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -10662,9 +10226,16 @@ impl AeronCounter {
     pub fn get_inner(&self) -> *mut aeron_counter_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_counter_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_counter_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_counter_t {
@@ -10850,9 +10421,16 @@ impl AeronCounterUpdate {
     pub fn get_inner(&self) -> *mut aeron_counter_update_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_counter_update_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_counter_update_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_counter_update_t {
@@ -10924,7 +10502,7 @@ impl AeronCounterUpdate {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -11062,9 +10640,16 @@ impl AeronCounterValueDescriptor {
     pub fn get_inner(&self) -> *mut aeron_counter_value_descriptor_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_counter_value_descriptor_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_counter_value_descriptor_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_counter_value_descriptor_t {
@@ -11136,7 +10721,7 @@ impl AeronCounterValueDescriptor {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -11650,9 +11235,16 @@ impl AeronCountersManager {
     pub fn get_inner(&self) -> *mut aeron_counters_manager_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_counters_manager_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_counters_manager_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_counters_manager_t {
@@ -11724,7 +11316,7 @@ impl AeronCountersManager {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -11854,9 +11446,16 @@ impl AeronCountersReaderBuffers {
     pub fn get_inner(&self) -> *mut aeron_counters_reader_buffers_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_counters_reader_buffers_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_counters_reader_buffers_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_counters_reader_buffers_t {
@@ -11928,7 +11527,7 @@ impl AeronCountersReaderBuffers {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -12537,9 +12136,16 @@ impl AeronCountersReader {
     pub fn get_inner(&self) -> *mut aeron_counters_reader_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_counters_reader_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_counters_reader_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_counters_reader_t {
@@ -12673,9 +12279,16 @@ impl AeronDataHeaderAsLongs {
     pub fn get_inner(&self) -> *mut aeron_data_header_as_longs_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_data_header_as_longs_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_data_header_as_longs_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_data_header_as_longs_t {
@@ -12747,7 +12360,7 @@ impl AeronDataHeaderAsLongs {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -12893,9 +12506,16 @@ impl AeronDataHeader {
     pub fn get_inner(&self) -> *mut aeron_data_header_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_data_header_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_data_header_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_data_header_t {
@@ -12967,7 +12587,7 @@ impl AeronDataHeader {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -13099,9 +12719,16 @@ impl AeronDataPacketDispatcherStreamInterest {
     pub fn get_inner(&self) -> *mut aeron_data_packet_dispatcher_stream_interest_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_data_packet_dispatcher_stream_interest_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_data_packet_dispatcher_stream_interest_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_data_packet_dispatcher_stream_interest_t {
@@ -13173,7 +12800,7 @@ impl AeronDataPacketDispatcherStreamInterest {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -13753,9 +13380,16 @@ impl AeronDataPacketDispatcher {
     pub fn get_inner(&self) -> *mut aeron_data_packet_dispatcher_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_data_packet_dispatcher_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_data_packet_dispatcher_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_data_packet_dispatcher_t {
@@ -13827,7 +13461,7 @@ impl AeronDataPacketDispatcher {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -14036,9 +13670,16 @@ impl AeronDeque {
     pub fn get_inner(&self) -> *mut aeron_deque_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_deque_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_deque_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_deque_t {
@@ -14110,7 +13751,7 @@ impl AeronDeque {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -14238,9 +13879,16 @@ impl AeronDestinationByIdCommand {
     pub fn get_inner(&self) -> *mut aeron_destination_by_id_command_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_destination_by_id_command_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_destination_by_id_command_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_destination_by_id_command_t {
@@ -14312,7 +13960,7 @@ impl AeronDestinationByIdCommand {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -14437,9 +14085,16 @@ impl AeronDestinationCommand {
     pub fn get_inner(&self) -> *mut aeron_destination_command_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_destination_command_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_destination_command_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_destination_command_t {
@@ -14511,7 +14166,7 @@ impl AeronDestinationCommand {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -14626,9 +14281,16 @@ impl AeronDistinctErrorLogObservationList {
     pub fn get_inner(&self) -> *mut aeron_distinct_error_log_observation_list_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_distinct_error_log_observation_list_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_distinct_error_log_observation_list_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_distinct_error_log_observation_list_t {
@@ -14700,7 +14362,7 @@ impl AeronDistinctErrorLogObservationList {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -14908,9 +14570,16 @@ impl AeronDistinctErrorLog {
     pub fn get_inner(&self) -> *mut aeron_distinct_error_log_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_distinct_error_log_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_distinct_error_log_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_distinct_error_log_t {
@@ -14982,7 +14651,7 @@ impl AeronDistinctErrorLog {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -15117,9 +14786,16 @@ impl AeronDistinctObservation {
     pub fn get_inner(&self) -> *mut aeron_distinct_observation_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_distinct_observation_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_distinct_observation_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_distinct_observation_t {
@@ -15191,7 +14867,7 @@ impl AeronDistinctObservation {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -15276,9 +14952,16 @@ impl AeronDlLoadedLibsState {
     pub fn get_inner(&self) -> *mut aeron_dl_loaded_libs_state_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_dl_loaded_libs_state_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_dl_loaded_libs_state_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_dl_loaded_libs_state_t {
@@ -15771,9 +15454,16 @@ impl AeronDriverConductorProxy {
     pub fn get_inner(&self) -> *mut aeron_driver_conductor_proxy_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_driver_conductor_proxy_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_conductor_proxy_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_conductor_proxy_t {
@@ -15845,7 +15535,7 @@ impl AeronDriverConductorProxy {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -18096,9 +17786,16 @@ impl AeronDriverConductor {
     pub fn get_inner(&self) -> *mut aeron_driver_conductor_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_driver_conductor_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_conductor_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_conductor_t {
@@ -18170,7 +17867,7 @@ impl AeronDriverConductor {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -18288,9 +17985,16 @@ impl AeronDriverContextBindingsClientdEntry {
     pub fn get_inner(&self) -> *mut aeron_driver_context_bindings_clientd_entry_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_driver_context_bindings_clientd_entry_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_context_bindings_clientd_entry_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_context_bindings_clientd_entry_t {
@@ -18362,7 +18066,7 @@ impl AeronDriverContextBindingsClientdEntry {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -24372,9 +24076,16 @@ impl AeronDriverContext {
     pub fn get_inner(&self) -> *mut aeron_driver_context_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_driver_context_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_context_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_context_t {
@@ -24541,9 +24252,16 @@ impl AeronDriverManagedResource {
     pub fn get_inner(&self) -> *mut aeron_driver_managed_resource_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_driver_managed_resource_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_managed_resource_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_managed_resource_t {
@@ -24615,7 +24333,7 @@ impl AeronDriverManagedResource {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -24722,9 +24440,16 @@ impl AeronDriverReceiverImageEntry {
     pub fn get_inner(&self) -> *mut aeron_driver_receiver_image_entry_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_driver_receiver_image_entry_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_receiver_image_entry_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_receiver_image_entry_t {
@@ -24796,7 +24521,7 @@ impl AeronDriverReceiverImageEntry {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -24949,9 +24674,16 @@ impl AeronDriverReceiverPendingSetupEntry {
     pub fn get_inner(&self) -> *mut aeron_driver_receiver_pending_setup_entry_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_driver_receiver_pending_setup_entry_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_receiver_pending_setup_entry_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_receiver_pending_setup_entry_t {
@@ -25023,7 +24755,7 @@ impl AeronDriverReceiverPendingSetupEntry {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -25526,9 +25258,16 @@ impl AeronDriverReceiverProxy {
     pub fn get_inner(&self) -> *mut aeron_driver_receiver_proxy_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_driver_receiver_proxy_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_receiver_proxy_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_receiver_proxy_t {
@@ -26151,9 +25890,16 @@ impl AeronDriverReceiver {
     pub fn get_inner(&self) -> *mut aeron_driver_receiver_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_driver_receiver_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_receiver_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_receiver_t {
@@ -26225,7 +25971,7 @@ impl AeronDriverReceiver {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -26334,9 +26080,16 @@ impl AeronDriverSenderNetworkPublicationEntry {
     pub fn get_inner(&self) -> *mut aeron_driver_sender_network_publication_entry_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_driver_sender_network_publication_entry_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_sender_network_publication_entry_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_sender_network_publication_entry_t {
@@ -26408,7 +26161,7 @@ impl AeronDriverSenderNetworkPublicationEntry {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -26737,9 +26490,16 @@ impl AeronDriverSenderProxy {
     pub fn get_inner(&self) -> *mut aeron_driver_sender_proxy_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_driver_sender_proxy_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_sender_proxy_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_sender_proxy_t {
@@ -26811,7 +26571,7 @@ impl AeronDriverSenderProxy {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -27363,9 +27123,16 @@ impl AeronDriverSender {
     pub fn get_inner(&self) -> *mut aeron_driver_sender_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_driver_sender_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_sender_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_sender_t {
@@ -27437,7 +27204,7 @@ impl AeronDriverSender {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -27676,9 +27443,16 @@ impl AeronDriver {
     pub fn get_inner(&self) -> *mut aeron_driver_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_driver_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_t {
@@ -28031,9 +27805,16 @@ impl AeronDriverUriPublicationParams {
     pub fn get_inner(&self) -> *mut aeron_driver_uri_publication_params_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_driver_uri_publication_params_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_uri_publication_params_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_uri_publication_params_t {
@@ -28105,7 +27886,7 @@ impl AeronDriverUriPublicationParams {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -28301,9 +28082,16 @@ impl AeronDriverUriSubscriptionParams {
     pub fn get_inner(&self) -> *mut aeron_driver_uri_subscription_params_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_driver_uri_subscription_params_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_uri_subscription_params_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_uri_subscription_params_t {
@@ -28375,7 +28163,7 @@ impl AeronDriverUriSubscriptionParams {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -28523,9 +28311,16 @@ impl AeronDutyCycleStallTracker {
     pub fn get_inner(&self) -> *mut aeron_duty_cycle_stall_tracker_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_duty_cycle_stall_tracker_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_duty_cycle_stall_tracker_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_duty_cycle_stall_tracker_t {
@@ -28597,7 +28392,7 @@ impl AeronDutyCycleStallTracker {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -28739,9 +28534,16 @@ impl AeronDutyCycleTracker {
     pub fn get_inner(&self) -> *mut aeron_duty_cycle_tracker_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_duty_cycle_tracker_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_duty_cycle_tracker_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_duty_cycle_tracker_t {
@@ -28813,7 +28615,7 @@ impl AeronDutyCycleTracker {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -28929,9 +28731,16 @@ impl AeronEndOfLifeResource {
     pub fn get_inner(&self) -> *mut aeron_end_of_life_resource_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_end_of_life_resource_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_end_of_life_resource_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_end_of_life_resource_t {
@@ -29003,7 +28812,7 @@ impl AeronEndOfLifeResource {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -29141,9 +28950,16 @@ impl AeronErrorLogEntry {
     pub fn get_inner(&self) -> *mut aeron_error_log_entry_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_error_log_entry_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_error_log_entry_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_error_log_entry_t {
@@ -29215,7 +29031,7 @@ impl AeronErrorLogEntry {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -29343,9 +29159,16 @@ impl AeronErrorResponse {
     pub fn get_inner(&self) -> *mut aeron_error_response_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_error_response_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_error_response_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_error_response_t {
@@ -29417,7 +29240,7 @@ impl AeronErrorResponse {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -29684,9 +29507,16 @@ impl AeronError {
     pub fn get_inner(&self) -> *mut aeron_error_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_error_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_error_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_error_t {
@@ -29758,7 +29588,7 @@ impl AeronError {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -30244,9 +30074,16 @@ impl AeronExclusivePublication {
     pub fn get_inner(&self) -> *mut aeron_exclusive_publication_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_exclusive_publication_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_exclusive_publication_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_exclusive_publication_t {
@@ -30501,9 +30338,16 @@ impl AeronFeedbackDelayGeneratorState {
     pub fn get_inner(&self) -> *mut aeron_feedback_delay_generator_state_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_feedback_delay_generator_state_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_feedback_delay_generator_state_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_feedback_delay_generator_state_t {
@@ -30575,7 +30419,7 @@ impl AeronFeedbackDelayGeneratorState {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -30687,9 +30531,16 @@ impl AeronFlowControlMaxOptions {
     pub fn get_inner(&self) -> *mut aeron_flow_control_max_options_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_flow_control_max_options_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_flow_control_max_options_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_flow_control_max_options_t {
@@ -30761,7 +30612,7 @@ impl AeronFlowControlMaxOptions {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -30884,9 +30735,16 @@ impl AeronFlowControlStrategySupplierFuncTableEntry {
     pub fn get_inner(&self) -> *mut aeron_flow_control_strategy_supplier_func_table_entry_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_flow_control_strategy_supplier_func_table_entry_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_flow_control_strategy_supplier_func_table_entry_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_flow_control_strategy_supplier_func_table_entry_t {
@@ -30966,7 +30824,7 @@ impl AeronFlowControlStrategySupplierFuncTableEntry {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -31201,9 +31059,16 @@ impl AeronFlowControlStrategy {
     pub fn get_inner(&self) -> *mut aeron_flow_control_strategy_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_flow_control_strategy_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_flow_control_strategy_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_flow_control_strategy_t {
@@ -31381,9 +31246,16 @@ impl AeronFlowControlTaggedOptions {
     pub fn get_inner(&self) -> *mut aeron_flow_control_tagged_options_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_flow_control_tagged_options_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_flow_control_tagged_options_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_flow_control_tagged_options_t {
@@ -31455,7 +31327,7 @@ impl AeronFlowControlTaggedOptions {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -31610,9 +31482,16 @@ impl AeronFragmentAssembler {
     pub fn get_inner(&self) -> *mut aeron_fragment_assembler_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_fragment_assembler_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_fragment_assembler_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_fragment_assembler_t {
@@ -31765,9 +31644,16 @@ impl AeronFrameHeader {
     pub fn get_inner(&self) -> *mut aeron_frame_header_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_frame_header_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_frame_header_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_frame_header_t {
@@ -31839,7 +31725,7 @@ impl AeronFrameHeader {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -31954,9 +31840,16 @@ impl AeronGetNextAvailableSessionIdCommand {
     pub fn get_inner(&self) -> *mut aeron_get_next_available_session_id_command_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_get_next_available_session_id_command_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_get_next_available_session_id_command_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_get_next_available_session_id_command_t {
@@ -32028,7 +31921,7 @@ impl AeronGetNextAvailableSessionIdCommand {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -32215,9 +32108,16 @@ impl AeronHeader {
     pub fn get_inner(&self) -> *mut aeron_header_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_header_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_header_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_header_t {
@@ -32424,9 +32324,16 @@ impl AeronHeaderValuesFrame {
     pub fn get_inner(&self) -> *mut aeron_header_values_frame_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_header_values_frame_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_header_values_frame_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_header_values_frame_t {
@@ -32498,7 +32405,7 @@ impl AeronHeaderValuesFrame {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -32623,9 +32530,16 @@ impl AeronHeaderValues {
     pub fn get_inner(&self) -> *mut aeron_header_values_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_header_values_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_header_values_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_header_values_t {
@@ -32697,7 +32611,7 @@ impl AeronHeaderValues {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -32806,9 +32720,16 @@ impl AeronHeartbeatTimestampKeyLayout {
     pub fn get_inner(&self) -> *mut aeron_heartbeat_timestamp_key_layout_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_heartbeat_timestamp_key_layout_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_heartbeat_timestamp_key_layout_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_heartbeat_timestamp_key_layout_t {
@@ -32880,7 +32801,7 @@ impl AeronHeartbeatTimestampKeyLayout {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -33068,9 +32989,16 @@ impl AeronIdleStrategy {
     pub fn get_inner(&self) -> *mut aeron_idle_strategy_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_idle_strategy_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_idle_strategy_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_idle_strategy_t {
@@ -33240,9 +33168,16 @@ impl AeronImageBuffersReady {
     pub fn get_inner(&self) -> *mut aeron_image_buffers_ready_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_image_buffers_ready_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_image_buffers_ready_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_image_buffers_ready_t {
@@ -33314,7 +33249,7 @@ impl AeronImageBuffersReady {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -33493,9 +33428,16 @@ impl AeronImageConstants {
     pub fn get_inner(&self) -> *mut aeron_image_constants_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_image_constants_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_image_constants_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_image_constants_t {
@@ -33567,7 +33509,7 @@ impl AeronImageConstants {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -33750,9 +33692,16 @@ impl AeronImageControlledFragmentAssembler {
     pub fn get_inner(&self) -> *mut aeron_image_controlled_fragment_assembler_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_image_controlled_fragment_assembler_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_image_controlled_fragment_assembler_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_image_controlled_fragment_assembler_t {
@@ -33940,9 +33889,16 @@ impl AeronImageFragmentAssembler {
     pub fn get_inner(&self) -> *mut aeron_image_fragment_assembler_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_image_fragment_assembler_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_image_fragment_assembler_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_image_fragment_assembler_t {
@@ -34105,9 +34061,16 @@ impl AeronImageMessage {
     pub fn get_inner(&self) -> *mut aeron_image_message_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_image_message_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_image_message_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_image_message_t {
@@ -34179,7 +34142,7 @@ impl AeronImageMessage {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -35148,9 +35111,16 @@ impl AeronImage {
     pub fn get_inner(&self) -> *mut aeron_image_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_image_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_image_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_image_t {
@@ -35337,9 +35307,16 @@ impl AeronInt64CounterMap {
     pub fn get_inner(&self) -> *mut aeron_int64_counter_map_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_int64_counter_map_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_int64_counter_map_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_int64_counter_map_t {
@@ -35411,7 +35388,7 @@ impl AeronInt64CounterMap {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -35555,9 +35532,16 @@ impl AeronInt64ToPtrHashMap {
     pub fn get_inner(&self) -> *mut aeron_int64_to_ptr_hash_map_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_int64_to_ptr_hash_map_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_int64_to_ptr_hash_map_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_int64_to_ptr_hash_map_t {
@@ -35629,7 +35613,7 @@ impl AeronInt64ToPtrHashMap {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -35749,9 +35733,16 @@ impl AeronInt64ToTaggedPtrEntry {
     pub fn get_inner(&self) -> *mut aeron_int64_to_tagged_ptr_entry_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_int64_to_tagged_ptr_entry_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_int64_to_tagged_ptr_entry_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_int64_to_tagged_ptr_entry_t {
@@ -35823,7 +35814,7 @@ impl AeronInt64ToTaggedPtrEntry {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -35968,9 +35959,16 @@ impl AeronInt64ToTaggedPtrHashMap {
     pub fn get_inner(&self) -> *mut aeron_int64_to_tagged_ptr_hash_map_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_int64_to_tagged_ptr_hash_map_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_int64_to_tagged_ptr_hash_map_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_int64_to_tagged_ptr_hash_map_t {
@@ -36042,7 +36040,7 @@ impl AeronInt64ToTaggedPtrHashMap {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -36148,9 +36146,16 @@ impl AeronIovec {
     pub fn get_inner(&self) -> *mut aeron_iovec_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_iovec_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_iovec_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_iovec_t {
@@ -36222,7 +36227,7 @@ impl AeronIovec {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -36366,9 +36371,16 @@ impl AeronIpcChannelParams {
     pub fn get_inner(&self) -> *mut aeron_ipc_channel_params_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_ipc_channel_params_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_ipc_channel_params_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_ipc_channel_params_t {
@@ -36440,7 +36452,7 @@ impl AeronIpcChannelParams {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -36549,9 +36561,16 @@ impl AeronIpcPublicationEntry {
     pub fn get_inner(&self) -> *mut aeron_ipc_publication_entry_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_ipc_publication_entry_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_ipc_publication_entry_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_ipc_publication_entry_t {
@@ -36623,7 +36642,7 @@ impl AeronIpcPublicationEntry {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -37022,9 +37041,16 @@ impl AeronIpcPublication {
     pub fn get_inner(&self) -> *mut aeron_ipc_publication_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_ipc_publication_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_ipc_publication_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_ipc_publication_t {
@@ -37172,9 +37198,16 @@ impl AeronLingerResourceEntry {
     pub fn get_inner(&self) -> *mut aeron_linger_resource_entry_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_linger_resource_entry_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_linger_resource_entry_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_linger_resource_entry_t {
@@ -37246,7 +37279,7 @@ impl AeronLingerResourceEntry {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -37331,9 +37364,16 @@ impl AeronLinkedQueueNode {
     pub fn get_inner(&self) -> *mut aeron_linked_queue_node_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_linked_queue_node_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_linked_queue_node_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_linked_queue_node_t {
@@ -37577,9 +37617,16 @@ impl AeronLinkedQueue {
     pub fn get_inner(&self) -> *mut aeron_linked_queue_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_linked_queue_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_linked_queue_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_linked_queue_t {
@@ -37651,7 +37698,7 @@ impl AeronLinkedQueue {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -37775,9 +37822,16 @@ impl AeronLocalSockaddrKeyLayout {
     pub fn get_inner(&self) -> *mut aeron_local_sockaddr_key_layout_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_local_sockaddr_key_layout_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_local_sockaddr_key_layout_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_local_sockaddr_key_layout_t {
@@ -37849,7 +37903,7 @@ impl AeronLocalSockaddrKeyLayout {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -37934,9 +37988,16 @@ impl AeronLogBuffer {
     pub fn get_inner(&self) -> *mut aeron_log_buffer_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_log_buffer_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_log_buffer_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_log_buffer_t {
@@ -38371,9 +38432,16 @@ impl AeronLogbufferMetadata {
     pub fn get_inner(&self) -> *mut aeron_logbuffer_metadata_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_logbuffer_metadata_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_logbuffer_metadata_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_logbuffer_metadata_t {
@@ -38445,7 +38513,7 @@ impl AeronLogbufferMetadata {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -38566,9 +38634,16 @@ impl AeronLossDetectorGap {
     pub fn get_inner(&self) -> *mut aeron_loss_detector_gap_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_loss_detector_gap_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_loss_detector_gap_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_loss_detector_gap_t {
@@ -38640,7 +38715,7 @@ impl AeronLossDetectorGap {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -38947,9 +39022,16 @@ impl AeronLossDetector {
     pub fn get_inner(&self) -> *mut aeron_loss_detector_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_loss_detector_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_loss_detector_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_loss_detector_t {
@@ -39021,7 +39103,7 @@ impl AeronLossDetector {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -39149,9 +39231,16 @@ impl AeronLossGenerator {
     pub fn get_inner(&self) -> *mut aeron_loss_generator_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_loss_generator_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_loss_generator_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_loss_generator_t {
@@ -39223,7 +39312,7 @@ impl AeronLossGenerator {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -39375,9 +39464,16 @@ impl AeronLossReporterEntry {
     pub fn get_inner(&self) -> *mut aeron_loss_reporter_entry_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_loss_reporter_entry_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_loss_reporter_entry_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_loss_reporter_entry_t {
@@ -39449,7 +39545,7 @@ impl AeronLossReporterEntry {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -39783,9 +39879,16 @@ impl AeronLossReporter {
     pub fn get_inner(&self) -> *mut aeron_loss_reporter_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_loss_reporter_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_loss_reporter_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_loss_reporter_t {
@@ -39857,7 +39960,7 @@ impl AeronLossReporter {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -39977,9 +40080,16 @@ impl AeronMappedBuffer {
     pub fn get_inner(&self) -> *mut aeron_mapped_buffer_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_mapped_buffer_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_mapped_buffer_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_mapped_buffer_t {
@@ -40051,7 +40161,7 @@ impl AeronMappedBuffer {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -40253,9 +40363,16 @@ impl AeronMappedFile {
     pub fn get_inner(&self) -> *mut aeron_mapped_file_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_mapped_file_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_mapped_file_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_mapped_file_t {
@@ -40327,7 +40444,7 @@ impl AeronMappedFile {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -40562,9 +40679,16 @@ impl AeronMappedRawLog {
     pub fn get_inner(&self) -> *mut aeron_mapped_raw_log_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_mapped_raw_log_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_mapped_raw_log_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_mapped_raw_log_t {
@@ -40636,7 +40760,7 @@ impl AeronMappedRawLog {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -40813,9 +40937,16 @@ impl AeronMpscConcurrentArrayQueue {
     pub fn get_inner(&self) -> *mut aeron_mpsc_concurrent_array_queue_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_mpsc_concurrent_array_queue_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_mpsc_concurrent_array_queue_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_mpsc_concurrent_array_queue_t {
@@ -40887,7 +41018,7 @@ impl AeronMpscConcurrentArrayQueue {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -41349,9 +41480,16 @@ impl AeronMpscRb {
     pub fn get_inner(&self) -> *mut aeron_mpsc_rb_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_mpsc_rb_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_mpsc_rb_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_mpsc_rb_t {
@@ -41423,7 +41561,7 @@ impl AeronMpscRb {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -41569,9 +41707,16 @@ impl AeronNakHeader {
     pub fn get_inner(&self) -> *mut aeron_nak_header_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_nak_header_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_nak_header_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_nak_header_t {
@@ -41643,7 +41788,7 @@ impl AeronNakHeader {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -41756,9 +41901,16 @@ impl AeronNamedInterface {
     pub fn get_inner(&self) -> *mut aeron_named_interface_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_named_interface_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_named_interface_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_named_interface_t {
@@ -41830,7 +41982,7 @@ impl AeronNamedInterface {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -41939,9 +42091,16 @@ impl AeronNetworkPublicationEntry {
     pub fn get_inner(&self) -> *mut aeron_network_publication_entry_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_network_publication_entry_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_network_publication_entry_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_network_publication_entry_t {
@@ -42013,7 +42172,7 @@ impl AeronNetworkPublicationEntry {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -42803,9 +42962,16 @@ impl AeronNetworkPublication {
     pub fn get_inner(&self) -> *mut aeron_network_publication_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_network_publication_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_network_publication_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_network_publication_t {
@@ -42948,9 +43114,16 @@ impl AeronNextAvailableSessionIdResponse {
     pub fn get_inner(&self) -> *mut aeron_next_available_session_id_response_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_next_available_session_id_response_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_next_available_session_id_response_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_next_available_session_id_response_t {
@@ -43022,7 +43195,7 @@ impl AeronNextAvailableSessionIdResponse {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -43149,9 +43322,16 @@ impl AeronAvailableCounterPair {
     pub fn get_inner(&self) -> *mut aeron_on_available_counter_pair_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_on_available_counter_pair_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_on_available_counter_pair_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_on_available_counter_pair_t {
@@ -43223,7 +43403,7 @@ impl AeronAvailableCounterPair {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -43350,9 +43530,16 @@ impl AeronCloseClientPair {
     pub fn get_inner(&self) -> *mut aeron_on_close_client_pair_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_on_close_client_pair_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_on_close_client_pair_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_on_close_client_pair_t {
@@ -43424,7 +43611,7 @@ impl AeronCloseClientPair {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -43551,9 +43738,16 @@ impl AeronUnavailableCounterPair {
     pub fn get_inner(&self) -> *mut aeron_on_unavailable_counter_pair_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_on_unavailable_counter_pair_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_on_unavailable_counter_pair_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_on_unavailable_counter_pair_t {
@@ -43625,7 +43819,7 @@ impl AeronUnavailableCounterPair {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -43734,9 +43928,16 @@ impl AeronOperationSucceeded {
     pub fn get_inner(&self) -> *mut aeron_operation_succeeded_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_operation_succeeded_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_operation_succeeded_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_operation_succeeded_t {
@@ -43808,7 +44009,7 @@ impl AeronOperationSucceeded {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -43923,9 +44124,16 @@ impl AeronOptionHeader {
     pub fn get_inner(&self) -> *mut aeron_option_header_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_option_header_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_option_header_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_option_header_t {
@@ -43997,7 +44205,7 @@ impl AeronOptionHeader {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -44119,9 +44327,16 @@ impl AeronParsedAddress {
     pub fn get_inner(&self) -> *mut aeron_parsed_address_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_parsed_address_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_parsed_address_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_parsed_address_t {
@@ -44193,7 +44408,7 @@ impl AeronParsedAddress {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -44321,9 +44536,16 @@ impl AeronParsedInterface {
     pub fn get_inner(&self) -> *mut aeron_parsed_interface_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_parsed_interface_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_parsed_interface_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_parsed_interface_t {
@@ -44395,7 +44617,7 @@ impl AeronParsedInterface {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -44518,9 +44740,16 @@ impl AeronPerThreadError {
     pub fn get_inner(&self) -> *mut aeron_per_thread_error_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_per_thread_error_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_per_thread_error_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_per_thread_error_t {
@@ -44592,7 +44821,7 @@ impl AeronPerThreadError {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -44733,9 +44962,16 @@ impl AeronPortManager {
     pub fn get_inner(&self) -> *mut aeron_port_manager_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_port_manager_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_port_manager_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_port_manager_t {
@@ -44807,7 +45043,7 @@ impl AeronPortManager {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -44921,9 +45157,16 @@ impl AeronPosition {
     pub fn get_inner(&self) -> *mut aeron_position_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_position_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_position_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_position_t {
@@ -44995,7 +45238,7 @@ impl AeronPosition {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -45151,9 +45394,16 @@ impl AeronPublicationBuffersReady {
     pub fn get_inner(&self) -> *mut aeron_publication_buffers_ready_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_publication_buffers_ready_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_publication_buffers_ready_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_publication_buffers_ready_t {
@@ -45225,7 +45475,7 @@ impl AeronPublicationBuffersReady {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -45346,9 +45596,16 @@ impl AeronPublicationCommand {
     pub fn get_inner(&self) -> *mut aeron_publication_command_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_publication_command_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_publication_command_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_publication_command_t {
@@ -45420,7 +45677,7 @@ impl AeronPublicationCommand {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -45626,9 +45883,16 @@ impl AeronPublicationConstants {
     pub fn get_inner(&self) -> *mut aeron_publication_constants_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_publication_constants_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_publication_constants_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_publication_constants_t {
@@ -45700,7 +45964,7 @@ impl AeronPublicationConstants {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -45889,9 +46153,16 @@ impl AeronPublicationError {
     pub fn get_inner(&self) -> *mut aeron_publication_error_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_publication_error_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_publication_error_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_publication_error_t {
@@ -45963,7 +46234,7 @@ impl AeronPublicationError {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -46126,9 +46397,16 @@ impl AeronPublicationErrorValues {
     pub fn get_inner(&self) -> *mut aeron_publication_error_values_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_publication_error_values_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_publication_error_values_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_publication_error_values_t {
@@ -46325,9 +46603,16 @@ impl AeronPublicationImageConnection {
     pub fn get_inner(&self) -> *mut aeron_publication_image_connection_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_publication_image_connection_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_publication_image_connection_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_publication_image_connection_t {
@@ -46399,7 +46684,7 @@ impl AeronPublicationImageConnection {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -46506,9 +46791,16 @@ impl AeronPublicationImageEntry {
     pub fn get_inner(&self) -> *mut aeron_publication_image_entry_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_publication_image_entry_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_publication_image_entry_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_publication_image_entry_t {
@@ -46580,7 +46872,7 @@ impl AeronPublicationImageEntry {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -47351,9 +47643,16 @@ impl AeronPublicationImage {
     pub fn get_inner(&self) -> *mut aeron_publication_image_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_publication_image_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_publication_image_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_publication_image_t {
@@ -47496,9 +47795,16 @@ impl AeronPublicationLink {
     pub fn get_inner(&self) -> *mut aeron_publication_link_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_publication_link_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_publication_link_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_publication_link_t {
@@ -47570,7 +47876,7 @@ impl AeronPublicationLink {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -47988,9 +48294,16 @@ impl AeronPublication {
     pub fn get_inner(&self) -> *mut aeron_publication_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_publication_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_publication_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_publication_t {
@@ -48236,9 +48549,16 @@ impl AeronRbDescriptor {
     pub fn get_inner(&self) -> *mut aeron_rb_descriptor_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_rb_descriptor_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_rb_descriptor_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_rb_descriptor_t {
@@ -48310,7 +48630,7 @@ impl AeronRbDescriptor {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -48425,9 +48745,16 @@ impl AeronRbRecordDescriptor {
     pub fn get_inner(&self) -> *mut aeron_rb_record_descriptor_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_rb_record_descriptor_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_rb_record_descriptor_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_rb_record_descriptor_t {
@@ -48499,7 +48826,7 @@ impl AeronRbRecordDescriptor {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -48608,9 +48935,16 @@ impl AeronReceiveChannelEndpointEntry {
     pub fn get_inner(&self) -> *mut aeron_receive_channel_endpoint_entry_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_receive_channel_endpoint_entry_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_receive_channel_endpoint_entry_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_receive_channel_endpoint_entry_t {
@@ -48682,7 +49016,7 @@ impl AeronReceiveChannelEndpointEntry {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -49858,9 +50192,16 @@ impl AeronReceiveChannelEndpoint {
     pub fn get_inner(&self) -> *mut aeron_receive_channel_endpoint_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_receive_channel_endpoint_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_receive_channel_endpoint_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_receive_channel_endpoint_t {
@@ -50006,9 +50347,16 @@ impl AeronReceiveDestinationEntry {
     pub fn get_inner(&self) -> *mut aeron_receive_destination_entry_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_receive_destination_entry_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_receive_destination_entry_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_receive_destination_entry_t {
@@ -50080,7 +50428,7 @@ impl AeronReceiveDestinationEntry {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -50234,9 +50582,16 @@ impl AeronReceiveDestination {
     pub fn get_inner(&self) -> *mut aeron_receive_destination_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_receive_destination_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_receive_destination_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_receive_destination_t {
@@ -50402,9 +50757,16 @@ impl AeronRejectImageCommand {
     pub fn get_inner(&self) -> *mut aeron_reject_image_command_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_reject_image_command_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_reject_image_command_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_reject_image_command_t {
@@ -50476,7 +50838,7 @@ impl AeronRejectImageCommand {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -50591,9 +50953,16 @@ impl AeronRemoveCounterCommand {
     pub fn get_inner(&self) -> *mut aeron_remove_counter_command_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_remove_counter_command_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_remove_counter_command_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_remove_counter_command_t {
@@ -50665,7 +51034,7 @@ impl AeronRemoveCounterCommand {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -50786,9 +51155,16 @@ impl AeronRemovePublicationCommand {
     pub fn get_inner(&self) -> *mut aeron_remove_publication_command_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_remove_publication_command_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_remove_publication_command_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_remove_publication_command_t {
@@ -50860,7 +51236,7 @@ impl AeronRemovePublicationCommand {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -50975,9 +51351,16 @@ impl AeronRemoveSubscriptionCommand {
     pub fn get_inner(&self) -> *mut aeron_remove_subscription_command_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_remove_subscription_command_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_remove_subscription_command_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_remove_subscription_command_t {
@@ -51049,7 +51432,7 @@ impl AeronRemoveSubscriptionCommand {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -51188,9 +51571,16 @@ impl AeronResolutionHeaderIpv4 {
     pub fn get_inner(&self) -> *mut aeron_resolution_header_ipv4_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_resolution_header_ipv4_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_resolution_header_ipv4_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_resolution_header_ipv4_t {
@@ -51262,7 +51652,7 @@ impl AeronResolutionHeaderIpv4 {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -51401,9 +51791,16 @@ impl AeronResolutionHeaderIpv6 {
     pub fn get_inner(&self) -> *mut aeron_resolution_header_ipv6_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_resolution_header_ipv6_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_resolution_header_ipv6_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_resolution_header_ipv6_t {
@@ -51475,7 +51872,7 @@ impl AeronResolutionHeaderIpv6 {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -51600,9 +51997,16 @@ impl AeronResolutionHeader {
     pub fn get_inner(&self) -> *mut aeron_resolution_header_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_resolution_header_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_resolution_header_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_resolution_header_t {
@@ -51674,7 +52078,7 @@ impl AeronResolutionHeader {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -51806,9 +52210,16 @@ impl AeronResponseSetupHeader {
     pub fn get_inner(&self) -> *mut aeron_response_setup_header_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_response_setup_header_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_response_setup_header_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_response_setup_header_t {
@@ -51880,7 +52291,7 @@ impl AeronResponseSetupHeader {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -52018,9 +52429,16 @@ impl AeronRetransmitAction {
     pub fn get_inner(&self) -> *mut aeron_retransmit_action_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_retransmit_action_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_retransmit_action_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_retransmit_action_t {
@@ -52092,7 +52510,7 @@ impl AeronRetransmitAction {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -52427,9 +52845,16 @@ impl AeronRetransmitHandler {
     pub fn get_inner(&self) -> *mut aeron_retransmit_handler_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_retransmit_handler_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_retransmit_handler_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_retransmit_handler_t {
@@ -52501,7 +52926,7 @@ impl AeronRetransmitHandler {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -52647,9 +53072,16 @@ impl AeronRttmHeader {
     pub fn get_inner(&self) -> *mut aeron_rttm_header_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_rttm_header_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_rttm_header_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_rttm_header_t {
@@ -52721,7 +53153,7 @@ impl AeronRttmHeader {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -52830,9 +53262,16 @@ impl AeronSendChannelEndpointEntry {
     pub fn get_inner(&self) -> *mut aeron_send_channel_endpoint_entry_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_send_channel_endpoint_entry_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_send_channel_endpoint_entry_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_send_channel_endpoint_entry_t {
@@ -52904,7 +53343,7 @@ impl AeronSendChannelEndpointEntry {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -53366,9 +53805,16 @@ impl AeronSendChannelEndpoint {
     pub fn get_inner(&self) -> *mut aeron_send_channel_endpoint_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_send_channel_endpoint_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_send_channel_endpoint_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_send_channel_endpoint_t {
@@ -53572,9 +54018,16 @@ impl AeronSetupHeader {
     pub fn get_inner(&self) -> *mut aeron_setup_header_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_setup_header_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_setup_header_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_setup_header_t {
@@ -53646,7 +54099,7 @@ impl AeronSetupHeader {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -53823,9 +54276,16 @@ impl AeronSpscConcurrentArrayQueue {
     pub fn get_inner(&self) -> *mut aeron_spsc_concurrent_array_queue_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_spsc_concurrent_array_queue_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_spsc_concurrent_array_queue_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_spsc_concurrent_array_queue_t {
@@ -53897,7 +54357,7 @@ impl AeronSpscConcurrentArrayQueue {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -54018,9 +54478,16 @@ impl AeronStaticCounterCommand {
     pub fn get_inner(&self) -> *mut aeron_static_counter_command_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_static_counter_command_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_static_counter_command_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_static_counter_command_t {
@@ -54092,7 +54559,7 @@ impl AeronStaticCounterCommand {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -54207,9 +54674,16 @@ impl AeronStaticCounterResponse {
     pub fn get_inner(&self) -> *mut aeron_static_counter_response_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_static_counter_response_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_static_counter_response_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_static_counter_response_t {
@@ -54281,7 +54755,7 @@ impl AeronStaticCounterResponse {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -54458,9 +54932,16 @@ impl AeronStatusMessageHeader {
     pub fn get_inner(&self) -> *mut aeron_status_message_header_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_status_message_header_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_status_message_header_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_status_message_header_t {
@@ -54532,7 +55013,7 @@ impl AeronStatusMessageHeader {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -54641,9 +55122,16 @@ impl AeronStatusMessageOptionalHeader {
     pub fn get_inner(&self) -> *mut aeron_status_message_optional_header_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_status_message_optional_header_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_status_message_optional_header_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_status_message_optional_header_t {
@@ -54715,7 +55203,7 @@ impl AeronStatusMessageOptionalHeader {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -54840,9 +55328,16 @@ impl AeronStrToPtrHashMapKey {
     pub fn get_inner(&self) -> *mut aeron_str_to_ptr_hash_map_key_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_str_to_ptr_hash_map_key_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_str_to_ptr_hash_map_key_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_str_to_ptr_hash_map_key_t {
@@ -54914,7 +55409,7 @@ impl AeronStrToPtrHashMapKey {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -55059,9 +55554,16 @@ impl AeronStrToPtrHashMap {
     pub fn get_inner(&self) -> *mut aeron_str_to_ptr_hash_map_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_str_to_ptr_hash_map_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_str_to_ptr_hash_map_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_str_to_ptr_hash_map_t {
@@ -55133,7 +55635,7 @@ impl AeronStrToPtrHashMap {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -55271,9 +55773,16 @@ impl AeronStreamPositionCounterKeyLayout {
     pub fn get_inner(&self) -> *mut aeron_stream_position_counter_key_layout_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_stream_position_counter_key_layout_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_stream_position_counter_key_layout_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_stream_position_counter_key_layout_t {
@@ -55345,7 +55854,7 @@ impl AeronStreamPositionCounterKeyLayout {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -55460,9 +55969,16 @@ impl AeronSubscribableListEntry {
     pub fn get_inner(&self) -> *mut aeron_subscribable_list_entry_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_subscribable_list_entry_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_subscribable_list_entry_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_subscribable_list_entry_t {
@@ -55534,7 +56050,7 @@ impl AeronSubscribableListEntry {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -55798,9 +56314,16 @@ impl AeronSubscribable {
     pub fn get_inner(&self) -> *mut aeron_subscribable_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_subscribable_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_subscribable_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_subscribable_t {
@@ -55872,7 +56395,7 @@ impl AeronSubscribable {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -56007,9 +56530,16 @@ impl AeronSubscriptionCommand {
     pub fn get_inner(&self) -> *mut aeron_subscription_command_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_subscription_command_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_subscription_command_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_subscription_command_t {
@@ -56081,7 +56611,7 @@ impl AeronSubscriptionCommand {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -56232,9 +56762,16 @@ impl AeronSubscriptionConstants {
     pub fn get_inner(&self) -> *mut aeron_subscription_constants_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_subscription_constants_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_subscription_constants_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_subscription_constants_t {
@@ -56306,7 +56843,7 @@ impl AeronSubscriptionConstants {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -56538,9 +57075,16 @@ impl AeronSubscriptionLink {
     pub fn get_inner(&self) -> *mut aeron_subscription_link_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_subscription_link_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_subscription_link_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_subscription_link_t {
@@ -56612,7 +57156,7 @@ impl AeronSubscriptionLink {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -56730,9 +57274,16 @@ impl AeronSubscriptionReady {
     pub fn get_inner(&self) -> *mut aeron_subscription_ready_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_subscription_ready_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_subscription_ready_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_subscription_ready_t {
@@ -56804,7 +57355,7 @@ impl AeronSubscriptionReady {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -57536,9 +58087,16 @@ impl AeronSubscription {
     pub fn get_inner(&self) -> *mut aeron_subscription_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_subscription_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_subscription_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_subscription_t {
@@ -57722,9 +58280,16 @@ impl AeronSystemCounter {
     pub fn get_inner(&self) -> *mut aeron_system_counter_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_system_counter_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_system_counter_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_system_counter_t {
@@ -57796,7 +58361,7 @@ impl AeronSystemCounter {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -57928,9 +58493,16 @@ impl AeronSystemCounters {
     pub fn get_inner(&self) -> *mut aeron_system_counters_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_system_counters_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_system_counters_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_system_counters_t {
@@ -58002,7 +58574,7 @@ impl AeronSystemCounters {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -61036,9 +61608,16 @@ impl Aeron {
     pub fn get_inner(&self) -> *mut aeron_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_t {
@@ -61215,9 +61794,16 @@ impl AeronTerminateDriverCommand {
     pub fn get_inner(&self) -> *mut aeron_terminate_driver_command_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_terminate_driver_command_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_terminate_driver_command_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_terminate_driver_command_t {
@@ -61289,7 +61875,7 @@ impl AeronTerminateDriverCommand {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -61443,9 +62029,16 @@ impl AeronTetherablePosition {
     pub fn get_inner(&self) -> *mut aeron_tetherable_position_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_tetherable_position_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_tetherable_position_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_tetherable_position_t {
@@ -61517,7 +62110,7 @@ impl AeronTetherablePosition {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -61632,9 +62225,16 @@ impl AeronUdpChannelAsyncParse {
     pub fn get_inner(&self) -> *mut aeron_udp_channel_async_parse_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_udp_channel_async_parse_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_udp_channel_async_parse_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_udp_channel_async_parse_t {
@@ -61706,7 +62306,7 @@ impl AeronUdpChannelAsyncParse {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -62084,9 +62684,16 @@ impl AeronUdpChannelDataPaths {
     pub fn get_inner(&self) -> *mut aeron_udp_channel_data_paths_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_udp_channel_data_paths_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_udp_channel_data_paths_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_udp_channel_data_paths_t {
@@ -62158,7 +62765,7 @@ impl AeronUdpChannelDataPaths {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -62307,9 +62914,16 @@ impl AeronUdpChannelIncomingInterceptor {
     pub fn get_inner(&self) -> *mut aeron_udp_channel_incoming_interceptor_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_udp_channel_incoming_interceptor_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_udp_channel_incoming_interceptor_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_udp_channel_incoming_interceptor_t {
@@ -62381,7 +62995,7 @@ impl AeronUdpChannelIncomingInterceptor {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -62591,9 +63205,16 @@ impl AeronUdpChannelInterceptorBindings {
     pub fn get_inner(&self) -> *mut aeron_udp_channel_interceptor_bindings_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_udp_channel_interceptor_bindings_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_udp_channel_interceptor_bindings_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_udp_channel_interceptor_bindings_t {
@@ -62665,7 +63286,7 @@ impl AeronUdpChannelInterceptorBindings {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -62814,9 +63435,16 @@ impl AeronUdpChannelOutgoingInterceptor {
     pub fn get_inner(&self) -> *mut aeron_udp_channel_outgoing_interceptor_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_udp_channel_outgoing_interceptor_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_udp_channel_outgoing_interceptor_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_udp_channel_outgoing_interceptor_t {
@@ -62888,7 +63516,7 @@ impl AeronUdpChannelOutgoingInterceptor {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -63076,9 +63704,16 @@ impl AeronUdpChannelParams {
     pub fn get_inner(&self) -> *mut aeron_udp_channel_params_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_udp_channel_params_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_udp_channel_params_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_udp_channel_params_t {
@@ -63150,7 +63785,7 @@ impl AeronUdpChannelParams {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -63433,9 +64068,16 @@ impl AeronUdpChannel {
     pub fn get_inner(&self) -> *mut aeron_udp_channel_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_udp_channel_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_udp_channel_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_udp_channel_t {
@@ -63628,9 +64270,16 @@ impl AeronUdpDestinationEntry {
     pub fn get_inner(&self) -> *mut aeron_udp_destination_entry_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_udp_destination_entry_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_udp_destination_entry_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_udp_destination_entry_t {
@@ -63702,7 +64351,7 @@ impl AeronUdpDestinationEntry {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -64046,9 +64695,16 @@ impl AeronUdpDestinationTracker {
     pub fn get_inner(&self) -> *mut aeron_udp_destination_tracker_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_udp_destination_tracker_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_udp_destination_tracker_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_udp_destination_tracker_t {
@@ -64199,9 +64855,16 @@ impl AeronUriParam {
     pub fn get_inner(&self) -> *mut aeron_uri_param_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_uri_param_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_uri_param_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_uri_param_t {
@@ -64273,7 +64936,7 @@ impl AeronUriParam {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -64592,9 +65255,16 @@ impl AeronUriParams {
     pub fn get_inner(&self) -> *mut aeron_uri_params_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_uri_params_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_uri_params_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_uri_params_t {
@@ -64666,7 +65336,7 @@ impl AeronUriParams {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -64944,9 +65614,16 @@ impl AeronUriStringBuilder {
     pub fn get_inner(&self) -> *mut aeron_uri_string_builder_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_uri_string_builder_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_uri_string_builder_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_uri_string_builder_t {
@@ -65379,9 +66056,16 @@ impl AeronUri {
     pub fn get_inner(&self) -> *mut aeron_uri_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_uri_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_uri_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_uri_t {
@@ -65462,7 +66146,7 @@ impl AeronUri {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -65727,9 +66411,16 @@ impl AeronWildcardPortManager {
     pub fn get_inner(&self) -> *mut aeron_wildcard_port_manager_t {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut aeron_wildcard_port_manager_t {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_wildcard_port_manager_t {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_wildcard_port_manager_t {
@@ -65801,7 +66492,7 @@ impl AeronWildcardPortManager {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -65926,9 +66617,16 @@ impl Ifaddrs {
     pub fn get_inner(&self) -> *mut ifaddrs {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut ifaddrs {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut ifaddrs {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &ifaddrs {
@@ -66066,9 +66764,16 @@ impl In6Addr {
     pub fn get_inner(&self) -> *mut in6_addr {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut in6_addr {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut in6_addr {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &in6_addr {
@@ -66133,6 +66838,218 @@ mod in6_addr_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = In6Addr::new_zeroed_on_stack();
+            }
+        });
+    }
+}
+#[derive(Clone)]
+pub struct InAddr {
+    inner: CResource<in_addr>,
+}
+impl core::fmt::Debug for InAddr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(InAddr)).field("inner", &"null").finish()
+        } else {
+            f.debug_struct(stringify!(InAddr)).field("inner", &self.inner).finish()
+        }
+    }
+}
+impl InAddr {
+    #[inline]
+    pub fn new(s_addr: in_addr_t) -> Result<Self, AeronCError> {
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = in_addr { s_addr: s_addr.into() };
+                let inner_ptr: *mut in_addr = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!("creating zeroed empty resource on heap {}", stringify!(in_addr));
+                let inst: in_addr = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut in_addr = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!("creating zeroed empty resource on stack {}", stringify!(in_addr));
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
+        }
+    }
+    #[inline]
+    pub fn s_addr(&self) -> in_addr_t {
+        self.s_addr.into()
+    }
+    #[inline]
+    pub fn aeron_ipv4_does_prefix_match(&self, prefixlen: usize) -> bool {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_ipv4_does_prefix_match),
+                [
+                    concat!("in_addr1", ": ", stringify!(*mut in_addr)).to_string(),
+                    concat!("in_addr2", ": ", stringify!(*mut in_addr)).to_string(),
+                    format!("{} = {:?}", "prefixlen", prefixlen)
+                ]
+                .join(", ")
+            );
+            let result = aeron_ipv4_does_prefix_match(self.get_inner(), self.get_inner(), prefixlen.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn aeron_ipv4_netmask_to_prefixlen(&self) -> usize {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_ipv4_netmask_to_prefixlen),
+                [concat!("netmask", ": ", stringify!(*mut in_addr)).to_string()].join(", ")
+            );
+            let result = aeron_ipv4_netmask_to_prefixlen(self.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut in_addr {
+        self.inner.get()
+    }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
+    #[inline(always)]
+    pub unsafe fn get_inner_mut(&self) -> &mut in_addr {
+        &mut *self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &in_addr {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for InAddr {
+    type Target = in_addr;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut in_addr> for InAddr {
+    #[inline]
+    fn from(value: *mut in_addr) -> Self {
+        InAddr {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<InAddr> for *mut in_addr {
+    #[inline]
+    fn from(value: InAddr) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&InAddr> for *mut in_addr {
+    #[inline]
+    fn from(value: &InAddr) -> Self {
+        value.get_inner()
+    }
+}
+impl From<InAddr> for in_addr {
+    #[inline]
+    fn from(value: InAddr) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const in_addr> for InAddr {
+    #[inline]
+    fn from(value: *const in_addr) -> Self {
+        InAddr {
+            inner: CResource::Borrowed(value as *mut in_addr),
+        }
+    }
+}
+impl From<in_addr> for InAddr {
+    #[inline]
+    fn from(value: in_addr) -> Self {
+        InAddr {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
+        }
+    }
+}
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for InAddr {
+    fn default() -> Self {
+        InAddr::new_zeroed_on_heap()
+    }
+}
+impl InAddr {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+        copy
+    }
+}
+#[cfg(test)]
+mod in_addr_allocation_tests {
+    use super::*;
+    use serial_test::file_serial;
+    #[test]
+    #[file_serial(global)]
+    fn test_new_on_stack() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = InAddr::new_zeroed_on_stack();
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = InAddr::default();
             }
         });
     }
@@ -66216,9 +67133,16 @@ impl Iovec {
     pub fn get_inner(&self) -> *mut iovec {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut iovec {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut iovec {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &iovec {
@@ -66290,7 +67214,7 @@ impl Iovec {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -66365,9 +67289,16 @@ impl Mmsghdr {
     pub fn get_inner(&self) -> *mut mmsghdr {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut mmsghdr {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut mmsghdr {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &mmsghdr {
@@ -66546,9 +67477,16 @@ impl Msghdr {
     pub fn get_inner(&self) -> *mut msghdr {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut msghdr {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut msghdr {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &msghdr {
@@ -66620,7 +67558,7 @@ impl Msghdr {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -66760,9 +67698,16 @@ impl Pollfd {
     pub fn get_inner(&self) -> *mut pollfd {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut pollfd {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut pollfd {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &pollfd {
@@ -66834,7 +67779,7 @@ impl Pollfd {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -66948,9 +67893,16 @@ impl Sockaddr {
     pub fn get_inner(&self) -> *mut sockaddr {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut sockaddr {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut sockaddr {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &sockaddr {
@@ -67022,7 +67974,7 @@ impl Sockaddr {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }
@@ -67215,9 +68167,16 @@ impl SockaddrStorage {
     pub fn get_inner(&self) -> *mut sockaddr_storage {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut sockaddr_storage {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut sockaddr_storage {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &sockaddr_storage {
@@ -67386,9 +68345,16 @@ impl Timespec {
     pub fn get_inner(&self) -> *mut timespec {
         self.inner.get()
     }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
     #[inline(always)]
-    pub fn get_inner_mut(&self) -> &mut timespec {
-        unsafe { &mut *self.inner.get() }
+    pub unsafe fn get_inner_mut(&self) -> &mut timespec {
+        &mut *self.inner.get()
     }
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &timespec {
@@ -67460,7 +68426,7 @@ impl Timespec {
     #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
-        copy.get_inner_mut().clone_from(self.deref());
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
     }
 }

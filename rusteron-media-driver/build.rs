@@ -2,8 +2,10 @@
 // include!d here so cfg!(feature) / env!(CARGO_MANIFEST_DIR) resolve against this crate.
 include!("../rusteron-code-gen/src/build_common.rs");
 
+// Unlike client/archive, the driver's aeron wrappers reference socket types
+// (sockaddr_storage, iovec, timespec, ...), so only pthread noise is dropped.
 fn driver_wrapper_filter(type_name: &str) -> bool {
-    !type_name.contains("_t_") && type_name != "in_addr"
+    !type_name.contains("pthread") && !type_name.contains("_t_")
 }
 
 pub fn main() {

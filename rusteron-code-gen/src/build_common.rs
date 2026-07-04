@@ -49,6 +49,13 @@ impl RusteronBuildConfig {
         true
     }
 
+    /// Emit wrappers only for Aeron's own types: bindgen also pulls in platform
+    /// typedefs (Darwin/glibc pthread internals) that would otherwise become
+    /// public wrapper noise in the generated API.
+    pub fn aeron_only(type_name: &str) -> bool {
+        type_name.starts_with("aeron_")
+    }
+
     pub fn no_pre_build(_aeron_path: &Path) {}
 }
 

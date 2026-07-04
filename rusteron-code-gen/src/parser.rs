@@ -114,6 +114,16 @@ fn process_c_method(
                 let docs = get_doc_comments(&f.attrs);
                 let fn_name = f.sig.ident.to_string();
 
+                // aeronc.h has a deprecated typo alias:
+                //   aeron_async_add_exclusive_exclusive_publication_get_registration_id
+                // (note the doubled "exclusive"). It attaches to the same wrapper as the
+                // canonical aeron_async_add_exclusive_publication_get_registration_id and
+                // would either collide with it or emit a garbled method name. Upstream
+                // marks it @deprecated, so drop it outright.
+                if fn_name.contains("exclusive_exclusive") {
+                    continue;
+                }
+
                 // Get function arguments and return type as Rust code
                 let args = extract_function_arguments(&f.sig.inputs);
                 let ret = extract_return_type(&f.sig.output);

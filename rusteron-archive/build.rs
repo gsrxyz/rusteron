@@ -49,7 +49,7 @@ pub fn main() {
         ],
         allow_multiple_definition: true,
         precompile_linux_extra_lib: None,
-        wrapper_type_filter: RusteronBuildConfig::no_filter,
+        wrapper_type_filter: RusteronBuildConfig::aeron_only,
         expected_wrapper: None,
         extra_custom_code: &[rusteron_code_gen::CUSTOM_ARCHIVE_CODE],
         bindings_snapshot: "archive.rs",

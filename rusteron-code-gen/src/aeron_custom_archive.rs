@@ -109,6 +109,43 @@ impl AeronArchiveError {
             message: message.to_string(),
         }
     }
+
+    /// Mirror of [`AeronCError::from_c_code`] for archive control operations: snapshots
+    /// the current thread-local `aeron_errmsg()` text and parses the embedded code out
+    /// of it. Use this at FFI error sites on `aeron_archive_*` calls.
+    ///
+    /// Like its client counterpart, retryable codes skip the message snapshot to keep
+    /// retry loops allocation-free; the message can be reconstructed later via
+    /// [`AeronCError::get_last_err_message`] on the lossy conversion below if needed.
+    pub fn from_c_code(code: i32) -> Self {
+        let message = Aeron::errmsg();
+        if message.contains("errorCode=") {
+            Self::parse(message)
+        } else {
+            // No structured code in the buffer (e.g. generic C-level failure); preserve
+            // the message verbatim and let the code fall through to the parsed form, or
+            // Generic if nothing is recoverable.
+            let parsed = Self::parse(message);
+            if matches!(parsed.code, AeronArchiveErrorCode::Generic) && code < 0 {
+                Self {
+                    code: AeronArchiveErrorCode::Generic,
+                    message: format!("{} (code {})", message, code),
+                }
+            } else {
+                parsed
+            }
+        }
+    }
+}
+
+/// Lossy interop: archive control errors flatten into [`AeronCError`] so `?` works in
+/// mixed client/archive code paths. The original typed code is not preserved (the C
+/// client error domain has no equivalent slot for it); use [`AeronArchiveError`]
+/// directly at archive control sites to retain the typed code.
+impl From<AeronArchiveError> for AeronCError {
+    fn from(err: AeronArchiveError) -> Self {
+        AeronCError::with_message(-1, err.message)
+    }
 }
 
 impl std::fmt::Display for AeronArchiveError {

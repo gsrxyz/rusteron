@@ -253,9 +253,14 @@ impl<T> ManagedCResource<T> {
         self.resource.get()
     }
 
+    /// Mutable access to the underlying C struct, minted from `&self`.
+    ///
+    /// # Safety
+    /// No other reference (`&` or `&mut`) to the underlying struct may be
+    /// alive while the returned `&mut` is in use.
     #[inline(always)]
-    pub fn get_mut(&self) -> &mut T {
-        unsafe { &mut *self.resource.get() }
+    pub unsafe fn get_mut(&self) -> &mut T {
+        &mut *self.resource.get()
     }
 
     #[inline]

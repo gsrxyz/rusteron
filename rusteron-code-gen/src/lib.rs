@@ -28,6 +28,23 @@ pub const CUSTOM_AERON_CODE: &str = include_str!("./aeron_custom.rs");
 pub const CUSTOM_ARCHIVE_CODE: &str = include_str!("./aeron_custom_archive.rs");
 pub const COMMON_CODE: &str = include_str!("./common.rs");
 
+/// Minimal `AeronArchiveError` stub for the `archive` trybuild test only — the real
+/// type (with typed codes, parsing, Display) lives in `aeron_custom_archive.rs` and is
+/// pulled into rusteron-archive via its build.rs. The trybuild test compiles generated
+/// code in isolation, so the real CUSTOM_ARCHIVE_CODE can't be used (it references
+/// hand-written rusteron-archive/src/lib.rs types). Generated aeron_archive_t methods
+/// only reference `AeronArchiveError::from_c_code(i32)`, so a bare struct suffices.
+#[cfg(test)]
+const TRYBUILD_ARCHIVE_ERROR_STUB: &str = r#"
+    #[derive(Debug, Clone)]
+    pub struct AeronArchiveError { pub code: i32, pub message: String }
+    impl AeronArchiveError { pub fn from_c_code(code: i32) -> Self { Self { code, message: String::new() } } }
+    impl std::fmt::Display for AeronArchiveError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "archive error {}", self.code) }
+    }
+    impl std::error::Error for AeronArchiveError {}
+"#;
+
 pub fn append_to_file(file_path: &str, code: &str) -> std::io::Result<()> {
     let path = Path::new(file_path);
     if let Some(parent) = path.parent() {
@@ -94,6 +111,7 @@ mod tests {
     use crate::parser::parse_bindings;
     use crate::{
         append_to_file, format_token_stream, format_with_rustfmt, ARCHIVE_BINDINGS, CLIENT_BINDINGS, CUSTOM_AERON_CODE,
+        TRYBUILD_ARCHIVE_ERROR_STUB,
     };
     use proc_macro2::TokenStream;
     use std::fs;
@@ -185,7 +203,7 @@ mod tests {
         for (p, w) in bindings
             .wrappers
             .values()
-            .filter(|w| !w.type_name.contains("_t_") && w.type_name != "in_addr")
+            .filter(|w| !w.type_name.contains("pthread") && !w.type_name.contains("_t_"))
             .enumerate()
         {
             let code = crate::generate_rust_code(w, &bindings.wrappers, p == 0, true, true, &bindings.handlers);
@@ -245,6 +263,13 @@ mod tests {
         append_to_file(&file, ARCHIVE_BINDINGS).unwrap();
         append_to_file(&file, "}").unwrap();
         append_to_file(&file, CUSTOM_AERON_CODE).unwrap();
+        // The generated aeron_archive_t methods reference AeronArchiveError, which in the
+        // real crate is supplied by CUSTOM_ARCHIVE_CODE. That file also references
+        // hand-written rusteron-archive/src/lib.rs types (e.g. AeronArchiveAsyncConnect),
+        // so it can't be compiled standalone here. Inject a minimal stub instead — the
+        // trybuild test only checks generated signatures compile; the real type's
+        // behaviour is covered by rusteron-archive's own tests.
+        append_to_file(&file, TRYBUILD_ARCHIVE_ERROR_STUB).unwrap();
         append_to_file(&file, "\npub fn main() {}\n").unwrap();
         t.pass(file)
     }
@@ -338,7 +363,12 @@ mod tests {
     #[test]
     #[cfg(not(target_os = "windows"))]
     fn client_aeron_rs_matches_committed_snapshot() {
-        assert_aeron_rs_snapshot_matches("client.rs", "../rusteron-client/docs-rs/aeron.rs", |_| true, &[]);
+        assert_aeron_rs_snapshot_matches(
+            "client.rs",
+            "../rusteron-client/docs-rs/aeron.rs",
+            |t| t.starts_with("aeron_"),
+            &[],
+        );
     }
 
     #[test]
@@ -352,7 +382,7 @@ mod tests {
         assert_aeron_rs_snapshot_matches(
             "archive.rs",
             "../rusteron-archive/docs-rs/aeron.rs",
-            |_| true,
+            |t| t.starts_with("aeron_"),
             &[crate::CUSTOM_ARCHIVE_CODE],
         );
     }
@@ -365,7 +395,7 @@ mod tests {
         assert_aeron_rs_snapshot_matches(
             "media-driver.rs",
             "../rusteron-media-driver/docs-rs/aeron.rs",
-            |t| !t.contains("_t_") && t != "in_addr",
+            |t| !t.contains("pthread") && !t.contains("_t_"),
             &[],
         );
     }

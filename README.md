@@ -233,8 +233,10 @@ enum over Aeron's negative sentinels with `is_retryable()` (back-pressure / admi
 not connected) vs fatal (closed / max position). `AeronCError` now snapshots
 `aeron_errmsg()` **at the error site** for non-retryable codes, so `Display` shows the
 message of the error that actually happened, not whatever a later error overwrote the
-global buffer with. The archive client gains typed error codes (`AeronArchiveErrorCode`,
-`archive.poll_for_error()`).
+global buffer with. Archive control operations (`begin_replay`, `start_recording`, …)
+return `Result<_, AeronArchiveError>` with the parsed `AeronArchiveErrorCode` and message;
+constructors, async-connect, and context setters keep `AeronCError`, with
+`From<AeronArchiveError> for AeronCError` for `?` interop.
 
 **Hot-path performance.** Generated FFI wrappers carry `#[inline]` and the workspace
 release profile enables fat LTO. New `offer_parts(&[&header, &payload])` does a gathering
@@ -269,6 +271,11 @@ Old → new for every renamed/changed API (rows verified against the released 0.
 | `pub.add_destination(&aeron, dest, timeout)` (`&mut self`) | `pub.add_destination(dest, timeout)` (`&self`) | Owning `Aeron` comes from the handle's dependency graph. Same for subscriptions / exclusive publications. |
 | `AeronCnc::new(dir)` | `AeronCnc::open(&CStr)` or `AeronCnc::read(&CStr, \|cnc\| { … })` | `new_on_heap`/`read_on_partial_stack` renamed; now accept `&CStr` (not `&str`/`&CString`). `read` = scoped (zero-alloc, preferred for one-shot), `open` = owned handle (for repeated polling). |
 | `&"aeron:ipc".into_c_string()` (allocates at runtime) | `c"aeron:ipc"` | See "C strings without hidden allocations" above; `cformat!` for dynamic URIs. |
+| `wrapper.get_inner_mut()` / `ManagedCResource::get_mut()` (safe) | `unsafe …()` | Both mint `&mut` from `&self`; the caller must now promise exclusive access. The only internal caller (`clone_struct`) is wrapped in `unsafe` already. |
+| `ChannelUriStringBuilder::put_string(&CStr, &str)` / `put_strings(&str, &str)` | `put_str(&CStr, &str)` | Single name, single key type (`&CStr` — pair with `c"media"` or `CStr::from_bytes_until_nul`); `put_strings` removed (no external callers). |
+| `archive.begin_replay(...)`, `start_recording(...)`, … → `Result<_, AeronCError>` | `Result<_, AeronArchiveError>` | Control ops on `AeronArchive` return the typed error (parseable code + message). Constructors, async-connect, and context setters still return `AeronCError`; `From<AeronArchiveError> for AeronCError` keeps `?` working across the boundary. |
+| `async_add_exclusive_publication.poll(...).get_registration_id()` on the deprecated `exclusive_exclusive` alias | only `aeron_async_add_exclusive_publication_get_registration_id` is exposed | The deprecated `aeron_async_add_exclusive_exclusive_publication_get_registration_id` C alias is dropped (it collided with the canonical name); use the canonical `get_registration_id()`. |
+| `DarwinPthread*`, `OpaquePthread*` wrapper structs in the generated API | removed | Bindgen pthread internals are no longer emitted as wrapper types; socket types the driver wrappers reference (`sockaddr_storage`, `iovec`, …) are retained. |
 
 Behavioural notes:
 - A panicking fragment handler aborts the process (panic cannot unwind across the C
