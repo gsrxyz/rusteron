@@ -1077,7 +1077,9 @@ mod tests {
         let mut collector = Collector { received: Vec::new(), count: 0 };
         let deadline = Instant::now() + Duration::from_secs(20);
         while collector.count == 0 && Instant::now() < deadline {
-            ps.poll_fn(|_buf, _hdr| {}, 10)?;
+            // asm.poll drives ps.poll(...) internally — it both advances the PS state
+            // machine and delivers (reassembled) fragments. Do NOT also call ps.poll_fn:
+            // that would consume the raw fragments before the assembler sees them.
             asm.poll(&ps, &mut collector, collect, 100)?;
             sleep(Duration::from_millis(1));
         }
@@ -1170,7 +1172,6 @@ mod tests {
         let mut collector = Collector { received: Vec::new(), count: 0 };
         let deadline = Instant::now() + Duration::from_secs(20);
         while collector.count == 0 && Instant::now() < deadline {
-            ps.poll_fn(|_buf, _hdr| {}, 10)?;
             asm.poll(&ps, &mut collector, collect, 100)?;
             sleep(Duration::from_millis(1));
         }
