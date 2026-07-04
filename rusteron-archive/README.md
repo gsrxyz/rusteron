@@ -21,13 +21,13 @@ The **rusteron-archive** module enables Rust developers to leverage Aeron's arch
 For **MacOS users**, the easiest way to get started is by using the static library with precompiled C dependencies. This avoids the need for `cmake` or `Java`:
 
 ```toml
-rusteron-archive = { version = "0.1", features = ["static", "precompile"] }
+rusteron-archive = { version = "0.2", features = ["static", "precompile"] }
 ````
 
 If you prefer a rustls-only downloader dependency:
 
 ```toml
-rusteron-archive = { version = "0.1", features = ["static", "precompile-rustls"] }
+rusteron-archive = { version = "0.2", features = ["static", "precompile-rustls"] }
 ````
 
 ---
@@ -38,16 +38,16 @@ Add **rusteron-archive** to your `Cargo.toml` depending on your setup:
 
 ```toml
 # Dynamic linking (default)
-rusteron-archive = "0.1"
+rusteron-archive = "0.2"
 
 # Static linking
-rusteron-archive = { version = "0.1", features = ["static"] }
+rusteron-archive = { version = "0.2", features = ["static"] }
 
 # Static linking with precompiled C libraries (best for Mac users, no Java/cmake needed)
-rusteron-archive = { version = "0.1", features = ["static", "precompile"] }
+rusteron-archive = { version = "0.2", features = ["static", "precompile"] }
 
 # Static linking with precompiled C libraries using rustls downloader
-rusteron-archive = { version = "0.1", features = ["static", "precompile-rustls"] }
+rusteron-archive = { version = "0.2", features = ["static", "precompile-rustls"] }
 ```
 
 When using the default dynamic configuration, you must ensure Aeron C libraries are available at runtime. The `static` option embeds them automatically into the binary.

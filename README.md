@@ -54,28 +54,28 @@ Choose the module and linking style appropriate for your project.
 
 ```toml
 [dependencies]
-rusteron-client = "0.1"
+rusteron-client = "0.2"
 ```
 
 **Static library:**
 
 ```toml
 [dependencies]
-rusteron-client = { version = "0.1", features = ["static"] }
+rusteron-client = { version = "0.2", features = ["static"] }
 ```
 
 **macOS-only precompiled static libs:**
 
 ```toml
 [dependencies]
-rusteron-client = { version = "0.1", features = ["static", "precompile"] }
+rusteron-client = { version = "0.2", features = ["static", "precompile"] }
 ```
 
 **macOS-only precompiled static libs with rustls downloader:**
 
 ```toml
 [dependencies]
-rusteron-client = { version = "0.1", features = ["static", "precompile-rustls"] }
+rusteron-client = { version = "0.2", features = ["static", "precompile-rustls"] }
 ```
 
 Replace `rusteron-client` with `rusteron-archive` or `rusteron-media-driver` as needed.

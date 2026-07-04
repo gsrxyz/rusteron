@@ -26,7 +26,7 @@ To use `rusteron-media-driver`, add the appropriate dependency to your `Cargo.to
 
 ```toml
 [dependencies]
-rusteron-media-driver = "0.1"
+rusteron-media-driver = "0.2"
 ````
 
 </details>
@@ -36,7 +36,7 @@ rusteron-media-driver = "0.1"
 
 ```toml
 [dependencies]
-rusteron-media-driver = { version = "0.1", features = ["static"] }
+rusteron-media-driver = { version = "0.2", features = ["static"] }
 ```
 
 </details>
@@ -46,12 +46,12 @@ rusteron-media-driver = { version = "0.1", features = ["static"] }
 
 ```toml
 [dependencies]
-rusteron-media-driver = { version = "0.1", features = ["static", "precompile"] }
+rusteron-media-driver = { version = "0.2", features = ["static", "precompile"] }
 ```
 
 ```toml
 [dependencies]
-rusteron-media-driver = { version = "0.1", features = ["static", "precompile-rustls"] }
+rusteron-media-driver = { version = "0.2", features = ["static", "precompile-rustls"] }
 ```
 
 </details>

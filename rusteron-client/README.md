@@ -37,16 +37,16 @@ Add **rusteron-client** to your `Cargo.toml`:
 
 ```toml
 # Dynamic linking (default)
-rusteron-client = "0.1"
+rusteron-client = "0.2"
 
 # Static linking
-rusteron-client = { version = "0.1", features = ["static"] }
+rusteron-client = { version = "0.2", features = ["static"] }
 
 # Static linking with precompiled C libraries (best for Mac users, no Java/cmake needed)
-rusteron-client = { version = "0.1", features = ["static", "precompile"] }
+rusteron-client = { version = "0.2", features = ["static", "precompile"] }
 
 # Static linking with precompiled C libraries using rustls downloader
-rusteron-client = { version = "0.1", features = ["static", "precompile-rustls"] }
+rusteron-client = { version = "0.2", features = ["static", "precompile-rustls"] }
 ```
 
 When using the default dynamic configuration, you must ensure Aeron C libraries are available at runtime. The `static` option embeds them automatically into the binary.
