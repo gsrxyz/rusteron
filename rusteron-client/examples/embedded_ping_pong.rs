@@ -65,12 +65,7 @@ fn run_pong(running_pong: Arc<AtomicBool>) -> Result<(), Box<dyn std::error::Err
         .async_add_publication(PING_CHANNEL, PING_STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
     let pong_subscription = aeron
-        .async_add_subscription(
-            PONG_CHANNEL,
-            PONG_STREAM_ID,
-            Handlers::NONE,
-            Handlers::NONE,
-        )?
+        .async_add_subscription(PONG_CHANNEL, PONG_STREAM_ID, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(4))?;
 
     println!("PONG: ping publisher {PING_CHANNEL} {PING_STREAM_ID}");
@@ -130,12 +125,7 @@ fn run_ping(running: Arc<AtomicBool>, pong_thread: JoinHandle<()>) -> Result<His
         .async_add_publication(PONG_CHANNEL, PONG_STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
     let ping_subscription = aeron
-        .async_add_subscription(
-            PING_CHANNEL,
-            PING_STREAM_ID,
-            Handlers::NONE,
-            Handlers::NONE,
-        )?
+        .async_add_subscription(PING_CHANNEL, PING_STREAM_ID, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(4))?;
 
     println!("PING: pong publisher {PONG_CHANNEL} {PONG_STREAM_ID}");

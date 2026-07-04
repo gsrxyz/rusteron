@@ -54,10 +54,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let archive_context = AeronArchiveContext::new()?;
     archive_context.set_aeron(&aeron)?;
     archive_context.set_control_request_channel(&cformat!("aeron:udp?endpoint=localhost:{req_port}"))?;
-    archive_context
-        .set_control_response_channel(&cformat!("aeron:udp?endpoint=localhost:{resp_port}"))?;
-    archive_context
-        .set_recording_events_channel(&cformat!("aeron:udp?endpoint=localhost:{events_port}"))?;
+    archive_context.set_control_response_channel(&cformat!("aeron:udp?endpoint=localhost:{resp_port}"))?;
+    archive_context.set_recording_events_channel(&cformat!("aeron:udp?endpoint=localhost:{events_port}"))?;
     let archive =
         AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?.poll_blocking(Duration::from_secs(20))?;
     println!("connected to archive");

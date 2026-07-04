@@ -1010,8 +1010,7 @@ mod tests {
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
-        let (aeron_archive, archive_context, _media, _eh) =
-            start_aeron_archive_with_config("ps_asm", 9400)?;
+        let (aeron_archive, archive_context, _media, _eh) = start_aeron_archive_with_config("ps_asm", 9400)?;
         let archive = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?
             .poll_blocking(Duration::from_secs(20))?;
 
@@ -1042,8 +1041,7 @@ mod tests {
         let session_id = publication.get_constants()?.session_id;
         let counters = aeron_archive.counters_reader();
         let counter_id = RecordingPos::find_counter_id_by_session(&counters, session_id);
-        let recording_id =
-            RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
+        let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
         let published_position = publication.position();
         let wait = Instant::now() + Duration::from_secs(5);
         while counters.get_counter_value(counter_id) < published_position && Instant::now() < wait {
@@ -1074,7 +1072,10 @@ mod tests {
             .build()?;
 
         let mut asm = AeronFragmentClosureAssembler::new()?;
-        let mut collector = Collector { received: Vec::new(), count: 0 };
+        let mut collector = Collector {
+            received: Vec::new(),
+            count: 0,
+        };
         let deadline = Instant::now() + Duration::from_secs(20);
         while collector.count == 0 && Instant::now() < deadline {
             // asm.poll drives ps.poll(...) internally — it both advances the PS state
@@ -1089,7 +1090,10 @@ mod tests {
         drop(aeron_archive);
 
         assert_eq!(collector.count, 1, "expected exactly one reassembled message");
-        assert_eq!(collector.received, payload, "reassembled payload must match the original");
+        assert_eq!(
+            collector.received, payload,
+            "reassembled payload must match the original"
+        );
         Ok(())
     }
 
@@ -1102,8 +1106,7 @@ mod tests {
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
-        let (aeron_archive, archive_context, _media, _eh) =
-            start_aeron_archive_with_config("ps_casm", 9500)?;
+        let (aeron_archive, archive_context, _media, _eh) = start_aeron_archive_with_config("ps_casm", 9500)?;
         let archive = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?
             .poll_blocking(Duration::from_secs(20))?;
 
@@ -1132,8 +1135,7 @@ mod tests {
         let session_id = publication.get_constants()?.session_id;
         let counters = aeron_archive.counters_reader();
         let counter_id = RecordingPos::find_counter_id_by_session(&counters, session_id);
-        let recording_id =
-            RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
+        let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
         let published_position = publication.position();
         let wait = Instant::now() + Duration::from_secs(5);
         while counters.get_counter_value(counter_id) < published_position && Instant::now() < wait {
@@ -1144,11 +1146,7 @@ mod tests {
             received: Vec<u8>,
             count: usize,
         }
-        fn collect(
-            c: &mut Collector,
-            buf: &[u8],
-            _hdr: AeronHeader,
-        ) -> aeron_controlled_fragment_handler_action_t {
+        fn collect(c: &mut Collector, buf: &[u8], _hdr: AeronHeader) -> aeron_controlled_fragment_handler_action_t {
             if c.count == 0 {
                 c.received = buf.to_vec();
             }
@@ -1169,7 +1167,10 @@ mod tests {
             .build()?;
 
         let mut asm = AeronControlledFragmentClosureAssembler::new()?;
-        let mut collector = Collector { received: Vec::new(), count: 0 };
+        let mut collector = Collector {
+            received: Vec::new(),
+            count: 0,
+        };
         let deadline = Instant::now() + Duration::from_secs(20);
         while collector.count == 0 && Instant::now() < deadline {
             asm.poll(&ps, &mut collector, collect, 100)?;
@@ -1181,7 +1182,10 @@ mod tests {
         drop(aeron_archive);
 
         assert_eq!(collector.count, 1, "expected exactly one reassembled message");
-        assert_eq!(collector.received, payload, "reassembled payload must match the original");
+        assert_eq!(
+            collector.received, payload,
+            "reassembled payload must match the original"
+        );
         Ok(())
     }
 }

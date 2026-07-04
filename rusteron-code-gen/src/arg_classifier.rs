@@ -2,7 +2,7 @@
 //!
 //! `classify_method_args` classifies each C argument once into a [`ClassifiedArg`] carrying all token
 //! fragments the emitters need (signature, FFI call, generics, retained-handler registration,
-//! and the `_once` stack-closure variant). `generate_methods` then emits purely from the classification.
+//! and the `_fn` stack-closure variant). `generate_methods` then emits purely from the classification.
 
 use crate::generator::{is_sync_handler_type, Arg, ArgProcessing, CHandler, CWrapper, Method, ReturnType};
 use crate::snake_to_pascal_case;
@@ -15,14 +15,14 @@ use syn::{parse_str, Type};
 ///
 /// Each argument is classified once: is it `&self`? A `&OtherWrapper` param? A
 /// callback that must be retained? etc. The classification drives all emission
-/// (signature, FFI call, handler registration, and the `_once` variant).
+/// (signature, FFI call, handler registration, and the `_fn` variant).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArgRole {
     /// `*mut <own type>` — becomes `&self` / `self.get_inner()`.
     SelfPointer,
     /// `*mut <other wrapper>` — `&OtherWrapper` param, `name.get_inner()` call.
     WrapperPointer,
-    /// Callback invoked only during the FFI call — `Option<&Handler<T>>`, `_once` capable.
+    /// Callback invoked only during the FFI call — `Option<&Handler<T>>`, `_fn` capable.
     HandlerSync,
     /// Callback the C client retains — borrow style (`Option<&Handler<T>>`), registered
     /// as a dependency of `self`.
@@ -50,7 +50,7 @@ pub struct ClassifiedArg {
     /// Statement(s) emitted before the FFI call (e.g. the `IntoCStr` shadow for
     /// C-string args so the `Cow` outlives the call).
     pub prelude: Option<TokenStream>,
-    /// `_once` variant fragments (sync handlers swap Handler for a stack closure).
+    /// `_fn` variant fragments (sync handlers swap Handler for a stack closure).
     pub once_signature: Option<TokenStream>,
     pub once_call: Option<TokenStream>,
     pub once_generic: Option<TokenStream>,
@@ -61,7 +61,7 @@ pub struct ClassifiedMethodArgs {
     pub args: Vec<ClassifiedArg>,
     /// The owned retained-handler argument, when this method is an owned setter.
     pub owned_retained: Option<Arg>,
-    /// Every handler argument is sync — a `_once` stack-closure variant is sound.
+    /// Every handler argument is sync — a `_fn` stack-closure variant is sound.
     pub once_capable: bool,
 }
 
@@ -308,7 +308,7 @@ fn classify_handler_arg(
         #name.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut())
     };
     if sync {
-        // the `_once` variant swaps the Handler for a stack closure with the matching
+        // the `_fn` variant swaps the Handler for a stack closure with the matching
         // FnMut signature (from the handler's CHandler definition)
         let fn_mut_sig = closure_handlers
             .iter()
@@ -395,8 +395,14 @@ mod tests {
         );
         let classified = classify_method_args(&m, "aeron_context_t", &wrappers, &[]);
         assert!(classified.uses_self);
-        assert!(classified.owned_retained.is_some(), "error handler must be an owned setter");
-        assert!(!classified.once_capable, "retained callbacks must not get a _once variant");
+        assert!(
+            classified.owned_retained.is_some(),
+            "error handler must be an owned setter"
+        );
+        assert!(
+            !classified.once_capable,
+            "retained callbacks must not get a _fn variant"
+        );
         assert_eq!(classified.args[1].kind, ArgRole::HandlerRetainedOwned);
         assert!(classified.args[1].registration.is_some());
     }
@@ -421,10 +427,13 @@ mod tests {
             },
         );
         let classified = classify_method_args(&m, "aeron_subscription_t", &wrappers, &[]);
-        assert!(classified.once_capable, "sync callbacks get a _once variant");
+        assert!(classified.once_capable, "sync callbacks get a _fn variant");
         assert!(classified.owned_retained.is_none());
         assert_eq!(classified.args[1].kind, ArgRole::HandlerSync);
-        assert!(classified.args[1].registration.is_none(), "sync handlers are never retained");
+        assert!(
+            classified.args[1].registration.is_none(),
+            "sync handlers are never retained"
+        );
         assert!(classified.args[1].once_call.is_some());
     }
 

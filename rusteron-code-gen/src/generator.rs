@@ -39,10 +39,10 @@ pub enum ArgProcessing {
 }
 
 /// Callbacks Aeron invokes only during the FFI call (e.g. `poll`'s fragment handler).
-/// The generator emits a `_once` stack-closure variant for these.
+/// The generator emits a `_fn` stack-closure variant for these.
 ///
 /// Callbacks NOT listed are retained by Aeron and invoked later (conductor thread);
-/// they need a heap `Handler` registered as a dependency, and get no `_once` variant.
+/// they need a heap `Handler` registered as a dependency, and get no `_fn` variant.
 const SYNC_HANDLER_TYPES: &[&str] = &[
     "aeron_fragment_handler_t",
     "aeron_controlled_fragment_handler_t",
@@ -327,7 +327,7 @@ impl ReturnType {
     /// where the handler is always cloned into the created resource's dependencies
     /// (requiring `'static` for the `dyn Any` storage). For plain methods, only
     /// *retained* handlers (see [`SYNC_HANDLER_TYPES`]) get the `'static` bound —
-    /// synchronous handlers may borrow local state, and their `_once` closure variants
+    /// synchronous handlers may borrow local state, and their `_fn` closure variants
     /// rely on that.
     pub fn method_generics_for_where(&self, force_static: bool) -> Option<TokenStream> {
         if let ArgProcessing::Handler(handler_client) = &self.original.processing {
@@ -897,7 +897,7 @@ impl CWrapper {
                 // Archive control operations surface typed errors (AeronArchiveError) so
                 // callers can match on the structured code. Apply uniformly at the token
                 // level to every method on `aeron_archive_t` — the main body plus the
-                // `additional_methods` (_once variants, out-param getters, string getters)
+                // `additional_methods` (_fn variants, out-param getters, string getters)
                 // which all live in this same closure scope.
                 if self.type_name == "aeron_archive_t" {
                     __method_tokens
