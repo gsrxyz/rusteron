@@ -53,6 +53,11 @@ mod tests {
         None
     }
 
+    /// `PersistentSubscriptionListener` with all-noop callbacks (the trait supplies
+    /// default impls). Used by tests that don't assert on listener events.
+    struct NoopPsListener;
+    impl PersistentSubscriptionListener for NoopPsListener {}
+
     /// Retry an archive control operation until `deadline`. Archive control ops
     /// (`start_recording`, `start_replay`, …) can transiently return `code: -1`
     /// (GenericError, "no error") while the Java archive / conductor settles under
@@ -992,6 +997,190 @@ mod tests {
 
         drop(archive);
         drop(aeron_archive);
+        Ok(())
+    }
+
+    /// Verify `AeronFragmentClosureAssembler` reassembles a >MTU message delivered as
+    /// raw fragments by a persistent subscription. PS `poll_fn` yields fragments; the
+    /// assembler must stitch them back into the original payload before invoking `func`.
+    #[test]
+    #[serial]
+    fn test_ps_fragment_assembler_reassembles_large_message() -> Result<(), Box<dyn Error>> {
+        crate::skip_unless_java!();
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+        EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
+
+        let (aeron_archive, archive_context, _media, _eh) =
+            start_aeron_archive_with_config("ps_asm", 9400)?;
+        let archive = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?
+            .poll_blocking(Duration::from_secs(20))?;
+
+        let channel = "aeron:ipc";
+        let stream_id = 7701;
+        retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
+
+        let publication = aeron_archive
+            .async_add_publication(&channel.into_c_string(), stream_id)?
+            .poll_blocking(Duration::from_secs(5))?;
+        while !publication.is_connected() {
+            sleep(Duration::from_millis(10));
+        }
+
+        // >MTU so the driver fragments it (default MTU is 1408).
+        let payload: Vec<u8> = (0..4000_u32).map(|i| (i & 0xff) as u8).collect();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while publication.offer_raw(&payload, Handlers::NONE) <= 0 {
+            if Instant::now() > deadline {
+                return Err("timed out offering large payload".into());
+            }
+            sleep(Duration::from_millis(1));
+        }
+
+        // Wait for the recording to flush the offer.
+        let session_id = publication.get_constants()?.session_id;
+        let counters = aeron_archive.counters_reader();
+        let counter_id = RecordingPos::find_counter_id_by_session(&counters, session_id);
+        let recording_id =
+            RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
+        let published_position = publication.position();
+        let wait = Instant::now() + Duration::from_secs(5);
+        while counters.get_counter_value(counter_id) < published_position && Instant::now() < wait {
+            sleep(Duration::from_millis(10));
+        }
+
+        struct Collector {
+            received: Vec<u8>,
+            count: usize,
+        }
+        fn collect(c: &mut Collector, buf: &[u8], _hdr: AeronHeader) {
+            if c.count == 0 {
+                c.received = buf.to_vec();
+            }
+            c.count += 1;
+        }
+
+        let ps = persistent_subscription_builder()?
+            .aeron(&aeron_archive)?
+            .archive_context(&archive_context)?
+            .live_channel(channel)?
+            .live_stream_id(stream_id)?
+            .replay_channel("aeron:udp?endpoint=localhost:0")?
+            .replay_stream_id(stream_id + 1)?
+            .start_from_beginning()?
+            .recording_id(recording_id)?
+            .listener(NoopPsListener)?
+            .build()?;
+
+        let mut asm = AeronFragmentClosureAssembler::new()?;
+        let mut collector = Collector { received: Vec::new(), count: 0 };
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while collector.count == 0 && Instant::now() < deadline {
+            ps.poll_fn(|_buf, _hdr| {}, 10)?;
+            asm.poll(&ps, &mut collector, collect, 100)?;
+            sleep(Duration::from_millis(1));
+        }
+        ps.close()?;
+        drop(publication);
+        drop(archive);
+        drop(aeron_archive);
+
+        assert_eq!(collector.count, 1, "expected exactly one reassembled message");
+        assert_eq!(collector.received, payload, "reassembled payload must match the original");
+        Ok(())
+    }
+
+    /// Controlled-poll counterpart: `AeronControlledFragmentClosureAssembler` reassembles
+    /// a >MTU message from a persistent subscription; the delegate returns CONTINUE.
+    #[test]
+    #[serial]
+    fn test_ps_controlled_fragment_assembler_reassembles_large_message() -> Result<(), Box<dyn Error>> {
+        crate::skip_unless_java!();
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+        EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
+
+        let (aeron_archive, archive_context, _media, _eh) =
+            start_aeron_archive_with_config("ps_casm", 9500)?;
+        let archive = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?
+            .poll_blocking(Duration::from_secs(20))?;
+
+        let channel = "aeron:ipc";
+        let stream_id = 7801;
+        retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
+
+        let publication = aeron_archive
+            .async_add_publication(&channel.into_c_string(), stream_id)?
+            .poll_blocking(Duration::from_secs(5))?;
+        while !publication.is_connected() {
+            sleep(Duration::from_millis(10));
+        }
+
+        let payload: Vec<u8> = (0..5000_u32).map(|i| (i & 0xff) as u8).collect();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while publication.offer_raw(&payload, Handlers::NONE) <= 0 {
+            if Instant::now() > deadline {
+                return Err("timed out offering large payload".into());
+            }
+            sleep(Duration::from_millis(1));
+        }
+
+        let session_id = publication.get_constants()?.session_id;
+        let counters = aeron_archive.counters_reader();
+        let counter_id = RecordingPos::find_counter_id_by_session(&counters, session_id);
+        let recording_id =
+            RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
+        let published_position = publication.position();
+        let wait = Instant::now() + Duration::from_secs(5);
+        while counters.get_counter_value(counter_id) < published_position && Instant::now() < wait {
+            sleep(Duration::from_millis(10));
+        }
+
+        struct Collector {
+            received: Vec<u8>,
+            count: usize,
+        }
+        fn collect(
+            c: &mut Collector,
+            buf: &[u8],
+            _hdr: AeronHeader,
+        ) -> aeron_controlled_fragment_handler_action_t {
+            if c.count == 0 {
+                c.received = buf.to_vec();
+            }
+            c.count += 1;
+            aeron_controlled_fragment_handler_action_t::AERON_ACTION_CONTINUE
+        }
+
+        let ps = persistent_subscription_builder()?
+            .aeron(&aeron_archive)?
+            .archive_context(&archive_context)?
+            .live_channel(channel)?
+            .live_stream_id(stream_id)?
+            .replay_channel("aeron:udp?endpoint=localhost:0")?
+            .replay_stream_id(stream_id + 1)?
+            .start_from_beginning()?
+            .recording_id(recording_id)?
+            .listener(NoopPsListener)?
+            .build()?;
+
+        let mut asm = AeronControlledFragmentClosureAssembler::new()?;
+        let mut collector = Collector { received: Vec::new(), count: 0 };
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while collector.count == 0 && Instant::now() < deadline {
+            ps.poll_fn(|_buf, _hdr| {}, 10)?;
+            asm.poll(&ps, &mut collector, collect, 100)?;
+            sleep(Duration::from_millis(1));
+        }
+        ps.close()?;
+        drop(publication);
+        drop(archive);
+        drop(aeron_archive);
+
+        assert_eq!(collector.count, 1, "expected exactly one reassembled message");
+        assert_eq!(collector.received, payload, "reassembled payload must match the original");
         Ok(())
     }
 }

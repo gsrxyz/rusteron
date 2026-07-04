@@ -184,7 +184,19 @@ while !ps.is_live() {
 ps.close()?;
 ```
 
-**Polling & errors.** `ps.poll_fn()` drives the PS state machine *and* the archive async client, so you do not call `archive.poll_for_recording_signals()` separately. Loop on `ps.is_live()`, checking `ps.has_failed()` each iteration (reason via `get_failure_reason()`). The listener's `on_error` covers non-terminal errors; `on_live_left`/`on_live_joined` may fire repeatedly as it falls back and rejoins. `poll_fn` delivers **raw fragments** — for messages larger than the MTU you must reassemble yourself (see "Fragment assembly" below).
+**Polling & errors.** `ps.poll_fn()` drives the PS state machine *and* the archive async client, so you do not call `archive.poll_for_recording_signals()` separately. Loop on `ps.is_live()`, checking `ps.has_failed()` each iteration (reason via `get_failure_reason()`). The listener's `on_error` covers non-terminal errors; `on_live_left`/`on_live_joined` may fire repeatedly as it falls back and rejoins.
+
+**Fragment assembly.** `poll_fn` delivers **raw fragments**; messages larger than the MTU arrive in pieces. Reassemble with `AeronFragmentClosureAssembler` (or `AeronControlledFragmentClosureAssembler` for flow-controlled polling) — both work with a persistent subscription the same way as with `AeronSubscription`:
+
+```rust,ignore
+let mut assembler = AeronFragmentClosureAssembler::new()?;
+let mut ctx = Collector::default();
+loop {
+    ps.poll_fn(|_buf, _hdr| {}, 10)?;          // advance the PS state machine
+    assembler.poll(&ps, &mut ctx, Collector::on_msg, 100)?;  // reassembled messages only
+    if ctx.done { break; }
+}
+```
 
 For a fully runnable version, see the example and integration tests:
 - [`examples/persistent_subscription.rs`](./examples/persistent_subscription.rs) — standalone demo (run with `cargo run --release --features "static precompile" --example persistent_subscription`)

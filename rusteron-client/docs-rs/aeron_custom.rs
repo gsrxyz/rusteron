@@ -1979,6 +1979,27 @@ impl FnMutMessageHandler {
     }
 }
 
+/// A poll target whose raw fragments can be reassembled by [`AeronFragmentAssembler`].
+/// Implemented for [`AeronSubscription`] here and for archive types in rusteron-archive.
+pub trait FragmentAssemblable {
+    fn poll_with_assembler(
+        &self,
+        assembler: Option<&Handler<AeronFragmentAssembler>>,
+        fragment_limit: usize,
+    ) -> Result<i32, AeronCError>;
+}
+
+impl FragmentAssemblable for AeronSubscription {
+    #[inline]
+    fn poll_with_assembler(
+        &self,
+        assembler: Option<&Handler<AeronFragmentAssembler>>,
+        fragment_limit: usize,
+    ) -> Result<i32, AeronCError> {
+        self.poll(assembler, fragment_limit)
+    }
+}
+
 pub struct AeronFragmentClosureAssembler {
     assembler: Handler<AeronFragmentAssembler>,
     handler: Handler<FnMutMessageHandler>,
@@ -1993,19 +2014,19 @@ impl AeronFragmentClosureAssembler {
         })
     }
 
-    /// Poll `subscription`, dispatching each reassembled message to `func`.
-    /// `ctx` is borrowed only for the duration of the call.
+    /// Poll `pollable` (a subscription or persistent subscription), dispatching each
+    /// reassembled message to `func`. `ctx` is borrowed only for the duration of the call.
     ///
     /// Returns the fragment count from the underlying poll.
-    pub fn poll<T>(
+    pub fn poll<P: FragmentAssemblable, T>(
         &mut self,
-        subscription: &AeronSubscription,
+        pollable: &P,
         ctx: &mut T,
         func: fn(&mut T, &[u8], AeronHeader),
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
         self.handler.set(ctx, func);
-        let result = subscription.poll(Some(&self.assembler), fragment_limit);
+        let result = pollable.poll_with_assembler(Some(&self.assembler), fragment_limit);
         self.handler.clear();
         result
     }
@@ -2082,6 +2103,26 @@ impl AeronControlledFragmentHandlerCallback for FnMutControlledMessageHandler {
     }
 }
 
+/// A poll target whose raw fragments can be reassembled by [`AeronControlledFragmentAssembler`].
+pub trait ControlledFragmentAssemblable {
+    fn controlled_poll_with_assembler(
+        &self,
+        assembler: Option<&Handler<AeronControlledFragmentAssembler>>,
+        fragment_limit: usize,
+    ) -> Result<i32, AeronCError>;
+}
+
+impl ControlledFragmentAssemblable for AeronSubscription {
+    #[inline]
+    fn controlled_poll_with_assembler(
+        &self,
+        assembler: Option<&Handler<AeronControlledFragmentAssembler>>,
+        fragment_limit: usize,
+    ) -> Result<i32, AeronCError> {
+        self.controlled_poll(assembler, fragment_limit)
+    }
+}
+
 pub struct AeronControlledFragmentClosureAssembler {
     assembler: Handler<AeronControlledFragmentAssembler>,
     handler: Handler<FnMutControlledMessageHandler>,
@@ -2096,18 +2137,17 @@ impl AeronControlledFragmentClosureAssembler {
         })
     }
 
-    /// Controlled poll delivering each (possibly reassembled) message to `func`
-    /// with `ctx`, borrowing `ctx` only for the duration of this call.
-    /// Mirrors [`AeronFragmentClosureAssembler::poll`] for the controlled variant.
-    pub fn poll<T>(
+    /// Controlled poll of `pollable`, dispatching each (possibly reassembled) message to
+    /// `func`. `ctx` is borrowed only for the duration of the call.
+    pub fn poll<P: ControlledFragmentAssemblable, T>(
         &mut self,
-        subscription: &AeronSubscription,
+        pollable: &P,
         ctx: &mut T,
         func: fn(&mut T, &[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
         self.handler.set(ctx, func);
-        let result = subscription.controlled_poll(Some(&self.assembler), fragment_limit);
+        let result = pollable.controlled_poll_with_assembler(Some(&self.assembler), fragment_limit);
         self.handler.clear();
         result
     }
