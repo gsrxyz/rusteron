@@ -104,13 +104,6 @@ let t1 = { let p = publication.clone(); thread::spawn(move || { p.offer(b"hello"
 let t2 = { let p = publication.clone(); thread::spawn(move || { p.offer(b"world")?; }) };
 ```
 
-The `unsafe impl Sync` follows the same "accepted unsoundness" policy as the existing
-`unsafe impl Send`: the `UnsafeCell` fields inside `ManagedCResource` are only mutated
-during construction and close (single-threaded), never during the shared-read window. The
-deferred close + dependency graph (shipped in 0.2) structurally prevents the
-close-while-shared race described in
-[PR #50](https://github.com/gsrxyz/rusteron/pull/50) — children keep parents alive.
-
 ---
 
 ## Development
@@ -208,10 +201,6 @@ for _ in 0..reconnect_attempts {
     aeron.async_add_publication(&chan, 10)?; // no allocation per call
 }
 ```
-
-Avoid `&"aeron:ipc".into_c_string()` for literals — it heap-allocates at runtime what
-`c"aeron:ipc"` gets for free at compile time. (`into_c_string()` remains for converting
-an owned `String` you already have.)
 
 ---
 
