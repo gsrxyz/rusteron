@@ -168,12 +168,50 @@ impl AeronContext {
     }
 }
 
+/// **Counters and Control (CnC) file** — the shared-memory interface between the
+/// media driver and its clients.
+///
+/// The CnC file contains:
+/// - **Counters**: stream positions, recording positions, liveness indicators,
+///   and application-defined counters.
+/// - **Error log**: a ring-buffer of recent driver/client errors.
+/// - **Loss reporter**: observed packet-loss entries.
+/// - **To-driver / to-clients** command buffers.
+///
+/// `AeronCnc` is a read-only view of the CnC file — use it to inspect driver
+/// state, dump counters, or read the error log (the upstream `aeron_stat`,
+/// `error_stat`, and `loss_stat` tools all do this).
+///
+/// # Two access patterns
+///
+/// **Scoped read** (zero allocation, preferred for one-shot queries):
+/// ```ignore
+/// AeronCnc::read(driver_ctx.get_dir(), |cnc| {
+///     cnc.foreach_counter_once(|value, id, type_id, key, label| {
+///         println!("{id}: {label} = {value}");
+///     });
+/// })?;
+/// ```
+/// Opens the CnC file, runs the closure, closes — the resource wrapper lives on
+/// the stack and is freed immediately after.
+///
+/// **Owned handle** (for repeated polling, e.g. a stats dashboard):
+/// ```ignore
+/// let cnc = AeronCnc::open(driver_ctx.get_dir())?;
+/// loop {
+///     let heartbeat = cnc.to_driver_heartbeat();
+///     // ... poll counters, error log, etc. ...
+///     sleep(Duration::from_secs(1));
+/// }
+/// // closed on drop
+/// ```
 impl AeronCnc {
+    /// Open the CnC file, run `handler`, close — **zero heap allocation** for the
+    /// resource wrapper (the C struct is stack-borrowed). Preferred for one-shot
+    /// reads (dump counters, print the error log). Accepts `&CStr` so `c""`
+    /// literals work directly.
     #[inline]
-    pub fn read_on_partial_stack(
-        aeron_dir: &std::ffi::CString,
-        mut handler: impl FnMut(&mut AeronCnc),
-    ) -> Result<(), AeronCError> {
+    pub fn read(aeron_dir: &std::ffi::CStr, mut handler: impl FnMut(&mut AeronCnc)) -> Result<(), AeronCError> {
         let cnc = ManagedCResource::initialise(move |cnc| unsafe {
             aeron_cnc_init(cnc, aeron_dir.as_ptr(), 0)
         })?;
@@ -185,13 +223,13 @@ impl AeronCnc {
         Ok(())
     }
 
-    /// Note this allocates on the heap, cannot be stored this on stack. As Aeron will do the allocation.
-    /// Try to use `read_on_partial_stack` which performs less allocations
+    /// Open the CnC file and return an **owned handle** you can store and poll
+    /// repeatedly (e.g. a monitoring loop). Allocates the resource wrapper on
+    /// the heap; closed on drop. Accepts `&CStr` so `c""` literals work.
     #[inline]
-    pub fn new_on_heap(aeron_dir: &str) -> Result<AeronCnc, AeronCError> {
-        let c_string = std::ffi::CString::new(aeron_dir).map_err(|_| AeronCError::from_code(-1))?;
+    pub fn open(aeron_dir: &std::ffi::CStr) -> Result<AeronCnc, AeronCError> {
         let resource = ManagedCResource::new(
-            move |cnc| unsafe { aeron_cnc_init(cnc, c_string.as_ptr(), 0) },
+            move |cnc| unsafe { aeron_cnc_init(cnc, aeron_dir.as_ptr(), 0) },
             Some(Box::new(move |cnc| unsafe {
                 aeron_cnc_close(*cnc);
                 0

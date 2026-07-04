@@ -52,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let cnc = AeronCnc::new_on_heap(&dir)?;
+    let cnc = AeronCnc::open(&dir.into_c_string())?;
     println!(
         "CnC version {}; driver heartbeat age {} ms",
         cnc.get_constants()?.cnc_version,

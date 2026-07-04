@@ -1410,10 +1410,10 @@ mod tests {
         AeronCncMetadata::read_from_file(&cstr, |cnc| {
             assert!(cnc.pid > 0);
         })?;
-        assert!(AeronCnc::new_on_heap(ctx.get_dir())?.get_to_driver_heartbeat_ms()? > 0);
+        assert!(AeronCnc::open(&ctx.get_dir().into_c_string())?.get_to_driver_heartbeat_ms()? > 0);
         let cstr = std::ffi::CString::new(ctx.get_dir()).unwrap();
         for _ in 0..50 {
-            AeronCnc::read_on_partial_stack(&cstr, |cnc| {
+            AeronCnc::read(&cstr, |cnc| {
                 assert!(cnc.get_to_driver_heartbeat_ms().unwrap() > 0);
             })?;
         }
@@ -1539,7 +1539,7 @@ mod tests {
 
         // Release all context handlers now that Aeron and the driver are fully stopped.
 
-        let cnc = AeronCnc::new_on_heap(ctx.get_dir())?;
+        let cnc = AeronCnc::open(&ctx.get_dir().into_c_string())?;
         cnc.counters_reader()
             .foreach_counter_once(|value: i64, id: i32, type_id: i32, key: &[u8], label: &str| {
                 println!(
