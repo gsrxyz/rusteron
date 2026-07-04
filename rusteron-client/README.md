@@ -103,7 +103,21 @@ subscription.poll_fn(|buf: &[u8], header: AeronHeader| {
 
 For messages larger than the MTU, wrap the delegate in an `AeronFragmentAssembler` (it
 reassembles fragments before calling back) — `poll_fn` / `poll_once` deliver raw fragments
-only.
+only. The ergonomic wrapper is `AeronFragmentClosureAssembler`; its `poll` borrows a `&mut T`
+context for the call (the callback is a `fn` pointer, not a closure, so pass state through
+the context):
+
+```rust,ignore
+use rusteron_client::{AeronFragmentClosureAssembler, AeronHeader};
+
+struct Stats { bytes: u64 }
+fn on_msg(stats: &mut Stats, buf: &[u8], _hdr: AeronHeader) { stats.bytes += buf.len() as u64; }
+
+let mut assembler = AeronFragmentClosureAssembler::new()?;
+let mut stats = Stats { bytes: 0 };
+assembler.poll(&subscription, &mut stats, on_msg, 10)?; // 10 = fragment limit
+// stats.bytes now holds the reassembled payload sizes
+```
 
 No callback for an optional slot? `Handlers::NONE` fits any callback parameter.
 
