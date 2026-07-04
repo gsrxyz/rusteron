@@ -581,12 +581,19 @@ impl AeronSubscription {
 
     // ===== Spin-poll ergonomics =====
 
-    /// Poll delivering each fragment to `handler`, borrowing the closure only for
-    /// this call (zero allocation on the hot path).
+    /// Poll delivering each fragment to `handler` — the **stack-borrowed**,
+    /// zero-allocation hot-path poll.
     ///
-    /// This is the recommended poll for non-fragmented messages. For messages that
-    /// may exceed the MTU, use [`AeronFragmentClosureAssembler::poll`] (or an
-    /// [`AeronFragmentAssembler`]) to reassemble fragments before delivery.
+    /// `handler` is an `FnMut` closure borrowed for the duration of this call
+    /// only: it lives on the stack, there is no `Handler`/`Arc` and no heap
+    /// allocation, and it may borrow local state. This is the recommended poll
+    /// for tight receive loops.
+    ///
+    /// Contrast with [`Self::poll`](AeronSubscription::poll)`(Some(&handler),
+    /// limit)`, which takes a **heap-allocated** [`Handler`] (reference-counted,
+    /// retained) — reach for that only when the same callback value must be
+    /// shared across registrations or inspected after the call. For messages
+    /// that may exceed the MTU, use [`AeronFragmentClosureAssembler::poll`].
     ///
     /// Returns the number of fragments delivered (0 if nothing was available).
     #[inline]
@@ -1743,9 +1750,15 @@ impl AeronSubscription {
 }
 
 impl AeronImage {
-    /// Poll delivering each fragment of this image to `handler`, borrowing the
-    /// closure only for this call (zero allocation). Use for image-scoped receive
-    /// loops; use a fragment assembler for messages that may exceed the MTU.
+    /// Poll delivering each fragment of this image to `handler` — the
+    /// **stack-borrowed**, zero-allocation hot-path poll (image-scoped).
+    ///
+    /// `handler` is an `FnMut` closure borrowed for this call only: it lives on
+    /// the stack, no `Handler`/`Arc`, no heap allocation, and may borrow local
+    /// state. Contrast with [`AeronImage::poll`]`(Some(&handler), limit)`, which
+    /// takes a heap-allocated [`Handler`] (retained, reference-counted) — use
+    /// that only when the callback must be shared or inspected post-call. Use a
+    /// fragment assembler for messages that may exceed the MTU.
     ///
     /// Returns the number of fragments delivered (0 if nothing was available).
     #[inline]

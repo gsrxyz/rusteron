@@ -729,9 +729,12 @@ impl CWrapper {
                         #(#method_docs)*
                         ///
                         ///
-                        /// `_once` variant: the closure is borrowed for this call only — the callback fires
-                        /// synchronously inside it, so nothing is stored and no allocation occurs. It may
-                        /// borrow local state. Only generated for callbacks the C client does not retain.
+                        /// **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the
+                        /// caller's stack and is borrowed for this call only — the callback fires
+                        /// synchronously inside the call, so nothing is heap-allocated, nothing is stored,
+                        /// and the closure may borrow local state. Prefer this over the retained
+                        /// [`Handler`]-based form on the hot path; only generated for callbacks the C
+                        /// client does not retain (i.e. not stored for later firing).
                         pub fn #once_fn_name #once_where(#possible_self #(#once_args),*) -> #return_type {
                             #set_closed
                             unsafe {

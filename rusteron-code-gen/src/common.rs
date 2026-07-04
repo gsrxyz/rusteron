@@ -652,19 +652,36 @@ impl std::fmt::Debug for AeronOfferError {
 impl std::error::Error for AeronOfferError {}
 
 /// # Handler
+/// **Heap-allocated, reference-counted** callback holder for callbacks the C
+/// client **retains** (fires later, possibly many times, from the conductor thread).
 ///
-/// `Handler` is a reference-counted callback holder passed to Aeron C callbacks as the
-/// `clientd` pointer.
+/// `Handler<T>` wraps `Arc<UnsafeCell<T>>`. The callback value lives on the heap
+/// and is freed only when the last clone drops. The raw `clientd` pointer handed
+/// to C is `&T` (via [`Handler::as_raw`]); C keeps firing it for as long as it
+/// holds the callback, so the `Handler` must outlive that — methods that register
+/// a retained callback ([`AeronContext::set_error_handler`], the image lifecycle
+/// handlers on `async_add_subscription`, `set_on_available_image`, …) store a
+/// clone of the `Handler` inside the registering resource (as a dependency), so
+/// the value is guaranteed to outlive the C side's use of it. No manual
+/// `release()` is needed.
 ///
-/// The callback value is freed automatically when the last `Handler` clone drops. Methods
-/// that register a callback the C client retains (e.g. `AeronContext::set_error_handler`,
-/// image lifecycle handlers on subscription add) store a clone of the `Handler` inside the
-/// registering resource, so the value is guaranteed to outlive the C side's use of it —
-/// no manual `release()` is needed.
+/// # Heap vs stack — when to reach for `Handler` vs a `*_fn` / `*_once` method
 ///
-/// The reference count is atomic (`Arc`), so a `Handler` may be moved to another thread;
-/// it is deliberately not `Sync` — callbacks may be invoked from the conductor thread and
-/// must not be shared concurrently.
+/// | Callback kind | Where the closure lives | API |
+/// |---|---|---|
+/// | **Retained** (C stores it; fires later / repeatedly) | **heap** (`Handler`/`Arc`) | `set_error_handler(Some(Handler::new(...)))`, `async_add_subscription(.., Some(&h), ..)`, `poll(Some(&h), limit)` |
+/// | **Sync / call-only** (C fires it during the call, then is done) | **stack** (borrowed `FnMut`, zero allocation) | `poll_fn(\|msg, hdr\| ..., limit)`, the generated `*_once` variants |
+///
+/// Prefer the stack form (`poll_fn`, `*_once`) on the hot path: it borrows the
+/// closure for the duration of the call only, so there is no `Arc`, no heap
+/// allocation, and the closure may borrow local state. Reach for `Handler`
+/// (heap) when the callback must survive past the registering call — image
+/// lifecycle handlers, error handlers, counters callbacks, anything the
+/// conductor invokes asynchronously.
+///
+/// The reference count is atomic (`Arc`), so a `Handler` may be moved to another
+/// thread; it is deliberately **not `Sync`** — callbacks fire from the conductor
+/// thread and must not be shared concurrently.
 ///
 /// ## Example
 ///

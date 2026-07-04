@@ -692,19 +692,36 @@ impl std::fmt::Debug for AeronOfferError {
 }
 impl std::error::Error for AeronOfferError {}
 #[doc = " # Handler"]
+#[doc = " **Heap-allocated, reference-counted** callback holder for callbacks the C"]
+#[doc = " client **retains** (fires later, possibly many times, from the conductor thread)."]
 #[doc = ""]
-#[doc = " `Handler` is a reference-counted callback holder passed to Aeron C callbacks as the"]
-#[doc = " `clientd` pointer."]
+#[doc = " `Handler<T>` wraps `Arc<UnsafeCell<T>>`. The callback value lives on the heap"]
+#[doc = " and is freed only when the last clone drops. The raw `clientd` pointer handed"]
+#[doc = " to C is `&T` (via [`Handler::as_raw`]); C keeps firing it for as long as it"]
+#[doc = " holds the callback, so the `Handler` must outlive that — methods that register"]
+#[doc = " a retained callback ([`AeronContext::set_error_handler`], the image lifecycle"]
+#[doc = " handlers on `async_add_subscription`, `set_on_available_image`, …) store a"]
+#[doc = " clone of the `Handler` inside the registering resource (as a dependency), so"]
+#[doc = " the value is guaranteed to outlive the C side's use of it. No manual"]
+#[doc = " `release()` is needed."]
 #[doc = ""]
-#[doc = " The callback value is freed automatically when the last `Handler` clone drops. Methods"]
-#[doc = " that register a callback the C client retains (e.g. `AeronContext::set_error_handler`,"]
-#[doc = " image lifecycle handlers on subscription add) store a clone of the `Handler` inside the"]
-#[doc = " registering resource, so the value is guaranteed to outlive the C side's use of it —"]
-#[doc = " no manual `release()` is needed."]
+#[doc = " # Heap vs stack — when to reach for `Handler` vs a `*_fn` / `*_once` method"]
 #[doc = ""]
-#[doc = " The reference count is atomic (`Arc`), so a `Handler` may be moved to another thread;"]
-#[doc = " it is deliberately not `Sync` — callbacks may be invoked from the conductor thread and"]
-#[doc = " must not be shared concurrently."]
+#[doc = " | Callback kind | Where the closure lives | API |"]
+#[doc = " |---|---|---|"]
+#[doc = " | **Retained** (C stores it; fires later / repeatedly) | **heap** (`Handler`/`Arc`) | `set_error_handler(Some(Handler::new(...)))`, `async_add_subscription(.., Some(&h), ..)`, `poll(Some(&h), limit)` |"]
+#[doc = " | **Sync / call-only** (C fires it during the call, then is done) | **stack** (borrowed `FnMut`, zero allocation) | `poll_fn(\\|msg, hdr\\| ..., limit)`, the generated `*_once` variants |"]
+#[doc = ""]
+#[doc = " Prefer the stack form (`poll_fn`, `*_once`) on the hot path: it borrows the"]
+#[doc = " closure for the duration of the call only, so there is no `Arc`, no heap"]
+#[doc = " allocation, and the closure may borrow local state. Reach for `Handler`"]
+#[doc = " (heap) when the callback must survive past the registering call — image"]
+#[doc = " lifecycle handlers, error handlers, counters callbacks, anything the"]
+#[doc = " conductor invokes asynchronously."]
+#[doc = ""]
+#[doc = " The reference count is atomic (`Arc`), so a `Handler` may be moved to another"]
+#[doc = " thread; it is deliberately **not `Sync`** — callbacks fire from the conductor"]
+#[doc = " thread and must not be shared concurrently."]
 #[doc = ""]
 #[doc = " ## Example"]
 #[doc = ""]
@@ -4787,9 +4804,12 @@ impl AeronCnc {
     #[doc = " \n# Return\n the number of distinct errors seen"]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" `_once` variant: the closure is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside it, so nothing is stored and no allocation occurs. It may"]
-    #[doc = r" borrow local state. Only generated for callbacks the C client does not retain."]
+    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
     pub fn error_log_read_once<AeronErrorLogReaderFuncHandlerImpl: FnMut(i32, i64, i64, &str) -> ()>(
         &self,
         mut callback: AeronErrorLogReaderFuncHandlerImpl,
@@ -4886,9 +4906,12 @@ impl AeronCnc {
     #[doc = " \n# Return\n -1 on failure, number of observations on success (could be 0)."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" `_once` variant: the closure is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside it, so nothing is stored and no allocation occurs. It may"]
-    #[doc = r" borrow local state. Only generated for callbacks the C client does not retain."]
+    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
     pub fn loss_reporter_read_once<
         AeronLossReporterReadEntryFuncHandlerImpl: FnMut(i64, i64, i64, i64, i32, i32, &str, &str) -> (),
     >(
@@ -7694,9 +7717,12 @@ impl AeronCountersReader {
     #[doc = " \n - `clientd` to pass for each call to func."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" `_once` variant: the closure is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside it, so nothing is stored and no allocation occurs. It may"]
-    #[doc = r" borrow local state. Only generated for callbacks the C client does not retain."]
+    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
     pub fn foreach_counter_once<
         AeronCountersReaderForeachCounterFuncHandlerImpl: FnMut(i64, i32, i32, &[u8], &str) -> (),
     >(
@@ -8875,9 +8901,12 @@ impl AeronExclusivePublication {
     #[doc = " \n# Return\n the new stream position otherwise a negative error value."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" `_once` variant: the closure is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside it, so nothing is stored and no allocation occurs. It may"]
-    #[doc = r" borrow local state. Only generated for callbacks the C client does not retain."]
+    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
     pub fn offerv_once<AeronReservedValueSupplierHandlerImpl: FnMut(*mut u8, usize) -> i64>(
         &self,
         iov: &AeronIovec,
@@ -11573,9 +11602,12 @@ impl AeronImage {
     #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" `_once` variant: the closure is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside it, so nothing is stored and no allocation occurs. It may"]
-    #[doc = r" borrow local state. Only generated for callbacks the C client does not retain."]
+    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
     pub fn controlled_poll_once<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
@@ -11678,9 +11710,12 @@ impl AeronImage {
     #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" `_once` variant: the closure is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside it, so nothing is stored and no allocation occurs. It may"]
-    #[doc = r" borrow local state. Only generated for callbacks the C client does not retain."]
+    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
     pub fn bounded_poll_once<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
         &self,
         mut handler: AeronFragmentHandlerHandlerImpl,
@@ -11782,9 +11817,12 @@ impl AeronImage {
     #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" `_once` variant: the closure is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside it, so nothing is stored and no allocation occurs. It may"]
-    #[doc = r" borrow local state. Only generated for callbacks the C client does not retain."]
+    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
     pub fn bounded_controlled_poll_once<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
@@ -11888,9 +11926,12 @@ impl AeronImage {
     #[doc = " \n# Return\n the resulting position after the scan terminates which is a complete message or -1 for error."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" `_once` variant: the closure is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside it, so nothing is stored and no allocation occurs. It may"]
-    #[doc = r" borrow local state. Only generated for callbacks the C client does not retain."]
+    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
     pub fn controlled_peek_once<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
@@ -11997,9 +12038,12 @@ impl AeronImage {
     #[doc = " \n# Return\n the number of bytes that have been consumed or -1 for error."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" `_once` variant: the closure is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside it, so nothing is stored and no allocation occurs. It may"]
-    #[doc = r" borrow local state. Only generated for callbacks the C client does not retain."]
+    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
     pub fn block_poll_once<AeronBlockHandlerHandlerImpl: FnMut(&[u8], i32, i32) -> ()>(
         &self,
         mut handler: AeronBlockHandlerHandlerImpl,
@@ -13621,9 +13665,12 @@ impl AeronLossReporter {
     #[inline]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" `_once` variant: the closure is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside it, so nothing is stored and no allocation occurs. It may"]
-    #[doc = r" borrow local state. Only generated for callbacks the C client does not retain."]
+    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
     pub fn read_once<
         AeronLossReporterReadEntryFuncHandlerImpl: FnMut(i64, i64, i64, i64, i32, i32, &str, &str) -> (),
     >(
@@ -16321,9 +16368,12 @@ impl AeronPublication {
     #[doc = " \n# Return\n the new stream position otherwise a negative error value."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" `_once` variant: the closure is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside it, so nothing is stored and no allocation occurs. It may"]
-    #[doc = r" borrow local state. Only generated for callbacks the C client does not retain."]
+    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
     pub fn offerv_once<AeronReservedValueSupplierHandlerImpl: FnMut(*mut u8, usize) -> i64>(
         &self,
         iov: &AeronIovec,
@@ -19254,9 +19304,12 @@ impl AeronSubscription {
     #[doc = " \n# Return\n the number of fragments received or -1 for error."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" `_once` variant: the closure is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside it, so nothing is stored and no allocation occurs. It may"]
-    #[doc = r" borrow local state. Only generated for callbacks the C client does not retain."]
+    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
     pub fn controlled_poll_once<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
@@ -19346,9 +19399,12 @@ impl AeronSubscription {
     #[doc = " \n# Return\n the number of bytes consumed or -1 for error."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" `_once` variant: the closure is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside it, so nothing is stored and no allocation occurs. It may"]
-    #[doc = r" borrow local state. Only generated for callbacks the C client does not retain."]
+    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
     pub fn block_poll_once<AeronBlockHandlerHandlerImpl: FnMut(&[u8], i32, i32) -> ()>(
         &self,
         mut handler: AeronBlockHandlerHandlerImpl,
@@ -23111,9 +23167,12 @@ impl AeronUri {
     #[inline]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" `_once` variant: the closure is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside it, so nothing is stored and no allocation occurs. It may"]
-    #[doc = r" borrow local state. Only generated for callbacks the C client does not retain."]
+    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
     pub fn parse_params_once<AeronUriParseCallbackHandlerImpl: FnMut(&str, &str) -> ::std::os::raw::c_int>(
         uri: *mut ::std::os::raw::c_char,
         mut param_func: AeronUriParseCallbackHandlerImpl,
