@@ -105,12 +105,12 @@ let t2 = { let p = pub_arc.clone(); thread::spawn(move || { p.offer(b"world")?; 
 ```
 
 The Arc atomic refcount is **not on the hot path** — `offer` / `poll` read the inner C
-pointer via a `Cell`/field load (no refcount), so the bench shows no measurable overhead
-(Rc 2.84 ns vs Arc 2.82 ns per offer). The `unsafe impl Sync` follows the same "accepted
-unsoundness" policy as the existing `unsafe impl Send`: the `UnsafeCell` fields inside
-`ManagedCResource` are only mutated during construction and close (single-threaded), never
-during the shared-read window. The deferred close + dependency graph (shipped in 0.2)
-structurally prevents the close-while-shared race described in
+pointer via a `Cell`/field load (no refcount), so the feature adds zero measurable
+overhead. The `unsafe impl Sync` follows the same "accepted unsoundness" policy as the
+existing `unsafe impl Send`: the `UnsafeCell` fields inside `ManagedCResource` are only
+mutated during construction and close (single-threaded), never during the shared-read
+window. The deferred close + dependency graph (shipped in 0.2) structurally prevents the
+close-while-shared race described in
 [PR #50](https://github.com/gsrxyz/rusteron/pull/50) — children keep parents alive.
 
 ---
