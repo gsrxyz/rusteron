@@ -171,7 +171,7 @@ let ps = persistent_subscription_builder()?
     .listener(MyListener { live_joined: live_joined.clone() })?
     .build()?;
 
-// Drive it: replay runs, then it joins live. `ps.poll_once()` drives the archive
+// Drive it: replay runs, then it joins live. `ps.poll_fn()` drives the archive
 // client internally, so no `archive.poll_for_recording_signals()` is needed. Check
 // `has_failed()` each iteration (terminal failure) and stop once `is_live()`.
 while !ps.is_live() {
@@ -179,12 +179,12 @@ while !ps.is_live() {
         panic!("persistent subscription failed: {:?}", ps.get_failure_reason());
     }
     let _ = publication.offer_with_reserved_value(b"live", Handlers::NONE);
-    ps.poll_once(|buf, _hdr| { /* an assembled replayed or live message */ }, 100)?;
+    ps.poll_fn(|buf, _hdr| { /* an assembled replayed or live message */ }, 100)?;
 }
 ps.close()?;
 ```
 
-**Polling & errors.** `ps.poll_once()` drives the PS state machine *and* the archive async client, so you do not call `archive.poll_for_recording_signals()` separately. Loop on `ps.is_live()`, checking `ps.has_failed()` each iteration (reason via `get_failure_reason()`). The listener's `on_error` covers non-terminal errors; `on_live_left`/`on_live_joined` may fire repeatedly as it falls back and rejoins. The poll handler receives **assembled** messages — do not wrap it in a fragment assembler.
+**Polling & errors.** `ps.poll_fn()` drives the PS state machine *and* the archive async client, so you do not call `archive.poll_for_recording_signals()` separately. Loop on `ps.is_live()`, checking `ps.has_failed()` each iteration (reason via `get_failure_reason()`). The listener's `on_error` covers non-terminal errors; `on_live_left`/`on_live_joined` may fire repeatedly as it falls back and rejoins. `poll_fn` delivers **raw fragments** — for messages larger than the MTU you must reassemble yourself (see "Fragment assembly" below).
 
 For a fully runnable version, see the example and integration tests:
 - [`examples/persistent_subscription.rs`](./examples/persistent_subscription.rs) — standalone demo (run with `cargo run --release --features "static precompile" --example persistent_subscription`)

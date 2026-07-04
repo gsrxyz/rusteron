@@ -131,7 +131,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err(format!("persistent subscription failed ({code}): {msg}").into());
         }
         let _ = publication.offer(b"live-beat");
-        ps.poll_once(|_buf, _hdr| {}, 100)?;
+        ps.poll_fn(|_buf, _hdr| {}, 100)?;
         sleep(Duration::from_millis(1));
     }
     assert!(joined.load(Ordering::SeqCst) >= 1, "never joined live");
@@ -145,7 +145,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (code, msg) = ps.get_failure_reason().unwrap_or((-1, "unknown".into()));
             return Err(format!("persistent subscription failed during outage ({code}): {msg}").into());
         }
-        ps.poll_once(|_buf, _hdr| {}, 100)?;
+        ps.poll_fn(|_buf, _hdr| {}, 100)?;
         sleep(Duration::from_millis(10));
     }
     assert!(left.load(Ordering::SeqCst) >= 1, "never detected loss of live stream");
@@ -163,7 +163,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err(format!("persistent subscription failed on rejoin ({code}): {msg}").into());
         }
         let _ = publication.offer(b"live-beat");
-        ps.poll_once(|_buf, _hdr| {}, 100)?;
+        ps.poll_fn(|_buf, _hdr| {}, 100)?;
         sleep(Duration::from_millis(1));
     }
 

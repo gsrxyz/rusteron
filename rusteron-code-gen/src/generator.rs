@@ -727,16 +727,16 @@ impl CWrapper {
                 // getter methods
                 Self::add_getter_instead_of_mut_arg_if_applicable(wrappers, method, &fn_name, &where_clause, &possible_self, &method_docs, &mut additional_methods, debug_fields);
 
-                // `_once` stack-closure variant, emitted straight from the plan (sync-only:
+                // `_fn` stack-closure variant, emitted straight from the plan (sync-only:
                 // a stack closure handed to a retained callback would dangle). Skipped when
-                // aeron_custom.rs hand-writes a method of the same `<name>_once` name, so
-                // custom code can override/deprecate a generated `_once` variant.
+                // aeron_custom.rs hand-writes a method of the same `<name>_fn` name, so
+                // custom code can override/deprecate a generated `_fn` variant.
                 if classified.once_capable
                     && !self
                         .skipped_methods
-                        .contains(&format!("{}_once", method.struct_method_name))
+                        .contains(&format!("{}_fn", method.struct_method_name))
                 {
-                    let once_fn_name = format_ident!("{}_once", fn_name);
+                    let once_fn_name = format_ident!("{}_fn", fn_name);
                     let once_generics = classified.once_generics();
                     let once_where = if once_generics.is_empty() {
                         quote! {}
@@ -751,7 +751,7 @@ impl CWrapper {
                         #(#method_docs)*
                         ///
                         ///
-                        /// **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the
+                        /// **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the
                         /// caller's stack and is borrowed for this call only — the callback fires
                         /// synchronously inside the call, so nothing is heap-allocated, nothing is stored,
                         /// and the closure may borrow local state. Prefer this over the retained

@@ -109,7 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── list recordings, like the RecordingDescriptor utilities ──────────
     println!("\nrecordings in the archive:");
     let mut count = 0i32;
-    archive.list_recordings_once(&mut count, 0, 100, |descriptor: AeronArchiveRecordingDescriptor| {
+    archive.list_recordings_fn(&mut count, 0, 100, |descriptor: AeronArchiveRecordingDescriptor| {
         println!(
             "  recording {}: stream {} session {} [{} .. {}] ({} bytes) {}",
             descriptor.recording_id,

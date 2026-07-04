@@ -495,7 +495,7 @@ mod tests {
         // Verify we can still access the recording
         let mut count = 0;
         let found_recording = Cell::new(false);
-        archive_reconnected.list_recordings_once(&mut count, 0, i32::MAX, |desc| {
+        archive_reconnected.list_recordings_fn(&mut count, 0, i32::MAX, |desc| {
             if desc.recording_id() == recording_id {
                 found_recording.set(true);
                 info!("Found recording after reconnection: {}", recording_id);
@@ -636,7 +636,7 @@ mod tests {
         // List recordings
         let mut count = 0;
         let found_recording = Cell::new(false);
-        archive.list_recordings_once(&mut count, 0, i32::MAX, |desc| {
+        archive.list_recordings_fn(&mut count, 0, i32::MAX, |desc| {
             if desc.stream_id() == stream_id {
                 found_recording.set(true);
                 info!(
@@ -658,7 +658,7 @@ mod tests {
 
         // List recordings again to verify
         let mut count_after_stop = 0;
-        archive.list_recordings_once(&mut count_after_stop, 0, i32::MAX, |desc| {
+        archive.list_recordings_fn(&mut count_after_stop, 0, i32::MAX, |desc| {
             info!(
                 "Recording after stop: id={}, stop_position={}",
                 desc.recording_id(),
@@ -1222,7 +1222,7 @@ mod tests {
 
         // Drive the persistent subscription: keep the live stream active by
         // publishing, and poll so it replays then joins live. Aeron types are
-        // !Send, so this all happens on the test thread. `ps.poll_once()` drives
+        // !Send, so this all happens on the test thread. `ps.poll_fn()` drives
         // the archive client internally, so no `archive.poll_for_recording_signals()`.
         let mut i = 0;
         let start = Instant::now();
@@ -1236,7 +1236,7 @@ mod tests {
             }
             let _ = publication.offer_raw(format!("Live-{i}").as_bytes(), Handlers::NONE);
             i += 1;
-            let fragments = ps.poll_once(|_buffer, _header| {}, 100)?;
+            let fragments = ps.poll_fn(|_buffer, _header| {}, 100)?;
             if fragments == 0 {
                 sleep(Duration::from_millis(1));
             }
@@ -1348,7 +1348,7 @@ mod tests {
 
         let poll_drive = |ps: &AeronArchivePersistentSubscription, pub_ref: &AeronExclusivePublication| {
             let _ = pub_ref.offer_raw(b"live-beat", Handlers::NONE);
-            ps.poll_once(|_buf, _hdr| {}, 100)
+            ps.poll_fn(|_buf, _hdr| {}, 100)
         };
 
         // Phase 1: drive until live (on_live_joined fires once).
@@ -1366,7 +1366,7 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(30);
         while ps.is_live() && Instant::now() < deadline {
             assert!(!ps.has_failed(), "ps failed after loss: {:?}", ps.get_failure_reason());
-            let _ = ps.poll_once(|_buf, _hdr| {}, 100)?;
+            let _ = ps.poll_fn(|_buf, _hdr| {}, 100)?;
             sleep(Duration::from_millis(10));
         }
         assert!(

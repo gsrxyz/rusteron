@@ -130,7 +130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("persistent subscription created, replaying then joining live...");
 
     // 5. Drive it: keep publishing so the live image stays active; poll until live.
-    //    `ps.poll_once()` runs the PS state machine (and drives the archive async client)
+    //    `ps.poll_fn()` runs the PS state machine (and drives the archive async client)
     //    internally, so — unlike a manual replay loop — there is no need to call
     //    `archive.poll_for_recording_signals()` here. Abort if the PS fails terminally.
     //
@@ -149,7 +149,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         live_sent += 1;
         let msg = format!("Live-{live_sent}");
         let _ = publication.offer_with_reserved_value(msg.as_bytes(), Some(&send_timestamp_supplier));
-        let fragments = ps.poll_once(|buf, _hdr| println!("  fragment ({} bytes)", buf.len()), 100)?;
+        let fragments = ps.poll_fn(|buf, _hdr| println!("  fragment ({} bytes)", buf.len()), 100)?;
         if fragments == 0 {
             sleep(Duration::from_millis(1));
         }

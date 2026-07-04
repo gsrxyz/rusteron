@@ -4376,7 +4376,7 @@ impl AeronArchivePersistentSubscription {
     #[doc = " 0 if no fragments have been read and no work has been done, negative on error."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -4388,7 +4388,7 @@ impl AeronArchivePersistentSubscription {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn poll_once<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
+    pub fn poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
         &self,
         mut handler: AeronFragmentHandlerHandlerImpl,
         fragment_limit: usize,
@@ -4489,7 +4489,7 @@ impl AeronArchivePersistentSubscription {
     #[doc = " 0 if no fragments have been read and no work has been done, negative on error."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -4501,7 +4501,7 @@ impl AeronArchivePersistentSubscription {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn controlled_poll_once<
+    pub fn controlled_poll_fn<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
         &self,
@@ -6019,7 +6019,7 @@ impl AeronArchiveRecordingDescriptorPoller {
     #[inline]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -6031,7 +6031,7 @@ impl AeronArchiveRecordingDescriptorPoller {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn reset_once<
+    pub fn reset_fn<
         AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl: FnMut(AeronArchiveRecordingDescriptor) -> (),
     >(
         &self,
@@ -6917,7 +6917,7 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
     #[inline]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -6929,7 +6929,7 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn reset_once<
+    pub fn reset_fn<
         AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl: FnMut(AeronArchiveRecordingSubscriptionDescriptor) -> (),
     >(
         &self,
@@ -7496,59 +7496,6 @@ impl AeronArchiveReplayMerge {
                     callback
                 },
                 handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
-                fragment_limit.into(),
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    #[doc = "Poll the image used for the merging replay and live stream."]
-    #[doc = " The aeron_archive_replay_merge_do_work will be called before the poll so that processing of the merge can be done."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `handler` the handler to call for incoming fragments"]
-    #[doc = " \n - `clientd` the clientd to provide to the handler"]
-    #[doc = " \n - `fragment_limit` the max number of fragments to process before returning"]
-    #[doc = " \n# Return\n >= 0 indicates the number of fragments processed, -1 for failure"]
-    #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
-    #[doc = r""]
-    #[doc = r" # Panics"]
-    #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
-    pub fn poll_once<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
-        &self,
-        mut handler: AeronFragmentHandlerHandlerImpl,
-        fragment_limit: ::std::os::raw::c_int,
-    ) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_replay_merge_poll),
-                [
-                    concat!("replay_merge", ": ", stringify!(*mut aeron_archive_replay_merge_t)).to_string(),
-                    concat!("handler", ": ", stringify!(aeron_fragment_handler_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_archive_replay_merge_poll(
-                self.get_inner(),
-                Some(aeron_fragment_handler_t_callback_for_once_closure::<AeronFragmentHandlerHandlerImpl>),
-                &mut handler as *mut _ as *mut std::os::raw::c_void,
                 fragment_limit.into(),
             );
             #[cfg(feature = "log-c-bindings")]
@@ -9141,7 +9088,7 @@ impl AeronArchive {
     #[doc = " \n# Return\n 0 for success, -1 for failure"]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -9153,7 +9100,7 @@ impl AeronArchive {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn list_recording_once<
+    pub fn list_recording_fn<
         AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl: FnMut(AeronArchiveRecordingDescriptor) -> (),
     >(
         &self,
@@ -9280,7 +9227,7 @@ impl AeronArchive {
     #[doc = " \n# Return\n 0 for success, -1 for failure"]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -9292,7 +9239,7 @@ impl AeronArchive {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn list_recordings_once<
+    pub fn list_recordings_fn<
         AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl: FnMut(AeronArchiveRecordingDescriptor) -> (),
     >(
         &self,
@@ -9432,7 +9379,7 @@ impl AeronArchive {
     #[doc = " \n# Return\n 0 for success, -1 for failure"]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -9444,7 +9391,7 @@ impl AeronArchive {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn list_recordings_for_uri_once<
+    pub fn list_recordings_for_uri_fn<
         AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl: FnMut(AeronArchiveRecordingDescriptor) -> (),
     >(
         &self,
@@ -9753,7 +9700,7 @@ impl AeronArchive {
     #[doc = " \n# Return\n 0 for success, -1 for failure"]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -9765,7 +9712,7 @@ impl AeronArchive {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn list_recording_subscriptions_once<
+    pub fn list_recording_subscriptions_fn<
         AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl: FnMut(AeronArchiveRecordingSubscriptionDescriptor) -> (),
     >(
         &self,
@@ -13516,7 +13463,7 @@ impl AeronCnc {
     #[doc = " \n# Return\n the number of distinct errors seen"]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -13528,7 +13475,7 @@ impl AeronCnc {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn error_log_read_once<AeronErrorLogReaderFuncHandlerImpl: FnMut(i32, i64, i64, &str) -> ()>(
+    pub fn error_log_read_fn<AeronErrorLogReaderFuncHandlerImpl: FnMut(i32, i64, i64, &str) -> ()>(
         &self,
         mut callback: AeronErrorLogReaderFuncHandlerImpl,
         since_timestamp: i64,
@@ -13624,7 +13571,7 @@ impl AeronCnc {
     #[doc = " \n# Return\n -1 on failure, number of observations on success (could be 0)."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -13636,7 +13583,7 @@ impl AeronCnc {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn loss_reporter_read_once<
+    pub fn loss_reporter_read_fn<
         AeronLossReporterReadEntryFuncHandlerImpl: FnMut(i64, i64, i64, i64, i32, i32, &str, &str) -> (),
     >(
         &self,
@@ -16497,7 +16444,7 @@ impl AeronCountersReader {
     #[doc = " \n - `clientd` to pass for each call to func."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -16509,7 +16456,7 @@ impl AeronCountersReader {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn foreach_counter_once<
+    pub fn foreach_counter_fn<
         AeronCountersReaderForeachCounterFuncHandlerImpl: FnMut(i64, i32, i32, &[u8], &str) -> (),
     >(
         &self,
@@ -17865,7 +17812,7 @@ impl AeronExclusivePublication {
     #[doc = " \n# Return\n the new stream position otherwise a negative error value."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -17877,7 +17824,7 @@ impl AeronExclusivePublication {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn offerv_once<AeronReservedValueSupplierHandlerImpl: FnMut(&mut [u8]) -> i64>(
+    pub fn offerv_fn<AeronReservedValueSupplierHandlerImpl: FnMut(&mut [u8]) -> i64>(
         &self,
         iov: &AeronIovec,
         iovcnt: usize,
@@ -20589,61 +20536,6 @@ impl AeronImage {
     #[doc = "Poll for new messages in a stream. If new messages are found beyond the last consumed position then they"]
     #[doc = " will be delivered to the handler up to a limited number of fragments as specified."]
     #[doc = " \n"]
-    #[doc = " Use a fragment assembler to assemble messages which span multiple fragments."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
-    #[doc = " \n - `clientd` to pass to the handler."]
-    #[doc = " \n - `fragment_limit` for the number of fragments to be consumed during one polling operation."]
-    #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
-    #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
-    #[doc = r""]
-    #[doc = r" # Panics"]
-    #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
-    pub fn poll_once<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
-        &self,
-        mut handler: AeronFragmentHandlerHandlerImpl,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_image_poll),
-                [
-                    concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string(),
-                    concat!("handler", ": ", stringify!(aeron_fragment_handler_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_image_poll(
-                self.get_inner(),
-                Some(aeron_fragment_handler_t_callback_for_once_closure::<AeronFragmentHandlerHandlerImpl>),
-                &mut handler as *mut _ as *mut std::os::raw::c_void,
-                fragment_limit.into(),
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    #[doc = "Poll for new messages in a stream. If new messages are found beyond the last consumed position then they"]
-    #[doc = " will be delivered to the handler up to a limited number of fragments as specified."]
-    #[doc = " \n"]
     #[doc = " Use a controlled fragment assembler to assemble messages which span multiple fragments."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
@@ -20700,7 +20592,7 @@ impl AeronImage {
     #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -20712,7 +20604,7 @@ impl AeronImage {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn controlled_poll_once<
+    pub fn controlled_poll_fn<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
         &self,
@@ -20814,7 +20706,7 @@ impl AeronImage {
     #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -20826,7 +20718,7 @@ impl AeronImage {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn bounded_poll_once<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
+    pub fn bounded_poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
         &self,
         mut handler: AeronFragmentHandlerHandlerImpl,
         limit_position: i64,
@@ -20927,7 +20819,7 @@ impl AeronImage {
     #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -20939,7 +20831,7 @@ impl AeronImage {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn bounded_controlled_poll_once<
+    pub fn bounded_controlled_poll_fn<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
         &self,
@@ -21042,7 +20934,7 @@ impl AeronImage {
     #[doc = " \n# Return\n the resulting position after the scan terminates which is a complete message or -1 for error."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -21054,7 +20946,7 @@ impl AeronImage {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn controlled_peek_once<
+    pub fn controlled_peek_fn<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
         &self,
@@ -21160,7 +21052,7 @@ impl AeronImage {
     #[doc = " \n# Return\n the number of bytes that have been consumed or -1 for error."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -21172,7 +21064,7 @@ impl AeronImage {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn block_poll_once<AeronBlockHandlerHandlerImpl: FnMut(&[u8], i32, i32) -> ()>(
+    pub fn block_poll_fn<AeronBlockHandlerHandlerImpl: FnMut(&[u8], i32, i32) -> ()>(
         &self,
         mut handler: AeronBlockHandlerHandlerImpl,
         block_length_limit: usize,
@@ -22836,7 +22728,7 @@ impl AeronLossReporter {
     #[inline]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -22848,9 +22740,7 @@ impl AeronLossReporter {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn read_once<
-        AeronLossReporterReadEntryFuncHandlerImpl: FnMut(i64, i64, i64, i64, i32, i32, &str, &str) -> (),
-    >(
+    pub fn read_fn<AeronLossReporterReadEntryFuncHandlerImpl: FnMut(i64, i64, i64, i64, i32, i32, &str, &str) -> ()>(
         buffer: &[u8],
         mut entry_func: AeronLossReporterReadEntryFuncHandlerImpl,
     ) -> usize {
@@ -25630,7 +25520,7 @@ impl AeronPublication {
     #[doc = " \n# Return\n the new stream position otherwise a negative error value."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -25642,7 +25532,7 @@ impl AeronPublication {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn offerv_once<AeronReservedValueSupplierHandlerImpl: FnMut(&mut [u8]) -> i64>(
+    pub fn offerv_fn<AeronReservedValueSupplierHandlerImpl: FnMut(&mut [u8]) -> i64>(
         &self,
         iov: &AeronIovec,
         iovcnt: usize,
@@ -28588,62 +28478,6 @@ impl AeronSubscription {
         }
     }
     #[inline]
-    #[doc = "Poll the images under the subscription for available message fragments."]
-    #[doc = " \n"]
-    #[doc = " Each fragment read will be a whole message if it is under MTU length. If larger than MTU then it will come"]
-    #[doc = " as a series of fragments ordered within a session."]
-    #[doc = " \n"]
-    #[doc = " To assemble messages that span multiple fragments then use `AeronFragmentAssembler`."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `handler` for handling each message fragment as it is read."]
-    #[doc = " \n - `fragment_limit` number of message fragments to limit when polling across multiple images."]
-    #[doc = " \n# Return\n the number of fragments received or -1 for error."]
-    #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
-    #[doc = r""]
-    #[doc = r" # Panics"]
-    #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
-    pub fn poll_once<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
-        &self,
-        mut handler: AeronFragmentHandlerHandlerImpl,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_subscription_poll),
-                [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
-                    concat!("handler", ": ", stringify!(aeron_fragment_handler_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_subscription_poll(
-                self.get_inner(),
-                Some(aeron_fragment_handler_t_callback_for_once_closure::<AeronFragmentHandlerHandlerImpl>),
-                &mut handler as *mut _ as *mut std::os::raw::c_void,
-                fragment_limit.into(),
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
     #[doc = "Poll in a controlled manner the images under the subscription for available message fragments."]
     #[doc = " Control is applied to fragments in the stream. If more fragments can be read on another stream"]
     #[doc = " they will even if BREAK or ABORT is returned from the fragment handler."]
@@ -28709,7 +28543,7 @@ impl AeronSubscription {
     #[doc = " \n# Return\n the number of fragments received or -1 for error."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -28721,7 +28555,7 @@ impl AeronSubscription {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn controlled_poll_once<
+    pub fn controlled_poll_fn<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
         &self,
@@ -28810,7 +28644,7 @@ impl AeronSubscription {
     #[doc = " \n# Return\n the number of bytes consumed or -1 for error."]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -28822,7 +28656,7 @@ impl AeronSubscription {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn block_poll_once<AeronBlockHandlerHandlerImpl: FnMut(&[u8], i32, i32) -> ()>(
+    pub fn block_poll_fn<AeronBlockHandlerHandlerImpl: FnMut(&[u8], i32, i32) -> ()>(
         &self,
         mut handler: AeronBlockHandlerHandlerImpl,
         block_length_limit: usize,
@@ -32605,7 +32439,7 @@ impl AeronUri {
     #[inline]
     #[doc = r""]
     #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
     #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
@@ -32617,7 +32451,7 @@ impl AeronUri {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn parse_params_once<AeronUriParseCallbackHandlerImpl: FnMut(&str, &str) -> ::std::os::raw::c_int>(
+    pub fn parse_params_fn<AeronUriParseCallbackHandlerImpl: FnMut(&str, &str) -> ::std::os::raw::c_int>(
         uri: *mut ::std::os::raw::c_char,
         mut param_func: AeronUriParseCallbackHandlerImpl,
     ) -> Result<i32, AeronCError> {

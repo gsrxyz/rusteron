@@ -129,7 +129,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let mut count = 0i32;
         let mut found = None;
-        dst.archive.list_recordings_once(&mut count, 0, 100, |descriptor| {
+        dst.archive.list_recordings_fn(&mut count, 0, 100, |descriptor| {
             if descriptor.stop_position == stop_position {
                 found = Some(descriptor.clone_struct());
             }

@@ -115,7 +115,7 @@ impl RecordingPos {
         //    etc...
         // only need the first 8 bytes to get the recordingId.
         let recording_id = Cell::new(-1);
-        counters_reader.foreach_counter_once(|value, id, type_id, key, label| {
+        counters_reader.foreach_counter_fn(|value, id, type_id, key, label| {
             if id == counter_id && type_id == RECORDING_POSITION_TYPE_ID {
                 let mut val = [0u8; 8];
                 val.copy_from_slice(&key[0..8]);
@@ -147,7 +147,7 @@ impl AeronArchive {
         // Uses record_count=i32::MAX to fetch all available recordings.
         let mut result = None;
         let mut count = 0;
-        self.list_recordings_once(&mut count, 0, i32::MAX, |desc| {
+        self.list_recordings_fn(&mut count, 0, i32::MAX, |desc| {
             let descriptor = self.descriptor_to_owned(&desc);
             if predicate(&descriptor) {
                 if result.is_none()
@@ -178,7 +178,7 @@ impl AeronArchive {
         // Uses record_count=i32::MAX to fetch all available recordings.
         let mut recordings = Vec::new();
         let mut count = 0;
-        self.list_recordings_once(&mut count, 0, i32::MAX, |desc| {
+        self.list_recordings_fn(&mut count, 0, i32::MAX, |desc| {
             let descriptor = self.descriptor_to_owned(&desc);
             if predicate(&descriptor) {
                 recordings.push(descriptor);
@@ -931,7 +931,7 @@ mod tests {
 
         // let mut count = 0;
         // assert!(
-        //     archive.list_recordings_once(&mut count, 0, 1000, |descriptor| {
+        //     archive.list_recordings_fn(&mut count, 0, 1000, |descriptor| {
         //         info!("Recording descriptor: {:?}", descriptor);
         //         recording_id.set(descriptor.recording_id);
         //         start_position.set(descriptor.start_position);
@@ -1240,7 +1240,7 @@ mod tests {
             let start = Instant::now();
             while start.elapsed() < Duration::from_secs(5) && found_recording_id.get() == -1 {
                 let mut count = 0;
-                archive.list_recordings_for_uri_once(
+                archive.list_recordings_for_uri_fn(
                     &mut count,
                     0,
                     i32::MAX,

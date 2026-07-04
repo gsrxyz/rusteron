@@ -1557,19 +1557,19 @@ mod tests {
 
         let cnc = AeronCnc::open(&ctx.get_dir().into_c_string())?;
         cnc.counters_reader()
-            .foreach_counter_once(|value: i64, id: i32, type_id: i32, key: &[u8], label: &str| {
+            .foreach_counter_fn(|value: i64, id: i32, type_id: i32, key: &[u8], label: &str| {
                 println!(
                     "counter reader id={id}, type_id={type_id}, key={key:?}, label={label}, value={value} [type={:?}]",
                     AeronSystemCounterType::try_from(type_id)
                 );
             });
-        cnc.error_log_read_once(| observation_count: i32,
+        cnc.error_log_read_fn(| observation_count: i32,
                                      first_observation_timestamp: i64,
                                      last_observation_timestamp: i64,
                                      error: &str| {
             println!("error: {error} observationCount={observation_count}, first_observation_timestamp={first_observation_timestamp}, last_observation_timestamp={last_observation_timestamp}");
         }, 0);
-        cnc.loss_reporter_read_once(|    observation_count: i64,
+        cnc.loss_reporter_read_fn(|    observation_count: i64,
                                     total_bytes_lost: i64,
                                     first_observation_timestamp: i64,
                                     last_observation_timestamp: i64,
@@ -2947,15 +2947,9 @@ mod tests {
         drop(error_handler);
     }
 
-    /// Prove structural safety: drop(aeron) while children hold Rc references.
-    ///
-    /// Under the new design `drop(aeron)` does NOT call `aeron_close()`
-    /// while any child still holds an `Rc<Aeron>`.  The raw C pointer reads
-    /// below access **valid, alive memory** — they were UAF under the old
-    /// design but are now structurally safe by construction.
-    ///
-    /// After the children drop, the last `Rc` release triggers `aeron_close()`
-    /// in the correct order: children are closed before the client.
+    /// `drop(aeron)` while children hold `Rc<Aeron>` references must not call
+    /// `aeron_close()` until the last child drops — the raw C pointer reads below
+    /// stay valid because close is deferred.
     #[test]
     #[serial]
     fn drop_client_before_children_is_safe_test() {
@@ -3284,7 +3278,7 @@ mod tests {
     /// exactly once when the subscription (and its async poller) are gone.
     #[test]
     #[serial]
-    fn retained_image_handler_outlives_callers_drop_and_frees_exactly_once() {
+    fn retained_image_handler_outlives_callers_drop_and_frees_exactly_fn() {
         let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
 
         let available = Arc::new(AtomicUsize::new(0));
@@ -3911,14 +3905,9 @@ mod tests {
         std::process::abort();
     }
 
-    /// Prove that the Rc graph teardown correctly frees C memory.
-    ///
-    /// Unlike the old design (where `drop(aeron)` called `aeron_close()`
-    /// immediately), the new design defers `aeron_close()` until the last
-    /// child drops its `Rc<Aeron>`.  This test proves the teardown IS
-    /// effective: after dropping both handles, `mprotect(PROT_NONE)` on
-    /// the publication's page causes a SIGBUS on access, confirming
-    /// `aeron_close()` freed the memory at the right time.
+    /// Prove the Rc graph teardown frees C memory: after the last child handle
+    /// drops (triggering deferred `aeron_close()`), `mprotect(PROT_NONE)` on the
+    /// publication's page causes a SIGBUS on access, confirming the memory was freed.
     ///
     /// This test is `#[ignore]` because it uses `mprotect(PROT_NONE)` which
     /// affects an entire VM page.  If other live heap allocations share the

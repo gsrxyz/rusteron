@@ -740,7 +740,7 @@ mod tests {
         // List recordings to verify state
         let mut count = 0;
         let recording_found = Cell::new(false);
-        archive.list_recordings_once(&mut count, 0, i32::MAX, |desc| {
+        archive.list_recordings_fn(&mut count, 0, i32::MAX, |desc| {
             if desc.stream_id() == stream_id {
                 recording_found.set(true);
                 info!(
@@ -820,7 +820,7 @@ mod tests {
 
         // Verify we have multiple recordings
         let mut count = 0;
-        archive.list_recordings_once(&mut count, 0, i32::MAX, |desc| {
+        archive.list_recordings_fn(&mut count, 0, i32::MAX, |desc| {
             info!(
                 "Found recording: stream_id={}, recording_id={}",
                 desc.stream_id(),
@@ -967,7 +967,7 @@ mod tests {
         let mut stopped = false;
         while !stopped && Instant::now() < deadline {
             let mut count = 0;
-            archive.list_recordings_once(&mut count, recording_id, 1, |desc| {
+            archive.list_recordings_fn(&mut count, recording_id, 1, |desc| {
                 if desc.recording_id() == recording_id && desc.stop_position() > 0 {
                     stopped = true;
                 }

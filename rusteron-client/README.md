@@ -102,7 +102,7 @@ subscription.poll_fn(|buf: &[u8], header: AeronHeader| {
 ```
 
 For messages larger than the MTU, wrap the delegate in an `AeronFragmentAssembler` (it
-reassembles fragments before calling back) — `poll_fn` / `poll_once` deliver raw fragments
+reassembles fragments before calling back) — `poll_fn` delivers raw fragments
 only. The ergonomic wrapper is `AeronFragmentClosureAssembler`; its `poll` borrows a `&mut T`
 context for the call (the callback is a `fn` pointer, not a closure, so pass state through
 the context):
@@ -231,12 +231,12 @@ Breaking changes, made because the old design allowed double frees and use-after
 |---|---|
 | `Handler::leak(h)` + manual `release()` | `Handler::new(h)`; freed automatically (`Arc`-counted, resources keep clones) |
 | `ctx.set_error_handler(Some(&handler))` | `ctx.set_error_handler(Some(h))` — takes the value (closures work), returns the `Handler` |
-| `set_error_handler_once(closure)` (UB: C retained a stack closure) | removed; `_once` now exists only for synchronous callbacks |
+| `set_error_handler_fn(closure)` (UB: C retained a stack closure) | removed; `_once` now exists only for synchronous callbacks |
 | `aeron.close()` freed children immediately (UAF on surviving handles) | deferred until the last reference drops; `unsafe close_now()` is the escape hatch |
 | `Handler` was `Sync` | `Send` only (conductor thread may invoke callbacks) |
 | `offer(buf, supplier)` returned a raw `i64` sentinel | `offer(buf)` → `Result<i64, AeronOfferError>` with `is_retryable()`; supplier form: `offer_with_reserved_value`; raw sentinel: `offer_raw` |
 | `offer_result` / `offer_result_simple` / `try_claim_result` (→ `AeronCError`) | `offer_with_reserved_value` / `offer` / `try_claim` (→ typed `AeronOfferError`) |
-| `poll_once(f, limit)` | `poll_fn(f, limit)` — `for_each_fragment` removed |
+| `poll_fn(f, limit)` | `poll_fn(f, limit)` — `for_each_fragment` removed |
 | `Handlers::no_xxx_handler()` per callback | `Handlers::NONE` for any callback parameter |
 
 The full old → new table (destinations, fragment assembler, C strings, driver guard) lives

@@ -204,7 +204,7 @@ impl AeronContext {
 /// **Scoped read** (zero allocation, preferred for one-shot queries):
 /// ```ignore
 /// AeronCnc::read(driver_ctx.get_dir(), |cnc| {
-///     cnc.foreach_counter_once(|value, id, type_id, key, label| {
+///     cnc.foreach_counter_fn(|value, id, type_id, key, label| {
 ///         println!("{id}: {label} = {value}");
 ///     });
 /// })?;
@@ -1250,7 +1250,7 @@ impl AeronCountersReader {
     /// is type-specific (see `aeron_counters.h`). Mirrors Java's `CountersReader` lookups.
     pub fn find_by_type_id(&self, type_id: i32, mut predicate: impl FnMut(&[u8]) -> bool) -> Option<i32> {
         let mut found = None;
-        self.foreach_counter_once(|_value, id, counter_type_id, key, _label| {
+        self.foreach_counter_fn(|_value, id, counter_type_id, key, _label| {
             if found.is_none() && counter_type_id == type_id && predicate(key) {
                 found = Some(id);
             }
@@ -1417,7 +1417,7 @@ impl<T: AeronFragmentHandlerCallback + 'static> Handler<T> {
         ))
     }
 
-    #[deprecated(note = "handlers no longer leak; use Handler::with_fragment_assembler")]
+    #[deprecated(note = "use Handler::with_fragment_assembler")]
     pub fn leak_with_fragment_assembler(
         handler: T,
     ) -> Result<(Handler<AeronFragmentAssembler>, Handler<T>), AeronCError> {
@@ -1438,7 +1438,7 @@ impl<T: AeronControlledFragmentHandlerCallback + 'static> Handler<T> {
         ))
     }
 
-    #[deprecated(note = "handlers no longer leak; use Handler::with_controlled_fragment_assembler")]
+    #[deprecated(note = "use Handler::with_controlled_fragment_assembler")]
     pub fn leak_with_controlled_fragment_assembler(
         handler: T,
     ) -> Result<(Handler<AeronControlledFragmentAssembler>, Handler<T>), AeronCError> {
@@ -1992,13 +1992,8 @@ impl AeronFragmentClosureAssembler {
         })
     }
 
-    /// Poll `subscription`, dispatching each reassembled message to `func` with
-    /// `ctx`, borrowing `ctx` only for the duration of this call.
-    ///
-    /// Unlike the deprecated [`Self::process`], the raw `ctx` pointer is cleared
-    /// before returning, so it can never be dereferenced after `ctx` goes out of
-    /// scope — the borrow checker's lifetime on `ctx: &mut T` is now the real
-    /// safety contract, not a comment the caller must uphold.
+    /// Poll `subscription`, dispatching each reassembled message to `func`.
+    /// `ctx` is borrowed only for the duration of the call.
     ///
     /// Returns the fragment count from the underlying poll.
     pub fn poll<T>(
