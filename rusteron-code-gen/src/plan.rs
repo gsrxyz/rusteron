@@ -1,10 +1,8 @@
-//! A typed emission plan for wrapper methods.
+//! Argument classification for generated wrapper methods.
 //!
-//! `plan_method` classifies each C argument **once** into a [`PlannedArg`] carrying every
-//! token fragment the emitters need (signature, FFI call, generics, retained-handler
-//! registration, and the `_once` stack-closure variant). `generate_methods` then emits
-//! purely from the plan — no parallel iterations over `method.arguments` that must silently
-//! agree, and no re-parsing of the generator's own rendered output.
+//! `plan_method` classifies each C argument once into a [`PlannedArg`] carrying all token
+//! fragments the emitters need (signature, FFI call, generics, retained-handler registration,
+//! and the `_once` stack-closure variant). `generate_methods` then emits purely from the plan.
 
 use crate::generator::{is_sync_handler_type, Arg, ArgProcessing, CHandler, CWrapper, Method, ReturnType};
 use crate::snake_to_pascal_case;
@@ -13,7 +11,11 @@ use quote::{format_ident, quote};
 use std::collections::BTreeMap;
 use syn::{parse_str, Type};
 
-/// What one C argument means for the generated Rust method.
+/// Role of a C argument in the generated Rust wrapper method.
+///
+/// Each argument is classified once: is it `&self`? A `&OtherWrapper` param? A
+/// callback that must be retained? etc. The classification drives all emission
+/// (signature, FFI call, handler registration, and the `_once` variant).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlannedArgKind {
     /// `*mut <own type>` — becomes `&self` / `self.get_inner()`.

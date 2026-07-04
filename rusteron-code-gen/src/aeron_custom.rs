@@ -80,8 +80,10 @@ impl AeronStatus {
 /// Aeron's named idle strategies, as accepted by the context / media-driver
 /// `set_*_idle_strategy` options (the C `aeron_idle_strategy_load` symbol table).
 ///
-/// For [`AeronIdleStrategyKind::Sleeping`], the sleep period is configured separately via
-/// `set_idle_strategy_init_args` (nanoseconds as a string).
+/// Strategy parameters are configured separately via `set_idle_strategy_init_args`:
+/// - `Sleeping`: sleep period in nanoseconds (e.g. `"1000000"` = 1ms)
+/// - `Backoff`: `maxSpins-maxYields-minParkNs-maxParkNs` (e.g. `"10-20-1000-1000000"`)
+/// - Others: init args ignored
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AeronIdleStrategyKind {
     /// Sleep when idle (`"sleeping"`); period from the init args.

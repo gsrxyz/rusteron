@@ -38,12 +38,11 @@ pub enum ArgProcessing {
     Default,
 }
 
-/// C callback typedefs that are only ever invoked synchronously, during the FFI call
-/// they are passed to (e.g. fragment handlers during `poll`). Everything not listed here
-/// is treated as *retained*: the C client stores the `clientd` pointer and may invoke the
-/// callback later (conductor thread), so the wrapper must keep the `Handler` alive by
-/// cloning it into the registering resource's dependencies, and it is unsound to offer a
-/// stack-closure `_once` variant for it.
+/// C callbacks invoked only synchronously during the FFI call (e.g. fragment handlers in `poll`).
+///
+/// Callbacks not listed here are retained by the C client for later invocation (conductor thread);
+/// the wrapper must keep their `Handler` alive via dependency registration and must NOT offer a
+/// stack-closure `_once` variant (unsound — the closure would be invoked after it drops).
 const SYNC_HANDLER_TYPES: &[&str] = &[
     "aeron_fragment_handler_t",
     "aeron_controlled_fragment_handler_t",
