@@ -54,6 +54,12 @@ compression            = "best"
 [profile.release]
 debug = false
 panic = "unwind"
+# HFT: let the FFI wrappers inline into consumers of THIS workspace's binaries
+# and benches. Downstream crates get cross-crate inlining from the generated
+# #[inline] attributes; fat LTO + one codegen unit make our own release
+# artifacts (benches, media_driver binary, examples) measure the same way.
+lto = "fat"
+codegen-units = 1
 
 #[profile.bench]
 #debug     = true

@@ -2422,6 +2422,7 @@ impl AeronAsyncAddCounter {
         result.inner.add_dependency(client.clone());
         Ok(result)
     }
+    #[inline]
     pub fn poll(&self) -> Result<Option<AeronCounter>, AeronCError> {
         if let Some(inner) = self.inner.as_owned() {
             if inner.is_resource_released() {
@@ -2452,6 +2453,7 @@ impl AeronAsyncAddCounter {
             }
         }
     }
+    #[inline]
     pub fn poll_blocking(&self, timeout: std::time::Duration) -> Result<AeronCounter, AeronCError> {
         if let Some(result) = self.poll()? {
             return Ok(result);
@@ -2739,6 +2741,7 @@ impl AeronAsyncAddExclusivePublication {
         result.inner.add_dependency(client.clone());
         Ok(result)
     }
+    #[inline]
     pub fn poll(&self) -> Result<Option<AeronExclusivePublication>, AeronCError> {
         if let Some(inner) = self.inner.as_owned() {
             if inner.is_resource_released() {
@@ -2769,6 +2772,7 @@ impl AeronAsyncAddExclusivePublication {
             }
         }
     }
+    #[inline]
     pub fn poll_blocking(&self, timeout: std::time::Duration) -> Result<AeronExclusivePublication, AeronCError> {
         if let Some(result) = self.poll()? {
             return Ok(result);
@@ -3015,6 +3019,7 @@ impl AeronAsyncAddPublication {
         result.inner.add_dependency(client.clone());
         Ok(result)
     }
+    #[inline]
     pub fn poll(&self) -> Result<Option<AeronPublication>, AeronCError> {
         if let Some(inner) = self.inner.as_owned() {
             if inner.is_resource_released() {
@@ -3045,6 +3050,7 @@ impl AeronAsyncAddPublication {
             }
         }
     }
+    #[inline]
     pub fn poll_blocking(&self, timeout: std::time::Duration) -> Result<AeronPublication, AeronCError> {
         if let Some(result) = self.poll()? {
             return Ok(result);
@@ -3380,6 +3386,7 @@ impl AeronAsyncAddSubscription {
         }
         Ok(result)
     }
+    #[inline]
     pub fn poll(&self) -> Result<Option<AeronSubscription>, AeronCError> {
         if let Some(inner) = self.inner.as_owned() {
             if inner.is_resource_released() {
@@ -3410,6 +3417,7 @@ impl AeronAsyncAddSubscription {
             }
         }
     }
+    #[inline]
     pub fn poll_blocking(&self, timeout: std::time::Duration) -> Result<AeronSubscription, AeronCError> {
         if let Some(result) = self.poll()? {
             return Ok(result);
@@ -3573,6 +3581,7 @@ impl core::fmt::Debug for AeronAsyncDestination {
     }
 }
 impl AeronAsyncDestination {
+    #[inline]
     #[doc = "Add a destination manually to a multi-destination-cast publication."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `publication` to add destination to."]
@@ -3611,6 +3620,7 @@ impl AeronAsyncDestination {
         };
         Ok(result)
     }
+    #[inline]
     #[doc = "Add a destination manually to a multi-destination-cast exclusive publication."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `publication` to add destination to."]
@@ -3653,6 +3663,7 @@ impl AeronAsyncDestination {
         };
         Ok(result)
     }
+    #[inline]
     #[doc = "Add a destination manually to a multi-destination-subscription."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `subscription` to add destination to."]
@@ -8054,6 +8065,7 @@ impl core::fmt::Debug for AeronContext {
     }
 }
 impl AeronContext {
+    #[inline]
     #[doc = "Create a `AeronContext` struct and initialize with default values."]
     #[doc = ""]
     #[doc = " \n# Return\n 0 for success and -1 for error."]
@@ -9320,6 +9332,7 @@ impl core::fmt::Debug for AeronControlledFragmentAssembler {
     }
 }
 impl AeronControlledFragmentAssembler {
+    #[inline]
     #[doc = "Create a controlled fragment assembler for use with a subscription."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `delegate` to call on completed"]
@@ -18651,6 +18664,7 @@ impl core::fmt::Debug for AeronDriverContext {
     }
 }
 impl AeronDriverContext {
+    #[inline]
     #[doc = "Create a `AeronDriverContext` struct and initialize with default values."]
     #[doc = ""]
     #[doc = " \n# Return\n 0 for success and -1 for error."]
@@ -27434,6 +27448,7 @@ impl core::fmt::Debug for AeronDriver {
     }
 }
 impl AeronDriver {
+    #[inline]
     #[doc = "Create a `AeronDriver` struct and initialize from the `AeronDriverContext` struct."]
     #[doc = ""]
     #[doc = " The given `AeronDriverContext` struct will be used exclusively by the driver. Do not reuse between drivers."]
@@ -31437,6 +31452,7 @@ impl core::fmt::Debug for AeronFragmentAssembler {
     }
 }
 impl AeronFragmentAssembler {
+    #[inline]
     #[doc = "Create a fragment assembler for use with a subscription."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `delegate` to call on completed"]
@@ -33548,6 +33564,7 @@ impl core::fmt::Debug for AeronImageControlledFragmentAssembler {
     }
 }
 impl AeronImageControlledFragmentAssembler {
+    #[inline]
     #[doc = "Create an image controlled fragment assembler for use with a single image."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `delegate` to call on completed"]
@@ -33760,6 +33777,7 @@ impl core::fmt::Debug for AeronImageFragmentAssembler {
     }
 }
 impl AeronImageFragmentAssembler {
+    #[inline]
     #[doc = "Create an image fragment assembler for use with a single image."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `delegate` to call on completed."]
@@ -57795,6 +57813,7 @@ impl core::fmt::Debug for Aeron {
     }
 }
 impl Aeron {
+    #[inline]
     #[doc = "Create a `Aeron` client struct and initialize from the `AeronContext` struct."]
     #[doc = ""]
     #[doc = " The given `AeronContext` struct will be used exclusively by the client. Do not reuse between clients."]

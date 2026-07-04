@@ -177,6 +177,37 @@ Avoid `&"aeron:ipc".into_c_string()` for literals — it heap-allocates at runti
 `c"aeron:ipc"` gets for free at compile time. (`into_c_string()` remains for converting
 an owned `String` you already have.)
 
+---
+
+## Migrating from 0.1.x to 0.2
+
+0.2 is a breaking release focused on call-site ergonomics and hot-path performance.
+Every change below is mechanical; old → new:
+
+| 0.1.x | 0.2 | Notes |
+|---|---|---|
+| `subscription.poll_once(f, limit)` | `subscription.poll_fn(f, limit)` | Same for `AeronImage` and `AeronArchiveReplayMerge`. `_once` read as "one fragment"; `poll_fn` is the stack-borrowed zero-alloc closure poll. |
+| `subscription.for_each_fragment(limit, f)` | `subscription.poll_fn(f, limit)` | Removed (was an alias with the arguments in the opposite order). |
+| `publication.offer(buf, Handlers::no_reserved_value_supplier_handler())` | `publication.offer(buf)` | The common no-supplier case is now the flagship. |
+| `publication.offer_simple(buf)` | `publication.offer(buf)` | Removed. |
+| — | `publication.offer_with_reserved_value(buf, supplier)` | The old two-arg `offer` under its explicit name. |
+| — | `publication.offer_parts(&[&header, &payload])` | New: zero-alloc gathering offer (no per-message `Vec` concat). |
+| `sub.poll(assembler.process(&mut ctx, f), limit)` | `assembler.poll(&sub, &mut ctx, f, limit)` | `process()` removed — it leaked a raw ctx pointer past the borrow (use-after-free hazard). The new form scopes the borrow. |
+| `Handlers::no_available_image_handler()`, `no_unavailable_image_handler()`, `no_reserved_value_supplier_handler()`, … | `Handlers::NONE` | One constant for any callback parameter; full type inference. |
+| `publication.add_destination(&aeron, dest, timeout)` (`&mut self`) | `publication.add_destination(dest, timeout)` (`&self`) | The owning `Aeron` is retrieved from the handle's dependency graph. Same for subscriptions and exclusive publications. |
+| `AeronDriver::launch_embedded(ctx, sigint)` → `(stop, handle)` tuple | `AeronDriver::launch_embedded_guard(ctx, sigint)` → RAII guard | Guard stops + joins on drop; `guard.stop()` / `guard.join()` for explicit control. Tuple form still exists. |
+| `&"aeron:ipc".into_c_string()` | `c"aeron:ipc"` | C-string literals are compile-time, zero-alloc (the old form heap-allocated). For dynamic URIs use `cformat!("…{port}")`. |
+| `format!("{ch}?session-id={id}")` | `ChannelUri::add_session_id(ch, id)` | Typed equivalent of Java's `ChannelUri.addSessionId`. |
+| errors: `err.get_last_err_message()` reads the *global* errmsg | message captured at error site | `AeronCError` now snapshots `aeron_errmsg()` eagerly for non-retryable codes; `Display`/`Debug` show the error that actually happened. |
+
+Behavioural notes:
+- `offer`/`try_claim` return `Result<i64, AeronOfferError>` (typed; `is_retryable()` drives
+  retry loops). The raw sentinel variants (`offer_raw`, `try_claim_raw`) are unchanged.
+- Generated FFI wrappers now carry `#[inline]` and the workspace release profile enables
+  fat LTO — hot-path wrapper calls inline into your binary.
+- A panicking fragment handler aborts the process (panic cannot unwind across the C
+  callback boundary) — return instead of panicking in handlers.
+
 For recording, replay, and **persistent subscriptions** (replay history, then seamlessly join a
 live stream), see [`rusteron-archive`](./rusteron-archive/README.md#persistent-subscriptions).
 

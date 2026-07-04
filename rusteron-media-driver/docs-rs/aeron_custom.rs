@@ -2,6 +2,12 @@
 // code here is included in all modules and extends generated classes
 pub static AERON_IPC_STREAM: &std::ffi::CStr = c"aeron:ipc";
 
+/// Max buffer parts accepted by [`AeronPublication::offer_parts`] /
+/// [`AeronExclusivePublication::offer_parts`] — the `aeron_iovec_t` array is
+/// built on the stack, so it has a fixed capacity. Use the raw `offerv` with
+/// your own iovec array for larger gathers.
+pub const MAX_OFFER_PARTS: usize = 8;
+
 // SAFETY (accepted unsoundness — latency trade-off):
 // These handle types wrap `Rc` (via `CResource::OwnedOnHeap`), so in principle
 // they are `!Send + !Sync`. We deliberately keep `Rc` (non-atomic refcount) for
@@ -1601,6 +1607,46 @@ impl AeronPublication {
         })
     }
 
+    /// Gathering (vectored) publish: offer up to [`MAX_OFFER_PARTS`] buffers as ONE
+    /// message without concatenating them — **zero allocation, zero copy** on the
+    /// caller side (the driver gathers the parts directly).
+    ///
+    /// This is the header+payload send: instead of building a `Vec` per message
+    /// (`vec.extend(header); vec.extend(payload); offer(&vec)`), pass the parts:
+    ///
+    /// ```ignore
+    /// publication.offer_parts(&[&header_bytes, payload])?;
+    /// ```
+    ///
+    /// The `aeron_iovec_t` array is built on the stack. Same typed-error semantics
+    /// as [`Self::offer`]. Returns `AeronErrorType::GenericError` if more than
+    /// [`MAX_OFFER_PARTS`] parts are passed (use [`Self::offerv`] with your own
+    /// iovec array for larger gathers).
+    #[inline]
+    pub fn offer_parts(&self, parts: &[&[u8]]) -> Result<i64, AeronOfferError> {
+        if parts.len() > MAX_OFFER_PARTS {
+            return Err(AeronOfferError::Error(AeronCError::from_code(-1)));
+        }
+        let mut iov = [aeron_iovec_t {
+            iov_base: std::ptr::null_mut(),
+            iov_len: 0,
+        }; MAX_OFFER_PARTS];
+        for (slot, part) in iov.iter_mut().zip(parts) {
+            slot.iov_base = part.as_ptr() as *mut u8;
+            slot.iov_len = part.len();
+        }
+        let position = unsafe {
+            aeron_publication_offerv(
+                self.get_inner(),
+                iov.as_mut_ptr(),
+                parts.len(),
+                None,
+                std::ptr::null_mut(),
+            )
+        };
+        AeronOfferError::from_position(position)
+    }
+
     /// High-level connection state derived from the publication handle.
     #[inline]
     pub fn status(&self) -> AeronStatus {
@@ -1706,6 +1752,34 @@ impl AeronExclusivePublication {
             position,
             finalised: false,
         })
+    }
+
+    /// Gathering (vectored) publish — see [`AeronPublication::offer_parts`].
+    /// Zero allocation, zero caller-side copy; the `aeron_iovec_t` array is on
+    /// the stack (up to [`MAX_OFFER_PARTS`] parts).
+    #[inline]
+    pub fn offer_parts(&self, parts: &[&[u8]]) -> Result<i64, AeronOfferError> {
+        if parts.len() > MAX_OFFER_PARTS {
+            return Err(AeronOfferError::Error(AeronCError::from_code(-1)));
+        }
+        let mut iov = [aeron_iovec_t {
+            iov_base: std::ptr::null_mut(),
+            iov_len: 0,
+        }; MAX_OFFER_PARTS];
+        for (slot, part) in iov.iter_mut().zip(parts) {
+            slot.iov_base = part.as_ptr() as *mut u8;
+            slot.iov_len = part.len();
+        }
+        let position = unsafe {
+            aeron_exclusive_publication_offerv(
+                self.get_inner(),
+                iov.as_mut_ptr(),
+                parts.len(),
+                None,
+                std::ptr::null_mut(),
+            )
+        };
+        AeronOfferError::from_position(position)
     }
 
     /// High-level connection state derived from the publication handle.

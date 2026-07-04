@@ -641,12 +641,38 @@ mod tests {
         }
         assert!(committed, "try_claim_owned + commit never succeeded");
 
-        // 3) Receive both and assert the header accessors.
+        // 3) Publish via the zero-alloc gathering offer: header + payload parts must
+        // arrive as ONE contiguous message.
+        let parts_header = b"hdr:";
+        let parts_payload = b"gathered-body";
+        let parts_expected: Vec<u8> = [parts_header.as_slice(), parts_payload.as_slice()].concat();
+        let parts_start = Instant::now();
+        let mut parts_offered = false;
+        while parts_start.elapsed() < Duration::from_secs(2) {
+            if publisher.offer_parts(&[parts_header, parts_payload]).is_ok() {
+                parts_offered = true;
+                break;
+            }
+            #[cfg(debug_assertions)]
+            sleep(Duration::from_millis(10));
+        }
+        assert!(parts_offered, "offer_parts never succeeded");
+        // more parts than the stack iovec capacity must be rejected, not truncated
+        let too_many = [b"x".as_slice(); MAX_OFFER_PARTS + 1];
+        assert!(
+            publisher.offer_parts(&too_many).is_err(),
+            "over-capacity offer_parts must fail"
+        );
+
+        // 4) Receive all three and assert the header accessors.
         let received_offer = std::cell::Cell::new(false);
         let received_claim = std::cell::Cell::new(false);
+        let received_parts = std::cell::Cell::new(false);
         let header_ids = std::cell::Cell::new(Option::<(i32, i32)>::None);
         let read_start = Instant::now();
-        while read_start.elapsed() < Duration::from_secs(2) && !(received_offer.get() && received_claim.get()) {
+        while read_start.elapsed() < Duration::from_secs(2)
+            && !(received_offer.get() && received_claim.get() && received_parts.get())
+        {
             let _ = subscription.poll_fn(
                 |msg, header| {
                     header_ids.set(Some((
@@ -659,6 +685,9 @@ mod tests {
                     if msg == claim_payload {
                         received_claim.set(true);
                     }
+                    if msg == parts_expected.as_slice() {
+                        received_parts.set(true);
+                    }
                 },
                 1024,
             );
@@ -667,6 +696,10 @@ mod tests {
         }
         assert!(received_offer.get(), "did not receive offer_result message");
         assert!(received_claim.get(), "did not receive claim message");
+        assert!(
+            received_parts.get(),
+            "did not receive offer_parts message as one contiguous body"
+        );
         let (session_id, recv_stream_id) = header_ids.get().expect("no header captured");
         assert_eq!(recv_stream_id, stream_id, "header stream_id should match");
         assert_ne!(session_id, 0, "session_id should be populated");

@@ -75,10 +75,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut assembler = AeronFragmentClosureAssembler::new()?;
 
     // ── sender: header, then offset-stamped chunks ────────────────────────
-    let offer = |publication: &AeronPublication, message: &[u8]| -> Result<(), AeronOfferError> {
+    // `offer_parts` gathers the parts driver-side: no per-message Vec, no copy.
+    let offer = |publication: &AeronPublication, parts: &[&[u8]]| -> Result<(), AeronOfferError> {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            match publication.offer(message) {
+            match publication.offer_parts(parts) {
                 Ok(_) => return Ok(()),
                 Err(e) if e.is_retryable() && Instant::now() < deadline => std::hint::spin_loop(),
                 Err(e) => return Err(e),
@@ -86,22 +87,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let mut header = vec![TAG_HEADER];
-    header.extend_from_slice(&correlation_id.to_le_bytes());
-    header.extend_from_slice(&(FILE_SIZE as u64).to_le_bytes());
-    header.extend_from_slice(file_name.as_bytes());
-    offer(&publication, &header)?;
+    let correlation_bytes = correlation_id.to_le_bytes();
+    let file_len_bytes = (FILE_SIZE as u64).to_le_bytes();
+    offer(
+        &publication,
+        &[&[TAG_HEADER], &correlation_bytes, &file_len_bytes, file_name.as_bytes()],
+    )?;
 
     let start = Instant::now();
     let mut offset = 0usize;
     while offset < source.len() {
         let end = usize::min(offset + CHUNK_SIZE, source.len());
-        let mut chunk = Vec::with_capacity(1 + 8 + 8 + (end - offset));
-        chunk.push(TAG_CHUNK);
-        chunk.extend_from_slice(&correlation_id.to_le_bytes());
-        chunk.extend_from_slice(&(offset as u64).to_le_bytes());
-        chunk.extend_from_slice(&source[offset..end]);
-        offer(&publication, &chunk)?;
+        let offset_bytes = (offset as u64).to_le_bytes();
+        offer(
+            &publication,
+            &[&[TAG_CHUNK], &correlation_bytes, &offset_bytes, &source[offset..end]],
+        )?;
         offset = end;
 
         // drain the subscription as we go (single process; a real receiver is remote)

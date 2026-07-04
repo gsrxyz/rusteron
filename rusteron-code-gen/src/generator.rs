@@ -1197,6 +1197,7 @@ impl CWrapper {
                     };
 
                     quote! {
+                        #[inline]
                         #(#method_docs)*
                         pub fn #fn_name #where_clause(#(#new_args),*) -> Result<Self, AeronCError> {
                             #(#lets)*
@@ -2583,6 +2584,7 @@ pub fn generate_rust_code(
                             Ok(result)
                         }
 
+                        #[inline]
                         pub fn poll(&self) -> Result<Option<#main_class_name>, AeronCError> {
 
                             if let Some(inner) = self.inner.as_owned() {
@@ -2619,6 +2621,7 @@ pub fn generate_rust_code(
                             }
                         }
 
+                        #[inline]
                         pub fn poll_blocking(&self, timeout: std::time::Duration) -> Result<#main_class_name, AeronCError> {
                             if let Some(result) = self.poll()? {
                                 return Ok(result);
