@@ -32,7 +32,7 @@ pub fn main() -> Result<(), Box<dyn error::Error>> {
     println!("created publisher");
 
     let subscription = aeron
-        .async_add_subscription(AERON_IPC_STREAM, 123, Handlers::none(), Handlers::none())?
+        .async_add_subscription(AERON_IPC_STREAM, 123, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(5))?;
     println!("created subscription");
 

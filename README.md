@@ -126,12 +126,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let subscription = aeron
         .async_add_subscription(
             channel, 123,
-            Handlers::none(),
-            Handlers::none(),
+            Handlers::NONE,
+            Handlers::NONE,
         )?
         .poll_blocking(Duration::from_secs(5))?;
 
-    // offer_simple returns Ok(position) or a typed AeronOfferError; retry the
+    // offer returns Ok(position) or a typed AeronOfferError; retry the
     // retryable ones (back-pressure / admin action / not connected).
     while publication.offer(b"Hello, Aeron!").is_err() {}
 

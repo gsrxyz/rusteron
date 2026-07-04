@@ -741,11 +741,8 @@ impl Handlers {
     #[doc = " [`NoHandler`] so type inference works without a per-callback helper or"]
     #[doc = " turbofish. Replaces `Handlers::no_available_image_handler()` /"]
     #[doc = " `no_unavailable_image_handler()` / `no_reserved_value_supplier_handler()`"]
-    #[doc = " / … with one method."]
-    #[inline]
-    pub fn none() -> Option<&'static Handler<NoHandler>> {
-        None::<&'static Handler<NoHandler>>
-    }
+    #[doc = " / … with one constant. Parallels `Option::None`."]
+    pub const NONE: Option<&'static Handler<NoHandler>> = None;
 }
 impl<T> Handler<T> {
     pub fn new(handler: T) -> Self {

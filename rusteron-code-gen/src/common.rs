@@ -709,11 +709,8 @@ impl Handlers {
     /// [`NoHandler`] so type inference works without a per-callback helper or
     /// turbofish. Replaces `Handlers::no_available_image_handler()` /
     /// `no_unavailable_image_handler()` / `no_reserved_value_supplier_handler()`
-    /// / … with one method.
-    #[inline]
-    pub fn none() -> Option<&'static Handler<NoHandler>> {
-        None::<&'static Handler<NoHandler>>
-    }
+    /// / … with one constant. Parallels `Option::None`.
+    pub const NONE: Option<&'static Handler<NoHandler>> = None;
 }
 
 impl<T> Handler<T> {
