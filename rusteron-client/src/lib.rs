@@ -472,12 +472,8 @@ mod tests {
         // Create async publication and subscription pollers on the same invalid channel and
         // attempt to resolve them. If both are created, try a small send/receive cycle and then exit.
         let pub_poller = aeron.async_add_publication(&channel.clone().into_c_string(), 4321)?;
-        let sub_poller = aeron.async_add_subscription(
-            &channel.into_c_string(),
-            4321,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
-        )?;
+        let sub_poller =
+            aeron.async_add_subscription(&channel.into_c_string(), 4321, Handlers::NONE, Handlers::NONE)?;
 
         let mut publication: Option<AeronPublication> = None;
         let mut subscription: Option<AeronSubscription> = None;
@@ -510,7 +506,7 @@ mod tests {
             let send_start = Instant::now();
             let mut sent = false;
             while send_start.elapsed() < Duration::from_millis(500) {
-                let res = publisher.offer_raw(payload, Handlers::no_reserved_value_supplier_handler());
+                let res = publisher.offer_raw(payload, Handlers::NONE);
                 if res >= payload.len() as i64 {
                     sent = true;
                     info!("sent {:?}", payload);
@@ -575,12 +571,8 @@ mod tests {
         let channel = String::from("aeron:ipc");
         let stream_id: i32 = 9123;
         let pub_poller = aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
-        let sub_poller = aeron.async_add_subscription(
-            &channel.into_c_string(),
-            stream_id,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
-        )?;
+        let sub_poller =
+            aeron.async_add_subscription(&channel.into_c_string(), stream_id, Handlers::NONE, Handlers::NONE)?;
 
         let mut publication: Option<AeronPublication> = None;
         let mut subscription: Option<AeronSubscription> = None;
@@ -715,12 +707,8 @@ mod tests {
         let channel = String::from("aeron:ipc");
         let stream_id: i32 = 9124;
         let pub_poller = aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
-        let sub_poller = aeron.async_add_subscription(
-            &channel.into_c_string(),
-            stream_id,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
-        )?;
+        let sub_poller =
+            aeron.async_add_subscription(&channel.into_c_string(), stream_id, Handlers::NONE, Handlers::NONE)?;
 
         let mut publication: Option<AeronPublication> = None;
         let mut subscription: Option<AeronSubscription> = None;
@@ -828,12 +816,8 @@ mod tests {
         let channel = String::from("aeron:ipc");
         let stream_id: i32 = 9125;
         let pub_poller = aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
-        let sub_poller = aeron.async_add_subscription(
-            &channel.into_c_string(),
-            stream_id,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
-        )?;
+        let sub_poller =
+            aeron.async_add_subscription(&channel.into_c_string(), stream_id, Handlers::NONE, Handlers::NONE)?;
 
         let mut publication: Option<AeronPublication> = None;
         let mut subscription: Option<AeronSubscription> = None;
@@ -977,12 +961,8 @@ mod tests {
         let channel = String::from("aeron:ipc");
         let stream_id: i32 = 9126;
         let pub_poller = aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
-        let sub_poller = aeron.async_add_subscription(
-            &channel.into_c_string(),
-            stream_id,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
-        )?;
+        let sub_poller =
+            aeron.async_add_subscription(&channel.into_c_string(), stream_id, Handlers::NONE, Handlers::NONE)?;
 
         let mut publication: Option<AeronPublication> = None;
         let mut subscription: Option<AeronSubscription> = None;
@@ -1110,12 +1090,12 @@ mod tests {
 
         let payload = b"alloc-guard-payload";
         // Warm up (first offer may touch lazy publication state).
-        let _ = publisher.offer_raw(payload, Handlers::no_reserved_value_supplier_handler());
+        let _ = publisher.offer_raw(payload, Handlers::NONE);
 
         // Assert a tight offer loop is allocation-free (publish hot path).
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..200 {
-                let _ = publisher.offer_raw(payload, Handlers::no_reserved_value_supplier_handler());
+                let _ = publisher.offer_raw(payload, Handlers::NONE);
             }
         });
 
@@ -1158,8 +1138,8 @@ mod tests {
             let sub_poller = aeron.async_add_subscription(
                 &channel.into_c_string(),
                 4500 + i as i32,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
+                Handlers::NONE,
+                Handlers::NONE,
             )?;
 
             let start = Instant::now();
@@ -1247,12 +1227,7 @@ mod tests {
         // Invalid remote endpoint only (no interface)
         let channel = String::from("aeron:udp?endpoint=203.0.113.1:54323");
 
-        let poller = aeron.async_add_subscription(
-            &channel.into_c_string(),
-            4323,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
-        )?;
+        let poller = aeron.async_add_subscription(&channel.into_c_string(), 4323, Handlers::NONE, Handlers::NONE)?;
 
         let start = Instant::now();
         while start.elapsed() < Duration::from_millis(250) {
@@ -1292,8 +1267,8 @@ mod tests {
         let result = aeron.add_subscription(
             &channel.into_c_string(),
             4324,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::NONE,
+            Handlers::NONE,
             Duration::from_millis(300),
         );
 
@@ -1413,8 +1388,8 @@ mod tests {
         let subscription = aeron.add_subscription(
             AERON_IPC_STREAM,
             123,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::NONE,
+            Handlers::NONE,
             Duration::from_secs(5),
         )?;
         info!("created subscription");
@@ -1436,7 +1411,7 @@ mod tests {
                     if stop_publisher.load(Ordering::Acquire) || publisher.is_closed() {
                         break;
                     }
-                    let result = publisher.offer_raw(large_msg, Handlers::no_reserved_value_supplier_handler());
+                    let result = publisher.offer_raw(large_msg, Handlers::NONE);
 
                     assert_eq!(123, publisher.get_constants().unwrap().stream_id);
 
@@ -1605,8 +1580,8 @@ mod tests {
         let subscription = aeron.add_subscription(
             AERON_IPC_STREAM,
             STREAM_ID,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::NONE,
+            Handlers::NONE,
             Duration::from_secs(5),
         )?;
         info!("created subscription");
@@ -1886,8 +1861,8 @@ mod tests {
         let subscription = aeron.add_subscription(
             AERON_IPC_STREAM,
             123,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::NONE,
+            Handlers::NONE,
             Duration::from_secs(5),
         )?;
 
@@ -1902,7 +1877,7 @@ mod tests {
             std::thread::spawn(move || {
                 while !stop_publisher.load(Ordering::Acquire) {
                     let msg = b"test";
-                    let result = publisher.offer_raw(msg, Handlers::no_reserved_value_supplier_handler());
+                    let result = publisher.offer_raw(msg, Handlers::NONE);
                     // If backpressure is encountered, sleep a bit.
                     if result == AeronErrorType::PublicationBackPressured.code() as i64 {
                         sleep(Duration::from_millis(50));
@@ -1967,15 +1942,15 @@ mod tests {
         let subscription1 = aeron.add_subscription(
             AERON_IPC_STREAM,
             123,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::NONE,
+            Handlers::NONE,
             Duration::from_secs(5),
         )?;
         let subscription2 = aeron.add_subscription(
             AERON_IPC_STREAM,
             123,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::NONE,
+            Handlers::NONE,
             Duration::from_secs(5),
         )?;
 
@@ -1984,7 +1959,7 @@ mod tests {
 
         // Publish a single message.
         let msg = b"hello multi-subscription";
-        let result = publisher.offer_raw(msg, Handlers::no_reserved_value_supplier_handler());
+        let result = publisher.offer_raw(msg, Handlers::NONE);
         assert!(result >= msg.len() as i64, "Message should be sent successfully");
 
         let start_time = Instant::now();
@@ -2129,15 +2104,15 @@ mod tests {
         let subscription = aeron.add_subscription(
             AERON_IPC_STREAM,
             123,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::NONE,
+            Handlers::NONE,
             Duration::from_secs(5),
         )?;
 
         let empty_received = Arc::new(AtomicBool::new(false));
         let start_time = Instant::now();
 
-        let result = publisher.offer_raw(b"", Handlers::no_reserved_value_supplier_handler());
+        let result = publisher.offer_raw(b"", Handlers::NONE);
         assert!(result > 0);
 
         while !empty_received.load(Ordering::SeqCst) && start_time.elapsed() < Duration::from_secs(5) {
@@ -2302,8 +2277,8 @@ mod tests {
                 .add_subscription(
                     &subscriber_channel.into_c_string(),
                     STREAM_ID,
-                    Handlers::no_available_image_handler(),
-                    Handlers::no_unavailable_image_handler(),
+                    Handlers::NONE,
+                    Handlers::NONE,
                     Duration::from_secs(5),
                 )
                 .expect("failed to create subscriber");
@@ -2392,7 +2367,7 @@ mod tests {
                 let ts_ns = Aeron::nano_clock().max(0) as u64;
                 payload[8..16].copy_from_slice(&ts_ns.to_le_bytes());
 
-                let result = publication.offer_raw(&payload, Handlers::no_reserved_value_supplier_handler());
+                let result = publication.offer_raw(&payload, Handlers::NONE);
                 if result > 0 {
                     seq = seq.wrapping_add(1);
                 }
@@ -2432,8 +2407,8 @@ mod tests {
             .add_subscription(
                 &"aeron:udp?tags=100".into_c_string(),
                 123,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
+                Handlers::NONE,
+                Handlers::NONE,
                 Duration::from_secs(50),
             )
             .map_err(|e| {
@@ -2450,8 +2425,8 @@ mod tests {
         let sub2 = aeron_sub.add_subscription(
             &"aeron:udp?tags=100".into_c_string(),
             123,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::NONE,
+            Handlers::NONE,
             Duration::from_secs(50),
         )?;
 
@@ -2472,7 +2447,7 @@ mod tests {
         info!("publishing msg");
 
         loop {
-            let result = publisher.offer_raw("213".as_bytes(), Handlers::no_reserved_value_supplier_handler());
+            let result = publisher.offer_raw("213".as_bytes(), Handlers::NONE);
             if result < 0 {
                 error!("failed to publish {:?}", AeronCError::from_code(result as i32));
             } else {
@@ -2549,8 +2524,8 @@ mod tests {
         let sub_poller = aeron.async_add_subscription(
             &"aeron:ipc".to_string().into_c_string(),
             stream_id,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::NONE,
+            Handlers::NONE,
         )?;
         let mut subscription: Option<AeronSubscription> = None;
         let sub_start = Instant::now();
@@ -2760,12 +2735,8 @@ mod tests {
             let stream_id: i32 = 9999;
 
             let pub_poller = aeron.async_add_publication(&channel.clone().into_c_string(), stream_id)?;
-            let sub_poller = aeron.async_add_subscription(
-                &channel.into_c_string(),
-                stream_id,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
-            )?;
+            let sub_poller =
+                aeron.async_add_subscription(&channel.into_c_string(), stream_id, Handlers::NONE, Handlers::NONE)?;
 
             let mut publication: Option<AeronPublication> = None;
             let mut subscription: Option<AeronSubscription> = None;
@@ -2949,8 +2920,8 @@ mod tests {
             .add_subscription(
                 AERON_IPC_STREAM,
                 1002,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
+                Handlers::NONE,
+                Handlers::NONE,
                 Duration::from_secs(5),
             )
             .unwrap();
@@ -3009,8 +2980,8 @@ mod tests {
             .add_subscription(
                 AERON_IPC_STREAM,
                 1102,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
+                Handlers::NONE,
+                Handlers::NONE,
                 Duration::from_secs(5),
             )
             .unwrap();
@@ -3085,8 +3056,8 @@ mod tests {
             .add_subscription(
                 AERON_IPC_STREAM,
                 1202,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
+                Handlers::NONE,
+                Handlers::NONE,
                 Duration::from_secs(5),
             )
             .unwrap();
@@ -3158,8 +3129,8 @@ mod tests {
             .add_subscription(
                 AERON_IPC_STREAM,
                 1402,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
+                Handlers::NONE,
+                Handlers::NONE,
                 Duration::from_secs(5),
             )
             .unwrap();
@@ -3194,8 +3165,8 @@ mod tests {
             .add_subscription(
                 AERON_IPC_STREAM,
                 1501,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
+                Handlers::NONE,
+                Handlers::NONE,
                 Duration::from_secs(5),
             )
             .unwrap();
@@ -3206,7 +3177,7 @@ mod tests {
         let send_start = Instant::now();
         let mut sent = false;
         while send_start.elapsed() < Duration::from_secs(5) {
-            if publisher.offer_raw(payload, Handlers::no_reserved_value_supplier_handler()) >= payload.len() as i64 {
+            if publisher.offer_raw(payload, Handlers::NONE) >= payload.len() as i64 {
                 sent = true;
                 break;
             }
@@ -3280,7 +3251,7 @@ mod tests {
                     AERON_IPC_STREAM,
                     1601,
                     Some(&handler),
-                    Handlers::no_unavailable_image_handler(),
+                    Handlers::NONE,
                     Duration::from_secs(5),
                 )
                 .unwrap();
@@ -3301,7 +3272,7 @@ mod tests {
 
         let start = Instant::now();
         while available.load(Ordering::SeqCst) == 0 && start.elapsed() < Duration::from_secs(5) {
-            let _ = publisher.offer_raw(b"wake", Handlers::no_reserved_value_supplier_handler());
+            let _ = publisher.offer_raw(b"wake", Handlers::NONE);
             sleep(Duration::from_millis(10));
         }
         assert!(
@@ -3339,12 +3310,7 @@ mod tests {
                 drops: drops.clone(),
             });
             let poller = aeron
-                .async_add_subscription(
-                    AERON_IPC_STREAM,
-                    1611,
-                    Some(&handler),
-                    Handlers::no_unavailable_image_handler(),
-                )
+                .async_add_subscription(AERON_IPC_STREAM, 1611, Some(&handler), Handlers::NONE)
                 .unwrap();
             // both the caller's handler and the never-polled poller go away here
             drop(handler);
@@ -3363,7 +3329,7 @@ mod tests {
             .unwrap();
         let start = Instant::now();
         while available.load(Ordering::SeqCst) == 0 && start.elapsed() < Duration::from_secs(5) {
-            let _ = publisher.offer_raw(b"wake", Handlers::no_reserved_value_supplier_handler());
+            let _ = publisher.offer_raw(b"wake", Handlers::NONE);
             sleep(Duration::from_millis(10));
         }
         assert!(
@@ -3387,12 +3353,7 @@ mod tests {
         let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
 
         let bad_uri = &"aeron:udp?endpoint=not-a-real-host:0|interface=500.500.500.500".into_c_string();
-        match aeron.async_add_subscription(
-            bad_uri,
-            1621,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
-        ) {
+        match aeron.async_add_subscription(bad_uri, 1621, Handlers::NONE, Handlers::NONE) {
             Err(_) => {} // rejected synchronously — fine
             Ok(poller) => {
                 let mut saw_error = false;
@@ -3481,7 +3442,7 @@ mod tests {
                 AERON_IPC_STREAM,
                 1801,
                 Some(&image_handler),
-                Handlers::no_unavailable_image_handler(),
+                Handlers::NONE,
                 Duration::from_secs(5),
             )
             .unwrap();
@@ -3494,12 +3455,7 @@ mod tests {
             drops: unpolled_drops.clone(),
         });
         let unpolled_poller = aeron
-            .async_add_subscription(
-                AERON_IPC_STREAM,
-                1803,
-                Some(&unpolled_handler),
-                Handlers::no_unavailable_image_handler(),
-            )
+            .async_add_subscription(AERON_IPC_STREAM, 1803, Some(&unpolled_handler), Handlers::NONE)
             .unwrap();
         drop(unpolled_handler);
         drop(unpolled_poller); // never polled — its handler must stay alive via the client
@@ -3590,8 +3546,8 @@ mod tests {
             .add_subscription(
                 AERON_IPC_STREAM,
                 1951,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
+                Handlers::NONE,
+                Handlers::NONE,
                 Duration::from_secs(5),
             )
             .unwrap();
@@ -3641,8 +3597,8 @@ mod tests {
             .add_subscription(
                 AERON_IPC_STREAM,
                 1901,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
+                Handlers::NONE,
+                Handlers::NONE,
                 Duration::from_secs(5),
             )
             .unwrap();
@@ -3733,8 +3689,8 @@ mod tests {
             .add_subscription(
                 AERON_IPC_STREAM,
                 1631,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
+                Handlers::NONE,
+                Handlers::NONE,
                 Duration::from_secs(5),
             )
             .unwrap();
@@ -3743,7 +3699,7 @@ mod tests {
         let start = Instant::now();
         let mut sent = false;
         while start.elapsed() < Duration::from_secs(5) {
-            if publisher.offer_raw(payload, Handlers::no_reserved_value_supplier_handler()) >= payload.len() as i64 {
+            if publisher.offer_raw(payload, Handlers::NONE) >= payload.len() as i64 {
                 sent = true;
                 break;
             }
@@ -3813,8 +3769,8 @@ mod tests {
             .add_subscription(
                 AERON_IPC_STREAM,
                 1701,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
+                Handlers::NONE,
+                Handlers::NONE,
                 Duration::from_secs(5),
             )
             .unwrap();

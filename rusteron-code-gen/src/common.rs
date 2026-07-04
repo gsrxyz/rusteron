@@ -712,7 +712,7 @@ pub struct Handlers;
 
 /// Type-level "no callback" sentinel.
 ///
-/// Pass [`Handlers::none()`] (which is `None::<&Handler<NoHandler>>`) to any
+/// Pass [`Handlers::NONE`] (which is `None::<&Handler<NoHandler>>`) to any
 /// callback-accepting method to leave that callback unset. `NoHandler` implements
 /// every generated callback trait, so the method's callback generic is inferred as
 /// `NoHandler` without a per-callback helper or turbofish — including methods with

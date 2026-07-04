@@ -36,12 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         builder.build(256)?
     };
     let subscription = aeron
-        .async_add_subscription(
-            &mds_channel.into_c_string(),
-            STREAM_ID,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
-        )?
+        .async_add_subscription(&mds_channel.into_c_string(), STREAM_ID, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(5))?;
 
     // Two independent feeds on their own endpoints.

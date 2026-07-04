@@ -178,7 +178,7 @@ mod tests {
         for i in 0..historical_count {
             let message = format!("Historical-{}", i);
             let deadline = Instant::now() + Duration::from_secs(10);
-            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                 if Instant::now() > deadline {
                     return Err("timed out offering historical message".into());
                 }
@@ -208,12 +208,7 @@ mod tests {
         })?;
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
         let replay_sub = aeron_archive
-            .async_add_subscription(
-                &replay_channel,
-                replay_stream_id,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
-            )?
+            .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 
         #[derive(Default)]
@@ -249,12 +244,7 @@ mod tests {
         // Phase 3: live consumption. Subscribe first and wait for an image so the
         // live subscription sees the messages that follow.
         let live_sub = aeron_archive
-            .async_add_subscription(
-                &channel.into_c_string(),
-                stream_id,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
-            )?
+            .async_add_subscription(&channel.into_c_string(), stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(5))?;
         let start = Instant::now();
         while live_sub.image_count()? == 0 && start.elapsed() < Duration::from_secs(5) {
@@ -266,7 +256,7 @@ mod tests {
         for i in 0..live_count {
             let message = format!("Live-{}", i);
             let deadline = Instant::now() + Duration::from_secs(10);
-            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                 if Instant::now() > deadline {
                     return Err("timed out offering live message".into());
                 }
@@ -332,7 +322,7 @@ mod tests {
         for i in 0..batch1_count {
             let message = format!("BeforeRestart-{}", i);
             let deadline = Instant::now() + Duration::from_secs(10);
-            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                 if Instant::now() > deadline {
                     return Err(format!("timed out offering BeforeRestart-{i}").into());
                 }
@@ -353,7 +343,7 @@ mod tests {
         for i in 0..batch2_count {
             let message = format!("AfterRestart-{}", i);
             let deadline = Instant::now() + Duration::from_secs(10);
-            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                 if Instant::now() > deadline {
                     return Err(format!("timed out offering AfterRestart-{i}").into());
                 }
@@ -379,12 +369,7 @@ mod tests {
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
         let subscription = aeron_archive
-            .async_add_subscription(
-                &replay_channel,
-                replay_stream_id,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
-            )?
+            .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 
         #[derive(Default)]
@@ -480,7 +465,7 @@ mod tests {
         for i in 0..message_count {
             let message = format!("Throughput-Test-{}", i);
             let mut attempts = 0;
-            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                 sleep(Duration::from_millis(1));
                 attempts += 1;
                 if attempts > 100 {
@@ -515,12 +500,7 @@ mod tests {
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
         let subscription = aeron_archive
-            .async_add_subscription(
-                &replay_channel,
-                replay_stream_id,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
-            )?
+            .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 
         #[derive(Default)]
@@ -613,7 +593,7 @@ mod tests {
         for (i, size) in message_sizes.iter().enumerate() {
             let message = vec![b'X' + (i as u8); *size];
             let deadline = Instant::now() + Duration::from_secs(10);
-            while publication.offer_raw(&message, Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(&message, Handlers::NONE) <= 0 {
                 if Instant::now() > deadline {
                     return Err(format!("timed out offering message {i} of size {size}").into());
                 }
@@ -639,12 +619,7 @@ mod tests {
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
         let subscription = aeron_archive
-            .async_add_subscription(
-                &replay_channel,
-                replay_stream_id,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
-            )?
+            .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 
         #[derive(Default)]
@@ -732,7 +707,7 @@ mod tests {
         let phase1_count = 20;
         for i in 0..phase1_count {
             let message = format!("Phase1-{}", i);
-            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -754,7 +729,7 @@ mod tests {
         let phase2_count = 20;
         for i in 0..phase2_count {
             let message = format!("Phase2-{}", i);
-            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -823,7 +798,7 @@ mod tests {
             // Publish some messages
             for i in 0..10 {
                 let message = format!("Stream-{}-Message-{}", stream_id, i);
-                while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+                while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                     sleep(Duration::from_millis(10));
                 }
             }
@@ -919,7 +894,7 @@ mod tests {
         // Publish messages
         for i in 0..5 {
             let message = format!("Recovery-Test-{}", i);
-            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -962,7 +937,7 @@ mod tests {
             .poll_blocking(Duration::from_secs(5))?;
         for i in 0..100 {
             let m = format!("msg-{i}");
-            while publication.offer_raw(m.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(m.as_bytes(), Handlers::NONE) <= 0 {
                 sleep(Duration::from_millis(1));
             }
         }

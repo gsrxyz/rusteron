@@ -745,7 +745,7 @@ impl<T> Clone for Handler<T> {
 pub struct Handlers;
 #[doc = " Type-level \"no callback\" sentinel."]
 #[doc = ""]
-#[doc = " Pass [`Handlers::none()`] (which is `None::<&Handler<NoHandler>>`) to any"]
+#[doc = " Pass [`Handlers::NONE`] (which is `None::<&Handler<NoHandler>>`) to any"]
 #[doc = " callback-accepting method to leave that callback unset. `NoHandler` implements"]
 #[doc = " every generated callback trait, so the method's callback generic is inferred as"]
 #[doc = " `NoHandler` without a per-callback helper or turbofish — including methods with"]

@@ -47,8 +47,8 @@ fn criterion_benchmark(c: &mut Criterion) {
         .async_add_subscription(
             &PING_CHANNEL.into_c_string(),
             PING_STREAM_ID,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::NONE,
+            Handlers::NONE,
         )
         .unwrap()
         .poll_blocking(Duration::from_secs(4))
@@ -83,8 +83,8 @@ fn run_pong(stop: Arc<AtomicBool>, dir: &str) -> Result<(), Box<dyn std::error::
         .async_add_subscription(
             &PONG_CHANNEL.into_c_string(),
             PONG_STREAM_ID,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::NONE,
+            Handlers::NONE,
         )?
         .poll_blocking(Duration::from_secs(4))?;
 
@@ -145,7 +145,7 @@ fn record_rtt(
 ) {
     let now = Aeron::nano_clock();
     write_i64(buffer, &now);
-    while pong_publication.offer_raw(buffer, Handlers::no_reserved_value_supplier_handler()) < 0 {}
+    while pong_publication.offer_raw(buffer, Handlers::NONE) < 0 {}
 
     while ping_subscription
         .poll(Some(handler), FRAGMENT_COUNT_LIMIT)

@@ -185,7 +185,7 @@ mod tests {
             let mut seq = 0u64;
             while running_clone.load(Ordering::Acquire) {
                 let message = seq.to_le_bytes();
-                while publication_clone.offer_raw(&message, Handlers::no_reserved_value_supplier_handler()) <= 0 {
+                while publication_clone.offer_raw(&message, Handlers::NONE) <= 0 {
                     if !running_clone.load(Ordering::Acquire) {
                         break;
                     }

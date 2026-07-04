@@ -124,8 +124,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let subscription = aeron.add_subscription(
         &format!("aeron:udp?control-mode=manual|session-id={session_id}").into_c_string(),
         STREAM_ID,
-        Handlers::no_available_image_handler(),
-        Handlers::no_unavailable_image_handler(),
+        Handlers::NONE,
+        Handlers::NONE,
         Duration::from_secs(5),
     )?;
     let replay_merge = AeronArchiveReplayMerge::new(

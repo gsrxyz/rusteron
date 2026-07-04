@@ -37,12 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .async_add_publication(AERON_IPC_STREAM, STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
     let subscription = aeron
-        .async_add_subscription(
-            AERON_IPC_STREAM,
-            STREAM_ID,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
-        )?
+        .async_add_subscription(AERON_IPC_STREAM, STREAM_ID, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(5))?;
 
     // "file" contents: deterministic pseudo-random bytes

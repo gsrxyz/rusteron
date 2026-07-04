@@ -869,7 +869,7 @@ mod tests {
 
             while running.load(Ordering::Acquire) {
                 let message = format!("{}{}", MESSAGE_PREFIX, message_count);
-                while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+                while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                     thread::sleep(Duration::from_millis(10));
                 }
                 message_count += 1;
@@ -956,8 +956,8 @@ mod tests {
         let subscription = aeron.add_subscription(
             &subscribe_channel,
             STREAM_ID,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::NONE,
+            Handlers::NONE,
             Duration::from_secs(5),
         )?;
 
@@ -1183,7 +1183,7 @@ mod tests {
                 .poll_blocking(Duration::from_secs(5))?;
 
             for i in 0..11 {
-                while publication.offer_raw("123456".as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+                while publication.offer_raw("123456".as_bytes(), Handlers::NONE) <= 0 {
                     sleep(Duration::from_millis(50));
                     let err = archive.poll_for_error_response_as_string(4096)?;
                     if !err.is_empty() {

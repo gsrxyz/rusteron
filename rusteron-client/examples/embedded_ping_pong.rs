@@ -68,8 +68,8 @@ fn run_pong(running_pong: Arc<AtomicBool>) -> Result<(), Box<dyn std::error::Err
         .async_add_subscription(
             &PONG_CHANNEL.into_c_string(),
             PONG_STREAM_ID,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::NONE,
+            Handlers::NONE,
         )?
         .poll_blocking(Duration::from_secs(4))?;
 
@@ -133,8 +133,8 @@ fn run_ping(running: Arc<AtomicBool>, pong_thread: JoinHandle<()>) -> Result<His
         .async_add_subscription(
             &PING_CHANNEL.into_c_string(),
             PING_STREAM_ID,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::NONE,
+            Handlers::NONE,
         )?
         .poll_blocking(Duration::from_secs(4))?;
 

@@ -119,7 +119,7 @@ impl JsonMesssageHandler for AeronRecorder {
     fn on_msg(&mut self, msg: &str) {
         let mut result = self
             .publication
-            .offer(msg.as_bytes(), Handlers::no_reserved_value_supplier_handler());
+            .offer(msg.as_bytes(), Handlers::NONE);
         if result <= 0 {
             // this is poor way to handle back pressure, just for simple example
             let duration = Duration::from_millis(100);
@@ -128,7 +128,7 @@ impl JsonMesssageHandler for AeronRecorder {
             while start.elapsed() < duration && result <= 0 {
                 result = self
                     .publication
-                    .offer(msg.as_bytes(), Handlers::no_reserved_value_supplier_handler());
+                    .offer(msg.as_bytes(), Handlers::NONE);
             }
 
             if result <= 0 {

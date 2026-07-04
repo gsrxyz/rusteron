@@ -61,8 +61,8 @@ fn main() -> Result<()> {
                         let subscription = aeron.add_subscription(
                             &replay_channel.clone().into_c_string(),
                             TICKER_STREAM_ID,
-                            Handlers::no_available_image_handler(),
-                            Handlers::no_unavailable_image_handler(),
+                            Handlers::NONE,
+                            Handlers::NONE,
                             Duration::from_secs(5),
                         )?;
 
@@ -109,8 +109,8 @@ fn main() -> Result<()> {
                             .add_subscription(
                                 &"aeron:udp?endpoint=localhost:0".into_c_string(),
                                 stream_id,
-                                Handlers::no_available_image_handler(),
-                                Handlers::no_unavailable_image_handler(),
+                                Handlers::NONE,
+                                Handlers::NONE,
                                 Duration::from_secs(5),
                             )?
                             .try_resolve_channel_endpoint_port_as_string(4096)?;
@@ -179,8 +179,8 @@ fn main() -> Result<()> {
                 .add_subscription(
                     &channel.to_string().into_c_string(),
                     stream_id,
-                    Handlers::no_available_image_handler(),
-                    Handlers::no_unavailable_image_handler(),
+                    Handlers::NONE,
+                    Handlers::NONE,
                     Duration::from_millis(100),
                 )
                 .ok();

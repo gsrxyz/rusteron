@@ -185,12 +185,7 @@ mod tests {
         // live IPC subscription actually sees the messages that follow. A live
         // subscription never receives messages published before its image existed.
         let subscription = aeron_archive
-            .async_add_subscription(
-                &channel.into_c_string(),
-                stream_id,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
-            )?
+            .async_add_subscription(&channel.into_c_string(), stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(5))?;
 
         #[derive(Default)]
@@ -219,7 +214,7 @@ mod tests {
 
         for i in 0..message_count {
             let message = format!("Live Message {}", i);
-            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -289,7 +284,7 @@ mod tests {
         for i in 0..initial_message_count {
             let message = format!("Replay Message {}", i);
             let deadline = Instant::now() + Duration::from_secs(10);
-            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                 if Instant::now() > deadline {
                     return Err("timed out offering replay message".into());
                 }
@@ -327,12 +322,7 @@ mod tests {
         })?;
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
         let replay_sub = aeron_archive
-            .async_add_subscription(
-                &replay_channel,
-                replay_stream_id,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
-            )?
+            .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 
         #[derive(Default)]
@@ -368,12 +358,7 @@ mod tests {
 
         // Phase 3: live consumption. Subscribe first and wait for an image.
         let subscription = aeron_archive
-            .async_add_subscription(
-                &channel.into_c_string(),
-                stream_id,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
-            )?
+            .async_add_subscription(&channel.into_c_string(), stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(5))?;
         let start = Instant::now();
         while subscription.image_count()? == 0 && start.elapsed() < Duration::from_secs(5) {
@@ -385,7 +370,7 @@ mod tests {
         for i in 0..live_message_count {
             let message = format!("Live Message {}", i);
             let deadline = Instant::now() + Duration::from_secs(10);
-            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                 if Instant::now() > deadline {
                     return Err("timed out offering live message".into());
                 }
@@ -450,7 +435,7 @@ mod tests {
         let message_count = 20;
         for i in 0..message_count {
             let message = format!("Message {}", i);
-            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -570,7 +555,7 @@ mod tests {
         let message_count = 5;
         for i in 0..message_count {
             let message = format!("Lifecycle Test Message {}", i);
-            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -634,7 +619,7 @@ mod tests {
         let message_count = 15;
         for i in 0..message_count {
             let message = format!("Archive Integration Message {}", i);
-            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -725,7 +710,7 @@ mod tests {
 
         for msg in &test_messages {
             let serialized = format!("{}:{}", msg.sequence, msg.data);
-            while publication.offer_raw(serialized.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(serialized.as_bytes(), Handlers::NONE) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -759,12 +744,7 @@ mod tests {
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
         let subscription = aeron_archive
-            .async_add_subscription(
-                &replay_channel,
-                replay_stream_id,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
-            )?
+            .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 
         #[derive(Default)]
@@ -896,12 +876,8 @@ mod tests {
         let invalid_stream_id = 9999;
 
         // This should create the subscription but it won't connect
-        let subscription_result = aeron_archive.async_add_subscription(
-            &invalid_channel,
-            invalid_stream_id,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
-        );
+        let subscription_result =
+            aeron_archive.async_add_subscription(&invalid_channel, invalid_stream_id, Handlers::NONE, Handlers::NONE);
 
         // Should succeed to create subscription
         let async_sub = subscription_result?;
@@ -959,7 +935,7 @@ mod tests {
         let message_count = 10;
         for i in 0..message_count {
             let message = format!("Position Test Message {}", i);
-            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                 sleep(Duration::from_millis(10));
             }
         }
@@ -1056,12 +1032,7 @@ mod tests {
             handlers.push(handler);
 
             let sub = aeron_archive
-                .async_add_subscription(
-                    &channel.into_c_string(),
-                    stream_id,
-                    Handlers::no_available_image_handler(),
-                    Handlers::no_unavailable_image_handler(),
-                )?
+                .async_add_subscription(&channel.into_c_string(), stream_id, Handlers::NONE, Handlers::NONE)?
                 .poll_blocking(Duration::from_secs(5))?;
 
             subscriptions.push(sub);
@@ -1088,7 +1059,7 @@ mod tests {
         for i in 0..message_count {
             let message = format!("Concurrent Test Message {}", i);
             let deadline = Instant::now() + Duration::from_secs(10);
-            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                 if Instant::now() > deadline {
                     return Err(format!("timed out offering concurrent message {i}").into());
                 }
@@ -1179,7 +1150,7 @@ mod tests {
         for i in 0..10 {
             let message = format!("Seed-{}", i);
             let deadline = Instant::now() + Duration::from_secs(10);
-            while publication.offer_raw(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                 if Instant::now() > deadline {
                     return Err("timed out offering seed message".into());
                 }
@@ -1252,10 +1223,7 @@ mod tests {
                     errors.lock().unwrap().clone()
                 );
             }
-            let _ = publication.offer_raw(
-                format!("Live-{i}").as_bytes(),
-                Handlers::no_reserved_value_supplier_handler(),
-            );
+            let _ = publication.offer_raw(format!("Live-{i}").as_bytes(), Handlers::NONE);
             i += 1;
             let fragments = ps.poll_once(|_buffer, _header| {}, 100)?;
             if fragments == 0 {
@@ -1320,7 +1288,7 @@ mod tests {
         }
         for i in 0..10 {
             let m = format!("Seed-{i}");
-            while publication.offer_raw(m.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+            while publication.offer_raw(m.as_bytes(), Handlers::NONE) <= 0 {
                 sleep(Duration::from_millis(1));
             }
         }
@@ -1368,7 +1336,7 @@ mod tests {
             .build()?;
 
         let poll_drive = |ps: &AeronArchivePersistentSubscription, pub_ref: &AeronExclusivePublication| {
-            let _ = pub_ref.offer_raw(b"live-beat", Handlers::no_reserved_value_supplier_handler());
+            let _ = pub_ref.offer_raw(b"live-beat", Handlers::NONE);
             ps.poll_once(|_buf, _hdr| {}, 100)
         };
 
