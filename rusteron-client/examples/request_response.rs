@@ -166,9 +166,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .join()
         .expect("server thread panicked")
         .map_err(|e| e.to_string())?;
-    drop(request_publication);
-    drop(response_subscription);
-    drop(aeron);
     println!("request/response roundtrip complete");
     Ok(())
 }

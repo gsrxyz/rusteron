@@ -156,7 +156,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let joined_count = joined.load(Ordering::SeqCst);
-    ps.close()?;
     println!("joined live {joined_count} time(s); sent {live_sent} live messages; done");
 
     assert!(joined_count >= 1, "did not join live; errors: {:?}", errors);

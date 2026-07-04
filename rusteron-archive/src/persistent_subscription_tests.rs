@@ -233,11 +233,6 @@ mod tests {
             "Should receive all messages from live stream"
         );
 
-        subscription.close()?;
-        drop(publication);
-        drop(archive);
-        drop(aeron_archive);
-
         Ok(())
     }
 
@@ -389,11 +384,6 @@ mod tests {
             handler.live_count
         );
 
-        subscription.close()?;
-        drop(publication);
-        drop(archive);
-        drop(aeron_archive);
-
         Ok(())
     }
 
@@ -504,8 +494,6 @@ mod tests {
 
         assert!(found_recording.get(), "Should find recording after reconnection");
 
-        drop(archive_reconnected);
-        drop(aeron_archive);
         drop(media_driver_archive);
 
         Ok(())
@@ -666,9 +654,6 @@ mod tests {
             );
         })?;
 
-        drop(archive);
-        drop(aeron_archive);
-
         Ok(())
     }
 
@@ -805,9 +790,6 @@ mod tests {
 
         // Explicitly release the error handler before dropping archive objects
 
-        drop(archive);
-        drop(aeron_archive);
-
         Ok(())
     }
 
@@ -858,9 +840,6 @@ mod tests {
         assert!(result.is_err(), "Should fail to start replay with invalid recording ID");
         info!("Correctly rejected invalid recording ID");
 
-        drop(archive);
-        drop(aeron_archive);
-
         Ok(())
     }
 
@@ -905,9 +884,6 @@ mod tests {
             "Should have no image on a stream with no publisher"
         );
         info!("Correctly observed no image on non-existent stream");
-
-        drop(archive);
-        drop(aeron_archive);
 
         Ok(())
     }
@@ -982,9 +958,6 @@ mod tests {
         } else {
             info!("Correctly rejected replay from beyond current position");
         }
-
-        drop(archive);
-        drop(aeron_archive);
 
         Ok(())
     }
@@ -1104,13 +1077,8 @@ mod tests {
         }
 
         // Cleanup
-        for sub in subscriptions {
-            sub.close()?;
-        }
+        for sub in subscriptions {}
         for handler in handlers {}
-
-        drop(archive);
-        drop(aeron_archive);
 
         Ok(())
     }

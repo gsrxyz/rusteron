@@ -91,9 +91,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("({entries} loss entrie(s))");
 
     if let Some((aeron, publication, subscription, driver)) = _embedded {
-        drop(publication);
-        drop(subscription);
-        drop(aeron);
         drop(driver); // stops + joins
     }
     Ok(())

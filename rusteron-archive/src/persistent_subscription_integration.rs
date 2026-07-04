@@ -277,11 +277,6 @@ mod tests {
 
         info!("End-to-end OK: {} replayed + {} live", handler.historical, handler.live);
 
-        live_sub.close()?;
-        drop(publication);
-        drop(archive);
-        drop(aeron_archive);
-
         Ok(())
     }
 
@@ -422,10 +417,6 @@ mod tests {
             handler.before_restart + handler.after_restart
         );
 
-        subscription.close()?;
-        drop(archive);
-        drop(aeron_archive);
-
         Ok(())
     }
 
@@ -538,10 +529,6 @@ mod tests {
             replay_duration,
             handler.count as f64 / replay_duration.as_secs_f64()
         );
-
-        subscription.close()?;
-        drop(archive);
-        drop(aeron_archive);
 
         Ok(())
     }
@@ -666,10 +653,6 @@ mod tests {
 
         info!("Verified all {} messages with varying sizes", total_messages);
 
-        subscription.close()?;
-        drop(archive);
-        drop(aeron_archive);
-
         Ok(())
     }
 
@@ -759,9 +742,6 @@ mod tests {
 
         assert!(recording_found.get(), "Should find recording for our stream");
 
-        drop(archive);
-        drop(aeron_archive);
-
         Ok(())
     }
 
@@ -839,12 +819,7 @@ mod tests {
         );
 
         // Cleanup
-        for pub_item in publications {
-            drop(pub_item);
-        }
-
-        drop(archive);
-        drop(aeron_archive);
+        for pub_item in publications {}
 
         Ok(())
     }
@@ -907,9 +882,6 @@ mod tests {
         }
 
         info!("System recovered and functioning normally after errors");
-
-        drop(archive);
-        drop(aeron_archive);
 
         Ok(())
     }
@@ -995,8 +967,6 @@ mod tests {
         })?;
         info!("purged recording {recording_id}");
 
-        drop(archive);
-        drop(aeron_archive);
         Ok(())
     }
 

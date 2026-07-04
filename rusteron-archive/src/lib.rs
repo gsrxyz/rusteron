@@ -818,8 +818,6 @@ mod tests {
 
         running.store(false, Ordering::Release);
         publisher_thread.join().unwrap();
-        drop(archive);
-        drop(aeron);
         drop(media_driver);
 
         Ok(())
@@ -1029,8 +1027,6 @@ mod tests {
         assert!(!replay_merge.has_failed());
         assert!(replay_merge.is_live_added());
         assert!(reply_count > 10_000, "no replay-merge fragments received");
-        drop(replay_merge);
-        drop(subscription);
         Ok(())
     }
 
@@ -1348,7 +1344,6 @@ mod tests {
             })();
 
             replay_result?;
-            drop(archive);
             Ok(())
         })();
 
@@ -1372,8 +1367,6 @@ mod tests {
             result.is_err(),
             "Expected error when starting recording with an invalid channel"
         );
-        drop(archive);
-        drop(aeron);
         drop(media_driver);
         Ok(())
     }
@@ -1393,8 +1386,6 @@ mod tests {
             result.is_err(),
             "Expected error when stopping recording on a non-existent channel"
         );
-        drop(archive);
-        drop(aeron);
         drop(media_driver);
         Ok(())
     }
@@ -1420,8 +1411,6 @@ mod tests {
             result.is_err(),
             "Expected error when starting replay with an invalid recording id"
         );
-        drop(archive);
-        drop(aeron);
         drop(media_driver);
         Ok(())
     }
@@ -1473,8 +1462,6 @@ mod tests {
             "Reconnected archive should have a valid archive id"
         );
 
-        new_archive.close()?;
-        aeron.close()?;
         drop(media_driver);
         Ok(())
     }
@@ -1508,8 +1495,6 @@ mod tests {
             "original close defers while clone alive"
         );
 
-        clone2.close()?;
-        aeron.close()?;
         drop(media_driver);
         Ok(())
     }
@@ -1531,7 +1516,6 @@ mod tests {
         assert!(!publication.get_inner().is_null());
         publication.close()?;
 
-        aeron.close()?;
         drop(media_driver);
         Ok(())
     }

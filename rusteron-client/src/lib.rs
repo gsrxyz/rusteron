@@ -435,8 +435,6 @@ mod tests {
             assert!(Aeron::epoch_clock() > 0);
             // the context holds a clone of the handler; dropping both frees the
             // callback value exactly once (verified by the alloc-count check below)
-            drop(ctx);
-            drop(handler);
         }
 
         assert!(
@@ -538,9 +536,6 @@ mod tests {
         }
 
         // Shutdown
-        drop(sub_poller);
-        drop(pub_poller);
-        drop(aeron);
         stop.store(true, Ordering::SeqCst);
         let _ = driver_handle.join().unwrap();
         Ok(())
@@ -707,11 +702,6 @@ mod tests {
         assert_eq!(subscription.status(), AeronStatus::Connected);
 
         // Shutdown
-        drop(subscription);
-        drop(publisher);
-        drop(sub_poller);
-        drop(pub_poller);
-        drop(aeron);
         stop.store(true, Ordering::SeqCst);
         let _ = driver_handle.join().unwrap();
         Ok(())
@@ -815,11 +805,6 @@ mod tests {
         assert_eq!(subscription.status(), AeronStatus::Connected);
 
         // Shutdown
-        drop(subscription);
-        drop(publisher);
-        drop(sub_poller);
-        drop(pub_poller);
-        drop(aeron);
         stop.store(true, Ordering::SeqCst);
         let _ = driver_handle.join().unwrap();
         Ok(())
@@ -960,11 +945,6 @@ mod tests {
         assert_eq!(subscription.status(), AeronStatus::Connected);
 
         // Shutdown
-        drop(subscription);
-        drop(publisher);
-        drop(sub_poller);
-        drop(pub_poller);
-        drop(aeron);
         stop.store(true, Ordering::SeqCst);
         let _ = driver_handle.join().unwrap();
         Ok(())
@@ -1066,11 +1046,6 @@ mod tests {
         assert!(offered, "publication became unusable after failed try_claim_owned");
 
         // Shutdown
-        drop(_subscription);
-        drop(publisher);
-        drop(sub_poller);
-        drop(pub_poller);
-        drop(aeron);
         stop.store(true, Ordering::SeqCst);
         let _ = driver_handle.join().unwrap();
         Ok(())
@@ -1132,8 +1107,6 @@ mod tests {
             }
         });
 
-        drop(publisher);
-        drop(aeron);
         stop.store(true, Ordering::SeqCst);
         let _ = driver_handle.join().unwrap();
         Ok(())
@@ -1241,11 +1214,6 @@ mod tests {
                 "subscription async add did not complete on iteration {i} within {:?}",
                 POLL_TIMEOUT
             );
-
-            drop(subscription);
-            drop(publication);
-            drop(sub_poller);
-            drop(pub_poller);
         }
 
         drop(aeron);
@@ -1285,8 +1253,6 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
 
-        drop(poller);
-        drop(aeron);
         stop.store(true, Ordering::SeqCst);
         let _ = driver_handle.join().unwrap();
         Ok(())
@@ -1357,8 +1323,6 @@ mod tests {
             #[cfg(debug_assertions)]
             std::thread::sleep(Duration::from_millis(10));
         }
-        drop(poller);
-        drop(aeron);
         stop.store(true, Ordering::SeqCst);
         let _ = driver_handle.join().unwrap();
         Ok(())
@@ -1732,8 +1696,6 @@ mod tests {
         stop_publisher.store(true, Ordering::SeqCst);
 
         let _ = publisher_handler.join().unwrap();
-        drop(subscription);
-        drop(aeron);
 
         stop.store(true, Ordering::SeqCst);
         let _ = driver_handle.join().unwrap();
@@ -1845,8 +1807,6 @@ mod tests {
         stop_publisher.store(true, Ordering::SeqCst);
 
         let _ = publisher_handler.join().unwrap();
-        drop(counter);
-        drop(aeron);
 
         stop.store(true, Ordering::SeqCst);
         let _ = driver_handle.join().unwrap();
@@ -1950,8 +1910,6 @@ mod tests {
 
         stop_publisher.store(true, Ordering::SeqCst);
         publisher_thread.join().unwrap();
-        drop(subscription);
-        drop(aeron);
         stop.store(true, Ordering::SeqCst);
         let _ = driver_handle.join().unwrap();
 
@@ -2638,8 +2596,6 @@ mod tests {
         // position() advances with the offers.
         assert!(exclusive.position() >= pos);
 
-        drop(exclusive);
-        drop(aeron);
         stop.store(true, Ordering::SeqCst);
         Ok(())
     }
@@ -2894,9 +2850,6 @@ mod tests {
             );
 
             // Cleanup
-            drop(sub_poller);
-            drop(pub_poller);
-            drop(aeron);
             stop.store(true, Ordering::SeqCst);
             let _ = driver_handle.join().unwrap();
 
@@ -2944,7 +2897,6 @@ mod tests {
         error_handler: Handler<TestErrorCount>,
     ) {
         drop(driver); // stops + joins on Drop
-        drop(error_handler);
     }
 
     /// `drop(aeron)` while children hold `Rc<Aeron>` references must not call
@@ -3356,8 +3308,6 @@ mod tests {
                 .async_add_subscription(AERON_IPC_STREAM, 1611, Some(&handler), Handlers::NONE)
                 .unwrap();
             // both the caller's handler and the never-polled poller go away here
-            drop(handler);
-            drop(poller);
         }
         assert_eq!(
             0,
@@ -3767,9 +3717,6 @@ mod tests {
         }
         assert_eq!(1, received.load(Ordering::SeqCst));
 
-        drop(publisher);
-        drop(subscription);
-        drop(aeron);
         stop.store(true, Ordering::SeqCst);
         let _ = driver_handle.join();
     }
@@ -3846,10 +3793,6 @@ mod tests {
             Ok(_) => {}
             Err(e) => assert!(e.is_retryable() || e.is_fatal()), // typed, not UB
         }
-
-        drop(publisher);
-        drop(subscription);
-        drop(aeron);
     }
 
     // ── Structural teardown verification via memory protection ────────
