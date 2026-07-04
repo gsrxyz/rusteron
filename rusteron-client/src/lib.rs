@@ -3898,6 +3898,115 @@ mod tests {
         }
     }
 
+    // ── Handler dependency tracking tests ────────────────────────────────
+    //
+    // These tests verify that handlers registered via add_dependency()
+    // are kept alive correctly. Handlers must survive aeron.close() and
+    // only be released when the Aeron client itself is dropped.
+    //
+    // NOTE: Handler<T> wraps Arc<UnsafeCell<T>>, and UnsafeCell deliberately
+    // doesn't implement Drop (C code mutates handlers through raw pointers).
+    // We track handler lifetime via Arc::strong_count instead of drop counters.
+
+    /// Test that a single error handler survives handler clone drops
+    /// and persists via dependency tracking.
+    #[test]
+    #[serial]
+    fn handler_dependency_tracking() {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+        let (aeron, driver, _error_handler) = setup_aeron_for_uaf_test();
+
+        // Create a test handler
+        let handler = Handler::new(move |code: i32, msg: &str| {
+            log::info!("Error handler called: code={}, msg={}", code, msg);
+        });
+
+        // Store a clone to track strong_count
+        let handler1 = handler.clone();
+
+        // Verify initial strong_count is 2 (handler and handler1)
+        assert_eq!(
+            Arc::strong_count(&handler1.inner),
+            2,
+            "Handler should be held by handler and handler1"
+        );
+
+        // Register the handler with the context
+        let ctx = aeron.context();
+        ctx.set_error_handler(Some(handler)).unwrap();
+
+        // After registration, handler1 is the only external reference
+        // (the original handler was moved into the context's dependencies)
+        assert_eq!(
+            Arc::strong_count(&handler1.inner),
+            1,
+            "Handler should be held only by handler1 (original stored in context)"
+        );
+
+        // Explicitly close the Aeron client
+        aeron.close().unwrap();
+
+        // The handler should STILL be alive because it's stored in context
+        assert_eq!(
+            Arc::strong_count(&handler1.inner),
+            1,
+            "Handler must survive aeron.close() - still tracked by context"
+        );
+
+        // Drop handler1 - now only context holds the handler
+        drop(handler1);
+
+        teardown_aeron_after_uaf_test(driver, _error_handler);
+    }
+
+    /// Test that subscription image handlers are properly tracked
+    /// and survive subscription drops.
+    #[test]
+    #[serial]
+    fn subscription_handler_dependency_tracking() {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+        let (aeron, driver, _error_handler) = setup_aeron_for_uaf_test();
+
+        let avail_handler = Handler::new(move |subscription: AeronSubscription, image: AeronImage| {
+            log::info!("Available image callback invoked");
+        });
+
+        let local_avail = avail_handler.clone();
+
+        // Create subscription with handlers
+        let sub = aeron
+            .add_subscription(
+                AERON_IPC_STREAM,
+                2001,
+                Some(&avail_handler),
+                None::<&Handler<AeronUnavailableImageLogger>>,
+                Duration::from_secs(5),
+            )
+            .unwrap();
+
+        // Handler is held by avail_handler, local_avail, and stored in subscription
+        let initial_count = Arc::strong_count(&local_avail.inner);
+        assert!(
+            initial_count >= 2,
+            "Handler should be held by at least avail_handler and local_avail"
+        );
+
+        // Close the subscription
+        drop(sub);
+
+        // Handler should STILL be alive - tracked by dependencies
+        let after_sub_drop = Arc::strong_count(&local_avail.inner);
+        assert!(
+            after_sub_drop >= 1,
+            "Handler must survive subscription drop - still tracked"
+        );
+
+        // Drop the Aeron wrapper
+        drop(aeron);
+
+        teardown_aeron_after_uaf_test(driver, _error_handler);
+    }
+
     // ── Structural teardown verification via memory protection ────────
     //
     // Under the new design, the Rc dependency graph ensures correct
