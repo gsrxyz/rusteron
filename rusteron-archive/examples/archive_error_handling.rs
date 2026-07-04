@@ -120,7 +120,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("stopping the archive process to simulate an outage...");
     drop(process); // kills the Java archive + media driver
 
-    let bad = archive.start_recording(&"aeron:ipc".into_c_string(), 5001, SOURCE_LOCATION_LOCAL, true);
+    let bad = archive.start_recording(c"aeron:ipc", 5001, SOURCE_LOCATION_LOCAL, true);
     println!("[expected] request while archive is down -> {:?}", bad.err());
 
     // Reconnect pattern: bounded retries with back-off; each attempt has its own timeout.

@@ -119,7 +119,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
 
-    let channel = &"aeron:ipc".into_c_string();
+    // c"..." literals are compile-time &'static CStr — zero runtime cost.
+    let channel = c"aeron:ipc";
     let publication = aeron
         .async_add_publication(channel, 123)?
         .poll_blocking(Duration::from_secs(5))?;
@@ -150,6 +151,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 </details>
+
+### C strings without hidden allocations
+
+Every channel/URI argument is a `&CStr` (the C API's type), so allocations stay **explicit
+and greppable** — important when reviewing latency-sensitive code. The recommended
+three-tier pattern, cheapest first:
+
+```rust,ignore
+// 1. Constant channels: c"..." literals — compile-time &'static CStr, zero runtime cost.
+aeron.async_add_publication(c"aeron:ipc", 10)?;
+
+// 2. Dynamic URIs: cformat! — ONE named heap allocation (format + CString in one step).
+let uri = cformat!("aeron:udp?endpoint=localhost:{port}");
+aeron.async_add_publication(&uri, 10)?;
+
+// 3. Repeated paths: build the CString once, store it, pass `&it` (zero-copy on reuse).
+let chan: std::ffi::CString = cformat!("aeron:udp?endpoint={endpoint}");
+for _ in 0..reconnect_attempts {
+    aeron.async_add_publication(&chan, 10)?; // no allocation per call
+}
+```
+
+Avoid `&"aeron:ipc".into_c_string()` for literals — it heap-allocates at runtime what
+`c"aeron:ipc"` gets for free at compile time. (`into_c_string()` remains for converting
+an owned `String` you already have.)
 
 For recording, replay, and **persistent subscriptions** (replay history, then seamlessly join a
 live stream), see [`rusteron-archive`](./rusteron-archive/README.md#persistent-subscriptions).

@@ -989,6 +989,38 @@ pub(crate) mod test_alloc {
     }
 }
 
+/// `format!` for C strings: builds the formatted [`String`] and converts it to a
+/// [`CString`](std::ffi::CString) in one visibly-named step.
+///
+/// This is the recommended way to build **dynamic** channel URIs and other C-string
+/// arguments. The `c`-prefix keeps the heap allocation greppable and visible at the
+/// call site — important for latency-sensitive code review — while removing the
+/// `format!(...).into_c_string()` noise:
+///
+/// ```
+/// # use rusteron_code_gen::cformat;
+/// let port = 4040;
+/// let uri = cformat!("aeron:udp?endpoint=localhost:{port}");
+/// assert_eq!(uri.to_bytes(), b"aeron:udp?endpoint=localhost:4040");
+/// ```
+///
+/// The three-tier pattern for C-string arguments (cheapest first):
+/// 1. **`c"aeron:ipc"` literals** — compile-time `&'static CStr`, zero runtime cost.
+///    Use for every constant channel/name.
+/// 2. **`cformat!(...)`** — one heap allocation (the formatted `String`; `CString::new`
+///    reuses its buffer). Use for dynamic URIs built once per stream/reconnect.
+/// 3. **Reuse** — build the `CString` once, store it, pass `&it` on every call
+///    (zero-copy via `&CString → &CStr` deref). Use for anything on a repeated path.
+///
+/// Panics if the formatted string contains an interior nul byte.
+#[macro_export]
+macro_rules! cformat {
+    ($($arg:tt)*) => {
+        ::std::ffi::CString::new(::std::format!($($arg)*))
+            .expect("nul byte in cformat! string")
+    };
+}
+
 pub trait IntoCString {
     fn into_c_string(self) -> std::ffi::CString;
 }

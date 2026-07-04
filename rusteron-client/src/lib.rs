@@ -2405,7 +2405,7 @@ mod tests {
         info!("creating suscriber 1");
         let sub = aeron_sub
             .add_subscription(
-                &"aeron:udp?tags=100".into_c_string(),
+                c"aeron:udp?tags=100",
                 123,
                 Handlers::NONE,
                 Handlers::NONE,
@@ -2423,7 +2423,7 @@ mod tests {
 
         info!("creating suscriber 2");
         let sub2 = aeron_sub.add_subscription(
-            &"aeron:udp?tags=100".into_c_string(),
+            c"aeron:udp?tags=100",
             123,
             Handlers::NONE,
             Handlers::NONE,
@@ -2435,7 +2435,7 @@ mod tests {
         assert!(!aeron_pub.is_closed());
         let publisher = aeron_pub
             .add_publication(
-                &"aeron:udp?endpoint=localhost:4040|alias=test|tags=100".into_c_string(),
+                c"aeron:udp?endpoint=localhost:4040|alias=test|tags=100",
                 123,
                 Duration::from_secs(5),
             )
@@ -3352,7 +3352,7 @@ mod tests {
     fn async_add_subscription_invalid_uri_fails_cleanly() {
         let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
 
-        let bad_uri = &"aeron:udp?endpoint=not-a-real-host:0|interface=500.500.500.500".into_c_string();
+        let bad_uri = c"aeron:udp?endpoint=not-a-real-host:0|interface=500.500.500.500";
         match aeron.async_add_subscription(bad_uri, 1621, Handlers::NONE, Handlers::NONE) {
             Err(_) => {} // rejected synchronously — fine
             Ok(poller) => {

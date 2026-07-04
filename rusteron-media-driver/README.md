@@ -71,7 +71,7 @@ use rusteron_media_driver::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let aeron_context = AeronDriverContext::new()?;
-    aeron_context.set_dir(&"target/test".into_c_string())?;
+    aeron_context.set_dir(c"target/test")?;
 
     let aeron_driver = AeronDriver::new(&aeron_context)?;
     aeron_driver.start(false)?;

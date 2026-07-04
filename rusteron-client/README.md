@@ -135,7 +135,7 @@ ctx.set_error_handler(Some(AeronErrorHandlerLogger))?;
 let aeron = Aeron::new(&ctx)?;
 aeron.start()?;
 
-let channel = &"aeron:ipc".into_c_string();
+let channel = c"aeron:ipc"; // compile-time &CStr, zero runtime cost
 let publication = aeron
     .async_add_publication(channel, 123)?
     .poll_blocking(Duration::from_secs(5))?;

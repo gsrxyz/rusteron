@@ -87,27 +87,27 @@ pub mod testing;
 impl AeronDriverContext {
     /// Typed variant of [`Self::set_conductor_idle_strategy`].
     pub fn set_conductor_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {
-        self.set_conductor_idle_strategy(&kind.name().into_c_string())
+        self.set_conductor_idle_strategy(kind.name_c())
     }
 
     /// Typed variant of [`Self::set_sender_idle_strategy`].
     pub fn set_sender_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {
-        self.set_sender_idle_strategy(&kind.name().into_c_string())
+        self.set_sender_idle_strategy(kind.name_c())
     }
 
     /// Typed variant of [`Self::set_receiver_idle_strategy`].
     pub fn set_receiver_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {
-        self.set_receiver_idle_strategy(&kind.name().into_c_string())
+        self.set_receiver_idle_strategy(kind.name_c())
     }
 
     /// Typed variant of [`Self::set_sharednetwork_idle_strategy`].
     pub fn set_sharednetwork_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {
-        self.set_sharednetwork_idle_strategy(&kind.name().into_c_string())
+        self.set_sharednetwork_idle_strategy(kind.name_c())
     }
 
     /// Typed variant of [`Self::set_shared_idle_strategy`].
     pub fn set_shared_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {
-        self.set_shared_idle_strategy(&kind.name().into_c_string())
+        self.set_shared_idle_strategy(kind.name_c())
     }
 }
 

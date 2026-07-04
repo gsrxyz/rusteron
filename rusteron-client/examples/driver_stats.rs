@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             // seed the error log with a deliberately invalid channel
             let _ = aeron
-                .async_add_publication(&"aeron:udp?endpoint=bad-host:0|interface=1.2.3.4.5".into_c_string(), 78)
+                .async_add_publication(c"aeron:udp?endpoint=bad-host:0|interface=1.2.3.4.5", 78)
                 .and_then(|p| p.poll_blocking(Duration::from_secs(1)));
             sleep(Duration::from_millis(200));
 

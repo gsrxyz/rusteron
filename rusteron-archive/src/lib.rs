@@ -1081,7 +1081,7 @@ mod tests {
 
         let aeron_context = AeronContext::new()?;
         aeron_context.set_dir(&aeron_dir.into_c_string())?;
-        aeron_context.set_client_name(&"test".into_c_string())?;
+        aeron_context.set_client_name(c"test")?;
         let pub_error_frame_handler = Handler::new(AeronPublicationErrorFrameHandlerLogger);
         aeron_context.set_publication_error_frame_handler(Some(pub_error_frame_handler.clone()))?;
         let error_handler = Handler::new(ErrorCount::default());
@@ -1366,7 +1366,7 @@ mod tests {
             .poll_blocking(Duration::from_secs(30))
             .expect("failed to connect to archive");
 
-        let invalid_channel = "invalid:channel".into_c_string();
+        let invalid_channel = c"invalid:channel";
         let result = archive.start_recording(&invalid_channel, STREAM_ID, SOURCE_LOCATION_LOCAL, true);
         assert!(
             result.is_err(),
@@ -1387,7 +1387,7 @@ mod tests {
             .poll_blocking(Duration::from_secs(30))
             .expect("failed to connect to archive");
 
-        let nonexistent_channel = &"aeron:udp?endpoint=localhost:9999".into_c_string();
+        let nonexistent_channel = c"aeron:udp?endpoint=localhost:9999";
         let result = archive.stop_recording_channel_and_stream(nonexistent_channel, STREAM_ID);
         assert!(
             result.is_err(),
@@ -1412,7 +1412,7 @@ mod tests {
         let params = AeronArchiveReplayParams::new(0, i32::MAX, 0, 100, 0, 0)?;
         let result = archive.start_replay(
             invalid_recording_id,
-            &"aeron:udp?endpoint=localhost:8888".into_c_string(),
+            c"aeron:udp?endpoint=localhost:8888",
             STREAM_ID,
             &params,
         );

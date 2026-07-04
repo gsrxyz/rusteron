@@ -788,11 +788,11 @@ mod tests {
         // Setup multiple streams
         for stream_id in &stream_ids {
             let subscription_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
-                archive.start_recording(&"aeron:ipc".into_c_string(), *stream_id, SOURCE_LOCATION_LOCAL, true)
+                archive.start_recording(c"aeron:ipc", *stream_id, SOURCE_LOCATION_LOCAL, true)
             })?;
 
             let publication = aeron_archive
-                .async_add_publication(&"aeron:ipc".into_c_string(), *stream_id)?
+                .async_add_publication(c"aeron:ipc", *stream_id)?
                 .poll_blocking(Duration::from_secs(5))?;
 
             // Publish some messages
@@ -868,7 +868,7 @@ mod tests {
         let fake_recording_id = 999999;
         let replay_params = AeronArchiveReplayParams::new(-1, i32::MAX, 0, 100, 0, 0)?;
 
-        let result = archive.start_replay(fake_recording_id, &"aeron:ipc".into_c_string(), 4001, &replay_params);
+        let result = archive.start_replay(fake_recording_id, c"aeron:ipc", 4001, &replay_params);
 
         assert!(result.is_err(), "Should fail to replay non-existent recording");
         info!("Correctly handled non-existent recording error");

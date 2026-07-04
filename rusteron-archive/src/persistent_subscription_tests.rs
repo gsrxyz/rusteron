@@ -823,7 +823,7 @@ mod tests {
             .expect("failed to connect to archive");
 
         // Test 1: Invalid channel format
-        let invalid_channel = "invalid:channel:format".into_c_string();
+        let invalid_channel = c"invalid:channel:format";
         let result = archive.start_recording(&invalid_channel, 1009, SOURCE_LOCATION_LOCAL, true);
 
         assert!(
@@ -833,7 +833,7 @@ mod tests {
         info!("Correctly rejected invalid channel format");
 
         // Test 2: Stop recording on non-existent channel
-        let nonexistent_channel = "aeron:udp?endpoint=localhost:99999".into_c_string();
+        let nonexistent_channel = c"aeron:udp?endpoint=localhost:99999";
         let result = archive.stop_recording_channel_and_stream(&nonexistent_channel, 1010);
 
         // This might succeed or fail depending on implementation
@@ -842,7 +842,7 @@ mod tests {
         // Test 3: Replay with invalid recording ID
         let invalid_recording_id = 999999;
         let replay_params = AeronArchiveReplayParams::new(-1, i32::MAX, 0, 100, 0, 0)?;
-        let result = archive.start_replay(invalid_recording_id, &"aeron:ipc".into_c_string(), 1011, &replay_params);
+        let result = archive.start_replay(invalid_recording_id, c"aeron:ipc", 1011, &replay_params);
 
         assert!(result.is_err(), "Should fail to start replay with invalid recording ID");
         info!("Correctly rejected invalid recording ID");
@@ -872,7 +872,7 @@ mod tests {
             .expect("failed to connect to archive");
 
         // Test subscription to non-existent stream
-        let invalid_channel = "aeron:ipc".into_c_string();
+        let invalid_channel = c"aeron:ipc";
         let invalid_stream_id = 9999;
 
         // This should create the subscription but it won't connect

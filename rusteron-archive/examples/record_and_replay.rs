@@ -59,17 +59,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // 2. Connect a client + archive context. The error logger surfaces async client errors.
+    // `cformat!` = format + CString in one named step (the one heap allocation stays visible).
     let aeron_context = AeronContext::new()?;
     aeron_context.set_dir(&aeron_dir.into_c_string())?;
     let aeron = Aeron::new(&aeron_context)?;
     aeron.start()?;
     let archive_context = AeronArchiveContext::new()?;
     archive_context.set_aeron(&aeron)?;
-    archive_context.set_control_request_channel(&format!("aeron:udp?endpoint=localhost:{req_port}").into_c_string())?;
-    archive_context
-        .set_control_response_channel(&format!("aeron:udp?endpoint=localhost:{resp_port}").into_c_string())?;
-    archive_context
-        .set_recording_events_channel(&format!("aeron:udp?endpoint=localhost:{events_port}").into_c_string())?;
+    archive_context.set_control_request_channel(&cformat!("aeron:udp?endpoint=localhost:{req_port}"))?;
+    archive_context.set_control_response_channel(&cformat!("aeron:udp?endpoint=localhost:{resp_port}"))?;
+    archive_context.set_recording_events_channel(&cformat!("aeron:udp?endpoint=localhost:{events_port}"))?;
     let archive = retry_transient(Instant::now() + Duration::from_secs(20), || {
         AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?.poll_blocking(Duration::from_secs(5))
     })?;

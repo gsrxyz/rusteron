@@ -1,7 +1,6 @@
 
 // code here is included in all modules and extends generated classes
-pub static AERON_IPC_STREAM: &std::ffi::CStr =
-    unsafe { std::ffi::CStr::from_bytes_with_nul_unchecked(b"aeron:ipc\0") };
+pub static AERON_IPC_STREAM: &std::ffi::CStr = c"aeron:ipc";
 
 // SAFETY (accepted unsoundness — latency trade-off):
 // These handle types wrap `Rc` (via `CResource::OwnedOnHeap`), so in principle
@@ -86,6 +85,18 @@ impl AeronIdleStrategyKind {
             AeronIdleStrategyKind::Backoff => "backoff",
         }
     }
+
+    /// [`Self::name`] as a compile-time C string — lets setters pass it straight to
+    /// the FFI with no runtime allocation.
+    pub const fn name_c(&self) -> &'static std::ffi::CStr {
+        match self {
+            AeronIdleStrategyKind::Sleeping => c"sleeping",
+            AeronIdleStrategyKind::Yielding => c"yield",
+            AeronIdleStrategyKind::BusySpin => c"spin",
+            AeronIdleStrategyKind::NoOp => c"noop",
+            AeronIdleStrategyKind::Backoff => c"backoff",
+        }
+    }
 }
 
 impl AeronIdleStrategyKind {
@@ -98,6 +109,15 @@ impl AeronIdleStrategyKind {
             AeronIdleStrategyKind::Sleeping => "1000000", // 1ms
             AeronIdleStrategyKind::Backoff => "10-20-1000-1000000", // aeron defaults
             _ => "",
+        }
+    }
+
+    /// [`Self::default_init_args`] as a compile-time C string (no runtime allocation).
+    pub const fn default_init_args_c(&self) -> &'static std::ffi::CStr {
+        match self {
+            AeronIdleStrategyKind::Sleeping => c"1000000", // 1ms
+            AeronIdleStrategyKind::Backoff => c"10-20-1000-1000000", // aeron defaults
+            _ => c"",
         }
     }
 }
@@ -138,8 +158,8 @@ impl AeronContext {
     /// strategy without stringly-typed names, setting coherent default init args
     /// (override afterwards with [`Self::set_idle_strategy_init_args`] if needed).
     pub fn set_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {
-        self.set_idle_strategy_init_args(&kind.default_init_args().into_c_string())?;
-        self.set_idle_strategy(&kind.name().into_c_string())
+        self.set_idle_strategy_init_args(kind.default_init_args_c())?;
+        self.set_idle_strategy(kind.name_c())
     }
 }
 

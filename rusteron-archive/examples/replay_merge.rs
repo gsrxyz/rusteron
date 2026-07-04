@@ -132,7 +132,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &subscription,
         &archive,
         &format!("aeron:udp?session-id={session_id}").into_c_string(),
-        &"aeron:udp?endpoint=localhost:0".into_c_string(), // replay destination (ephemeral)
+        c"aeron:udp?endpoint=localhost:0", // replay destination (ephemeral)
         &format!("aeron:udp?endpoint=localhost:{live_port}|control={control_endpoint}").into_c_string(),
         recording_id,
         0, // start position: from the beginning
