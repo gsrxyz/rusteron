@@ -1,8 +1,8 @@
 //! Argument classification for generated wrapper methods.
 //!
-//! `plan_method` classifies each C argument once into a [`PlannedArg`] carrying all token
+//! `classify_method_args` classifies each C argument once into a [`ClassifiedArg`] carrying all token
 //! fragments the emitters need (signature, FFI call, generics, retained-handler registration,
-//! and the `_once` stack-closure variant). `generate_methods` then emits purely from the plan.
+//! and the `_once` stack-closure variant). `generate_methods` then emits purely from the classification.
 
 use crate::generator::{is_sync_handler_type, Arg, ArgProcessing, CHandler, CWrapper, Method, ReturnType};
 use crate::snake_to_pascal_case;
@@ -17,7 +17,7 @@ use syn::{parse_str, Type};
 /// callback that must be retained? etc. The classification drives all emission
 /// (signature, FFI call, handler registration, and the `_once` variant).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlannedArgKind {
+pub enum ArgRole {
     /// `*mut <own type>` — becomes `&self` / `self.get_inner()`.
     SelfPointer,
     /// `*mut <other wrapper>` — `&OtherWrapper` param, `name.get_inner()` call.
@@ -37,8 +37,8 @@ pub enum PlannedArgKind {
 }
 
 /// One argument, classified once, with every emission fragment precomputed.
-pub struct PlannedArg {
-    pub kind: PlannedArgKind,
+pub struct ClassifiedArg {
+    pub kind: ArgRole,
     /// `name: Type` in the generated signature (None: not part of the signature).
     pub signature: Option<TokenStream>,
     /// Argument(s) for the FFI call (None: emits nothing).
@@ -56,16 +56,16 @@ pub struct PlannedArg {
     pub once_generic: Option<TokenStream>,
 }
 
-pub struct MethodPlan {
+pub struct ClassifiedMethodArgs {
     pub uses_self: bool,
-    pub args: Vec<PlannedArg>,
+    pub args: Vec<ClassifiedArg>,
     /// The owned retained-handler argument, when this method is an owned setter.
     pub owned_retained: Option<Arg>,
     /// Every handler argument is sync — a `_once` stack-closure variant is sound.
     pub once_capable: bool,
 }
 
-impl MethodPlan {
+impl ClassifiedMethodArgs {
     pub fn signatures(&self) -> Vec<TokenStream> {
         self.args.iter().filter_map(|a| a.signature.clone()).collect()
     }
@@ -111,12 +111,12 @@ impl MethodPlan {
 
 /// Classify every argument of `method` once. `owned_retained` mirrors the owned-setter
 /// rule: `&self` method, int return, exactly one retained handler, no `&mut` primitives.
-pub fn plan_method(
+pub fn classify_method_args(
     method: &Method,
     own_type_name: &str,
     wrappers: &BTreeMap<String, CWrapper>,
     closure_handlers: &[CHandler],
-) -> MethodPlan {
+) -> ClassifiedMethodArgs {
     let uses_self_precheck = method
         .arguments
         .iter()
@@ -151,7 +151,7 @@ pub fn plan_method(
         .arguments
         .iter()
         .map(|arg| {
-            plan_arg(
+            classify_arg(
                 arg,
                 own_type_name,
                 wrappers,
@@ -162,7 +162,7 @@ pub fn plan_method(
         })
         .collect();
 
-    MethodPlan {
+    ClassifiedMethodArgs {
         uses_self,
         args,
         owned_retained,
@@ -170,16 +170,16 @@ pub fn plan_method(
     }
 }
 
-fn plan_arg(
+fn classify_arg(
     arg: &Arg,
     own_type_name: &str,
     wrappers: &BTreeMap<String, CWrapper>,
     closure_handlers: &[CHandler],
     owned_retained: &Option<Arg>,
     uses_self: &mut bool,
-) -> PlannedArg {
-    let none = PlannedArg {
-        kind: PlannedArgKind::Absorbed,
+) -> ClassifiedArg {
+    let none = ClassifiedArg {
+        kind: ArgRole::Absorbed,
         signature: None,
         call: None,
         generic: None,
@@ -200,15 +200,15 @@ fn plan_arg(
         let name = arg.as_ident();
         if arg.c_type.ends_with(own_type_name) && matching_wrapper.type_name == own_type_name {
             *uses_self = true;
-            return PlannedArg {
-                kind: PlannedArgKind::SelfPointer,
+            return ClassifiedArg {
+                kind: ArgRole::SelfPointer,
                 call: Some(quote! { self.get_inner() }),
                 ..none
             };
         }
         let arg_type = ReturnType::new(arg.clone(), wrappers.clone()).get_new_return_type(false, true);
-        return PlannedArg {
-            kind: PlannedArgKind::WrapperPointer,
+        return ClassifiedArg {
+            kind: ArgRole::WrapperPointer,
             signature: if arg_type.is_empty() {
                 None
             } else {
@@ -222,7 +222,7 @@ fn plan_arg(
     // handler arguments (the callback side; the clientd side is Absorbed below)
     if let ArgProcessing::Handler(handler_client) = &arg.processing {
         if !arg.is_mut_pointer() {
-            return plan_handler_arg(arg, handler_client, wrappers, closure_handlers, owned_retained, none);
+            return classify_handler_arg(arg, handler_client, wrappers, closure_handlers, owned_retained, none);
         }
         // clientd pointer: merged into the callback argument
         return none;
@@ -234,8 +234,8 @@ fn plan_arg(
     let rt = ReturnType::new(arg.clone(), wrappers.clone());
     let arg_type = rt.get_new_return_type(false, true);
     let call = rt.handle_rs_to_c_return(quote! { #name }, false);
-    PlannedArg {
-        kind: PlannedArgKind::Plain,
+    ClassifiedArg {
+        kind: ArgRole::Plain,
         signature: if arg_type.is_empty() {
             None
         } else {
@@ -247,14 +247,14 @@ fn plan_arg(
     }
 }
 
-fn plan_handler_arg(
+fn classify_handler_arg(
     arg: &Arg,
     handler_client: &[Arg],
     wrappers: &BTreeMap<String, CWrapper>,
     closure_handlers: &[CHandler],
     owned_retained: &Option<Arg>,
-    none: PlannedArg,
-) -> PlannedArg {
+    none: ClassifiedArg,
+) -> ClassifiedArg {
     let handler = handler_client.first().unwrap();
     let name = arg.as_ident();
     let raw_name = format_ident!("{}_raw", arg.name);
@@ -269,8 +269,8 @@ fn plan_handler_arg(
 
     if is_owned {
         // owned setter: Option<T> in, prelude heap-allocates, registration keeps it alive
-        return PlannedArg {
-            kind: PlannedArgKind::HandlerRetainedOwned,
+        return ClassifiedArg {
+            kind: ArgRole::HandlerRetainedOwned,
             signature: Some(quote! { #name: Option<#new_type> }),
             call: Some(quote! {
                 {
@@ -315,8 +315,8 @@ fn plan_handler_arg(
             .find(|c| c.type_name == handler.c_type)
             .map(|c| c.fn_mut_signature.clone())
             .unwrap_or_else(|| quote! { FnMut() -> () });
-        PlannedArg {
-            kind: PlannedArgKind::HandlerSync,
+        ClassifiedArg {
+            kind: ArgRole::HandlerSync,
             signature: Some(quote! { #name: Option<&Handler<#new_type>> }),
             call: Some(borrow_call),
             generic: rt.method_generics_for_where(false),
@@ -329,8 +329,8 @@ fn plan_handler_arg(
             ..none
         }
     } else {
-        PlannedArg {
-            kind: PlannedArgKind::HandlerRetainedBorrowed,
+        ClassifiedArg {
+            kind: ArgRole::HandlerRetainedBorrowed,
             signature: Some(quote! { #name: Option<&Handler<#new_type>> }),
             call: Some(borrow_call),
             generic: rt.method_generics_for_where(false),
@@ -393,12 +393,12 @@ mod tests {
                 ..Default::default()
             },
         );
-        let plan = plan_method(&m, "aeron_context_t", &wrappers, &[]);
-        assert!(plan.uses_self);
-        assert!(plan.owned_retained.is_some(), "error handler must be an owned setter");
-        assert!(!plan.once_capable, "retained callbacks must not get a _once variant");
-        assert_eq!(plan.args[1].kind, PlannedArgKind::HandlerRetainedOwned);
-        assert!(plan.args[1].registration.is_some());
+        let classified = classify_method_args(&m, "aeron_context_t", &wrappers, &[]);
+        assert!(classified.uses_self);
+        assert!(classified.owned_retained.is_some(), "error handler must be an owned setter");
+        assert!(!classified.once_capable, "retained callbacks must not get a _once variant");
+        assert_eq!(classified.args[1].kind, ArgRole::HandlerRetainedOwned);
+        assert!(classified.args[1].registration.is_some());
     }
 
     #[test]
@@ -420,12 +420,12 @@ mod tests {
                 ..Default::default()
             },
         );
-        let plan = plan_method(&m, "aeron_subscription_t", &wrappers, &[]);
-        assert!(plan.once_capable, "sync callbacks get a _once variant");
-        assert!(plan.owned_retained.is_none());
-        assert_eq!(plan.args[1].kind, PlannedArgKind::HandlerSync);
-        assert!(plan.args[1].registration.is_none(), "sync handlers are never retained");
-        assert!(plan.args[1].once_call.is_some());
+        let classified = classify_method_args(&m, "aeron_subscription_t", &wrappers, &[]);
+        assert!(classified.once_capable, "sync callbacks get a _once variant");
+        assert!(classified.owned_retained.is_none());
+        assert_eq!(classified.args[1].kind, ArgRole::HandlerSync);
+        assert!(classified.args[1].registration.is_none(), "sync handlers are never retained");
+        assert!(classified.args[1].once_call.is_some());
     }
 
     #[test]
@@ -448,10 +448,10 @@ mod tests {
                 ..Default::default()
             },
         );
-        let plan = plan_method(&m, "aeron_subscription_t", &wrappers, &[]);
-        assert_eq!(plan.args[0].kind, PlannedArgKind::SelfPointer);
-        assert!(plan.args[0].signature.is_none());
-        assert_eq!(plan.signatures().len(), 0);
-        assert_eq!(plan.calls().len(), 1);
+        let classified = classify_method_args(&m, "aeron_subscription_t", &wrappers, &[]);
+        assert_eq!(classified.args[0].kind, ArgRole::SelfPointer);
+        assert!(classified.args[0].signature.is_none());
+        assert_eq!(classified.signatures().len(), 0);
+        assert_eq!(classified.calls().len(), 1);
     }
 }

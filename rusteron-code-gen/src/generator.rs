@@ -38,11 +38,11 @@ pub enum ArgProcessing {
     Default,
 }
 
-/// C callbacks invoked only synchronously during the FFI call (e.g. fragment handlers in `poll`).
+/// Callbacks Aeron invokes only during the FFI call (e.g. `poll`'s fragment handler).
+/// The generator emits a `_once` stack-closure variant for these.
 ///
-/// Callbacks not listed here are retained by the C client for later invocation (conductor thread);
-/// the wrapper must keep their `Handler` alive via dependency registration and must NOT offer a
-/// stack-closure `_once` variant (unsound — the closure would be invoked after it drops).
+/// Callbacks NOT listed are retained by Aeron and invoked later (conductor thread);
+/// they need a heap `Handler` registered as a dependency, and get no `_once` variant.
 const SYNC_HANDLER_TYPES: &[&str] = &[
     "aeron_fragment_handler_t",
     "aeron_controlled_fragment_handler_t",
@@ -76,7 +76,7 @@ pub struct Arg {
 impl Arg {
     pub fn is_primitive(&self) -> bool {
         static PRIMITIVE_TYPES: &[&str] = &[
-            "i64", "u64", "f32", "f64", "i32", "i16", "u32", "u16", "bool", "usize", "isize",
+            "i64", "u64", "f32", "f64", "i32", "i16", "u32", "u16", "bool", "usize", "isize", "c_int",
         ];
         PRIMITIVE_TYPES.iter().any(|&f| self.c_type.ends_with(f))
     }
@@ -200,7 +200,12 @@ impl ReturnType {
                 if self.original.is_c_string() {
                     return quote! { &str };
                 } else if self.original.is_mut_c_string() {
-                    // return quote! { &mut str };
+                    // snprintf-style fill buffer: `&mut [u8]` as arg, `&str` as field.
+                    if use_ref_for_cwrapper {
+                        return quote! { &mut [u8] };
+                    } else {
+                        return quote! { &str };
+                    }
                 } else {
                     return quote! {};
                 }
@@ -255,10 +260,21 @@ impl ReturnType {
     }
 
     pub fn handle_c_to_rs_return(&self, result: TokenStream, convert_errors: bool, use_self: bool) -> TokenStream {
-        if let ArgProcessing::StringWithLength(_) = &self.original.processing {
+        if let ArgProcessing::StringWithLength(args) = &self.original.processing {
             if !self.original.is_c_string_any() {
                 return quote! {};
             }
+            // Field read: text + stored length (buffer need not be NUL-terminated).
+            let string_ptr = &args[0].as_ident();
+            let length = &args[1].as_ident();
+            let me = if use_self {
+                quote! {self.}
+            } else {
+                quote! {}
+            };
+            return quote! {
+                if #me #string_ptr.is_null() { "" } else { unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(#me #string_ptr as *const u8, #me #length.try_into().unwrap())) } }
+            };
         }
         if let ArgProcessing::ByteArrayWithLength(args) = &self.original.processing {
             if !self.original.is_byte_array() {
@@ -286,7 +302,7 @@ impl ReturnType {
         if convert_errors && self.original.is_c_raw_int() {
             quote! {
                 if result < 0 {
-                    return Err(AeronCError::from_c_code(result));
+                    return Err(AeronCError::from_code(result));
                 } else {
                     return Ok(result)
                 }
@@ -377,18 +393,25 @@ impl ReturnType {
             }
         }
         if let ArgProcessing::StringWithLength(handler_client) = &self.original.processing {
-            if !self.original.is_c_string() {
+            // Emit the (pointer, length) pair once, on the length argument.
+            if !self.original.is_c_string_any() {
                 let array = handler_client.get(0).unwrap();
                 let array_name = array.as_ident();
                 let length_name = handler_client.get(1).unwrap().as_ident();
+                // `&str` in-param for const buffers; `&mut [u8]` fill-buffer for mut ones.
+                let ptr = if array.is_mut_c_string() {
+                    quote! { #array_name.as_mut_ptr() as *mut _ }
+                } else {
+                    quote! { #array_name.as_ptr() as *const _ }
+                };
                 if include_field_name {
                     return quote! {
-                        #array_name: #array_name.as_ptr() as *const _,
+                        #array_name: #ptr,
                         #length_name: #array_name.len()
                     };
                 } else {
                     return quote! {
-                        #array_name.as_ptr() as *const _,
+                        #ptr,
                         #array_name.len()
                     };
                 }
@@ -607,23 +630,23 @@ impl CWrapper {
                 let mut return_type = return_type_helper.get_new_return_type(true, false);
                 let ffi_call = Ident::new(&method.fn_name, proc_macro2::Span::call_site());
 
-                // One classification pass: every argument becomes a PlannedArg carrying its
-                // signature/call/generic/registration/_once fragments (see plan.rs). All
+                // One classification pass: every argument becomes a ClassifiedArg carrying its
+                // signature/call/generic/registration/_once fragments (see arg_classifier.rs). All
                 // emitters below consume the plan — no parallel loops to keep in sync.
-                let plan = crate::plan::plan_method(method, &self.type_name, wrappers, closure_handlers);
-                let uses_self = plan.uses_self;
-                let owned_retained_handler = plan.owned_retained.clone();
+                let classified = crate::arg_classifier::classify_method_args(method, &self.type_name, wrappers, closure_handlers);
+                let uses_self = classified.uses_self;
+                let owned_retained_handler = classified.owned_retained.clone();
 
-                let generic_types: Vec<TokenStream> = plan.generics();
+                let generic_types: Vec<TokenStream> = classified.generics();
                 let where_clause = if generic_types.is_empty() {
                     quote! {}
                 } else {
                     quote! { <#(#generic_types),*> }
                 };
 
-                let fn_arguments: Vec<TokenStream> = plan.signatures();
-                let mut arg_names: Vec<TokenStream> = plan.calls();
-                let retained_handler_registrations: Vec<TokenStream> = plan.registrations();
+                let fn_arguments: Vec<TokenStream> = classified.signatures();
+                let mut arg_names: Vec<TokenStream> = classified.calls();
+                let retained_handler_registrations: Vec<TokenStream> = classified.registrations();
 
                 let mut converter = return_type_helper.handle_c_to_rs_return(quote! { result }, true, false);
 
@@ -653,7 +676,7 @@ impl CWrapper {
                     return_type = quote! { Result<Option<Handler<#new_type>>, AeronCError> };
                     converter = quote! {
                         if result < 0 {
-                            return Err(AeronCError::from_c_code(result));
+                            return Err(AeronCError::from_code(result));
                         } else {
                             return Ok(#name);
                         }
@@ -708,20 +731,20 @@ impl CWrapper {
                 // a stack closure handed to a retained callback would dangle). Skipped when
                 // aeron_custom.rs hand-writes a method of the same `<name>_once` name, so
                 // custom code can override/deprecate a generated `_once` variant.
-                if plan.once_capable
+                if classified.once_capable
                     && !self
                         .skipped_methods
                         .contains(&format!("{}_once", method.struct_method_name))
                 {
                     let once_fn_name = format_ident!("{}_once", fn_name);
-                    let once_generics = plan.once_generics();
+                    let once_generics = classified.once_generics();
                     let once_where = if once_generics.is_empty() {
                         quote! {}
                     } else {
                         quote! { <#(#once_generics),*> }
                     };
-                    let once_args = plan.once_signatures();
-                    let once_calls = plan.once_calls();
+                    let once_args = classified.once_signatures();
+                    let once_calls = classified.once_calls();
                     let once_log_expr = Self::generate_arg_logging(&method.arguments, &once_calls);
                     additional_methods.push(quote! {
                         #[inline]
@@ -770,7 +793,8 @@ impl CWrapper {
                 // ideally we should return that primitive instead of forcing user to pass it in
                 let __method_tokens = if single_mut_field {
                     let mut_field = mut_primitivies.first().unwrap();
-                    let rt: Type = parse_str(mut_field.c_type.split_whitespace().last().unwrap()).unwrap();
+                    // keep the qualified path (`c_int` is only valid qualified), not just the last segment
+                    let rt: Type = parse_str(mut_field.c_type.trim_start_matches("* mut").trim()).unwrap();
                     let return_type = quote! { Result<#rt, AeronCError> };
 
                     let fn_arguments= fn_arguments.into_iter().filter(|arg| {!arg.to_string().contains("& mut ")})
@@ -832,7 +856,7 @@ impl CWrapper {
                                 log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
 
                                 if err_code < 0 {
-                                    return Err(AeronCError::from_c_code(err_code));
+                                    return Err(AeronCError::from_code(err_code));
                                 } else {
                                     return Ok(mut_result);
                                 }
@@ -985,7 +1009,7 @@ impl CWrapper {
             let capacity = dst_truncate_to_capacity.capacity();
             let vec = dst_truncate_to_capacity.as_mut_vec();
             vec.set_len(capacity);
-            let result = self.#fn_name(vec.as_mut_ptr() as *mut _, capacity)?;
+            let result = self.#fn_name(&mut vec[..])?;
             let mut len = 0;
             loop {
                 if len == capacity {

@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── 1. Error handlers on BOTH contexts (closures are accepted directly) ──
     let client_errors = Arc::new(AtomicUsize::new(0));
     let aeron_context = AeronContext::new()?;
-    aeron_context.set_dir(&aeron_dir.clone().into_c_string())?;
+    aeron_context.set_dir(&cformat!("{aeron_dir}"))?;
     let seen = client_errors.clone();
     aeron_context.set_error_handler(Some(move |code: i32, msg: &str| {
         seen.fetch_add(1, Ordering::SeqCst);
@@ -57,9 +57,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let archive_context = AeronArchiveContext::new()?;
     archive_context.set_aeron(&aeron)?;
-    archive_context.set_control_request_channel(&request_channel.clone().into_c_string())?;
-    archive_context.set_control_response_channel(&response_channel.clone().into_c_string())?;
-    archive_context.set_recording_events_channel(&events_channel.clone().into_c_string())?;
+    archive_context.set_control_request_channel(&cformat!("{request_channel}"))?;
+    archive_context.set_control_response_channel(&cformat!("{response_channel}"))?;
+    archive_context.set_recording_events_channel(&cformat!("{events_channel}"))?;
     archive_context.set_error_handler(Some(|code: i32, msg: &str| {
         eprintln!("[archive error] {code}: {msg}");
     }))?;
@@ -88,11 +88,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let params = AeronArchiveReplayParams::builder().position(0).length(100).build()?;
     let replay = archive.start_replay(
         bogus_recording_id,
-        &format!(
+        &cformat!(
             "aeron:udp?endpoint=localhost:{}",
             find_unused_udp_port(events_port + 1).unwrap()
-        )
-        .into_c_string(),
+        ),
         9999,
         &params,
     );
@@ -133,14 +132,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &events_channel,
     )?;
     let aeron_context2 = AeronContext::new()?;
-    aeron_context2.set_dir(&format!("target/aeron/{id}_err2/shm").into_c_string())?;
+    aeron_context2.set_dir(&cformat!("target/aeron/{id}_err2/shm"))?;
     let aeron2 = Aeron::new(&aeron_context2)?;
     aeron2.start()?;
     let archive_context2 = AeronArchiveContext::new()?;
     archive_context2.set_aeron(&aeron2)?;
-    archive_context2.set_control_request_channel(&request_channel.clone().into_c_string())?;
-    archive_context2.set_control_response_channel(&response_channel.clone().into_c_string())?;
-    archive_context2.set_recording_events_channel(&events_channel.clone().into_c_string())?;
+    archive_context2.set_control_request_channel(&cformat!("{request_channel}"))?;
+    archive_context2.set_control_response_channel(&cformat!("{response_channel}"))?;
+    archive_context2.set_recording_events_channel(&cformat!("{events_channel}"))?;
     let deadline = Instant::now() + Duration::from_secs(30);
     let archive2 = loop {
         match AeronArchiveAsyncConnect::new_with_aeron(&archive_context2, &aeron2)

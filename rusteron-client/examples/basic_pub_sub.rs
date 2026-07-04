@@ -8,7 +8,7 @@ pub fn main() -> Result<(), Box<dyn error::Error>> {
     let ctx = AeronContext::new()?;
 
     // set the directory
-    // ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+    // ctx.set_dir(&cformat!("{}", media_driver_ctx.get_dir()))?;
 
     // Install the built-in error logger so async client errors are surfaced (Aeron samples
     // always set an error handler on the context). Keep it alive for the run, then release.

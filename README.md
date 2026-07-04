@@ -84,11 +84,9 @@ For full build instructions, see [BUILD.md](./BUILD.md).
 
 ### Multi-threaded (`Sync`) handles
 
-By default, handles (`AeronPublication`, `AeronSubscription`, …) are `Send` but **not
-`Sync`** — they use `Rc` (non-atomic refcount) and are designed for single-thread ownership
-(move to one thread, use exclusively there). Enable the `multi-threaded` feature to swap
-`Rc` → `Arc` and add `unsafe impl Sync` so that `&AeronPublication` can be **shared across
-threads** for the operations Aeron C documents as thread-safe
+Handles are `Send` but **not `Sync`** by default — they use `Rc` for single-thread
+ownership. Enable `multi-threaded` to swap `Rc` → `Arc` and add `unsafe impl Sync`,
+so `&Handle` can be shared across threads for the ops Aeron C documents as thread-safe
 (`offer` / `try_claim` / `position` / `is_connected`):
 
 ```toml
@@ -97,22 +95,23 @@ rusteron-client = { version = "0.2", features = ["multi-threaded"] }
 ```
 
 ```rust,ignore
-// Clone the handle per thread — under `multi-threaded` the handle is internally
-// Arc-refcounted, so each clone shares the same underlying C publication
-// (Aeron C documents aeron_publication_offer as thread-safe).
+// Each clone shares the same underlying C publication.
 let t1 = { let p = publication.clone(); thread::spawn(move || { p.offer(b"hello")?; }) };
 let t2 = { let p = publication.clone(); thread::spawn(move || { p.offer(b"world")?; }) };
 ```
+
+> **The flag only lifts the Rust-side barrier — it does not make the underlying Aeron
+> object thread-safe.** Sharing is correct only for objects Aeron C documents as
+> thread-safe (`AeronPublication`, `AeronSubscription`, …). `AeronExclusivePublication`
+> is single-producer by design and must not be shared across threads even under
+> `multi-threaded`. It is the caller's responsibility to check the thread-safety of
+> each object before sharing `&Handle`.
 
 ---
 
 ## Development
 
-To simplify development, we use [`just`](https://github.com/casey/just), a command runner similar to `make`.
-
-To view all available commands, run `just` in the command line.
-
-> If you don’t have `just` installed, install it with: `cargo install just`
+Build tasks use [`just`](https://github.com/casey/just). Run `just` to list commands, or `cargo install just` if needed.
 
 ---
 
@@ -135,7 +134,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let driver = AeronDriver::launch_embedded_guard(driver_ctx.clone(), false);
 
     let ctx = AeronContext::new()?;
-    ctx.set_dir(&driver_ctx.get_dir().into_c_string())?;
+    ctx.set_dir(&cformat!("{}", driver_ctx.get_dir()))?;
     // Error handler is Option (None = silently drop async client errors).
     // The Aeron samples always set a logger so failures are visible.
     ctx.set_error_handler(Some(AeronErrorHandlerLogger))?;
@@ -206,46 +205,13 @@ for _ in 0..reconnect_attempts {
 
 ## What's new in 0.2
 
-0.2 is a breaking release. The themes, briefly (deeper handler/close write-up in the
-[rusteron-client README](./rusteron-client/README.md)):
+0.2 is a breaking release (deeper write-up in the [rusteron-client README](./rusteron-client/README.md)):
 
-**Memory safety — deferred close.** In 0.1.x, `aeron.close()` freed child resources
-immediately: any surviving publication/subscription handle was a use-after-free. In 0.2,
-close is deferred until the last reference (child or clone) drops — closing/dropping in any
-order is structurally safe. The escape hatch for immediate teardown is `unsafe close_now()`.
-
-**Handlers.** `Handler::leak()` + manual `release()` are gone; `Handler::new()` is
-reference-counted (`Arc`) and freed automatically — resources that retain a callback keep a
-clone alive, so the C side can never fire a freed callback. Retained-callback setters now
-take the value (a closure or trait impl works directly) and return the `Handler` for
-optional state access. For "no callback", one constant fits every parameter:
-`Handlers::NONE`. Docs now spell out heap (retained `Handler`, `Arc`-backed) vs stack
-(`poll_fn`/`*_once` borrowed closures — no `Arc`, no heap, zero allocation) semantics.
-
-**Error handling.** `offer`/`try_claim` return `Result<i64, AeronOfferError>` — a typed
-enum over Aeron's negative sentinels with `is_retryable()` (back-pressure / admin action /
-not connected) vs fatal (closed / max position). `AeronCError` now snapshots
-`aeron_errmsg()` **at the error site** — but only for non-retryable (fatal) codes, so the
-hot retry loop stays allocation-free (retryable codes skip the snapshot). The single
-`String` allocation happens only on a fatal error you're bailing out on anyway, and it
-ensures `Display` shows the message of the error that actually happened, not whatever a
-later error overwrote the global buffer with. Archive control operations (`begin_replay`,
-`start_recording`, …)
-return `Result<_, AeronArchiveError>` with the parsed `AeronArchiveErrorCode` and message;
-constructors, async-connect, and context setters keep `AeronCError`, with
-`From<AeronArchiveError> for AeronCError` for `?` interop.
-
-**Hot-path performance.** Generated FFI wrappers carry `#[inline]` and the workspace
-release profile enables fat LTO. New `offer_parts(&[&header, &payload])` does a gathering
-(vectored) publish with a stack-built iovec — no per-message `Vec` concat, no copy.
-`poll_fn` is the zero-allocation closure poll. C-string arguments follow the explicit
-three-tier pattern above (`c""` / `cformat!` / reuse) so allocations never hide.
-
-**Convenience.** `Aeron::connect_dir(dir)`, `AeronDriver::launch_embedded_guard()` (RAII
-stop+join on drop), `ChannelUri::add_session_id`, `AeronUriStringBuilder::ipc()/udp()`,
-retained image accessors (`image_at_index`, `image_by_session_id`, `for_each_image`),
-direct constant getters (`session_id()`, `stream_id()`, …), and ported canonical samples
-(`basic_publisher`, `basic_subscriber`, ping/pong, file transfer, MDS, request/response).
+- **Deferred close.** `aeron.close()` no longer frees child resources immediately (the 0.1.x behaviour was a use-after-free). Close is deferred until the last reference drops; drop order is arbitrary. `unsafe close_now()` forces immediate teardown.
+- **Reference-counted handlers.** `Handler::leak()`/`release()` are gone; `Handler::new()` is `Arc`-backed and freed when the last clone drops. Retained-callback setters take the value (closure or trait impl) and return the `Handler`. `Handlers::NONE` covers "no callback".
+- **Typed errors.** `offer`/`try_claim` return `Result<i64, AeronOfferError>` with `is_retryable()`. `AeronCError` construction is allocation-free (never reads `aeron_errmsg()`); `capture_errmsg()` opts into attaching the message. Archive control ops return `Result<_, AeronArchiveError>` (`From` keeps `?` working).
+- **Hot path.** Generated wrappers are `#[inline]`; release profile uses fat LTO. `offer_parts(&[&header, &payload])` is a zero-copy vectored publish; `poll_fn` is the zero-alloc closure poll; C-string args follow the `c""`/`cformat!`/reuse pattern above.
+- **Convenience.** `Aeron::connect_dir`, `AeronDriver::launch_embedded_guard` (RAII), `ChannelUri::add_session_id`, `AeronUriStringBuilder::ipc()/udp()`, retained-image accessors, direct constant getters, and ported samples (basic_publisher/subscriber, ping/pong, file transfer, MDS, request/response).
 
 ## Migrating from 0.1.168 to 0.2
 
@@ -257,6 +223,7 @@ Old → new for every renamed/changed API (rows verified against the released 0.
 | `ctx.set_error_handler(Some(&handler))` (borrowed) | `ctx.set_error_handler(Some(handler_or_closure))` | Retained setters take the value; closures work directly; returns the `Handler`. |
 | `aeron.close()` — freed children immediately | deferred close | Frees when the last reference drops; `unsafe close_now()` forces immediate. |
 | `Handler` was `Sync` | `Send` only | The conductor thread invokes callbacks; sharing `&Handler` across threads raced. |
+| `AeronPublication` / `AeronSubscription` / … were `Sync` | `Send` only by default | Handles use `Rc` (single-thread ownership). Enable the `multi-threaded` feature (`Rc` → `Arc` + `unsafe impl Sync`) to share `&Handle` across threads for the ops Aeron C documents as thread-safe (`offer` / `try_claim` / `position` / `is_connected`). |
 | `publication.offer(buf, supplier)` → raw `i64` | `publication.offer_raw(buf, supplier)` | Same branch-free sentinel return, renamed to make "raw" explicit. |
 | `publication.offer_result(buf, supplier)` → `Result<_, AeronCError>` | `publication.offer_with_reserved_value(buf, supplier)` → `Result<_, AeronOfferError>` | Typed offer errors with `is_retryable()`. |
 | `publication.offer_result_simple(buf)` | `publication.offer(buf)` | The common no-supplier case is now the flagship name. |
@@ -277,8 +244,10 @@ Old → new for every renamed/changed API (rows verified against the released 0.
 Behavioural notes:
 - A panicking fragment handler aborts the process (panic cannot unwind across the C
   callback boundary) — return instead of panicking in handlers.
-- `err.get_last_err_message()` now prefers the message captured when the error was
-  created; only sentinel/retryable codes still read the live `aeron_errmsg()`.
+- `AeronCError` construction never reads or copies `aeron_errmsg()` — retry loops
+  (e.g. polling that keeps returning `-1`) stay allocation-free. `Display` /
+  `get_last_err_message()` read the live buffer; call `err.capture_errmsg()` at the
+  error site to pin the text to the error when you store it or log it later.
 
 For recording, replay, and **persistent subscriptions** (replay history, then seamlessly join a
 live stream), see [`rusteron-archive`](./rusteron-archive/README.md#persistent-subscriptions).

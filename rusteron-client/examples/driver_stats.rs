@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let driver = EmbeddedDriver::launch()?;
 
             let ctx = AeronContext::new()?;
-            ctx.set_dir(&driver.dir().into_c_string())?;
+            ctx.set_dir(&cformat!("{}", driver.dir()))?;
             let aeron = Aeron::new(&ctx)?;
             aeron.start()?;
             let publication = aeron
@@ -52,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let cnc = AeronCnc::open(&dir.into_c_string())?;
+    let cnc = AeronCnc::open(&cformat!("{dir}"))?;
     println!(
         "CnC version {}; driver heartbeat age {} ms",
         cnc.get_constants()?.cnc_version,

@@ -213,7 +213,7 @@ impl AeronAgentRunner {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -232,7 +232,7 @@ impl AeronAgentRunner {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -251,7 +251,7 @@ impl AeronAgentRunner {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -270,7 +270,7 @@ impl AeronAgentRunner {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -811,21 +811,19 @@ impl AeronErrorType {
         }
     }
 }
-#[doc = " Represents an Aeron-specific error with a code and an optional message."]
+#[doc = " Aeron C API error: code + optional message."]
 #[doc = ""]
-#[doc = " The error code is derived from Aeron C API calls. When the error is created from a"]
-#[doc = " live C call (`from_c_code`), the human-readable `aeron_errmsg()` text is snapshotted"]
-#[doc = " eagerly for non-retryable codes, so it still describes *this* error when displayed"]
-#[doc = " later — see [`Self::message`]."]
+#[doc = " Construction is allocation-free (never reads `aeron_errmsg()`), so retry loops"]
+#[doc = " that discard the error stay cheap. Attach the message via `capture_errmsg()`"]
+#[doc = " (at the error site) or `with_message()`; `Display` / `get_last_err_message()`"]
+#[doc = " otherwise read the live `aeron_errmsg()` buffer."]
 #[derive(Clone)]
 pub struct AeronCError {
     pub code: i32,
-    #[doc = " Message snapshotted from `aeron_errmsg()` at construction time (non-retryable"]
-    #[doc = " codes constructed via `from_c_code` only). `None` for sentinel/retryable codes,"]
-    #[doc = " where allocating would tax retry loops."]
-    msg: Option<Box<str>>,
+    #[doc = " Attached via `capture_errmsg()` / `with_message()`; `None` otherwise."]
+    msg: Option<String>,
 }
-#[doc = " Equality is on `code` only — the snapshotted message is advisory."]
+#[doc = " Equality is on `code` only — the attached message is advisory."]
 impl PartialEq for AeronCError {
     fn eq(&self, other: &Self) -> bool {
         self.code == other.code
@@ -833,9 +831,10 @@ impl PartialEq for AeronCError {
 }
 impl Eq for AeronCError {}
 impl AeronCError {
-    #[doc = " Creates an AeronError from the error code returned by Aeron."]
+    #[doc = " Construct from an Aeron error code (`< 0` is failure)."]
     #[doc = ""]
-    #[doc = " Error codes below zero are considered failure."]
+    #[doc = " Allocation-free; does not read `aeron_errmsg()`. Use `capture_errmsg()` to"]
+    #[doc = " attach the message when the error will be stored or logged later."]
     pub fn from_code(code: i32) -> Self {
         #[cfg(feature = "backtrace")]
         {
@@ -867,16 +866,13 @@ impl AeronCError {
         }
         AeronCError { code, msg: None }
     }
-    #[doc = " Like [`Self::from_code`], but attaching a human-readable message captured at"]
-    #[doc = " the error site (e.g. a snapshot of `aeron_errmsg()`)."]
-    pub fn with_message(code: i32, msg: impl Into<Box<str>>) -> Self {
+    #[doc = " [`Self::from_code`] with an attached message."]
+    pub fn with_message(code: i32, msg: impl Into<String>) -> Self {
         let mut err = Self::from_code(code);
         err.msg = Some(msg.into());
         err
     }
-    #[doc = " Message snapshotted when this error was created, if any. Unlike reading the"]
-    #[doc = " global `aeron_errmsg()` later, this cannot be overwritten by a subsequent"]
-    #[doc = " error on the same thread."]
+    #[doc = " Message attached via `capture_errmsg()` / `with_message()`, if any."]
     pub fn message(&self) -> Option<&str> {
         self.msg.as_deref()
     }
@@ -2880,7 +2876,7 @@ impl AeronAsyncDestination {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -2902,7 +2898,7 @@ impl AeronAsyncDestination {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -2924,7 +2920,7 @@ impl AeronAsyncDestination {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -3099,7 +3095,7 @@ impl AeronAsyncGetNextAvailableSessionId {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
-                return Err(AeronCError::from_c_code(err_code));
+                return Err(AeronCError::from_code(err_code));
             } else {
                 return Ok(mut_result);
             }
@@ -3284,7 +3280,7 @@ impl AeronBufferClaim {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -3306,7 +3302,7 @@ impl AeronBufferClaim {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -4166,7 +4162,7 @@ impl AeronCnc {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -4365,7 +4361,7 @@ impl AeronCnc {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -4419,18 +4415,14 @@ impl AeronCnc {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
         }
     }
     #[inline]
-    pub fn resolve_filename(
-        directory: &std::ffi::CStr,
-        filename_buffer: *mut ::std::os::raw::c_char,
-        filename_buffer_length: usize,
-    ) -> Result<i32, AeronCError> {
+    pub fn resolve_filename(directory: &std::ffi::CStr, filename_buffer: &mut [u8]) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -4438,20 +4430,19 @@ impl AeronCnc {
                 stringify!(aeron_cnc_resolve_filename),
                 [
                     concat!("directory", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("filename_buffer", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "filename_buffer_length", filename_buffer_length)
+                    format!("{} = {:?}", "filename_buffer", filename_buffer)
                 ]
                 .join(", ")
             );
             let result = aeron_cnc_resolve_filename(
                 directory.as_ptr(),
-                filename_buffer.into(),
-                filename_buffer_length.into(),
+                filename_buffer.as_mut_ptr() as *mut _,
+                filename_buffer.len(),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -4597,7 +4588,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -4639,7 +4630,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -4677,7 +4668,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -4715,7 +4706,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -4753,7 +4744,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -4791,7 +4782,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -4833,7 +4824,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -4875,7 +4866,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -4913,7 +4904,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -4982,7 +4973,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(handler);
             }
@@ -5068,7 +5059,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(handler);
             }
@@ -5148,7 +5139,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(handler);
             }
@@ -5228,7 +5219,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(handler);
             }
@@ -5308,7 +5299,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(handler);
             }
@@ -5388,7 +5379,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(handler);
             }
@@ -5468,7 +5459,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(handler);
             }
@@ -5548,7 +5539,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(handler);
             }
@@ -5602,7 +5593,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -5667,7 +5658,7 @@ impl AeronContext {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(value);
             }
@@ -5708,13 +5699,8 @@ impl AeronContext {
     #[doc = ""]
     #[doc = "# Parameters\n \n - `directory`    in which the media driver is running."]
     #[doc = " \n - `token_buffer` containing the authentication token confirming the client is allowed to terminate the driver."]
-    #[doc = " \n - `token_length` of the token in the buffer."]
     #[doc = " \n# Return\n"]
-    pub fn request_driver_termination(
-        directory: &std::ffi::CStr,
-        token_buffer: *const u8,
-        token_length: usize,
-    ) -> Result<i32, AeronCError> {
+    pub fn request_driver_termination(directory: &std::ffi::CStr, token_buffer: &[u8]) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -5722,17 +5708,24 @@ impl AeronContext {
                 stringify!(aeron_context_request_driver_termination),
                 [
                     concat!("directory", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("token_buffer", ": ", stringify!(*const u8)).to_string(),
-                    format!("{} = {:?}", "token_length", token_length)
+                    format!(
+                        "{}: {} (len={})",
+                        "token_buffer",
+                        stringify!(*const u8),
+                        token_buffer.len()
+                    )
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_context_request_driver_termination(directory.as_ptr(), token_buffer.into(), token_length.into());
+            let result = aeron_context_request_driver_termination(
+                directory.as_ptr(),
+                token_buffer.as_ptr() as *mut _,
+                token_buffer.len(),
+            );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -5918,7 +5911,7 @@ impl AeronControlledFragmentAssembler {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -6549,7 +6542,7 @@ impl AeronCounter {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -6931,18 +6924,13 @@ impl core::fmt::Debug for AeronCountersReaderBuffers {
 }
 impl AeronCountersReaderBuffers {
     #[inline]
-    pub fn new(
-        values: *mut u8,
-        metadata: *mut u8,
-        values_length: usize,
-        metadata_length: usize,
-    ) -> Result<Self, AeronCError> {
+    pub fn new(values: *mut u8, metadata: &mut [u8], metadata_length: usize) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::new(
             move |ctx_field| {
                 let inst = aeron_counters_reader_buffers_t {
                     values: values.into(),
-                    metadata: metadata.into(),
-                    values_length: values_length.into(),
+                    metadata: metadata.as_ptr() as *mut _,
+                    values_length: metadata.len(),
                     metadata_length: metadata_length.into(),
                 };
                 let inner_ptr: *mut aeron_counters_reader_buffers_t = Box::into_raw(Box::new(inst));
@@ -6998,8 +6986,14 @@ impl AeronCountersReaderBuffers {
         self.values.into()
     }
     #[inline]
-    pub fn metadata(&self) -> *mut u8 {
-        self.metadata.into()
+    pub fn metadata(&self) -> &mut [u8] {
+        unsafe {
+            if self.metadata.is_null() {
+                &mut [] as &mut [_]
+            } else {
+                std::slice::from_raw_parts_mut(self.metadata, self.values_length.try_into().unwrap())
+            }
+        }
     }
     #[inline]
     pub fn values_length(&self) -> usize {
@@ -7197,7 +7191,7 @@ impl AeronCountersReader {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -7391,7 +7385,7 @@ impl AeronCountersReader {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
-                return Err(AeronCError::from_c_code(err_code));
+                return Err(AeronCError::from_code(err_code));
             } else {
                 return Ok(mut_result);
             }
@@ -7421,7 +7415,7 @@ impl AeronCountersReader {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
-                return Err(AeronCError::from_c_code(err_code));
+                return Err(AeronCError::from_code(err_code));
             } else {
                 return Ok(mut_result);
             }
@@ -7453,7 +7447,7 @@ impl AeronCountersReader {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
-                return Err(AeronCError::from_c_code(err_code));
+                return Err(AeronCError::from_code(err_code));
             } else {
                 return Ok(mut_result);
             }
@@ -7483,7 +7477,7 @@ impl AeronCountersReader {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
-                return Err(AeronCError::from_c_code(err_code));
+                return Err(AeronCError::from_code(err_code));
             } else {
                 return Ok(mut_result);
             }
@@ -7512,7 +7506,7 @@ impl AeronCountersReader {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
-                return Err(AeronCError::from_c_code(err_code));
+                return Err(AeronCError::from_code(err_code));
             } else {
                 return Ok(mut_result);
             }
@@ -7525,12 +7519,7 @@ impl AeronCountersReader {
     #[doc = " \n - `buffer` to store the counter in."]
     #[doc = " \n - `buffer_length` length of the output buffer"]
     #[doc = " \n# Return\n -1 on failure, number of characters copied to buffer on success."]
-    pub fn counter_label(
-        &self,
-        counter_id: i32,
-        buffer: *mut ::std::os::raw::c_char,
-        buffer_length: usize,
-    ) -> Result<i32, AeronCError> {
+    pub fn counter_label(&self, counter_id: i32, buffer: &mut [u8]) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -7539,21 +7528,20 @@ impl AeronCountersReader {
                 [
                     concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
                     format!("{} = {:?}", "counter_id", counter_id),
-                    concat!("buffer", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "buffer_length", buffer_length)
+                    format!("{} = {:?}", "buffer", buffer)
                 ]
                 .join(", ")
             );
             let result = aeron_counters_reader_counter_label(
                 self.get_inner(),
                 counter_id.into(),
-                buffer.into(),
-                buffer_length.into(),
+                buffer.as_mut_ptr() as *mut _,
+                buffer.len(),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -7584,7 +7572,7 @@ impl AeronCountersReader {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
-                return Err(AeronCError::from_c_code(err_code));
+                return Err(AeronCError::from_code(err_code));
             } else {
                 return Ok(mut_result);
             }
@@ -7619,7 +7607,7 @@ impl AeronCountersReader {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -8229,7 +8217,7 @@ impl AeronError {
             log::info!(
                 "{}({})",
                 stringify!(aeron_error_code_str),
-                [concat!("errcode", ": ", stringify!(::std::os::raw::c_int)).to_string()].join(", ")
+                [format!("{} = {:?}", "errcode", errcode)].join(", ")
             );
             let result = aeron_error_code_str(errcode.into());
             #[cfg(feature = "log-c-bindings")]
@@ -8483,7 +8471,7 @@ impl AeronExclusivePublication {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn offerv_once<AeronReservedValueSupplierHandlerImpl: FnMut(*mut u8, usize) -> i64>(
+    pub fn offerv_once<AeronReservedValueSupplierHandlerImpl: FnMut(&mut [u8]) -> i64>(
         &self,
         iov: &AeronIovec,
         iovcnt: usize,
@@ -8611,7 +8599,7 @@ impl AeronExclusivePublication {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -8731,7 +8719,7 @@ impl AeronExclusivePublication {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(on_close_complete);
             }
@@ -8802,7 +8790,7 @@ impl AeronExclusivePublication {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -9008,7 +8996,7 @@ impl AeronFragmentAssembler {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -9386,7 +9374,7 @@ impl AeronHeader {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -10078,7 +10066,7 @@ impl AeronIdleStrategy {
                 stringify!(aeron_idle_strategy_sleeping_idle),
                 [
                     concat!("state", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
-                    concat!("work_count", ": ", stringify!(::std::os::raw::c_int)).to_string()
+                    format!("{} = {:?}", "work_count", work_count)
                 ]
                 .join(", ")
             );
@@ -10097,7 +10085,7 @@ impl AeronIdleStrategy {
                 stringify!(aeron_idle_strategy_yielding_idle),
                 [
                     concat!("state", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
-                    concat!("work_count", ": ", stringify!(::std::os::raw::c_int)).to_string()
+                    format!("{} = {:?}", "work_count", work_count)
                 ]
                 .join(", ")
             );
@@ -10116,7 +10104,7 @@ impl AeronIdleStrategy {
                 stringify!(aeron_idle_strategy_busy_spinning_idle),
                 [
                     concat!("state", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
-                    concat!("work_count", ": ", stringify!(::std::os::raw::c_int)).to_string()
+                    format!("{} = {:?}", "work_count", work_count)
                 ]
                 .join(", ")
             );
@@ -10135,7 +10123,7 @@ impl AeronIdleStrategy {
                 stringify!(aeron_idle_strategy_noop_idle),
                 [
                     concat!("state", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
-                    concat!("work_count", ": ", stringify!(::std::os::raw::c_int)).to_string()
+                    format!("{} = {:?}", "work_count", work_count)
                 ]
                 .join(", ")
             );
@@ -10154,7 +10142,7 @@ impl AeronIdleStrategy {
                 stringify!(aeron_idle_strategy_backoff_idle),
                 [
                     concat!("state", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
-                    concat!("work_count", ": ", stringify!(::std::os::raw::c_int)).to_string()
+                    format!("{} = {:?}", "work_count", work_count)
                 ]
                 .join(", ")
             );
@@ -10604,7 +10592,7 @@ impl AeronImageControlledFragmentAssembler {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -10806,7 +10794,7 @@ impl AeronImageFragmentAssembler {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -10977,7 +10965,7 @@ impl AeronImage {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -11005,7 +10993,7 @@ impl AeronImage {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -11057,7 +11045,7 @@ impl AeronImage {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -11119,7 +11107,7 @@ impl AeronImage {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -11185,7 +11173,7 @@ impl AeronImage {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -11240,7 +11228,7 @@ impl AeronImage {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -11288,7 +11276,7 @@ impl AeronImage {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -11349,7 +11337,7 @@ impl AeronImage {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -11401,7 +11389,7 @@ impl AeronImage {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -11460,7 +11448,7 @@ impl AeronImage {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -11514,7 +11502,7 @@ impl AeronImage {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -11579,7 +11567,7 @@ impl AeronImage {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -11743,7 +11731,7 @@ impl AeronImage {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -11803,7 +11791,7 @@ impl AeronImage {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -11841,7 +11829,7 @@ impl AeronImage {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -11947,12 +11935,12 @@ impl core::fmt::Debug for AeronIovec {
 }
 impl AeronIovec {
     #[inline]
-    pub fn new(iov_base: *mut u8, iov_len: usize) -> Result<Self, AeronCError> {
+    pub fn new(iov_base: &mut [u8]) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::new(
             move |ctx_field| {
                 let inst = aeron_iovec_t {
-                    iov_base: iov_base.into(),
-                    iov_len: iov_len.into(),
+                    iov_base: iov_base.as_ptr() as *mut _,
+                    iov_len: iov_base.len(),
                 };
                 let inner_ptr: *mut aeron_iovec_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
@@ -11997,8 +11985,14 @@ impl AeronIovec {
         }
     }
     #[inline]
-    pub fn iov_base(&self) -> *mut u8 {
-        self.iov_base.into()
+    pub fn iov_base(&self) -> &mut [u8] {
+        unsafe {
+            if self.iov_base.is_null() {
+                &mut [] as &mut [_]
+            } else {
+                std::slice::from_raw_parts_mut(self.iov_base, self.iov_len.try_into().unwrap())
+            }
+        }
     }
     #[inline]
     pub fn iov_len(&self) -> usize {
@@ -13290,7 +13284,7 @@ impl AeronLossReporter {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -13369,11 +13363,7 @@ impl AeronLossReporter {
         }
     }
     #[inline]
-    pub fn resolve_filename(
-        directory: &std::ffi::CStr,
-        filename_buffer: *mut ::std::os::raw::c_char,
-        filename_buffer_length: usize,
-    ) -> Result<i32, AeronCError> {
+    pub fn resolve_filename(directory: &std::ffi::CStr, filename_buffer: &mut [u8]) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -13381,20 +13371,19 @@ impl AeronLossReporter {
                 stringify!(aeron_loss_reporter_resolve_filename),
                 [
                     concat!("directory", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("filename_buffer", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "filename_buffer_length", filename_buffer_length)
+                    format!("{} = {:?}", "filename_buffer", filename_buffer)
                 ]
                 .join(", ")
             );
             let result = aeron_loss_reporter_resolve_filename(
                 directory.as_ptr(),
-                filename_buffer.into(),
-                filename_buffer_length.into(),
+                filename_buffer.as_mut_ptr() as *mut _,
+                filename_buffer.len(),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -13402,8 +13391,7 @@ impl AeronLossReporter {
     }
     #[inline]
     pub fn read<AeronLossReporterReadEntryFuncHandlerImpl: AeronLossReporterReadEntryFuncCallback>(
-        buffer: *const u8,
-        capacity: usize,
+        buffer: &[u8],
         entry_func: Option<&Handler<AeronLossReporterReadEntryFuncHandlerImpl>>,
     ) -> usize {
         unsafe {
@@ -13411,16 +13399,17 @@ impl AeronLossReporter {
             log::info!(
                 "{}({})",
                 stringify!(aeron_loss_reporter_read),
-                [
-                    concat!("buffer", ": ", stringify!(*const u8)).to_string(),
-                    format!("{} = {:?}", "capacity", capacity),
-                    concat!("entry_func", ": ", stringify!(aeron_loss_reporter_read_entry_func_t)).to_string()
-                ]
+                [format!(
+                    "{}: {} (len={})",
+                    "buffer",
+                    stringify!(*const u8),
+                    buffer.len()
+                )]
                 .join(", ")
             );
             let result = aeron_loss_reporter_read(
-                buffer.into(),
-                capacity.into(),
+                buffer.as_ptr() as *mut _,
+                buffer.len(),
                 {
                     let callback: aeron_loss_reporter_read_entry_func_t = if entry_func.is_none() {
                         None
@@ -13456,8 +13445,7 @@ impl AeronLossReporter {
     pub fn read_once<
         AeronLossReporterReadEntryFuncHandlerImpl: FnMut(i64, i64, i64, i64, i32, i32, &str, &str) -> (),
     >(
-        buffer: *const u8,
-        capacity: usize,
+        buffer: &[u8],
         mut entry_func: AeronLossReporterReadEntryFuncHandlerImpl,
     ) -> usize {
         unsafe {
@@ -13465,16 +13453,17 @@ impl AeronLossReporter {
             log::info!(
                 "{}({})",
                 stringify!(aeron_loss_reporter_read),
-                [
-                    concat!("buffer", ": ", stringify!(*const u8)).to_string(),
-                    format!("{} = {:?}", "capacity", capacity),
-                    concat!("entry_func", ": ", stringify!(aeron_loss_reporter_read_entry_func_t)).to_string()
-                ]
+                [format!(
+                    "{}: {} (len={})",
+                    "buffer",
+                    stringify!(*const u8),
+                    buffer.len()
+                )]
                 .join(", ")
             );
             let result = aeron_loss_reporter_read(
-                buffer.into(),
-                capacity.into(),
+                buffer.as_ptr() as *mut _,
+                buffer.len(),
                 Some(
                     aeron_loss_reporter_read_entry_func_t_callback_for_once_closure::<
                         AeronLossReporterReadEntryFuncHandlerImpl,
@@ -13901,7 +13890,7 @@ impl AeronMappedFile {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -13924,7 +13913,7 @@ impl AeronMappedFile {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -13943,7 +13932,7 @@ impl AeronMappedFile {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -14193,7 +14182,7 @@ impl AeronMappedRawLog {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -14217,7 +14206,7 @@ impl AeronMappedRawLog {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -14240,7 +14229,7 @@ impl AeronMappedRawLog {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -15437,6 +15426,7 @@ impl core::fmt::Debug for AeronPerThreadError {
         } else {
             f.debug_struct(stringify!(AeronPerThreadError))
                 .field("inner", &self.inner)
+                .field(stringify!(errcode), &self.errcode())
                 .field(stringify!(offset), &self.offset())
                 .finish()
         }
@@ -16246,7 +16236,7 @@ impl AeronPublication {
     #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
     #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
     #[doc = r" of panicking in production fragment handlers."]
-    pub fn offerv_once<AeronReservedValueSupplierHandlerImpl: FnMut(*mut u8, usize) -> i64>(
+    pub fn offerv_once<AeronReservedValueSupplierHandlerImpl: FnMut(&mut [u8]) -> i64>(
         &self,
         iov: &AeronIovec,
         iovcnt: usize,
@@ -16362,7 +16352,7 @@ impl AeronPublication {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -16496,38 +16486,35 @@ impl AeronPublication {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
         }
     }
     #[inline]
-    pub fn image_location(
-        dst: *mut ::std::os::raw::c_char,
-        length: usize,
-        aeron_dir: &std::ffi::CStr,
-        correlation_id: i64,
-    ) -> Result<i32, AeronCError> {
+    pub fn image_location(dst: &mut [u8], aeron_dir: &std::ffi::CStr, correlation_id: i64) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_publication_image_location),
                 [
-                    concat!("dst", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "length", length),
-                    concat!("aeron_dir", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "correlation_id", correlation_id)
+                    format!("{} = {:?}", "dst", dst),
+                    concat!("aeron_dir", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_publication_image_location(dst.into(), length.into(), aeron_dir.as_ptr(), correlation_id.into());
+            let result = aeron_publication_image_location(
+                dst.as_mut_ptr() as *mut _,
+                dst.len(),
+                aeron_dir.as_ptr(),
+                correlation_id.into(),
+            );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -18118,7 +18105,7 @@ impl AeronStatusMessageHeader {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
-                return Err(AeronCError::from_c_code(err_code));
+                return Err(AeronCError::from_code(err_code));
             } else {
                 return Ok(mut_result);
             }
@@ -19188,7 +19175,7 @@ impl AeronSubscription {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -19244,7 +19231,7 @@ impl AeronSubscription {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -19295,7 +19282,7 @@ impl AeronSubscription {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -19359,7 +19346,7 @@ impl AeronSubscription {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -19496,7 +19483,7 @@ impl AeronSubscription {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -19526,7 +19513,7 @@ impl AeronSubscription {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -19557,7 +19544,7 @@ impl AeronSubscription {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -19587,7 +19574,7 @@ impl AeronSubscription {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -19666,7 +19653,7 @@ impl AeronSubscription {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -19680,7 +19667,7 @@ impl AeronSubscription {
     #[doc = "# Parameters\n \n - `address` for the received address"]
     #[doc = " \n - `address_len` available length for the copied address."]
     #[doc = " \n# Return\n -1 on error, 0 if address not found, 1 if address is found."]
-    pub fn resolved_endpoint(&self, address: &std::ffi::CStr, address_len: usize) -> Result<i32, AeronCError> {
+    pub fn resolved_endpoint(&self, address: &str) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -19688,16 +19675,16 @@ impl AeronSubscription {
                 stringify!(aeron_subscription_resolved_endpoint),
                 [
                     concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
-                    concat!("address", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "address_len", address_len)
+                    format!("{} = {:?}", "address", address)
                 ]
                 .join(", ")
             );
-            let result = aeron_subscription_resolved_endpoint(self.get_inner(), address.as_ptr(), address_len.into());
+            let result =
+                aeron_subscription_resolved_endpoint(self.get_inner(), address.as_ptr() as *const _, address.len());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -19713,11 +19700,7 @@ impl AeronSubscription {
     #[doc = " on a per key basis, so if the buffer was truncated before writing completed, it will only include the byte count up"]
     #[doc = " to the key that overflowed. However, the invariant that if the number returned >= uri_len, then output will have been"]
     #[doc = " truncated."]
-    pub fn try_resolve_channel_endpoint_port(
-        &self,
-        uri: *mut ::std::os::raw::c_char,
-        uri_len: usize,
-    ) -> Result<i32, AeronCError> {
+    pub fn try_resolve_channel_endpoint_port(&self, uri: &mut [u8]) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -19725,17 +19708,19 @@ impl AeronSubscription {
                 stringify!(aeron_subscription_try_resolve_channel_endpoint_port),
                 [
                     concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
-                    concat!("uri", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "uri_len", uri_len)
+                    format!("{} = {:?}", "uri", uri)
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_subscription_try_resolve_channel_endpoint_port(self.get_inner(), uri.into(), uri_len.into());
+            let result = aeron_subscription_try_resolve_channel_endpoint_port(
+                self.get_inner(),
+                uri.as_mut_ptr() as *mut _,
+                uri.len(),
+            );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -19775,7 +19760,7 @@ impl AeronSubscription {
             let capacity = dst_truncate_to_capacity.capacity();
             let vec = dst_truncate_to_capacity.as_mut_vec();
             vec.set_len(capacity);
-            let result = self.try_resolve_channel_endpoint_port(vec.as_mut_ptr() as *mut _, capacity)?;
+            let result = self.try_resolve_channel_endpoint_port(&mut vec[..])?;
             let mut len = 0;
             loop {
                 if len == capacity {
@@ -19966,7 +19951,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -19990,7 +19975,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20008,7 +19993,7 @@ impl Aeron {
                 stringify!(aeron_main_idle_strategy),
                 [
                     concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
-                    concat!("work_count", ": ", stringify!(::std::os::raw::c_int)).to_string()
+                    format!("{} = {:?}", "work_count", work_count)
                 ]
                 .join(", ")
             );
@@ -20150,7 +20135,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20211,7 +20196,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(on_complete);
             }
@@ -20249,7 +20234,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20310,7 +20295,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(on_complete);
             }
@@ -20345,7 +20330,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20406,7 +20391,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(on_complete);
             }
@@ -20462,7 +20447,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20523,7 +20508,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(on_complete);
             }
@@ -20552,7 +20537,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20581,7 +20566,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20610,7 +20595,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20639,7 +20624,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20668,7 +20653,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20697,7 +20682,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20753,7 +20738,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20771,7 +20756,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20789,7 +20774,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20886,7 +20871,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20910,7 +20895,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20934,7 +20919,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20959,7 +20944,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -20977,7 +20962,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21009,23 +20994,19 @@ impl Aeron {
     #[doc = " \n - `path_length` space available in the buffer"]
     #[doc = " \n# Return\n -1 if there is an issue or the number of bytes written to path excluding the terminator <code>\\0</code>. If this"]
     #[doc = " is equal to or greater than the path_length then the path has been truncated."]
-    pub fn default_path(path: *mut ::std::os::raw::c_char, path_length: usize) -> Result<i32, AeronCError> {
+    pub fn default_path(path: &mut [u8]) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_default_path),
-                [
-                    concat!("path", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "path_length", path_length)
-                ]
-                .join(", ")
+                [format!("{} = {:?}", "path", path)].join(", ")
             );
-            let result = aeron_default_path(path.into(), path_length.into());
+            let result = aeron_default_path(path.as_mut_ptr() as *mut _, path.len());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21108,20 +21089,15 @@ impl Aeron {
         }
     }
     #[inline]
-    pub fn format_date(str_: *mut ::std::os::raw::c_char, count: usize, timestamp: i64) -> () {
+    pub fn format_date(str_: &mut [u8], timestamp: i64) -> () {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_format_date),
-                [
-                    concat!("str_", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "count", count),
-                    format!("{} = {:?}", "timestamp", timestamp)
-                ]
-                .join(", ")
+                [format!("{} = {:?}", "str_", str_)].join(", ")
             );
-            let result = aeron_format_date(str_.into(), count.into(), timestamp.into());
+            let result = aeron_format_date(str_.as_mut_ptr() as *mut _, str_.len(), timestamp.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -21130,8 +21106,7 @@ impl Aeron {
     #[inline]
     pub fn format_number_to_locale(
         value: ::std::os::raw::c_longlong,
-        buffer: *mut ::std::os::raw::c_char,
-        buffer_len: usize,
+        buffer: &mut [u8],
     ) -> *mut ::std::os::raw::c_char {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -21140,33 +21115,31 @@ impl Aeron {
                 stringify!(aeron_format_number_to_locale),
                 [
                     concat!("value", ": ", stringify!(::std::os::raw::c_longlong)).to_string(),
-                    concat!("buffer", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "buffer_len", buffer_len)
+                    format!("{} = {:?}", "buffer", buffer)
                 ]
                 .join(", ")
             );
-            let result = aeron_format_number_to_locale(value.into(), buffer.into(), buffer_len.into());
+            let result = aeron_format_number_to_locale(value.into(), buffer.as_mut_ptr() as *mut _, buffer.len());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
         }
     }
     #[inline]
-    pub fn format_to_hex(str_: *mut ::std::os::raw::c_char, str_length: usize, data: *const u8, data_len: usize) -> () {
+    pub fn format_to_hex(str_: &mut [u8], data: &[u8]) -> () {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_format_to_hex),
-                [
-                    concat!("str_", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "str_length", str_length),
-                    concat!("data", ": ", stringify!(*const u8)).to_string(),
-                    format!("{} = {:?}", "data_len", data_len)
-                ]
-                .join(", ")
+                [format!("{} = {:?}", "str_", str_)].join(", ")
             );
-            let result = aeron_format_to_hex(str_.into(), str_length.into(), data.into(), data_len.into());
+            let result = aeron_format_to_hex(
+                str_.as_mut_ptr() as *mut _,
+                str_.len(),
+                data.as_ptr() as *mut _,
+                data.len(),
+            );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -21185,7 +21158,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21198,7 +21171,7 @@ impl Aeron {
             log::info!(
                 "{}({})",
                 stringify!(aeron_set_errno),
-                [concat!("errcode", ": ", stringify!(::std::os::raw::c_int)).to_string()].join(", ")
+                [format!("{} = {:?}", "errcode", errcode)].join(", ")
             );
             let result = aeron_set_errno(errcode.into());
             #[cfg(feature = "log-c-bindings")]
@@ -21220,10 +21193,10 @@ impl Aeron {
                 "{}({})",
                 stringify!(aeron_err_set),
                 [
-                    concat!("errcode", ": ", stringify!(::std::os::raw::c_int)).to_string(),
+                    format!("{} = {:?}", "errcode", errcode),
                     concat!("function", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     concat!("filename", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("line_number", ": ", stringify!(::std::os::raw::c_int)).to_string(),
+                    format!("{} = {:?}", "line_number", line_number),
                     concat!("format", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
@@ -21255,7 +21228,7 @@ impl Aeron {
                 [
                     concat!("function", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     concat!("filename", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("line_number", ": ", stringify!(::std::os::raw::c_int)).to_string(),
+                    format!("{} = {:?}", "line_number", line_number),
                     concat!("format", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
@@ -21314,7 +21287,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21333,7 +21306,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21352,7 +21325,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21371,7 +21344,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21390,7 +21363,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21405,7 +21378,7 @@ impl Aeron {
                 stringify!(aeron_mkdir_recursive),
                 [
                     concat!("pathname", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("permission", ": ", stringify!(::std::os::raw::c_int)).to_string()
+                    format!("{} = {:?}", "permission", permission)
                 ]
                 .join(", ")
             );
@@ -21413,7 +21386,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21436,7 +21409,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21455,7 +21428,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21508,8 +21481,7 @@ impl Aeron {
     }
     #[inline]
     pub fn ipc_publication_location(
-        dst: *mut ::std::os::raw::c_char,
-        length: usize,
+        dst: &mut [u8],
         aeron_dir: &std::ffi::CStr,
         correlation_id: i64,
     ) -> Result<i32, AeronCError> {
@@ -21519,19 +21491,21 @@ impl Aeron {
                 "{}({})",
                 stringify!(aeron_ipc_publication_location),
                 [
-                    concat!("dst", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "length", length),
-                    concat!("aeron_dir", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "correlation_id", correlation_id)
+                    format!("{} = {:?}", "dst", dst),
+                    concat!("aeron_dir", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_ipc_publication_location(dst.into(), length.into(), aeron_dir.as_ptr(), correlation_id.into());
+            let result = aeron_ipc_publication_location(
+                dst.as_mut_ptr() as *mut _,
+                dst.len(),
+                aeron_dir.as_ptr(),
+                correlation_id.into(),
+            );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21539,8 +21513,7 @@ impl Aeron {
     }
     #[inline]
     pub fn network_publication_location(
-        dst: *mut ::std::os::raw::c_char,
-        length: usize,
+        dst: &mut [u8],
         aeron_dir: &std::ffi::CStr,
         correlation_id: i64,
     ) -> Result<i32, AeronCError> {
@@ -21550,42 +21523,36 @@ impl Aeron {
                 "{}({})",
                 stringify!(aeron_network_publication_location),
                 [
-                    concat!("dst", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "length", length),
-                    concat!("aeron_dir", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "correlation_id", correlation_id)
+                    format!("{} = {:?}", "dst", dst),
+                    concat!("aeron_dir", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
             );
             let result = aeron_network_publication_location(
-                dst.into(),
-                length.into(),
+                dst.as_mut_ptr() as *mut _,
+                dst.len(),
                 aeron_dir.as_ptr(),
                 correlation_id.into(),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
         }
     }
     #[inline]
-    pub fn temp_filename(filename: *mut ::std::os::raw::c_char, length: usize) -> usize {
+    pub fn temp_filename(filename: &mut [u8]) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_temp_filename),
-                [
-                    concat!("filename", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "length", length)
-                ]
-                .join(", ")
+                [format!("{} = {:?}", "filename", filename)].join(", ")
             );
-            let result = aeron_temp_filename(filename.into(), length.into());
+            let result = aeron_temp_filename(filename.as_mut_ptr() as *mut _, filename.len());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -21595,8 +21562,7 @@ impl Aeron {
     pub fn file_resolve(
         parent: &std::ffi::CStr,
         child: &std::ffi::CStr,
-        buffer: *mut ::std::os::raw::c_char,
-        buffer_len: usize,
+        buffer: &mut [u8],
     ) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -21606,16 +21572,20 @@ impl Aeron {
                 [
                     concat!("parent", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
                     concat!("child", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("buffer", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "buffer_len", buffer_len)
+                    format!("{} = {:?}", "buffer", buffer)
                 ]
                 .join(", ")
             );
-            let result = aeron_file_resolve(parent.as_ptr(), child.as_ptr(), buffer.into(), buffer_len.into());
+            let result = aeron_file_resolve(
+                parent.as_ptr(),
+                child.as_ptr(),
+                buffer.as_mut_ptr() as *mut _,
+                buffer.len(),
+            );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21634,30 +21604,26 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
         }
     }
     #[inline]
-    pub fn thread_get_name(name_buf: *mut ::std::os::raw::c_char, name_buf_size: usize) -> Result<i32, AeronCError> {
+    pub fn thread_get_name(name_buf: &mut [u8]) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
                 stringify!(aeron_thread_get_name),
-                [
-                    concat!("name_buf", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "name_buf_size", name_buf_size)
-                ]
-                .join(", ")
+                [format!("{} = {:?}", "name_buf", name_buf)].join(", ")
             );
-            let result = aeron_thread_get_name(name_buf.into(), name_buf_size.into());
+            let result = aeron_thread_get_name(name_buf.as_mut_ptr() as *mut _, name_buf.len());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21710,7 +21676,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21729,7 +21695,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21748,7 +21714,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21767,7 +21733,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -21786,7 +21752,7 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -22509,7 +22475,7 @@ impl AeronUriParams {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
-                return Err(AeronCError::from_c_code(err_code));
+                return Err(AeronCError::from_code(err_code));
             } else {
                 return Ok(mut_result);
             }
@@ -22535,7 +22501,7 @@ impl AeronUriParams {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
-                return Err(AeronCError::from_c_code(err_code));
+                return Err(AeronCError::from_code(err_code));
             } else {
                 return Ok(mut_result);
             }
@@ -22560,7 +22526,7 @@ impl AeronUriParams {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
-                return Err(AeronCError::from_c_code(err_code));
+                return Err(AeronCError::from_code(err_code));
             } else {
                 return Ok(mut_result);
             }
@@ -22583,7 +22549,7 @@ impl AeronUriParams {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -22608,7 +22574,7 @@ impl AeronUriParams {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
-                return Err(AeronCError::from_c_code(err_code));
+                return Err(AeronCError::from_code(err_code));
             } else {
                 return Ok(mut_result);
             }
@@ -22640,7 +22606,7 @@ impl AeronUriParams {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -22664,7 +22630,7 @@ impl AeronUriParams {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
             if err_code < 0 {
-                return Err(AeronCError::from_c_code(err_code));
+                return Err(AeronCError::from_code(err_code));
             } else {
                 return Ok(mut_result);
             }
@@ -22864,7 +22830,7 @@ impl AeronUriStringBuilder {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -22888,7 +22854,7 @@ impl AeronUriStringBuilder {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -22912,7 +22878,7 @@ impl AeronUriStringBuilder {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -22942,7 +22908,7 @@ impl AeronUriStringBuilder {
         }
     }
     #[inline]
-    pub fn sprint(&self, buffer: *mut ::std::os::raw::c_char, buffer_len: usize) -> Result<i32, AeronCError> {
+    pub fn sprint(&self, buffer: &mut [u8]) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -22950,16 +22916,15 @@ impl AeronUriStringBuilder {
                 stringify!(aeron_uri_string_builder_sprint),
                 [
                     concat!("builder", ": ", stringify!(*mut aeron_uri_string_builder_t)).to_string(),
-                    concat!("buffer", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "buffer_len", buffer_len)
+                    format!("{} = {:?}", "buffer", buffer)
                 ]
                 .join(", ")
             );
-            let result = aeron_uri_string_builder_sprint(self.get_inner(), buffer.into(), buffer_len.into());
+            let result = aeron_uri_string_builder_sprint(self.get_inner(), buffer.as_mut_ptr() as *mut _, buffer.len());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -22978,7 +22943,7 @@ impl AeronUriStringBuilder {
             let capacity = dst_truncate_to_capacity.capacity();
             let vec = dst_truncate_to_capacity.as_mut_vec();
             vec.set_len(capacity);
-            let result = self.sprint(vec.as_mut_ptr() as *mut _, capacity)?;
+            let result = self.sprint(&mut vec[..])?;
             let mut len = 0;
             loop {
                 if len == capacity {
@@ -23023,7 +22988,7 @@ impl AeronUriStringBuilder {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -23225,7 +23190,7 @@ impl AeronUri {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -23269,7 +23234,7 @@ impl AeronUri {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -23293,7 +23258,7 @@ impl AeronUri {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -23315,7 +23280,7 @@ impl AeronUri {
         }
     }
     #[inline]
-    pub fn sprint(&self, buffer: *mut ::std::os::raw::c_char, buffer_len: usize) -> Result<i32, AeronCError> {
+    pub fn sprint(&self, buffer: &mut [u8]) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -23323,16 +23288,15 @@ impl AeronUri {
                 stringify!(aeron_uri_sprint),
                 [
                     concat!("uri", ": ", stringify!(*mut aeron_uri_t)).to_string(),
-                    concat!("buffer", ": ", stringify!(*mut ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "buffer_len", buffer_len)
+                    format!("{} = {:?}", "buffer", buffer)
                 ]
                 .join(", ")
             );
-            let result = aeron_uri_sprint(self.get_inner(), buffer.into(), buffer_len.into());
+            let result = aeron_uri_sprint(self.get_inner(), buffer.as_mut_ptr() as *mut _, buffer.len());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
-                return Err(AeronCError::from_c_code(result));
+                return Err(AeronCError::from_code(result));
             } else {
                 return Ok(result);
             }
@@ -23351,7 +23315,7 @@ impl AeronUri {
             let capacity = dst_truncate_to_capacity.capacity();
             let vec = dst_truncate_to_capacity.as_mut_vec();
             vec.set_len(capacity);
-            let result = self.sprint(vec.as_mut_ptr() as *mut _, capacity)?;
+            let result = self.sprint(&mut vec[..])?;
             let mut len = 0;
             loop {
                 if len == capacity {
@@ -25064,10 +25028,12 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback<
         if label.is_null() {
             ""
         } else {
-            std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                label as *const u8,
-                label_length.try_into().unwrap(),
-            ))
+            unsafe {
+                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                    label as *const u8,
+                    label_length.try_into().unwrap(),
+                ))
+            }
         },
     )
 }
@@ -25131,10 +25097,12 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback_for_o
         if label.is_null() {
             ""
         } else {
-            std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                label as *const u8,
-                label_length.try_into().unwrap(),
-            ))
+            unsafe {
+                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                    label as *const u8,
+                    label_length.try_into().unwrap(),
+                ))
+            }
         },
     )
 }
@@ -25147,19 +25115,15 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback_for_o
 #[doc = r""]
 #[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
 pub trait AeronReservedValueSupplierCallback {
-    fn handle_aeron_reserved_value_supplier(&mut self, buffer: *mut u8, frame_length: usize) -> i64;
+    fn handle_aeron_reserved_value_supplier(&mut self, buffer: &mut [u8]) -> i64;
 }
 pub struct AeronReservedValueSupplierLogger;
 impl AeronReservedValueSupplierCallback for AeronReservedValueSupplierLogger {
-    fn handle_aeron_reserved_value_supplier(&mut self, buffer: *mut u8, frame_length: usize) -> i64 {
+    fn handle_aeron_reserved_value_supplier(&mut self, buffer: &mut [u8]) -> i64 {
         log::info!(
             "{}({}\n)",
             stringify!(handle_aeron_reserved_value_supplier),
-            [
-                format!("{} : {:?}", stringify!(buffer), buffer),
-                format!("{} : {:?}", stringify!(frame_length), frame_length)
-            ]
-            .join(", "),
+            [format!("{} : {:?}", stringify!(buffer), buffer)].join(", "),
         );
         unimplemented!()
     }
@@ -25168,24 +25132,23 @@ unsafe impl Send for AeronReservedValueSupplierLogger {}
 unsafe impl Sync for AeronReservedValueSupplierLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(*mut u8, usize) -> i64> AeronReservedValueSupplierCallback for F {
+impl<F: FnMut(&mut [u8]) -> i64> AeronReservedValueSupplierCallback for F {
     #[inline]
-    fn handle_aeron_reserved_value_supplier(&mut self, buffer: *mut u8, frame_length: usize) -> i64 {
-        self(buffer, frame_length)
+    fn handle_aeron_reserved_value_supplier(&mut self, buffer: &mut [u8]) -> i64 {
+        self(buffer)
     }
 }
 #[doc = r" Pass an existing [`Handler`] clone anywhere a callback value is expected, e.g."]
 #[doc = r" to share one callback instance across several registrations."]
 impl<T: AeronReservedValueSupplierCallback> AeronReservedValueSupplierCallback for Handler<T> {
     #[inline]
-    fn handle_aeron_reserved_value_supplier(&mut self, buffer: *mut u8, frame_length: usize) -> i64 {
+    fn handle_aeron_reserved_value_supplier(&mut self, buffer: &mut [u8]) -> i64 {
         use std::ops::DerefMut;
-        self.deref_mut()
-            .handle_aeron_reserved_value_supplier(buffer, frame_length)
+        self.deref_mut().handle_aeron_reserved_value_supplier(buffer)
     }
 }
 impl AeronReservedValueSupplierCallback for NoHandler {
-    fn handle_aeron_reserved_value_supplier(&mut self, buffer: *mut u8, frame_length: usize) -> i64 {
+    fn handle_aeron_reserved_value_supplier(&mut self, buffer: &mut [u8]) -> i64 {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
     }
 }
@@ -25220,7 +25183,13 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback<F: AeronReservedVa
         .join(", ")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
-    closure.handle_aeron_reserved_value_supplier(buffer.into(), frame_length.into())
+    closure.handle_aeron_reserved_value_supplier(unsafe {
+        if buffer.is_null() {
+            &mut [] as &mut [_]
+        } else {
+            std::slice::from_raw_parts_mut(buffer, frame_length.try_into().unwrap())
+        }
+    })
 }
 #[allow(dead_code)]
 #[doc = "Function called when filling in the reserved value field of a message."]
@@ -25228,7 +25197,7 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback<F: AeronReservedVa
 #[doc = " @param clientd passed to the offer function."]
 #[doc = " @param buffer of the entire frame, including Aeron data header."]
 #[doc = " @param frame_length of the entire frame."]
-unsafe extern "C" fn aeron_reserved_value_supplier_t_callback_for_once_closure<F: FnMut(*mut u8, usize) -> i64>(
+unsafe extern "C" fn aeron_reserved_value_supplier_t_callback_for_once_closure<F: FnMut(&mut [u8]) -> i64>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *mut u8,
     frame_length: usize,
@@ -25256,7 +25225,13 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback_for_once_closure<F
         .join(", ")
     );
     let closure: &mut F = &mut *(clientd as *mut F);
-    closure(buffer.into(), frame_length.into())
+    closure(unsafe {
+        if buffer.is_null() {
+            &mut [] as &mut [_]
+        } else {
+            std::slice::from_raw_parts_mut(buffer, frame_length.try_into().unwrap())
+        }
+    })
 }
 #[doc = "Callback for handling fragments of data being read from a log."]
 #[doc = ""]
@@ -25879,10 +25854,12 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback<F: AeronErrorLogRead
         if error.is_null() {
             ""
         } else {
-            std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                error as *const u8,
-                error_length.try_into().unwrap(),
-            ))
+            unsafe {
+                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                    error as *const u8,
+                    error_length.try_into().unwrap(),
+                ))
+            }
         },
     )
 }
@@ -25936,10 +25913,12 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback_for_once_closure<F: 
         if error.is_null() {
             ""
         } else {
-            std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                error as *const u8,
-                error_length.try_into().unwrap(),
-            ))
+            unsafe {
+                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                    error as *const u8,
+                    error_length.try_into().unwrap(),
+                ))
+            }
         },
     )
 }
@@ -26130,18 +26109,22 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback<F: AeronLoss
         if channel.is_null() {
             ""
         } else {
-            std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                channel as *const u8,
-                channel_length.try_into().unwrap(),
-            ))
+            unsafe {
+                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                    channel as *const u8,
+                    channel_length.try_into().unwrap(),
+                ))
+            }
         },
         if source.is_null() {
             ""
         } else {
-            std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                source as *const u8,
-                source_length.try_into().unwrap(),
-            ))
+            unsafe {
+                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                    source as *const u8,
+                    source_length.try_into().unwrap(),
+                ))
+            }
         },
     )
 }
@@ -26210,18 +26193,22 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback_for_once_clo
         if channel.is_null() {
             ""
         } else {
-            std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                channel as *const u8,
-                channel_length.try_into().unwrap(),
-            ))
+            unsafe {
+                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                    channel as *const u8,
+                    channel_length.try_into().unwrap(),
+                ))
+            }
         },
         if source.is_null() {
             ""
         } else {
-            std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                source as *const u8,
-                source_length.try_into().unwrap(),
-            ))
+            unsafe {
+                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                    source as *const u8,
+                    source_length.try_into().unwrap(),
+                ))
+            }
         },
     )
 }
@@ -26453,27 +26440,16 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback_for_once_closure<
 #[doc = r""]
 #[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
 pub trait AeronStrToPtrHashMapForEachFuncCallback {
-    fn handle_aeron_str_to_ptr_hash_map_for_each_func(
-        &mut self,
-        key: &str,
-        key_len: usize,
-        value: *mut ::std::os::raw::c_void,
-    ) -> ();
+    fn handle_aeron_str_to_ptr_hash_map_for_each_func(&mut self, key: &str, value: *mut ::std::os::raw::c_void) -> ();
 }
 pub struct AeronStrToPtrHashMapForEachFuncLogger;
 impl AeronStrToPtrHashMapForEachFuncCallback for AeronStrToPtrHashMapForEachFuncLogger {
-    fn handle_aeron_str_to_ptr_hash_map_for_each_func(
-        &mut self,
-        key: &str,
-        key_len: usize,
-        value: *mut ::std::os::raw::c_void,
-    ) -> () {
+    fn handle_aeron_str_to_ptr_hash_map_for_each_func(&mut self, key: &str, value: *mut ::std::os::raw::c_void) -> () {
         log::info!(
             "{}({}\n)",
             stringify!(handle_aeron_str_to_ptr_hash_map_for_each_func),
             [
                 format!("{} : {:?}", stringify!(key), key),
-                format!("{} : {:?}", stringify!(key_len), key_len),
                 format!("{} : {:?}", stringify!(value), value)
             ]
             .join(", "),
@@ -26485,39 +26461,24 @@ unsafe impl Send for AeronStrToPtrHashMapForEachFuncLogger {}
 unsafe impl Sync for AeronStrToPtrHashMapForEachFuncLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(&str, usize, *mut ::std::os::raw::c_void) -> ()> AeronStrToPtrHashMapForEachFuncCallback for F {
+impl<F: FnMut(&str, *mut ::std::os::raw::c_void) -> ()> AeronStrToPtrHashMapForEachFuncCallback for F {
     #[inline]
-    fn handle_aeron_str_to_ptr_hash_map_for_each_func(
-        &mut self,
-        key: &str,
-        key_len: usize,
-        value: *mut ::std::os::raw::c_void,
-    ) -> () {
-        self(key, key_len, value)
+    fn handle_aeron_str_to_ptr_hash_map_for_each_func(&mut self, key: &str, value: *mut ::std::os::raw::c_void) -> () {
+        self(key, value)
     }
 }
 #[doc = r" Pass an existing [`Handler`] clone anywhere a callback value is expected, e.g."]
 #[doc = r" to share one callback instance across several registrations."]
 impl<T: AeronStrToPtrHashMapForEachFuncCallback> AeronStrToPtrHashMapForEachFuncCallback for Handler<T> {
     #[inline]
-    fn handle_aeron_str_to_ptr_hash_map_for_each_func(
-        &mut self,
-        key: &str,
-        key_len: usize,
-        value: *mut ::std::os::raw::c_void,
-    ) -> () {
+    fn handle_aeron_str_to_ptr_hash_map_for_each_func(&mut self, key: &str, value: *mut ::std::os::raw::c_void) -> () {
         use std::ops::DerefMut;
         self.deref_mut()
-            .handle_aeron_str_to_ptr_hash_map_for_each_func(key, key_len, value)
+            .handle_aeron_str_to_ptr_hash_map_for_each_func(key, value)
     }
 }
 impl AeronStrToPtrHashMapForEachFuncCallback for NoHandler {
-    fn handle_aeron_str_to_ptr_hash_map_for_each_func(
-        &mut self,
-        key: &str,
-        key_len: usize,
-        value: *mut ::std::os::raw::c_void,
-    ) -> () {
+    fn handle_aeron_str_to_ptr_hash_map_for_each_func(&mut self, key: &str, value: *mut ::std::os::raw::c_void) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
     }
 }
@@ -26553,15 +26514,19 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback<F: Aeron
         if key.is_null() {
             ""
         } else {
-            unsafe { std::ffi::CStr::from_ptr(key).to_str().unwrap_or("") }
+            unsafe {
+                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                    key as *const u8,
+                    key_len.try_into().unwrap(),
+                ))
+            }
         },
-        key_len.into(),
         value.into(),
     )
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback_for_once_closure<
-    F: FnMut(&str, usize, *mut ::std::os::raw::c_void) -> (),
+    F: FnMut(&str, *mut ::std::os::raw::c_void) -> (),
 >(
     clientd: *mut ::std::os::raw::c_void,
     key: *const ::std::os::raw::c_char,
@@ -26596,9 +26561,13 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback_for_once
         if key.is_null() {
             ""
         } else {
-            unsafe { std::ffi::CStr::from_ptr(key).to_str().unwrap_or("") }
+            unsafe {
+                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                    key as *const u8,
+                    key_len.try_into().unwrap(),
+                ))
+            }
         },
-        key_len.into(),
         value.into(),
     )
 }

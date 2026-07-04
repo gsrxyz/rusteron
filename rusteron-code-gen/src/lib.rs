@@ -7,16 +7,16 @@
 #![allow(unused_variables)]
 #![doc = include_str!("../README.md")]
 
+mod arg_classifier;
 mod common;
 mod generator;
 mod parser;
-mod plan;
 pub mod test_logger;
 
+pub use arg_classifier::*;
 pub use common::*;
 pub use generator::*;
 pub use parser::*;
-pub use plan::*;
 
 use proc_macro2::TokenStream;
 use std::fs::OpenOptions;
@@ -33,12 +33,12 @@ pub const COMMON_CODE: &str = include_str!("./common.rs");
 /// pulled into rusteron-archive via its build.rs. The trybuild test compiles generated
 /// code in isolation, so the real CUSTOM_ARCHIVE_CODE can't be used (it references
 /// hand-written rusteron-archive/src/lib.rs types). Generated aeron_archive_t methods
-/// only reference `AeronArchiveError::from_c_code(i32)`, so a bare struct suffices.
+/// only reference `AeronArchiveError::from_code(i32)`, so a bare struct suffices.
 #[cfg(test)]
 const TRYBUILD_ARCHIVE_ERROR_STUB: &str = r#"
     #[derive(Debug, Clone)]
     pub struct AeronArchiveError { pub code: i32, pub message: String }
-    impl AeronArchiveError { pub fn from_c_code(code: i32) -> Self { Self { code, message: String::new() } } }
+    impl AeronArchiveError { pub fn from_code(code: i32) -> Self { Self { code, message: String::new() } } }
     impl std::fmt::Display for AeronArchiveError {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "archive error {}", self.code) }
     }

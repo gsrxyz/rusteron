@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let driver = EmbeddedDriver::launch()?;
 
     let ctx = AeronContext::new()?;
-    ctx.set_dir(&driver.dir().into_c_string())?;
+    ctx.set_dir(&cformat!("{}", driver.dir()))?;
     ctx.set_error_handler(Some(|code: i32, msg: &str| eprintln!("aeron error {code}: {msg}")))?;
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let aeron_dir = driver.dir().to_string();
         std::thread::spawn(move || -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let ctx = AeronContext::new()?;
-            ctx.set_dir(&aeron_dir.into_c_string())?;
+            ctx.set_dir(&cformat!("{aeron_dir}"))?;
             let aeron = Aeron::new(&ctx)?;
             aeron.start()?;
 
@@ -61,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
             let server_subscription = aeron
                 .async_add_subscription(
-                    &request_channel.into_c_string(),
+                    &cformat!("{request_channel}"),
                     REQUEST_STREAM_ID,
                     Some(&image_handler),
                     Handlers::NONE,
@@ -77,7 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .response_correlation_id(correlation_id)?
                         .build(256)?;
                     let publication = aeron
-                        .async_add_publication(&channel.into_c_string(), RESPONSE_STREAM_ID)?
+                        .async_add_publication(&cformat!("{channel}"), RESPONSE_STREAM_ID)?
                         .poll_blocking(Duration::from_secs(5))?;
                     println!("[server] response publication ready for client image {correlation_id}");
                     responders.push(publication);

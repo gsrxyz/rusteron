@@ -98,7 +98,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (stop, driver_handle) = AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
     let ctx = AeronContext::new()?;
-    ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+    ctx.set_dir(&cformat!("{}", media_driver_ctx.get_dir()))?;
 
     thread::sleep(Duration::from_secs(3)); // Simulated workload
 

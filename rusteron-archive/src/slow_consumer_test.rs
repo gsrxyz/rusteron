@@ -224,7 +224,7 @@ mod tests {
 
         // 4. Resolve the port
         let mut buffer = [0u8; 4096];
-        let len = subscription.try_resolve_channel_endpoint_port(buffer.as_mut_ptr() as *mut i8, buffer.len())?;
+        let len = subscription.try_resolve_channel_endpoint_port(&mut buffer)?;
         let resolved_channel = String::from_utf8_lossy(&buffer[..len as usize]).to_string();
         info!("Resolved subscription channel: {}", resolved_channel);
 

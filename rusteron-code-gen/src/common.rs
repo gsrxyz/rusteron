@@ -499,22 +499,20 @@ impl AeronErrorType {
     }
 }
 
-/// Represents an Aeron-specific error with a code and an optional message.
+/// Aeron C API error: code + optional message.
 ///
-/// The error code is derived from Aeron C API calls. When the error is created from a
-/// live C call (`from_c_code`), the human-readable `aeron_errmsg()` text is snapshotted
-/// eagerly for non-retryable codes, so it still describes *this* error when displayed
-/// later — see [`Self::message`].
+/// Construction is allocation-free (never reads `aeron_errmsg()`), so retry loops
+/// that discard the error stay cheap. Attach the message via `capture_errmsg()`
+/// (at the error site) or `with_message()`; `Display` / `get_last_err_message()`
+/// otherwise read the live `aeron_errmsg()` buffer.
 #[derive(Clone)]
 pub struct AeronCError {
     pub code: i32,
-    /// Message snapshotted from `aeron_errmsg()` at construction time (non-retryable
-    /// codes constructed via `from_c_code` only). `None` for sentinel/retryable codes,
-    /// where allocating would tax retry loops.
-    msg: Option<Box<str>>,
+    /// Attached via `capture_errmsg()` / `with_message()`; `None` otherwise.
+    msg: Option<String>,
 }
 
-/// Equality is on `code` only — the snapshotted message is advisory.
+/// Equality is on `code` only — the attached message is advisory.
 impl PartialEq for AeronCError {
     fn eq(&self, other: &Self) -> bool {
         self.code == other.code
@@ -523,9 +521,10 @@ impl PartialEq for AeronCError {
 impl Eq for AeronCError {}
 
 impl AeronCError {
-    /// Creates an AeronError from the error code returned by Aeron.
+    /// Construct from an Aeron error code (`< 0` is failure).
     ///
-    /// Error codes below zero are considered failure.
+    /// Allocation-free; does not read `aeron_errmsg()`. Use `capture_errmsg()` to
+    /// attach the message when the error will be stored or logged later.
     pub fn from_code(code: i32) -> Self {
         #[cfg(feature = "backtrace")]
         {
@@ -564,17 +563,14 @@ impl AeronCError {
         AeronCError { code, msg: None }
     }
 
-    /// Like [`Self::from_code`], but attaching a human-readable message captured at
-    /// the error site (e.g. a snapshot of `aeron_errmsg()`).
-    pub fn with_message(code: i32, msg: impl Into<Box<str>>) -> Self {
+    /// [`Self::from_code`] with an attached message.
+    pub fn with_message(code: i32, msg: impl Into<String>) -> Self {
         let mut err = Self::from_code(code);
         err.msg = Some(msg.into());
         err
     }
 
-    /// Message snapshotted when this error was created, if any. Unlike reading the
-    /// global `aeron_errmsg()` later, this cannot be overwritten by a subsequent
-    /// error on the same thread.
+    /// Message attached via `capture_errmsg()` / `with_message()`, if any.
     pub fn message(&self) -> Option<&str> {
         self.msg.as_deref()
     }

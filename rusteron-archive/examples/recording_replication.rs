@@ -46,7 +46,7 @@ fn start_archive(name: &str, first_port: u16) -> Result<ArchiveInstance, Box<dyn
     )?;
 
     let aeron_context = AeronContext::new()?;
-    aeron_context.set_dir(&aeron_dir.clone().into_c_string())?;
+    aeron_context.set_dir(&cformat!("{aeron_dir}"))?;
     aeron_context.set_error_handler(Some(move |code: i32, msg: &str| {
         eprintln!("[client error] {code}: {msg}")
     }))?;
@@ -113,7 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let params = AeronArchiveReplicationParams::builder().build()?;
     let replication_id = dst.archive.replicate(
         src_recording_id,
-        &src.control_request_channel.clone().into_c_string(),
+        &cformat!("{}", src.control_request_channel.clone()),
         dst.archive.get_archive_context().get_control_request_stream_id(), // archives share the default control stream id
         &params,
     )?;

@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-const CHANNEL: &str = "aeron:udp?endpoint=localhost:40123";
+const CHANNEL: &std::ffi::CStr = c"aeron:udp?endpoint=localhost:40123";
 const STREAM_ID: i32 = 10;
 const FRAGMENT_COUNT_LIMIT: usize = 10;
 
@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let driver = EmbeddedDriver::launch()?;
     let ctx = AeronContext::new()?;
-    ctx.set_dir(&driver.dir().into_c_string())?;
+    ctx.set_dir(&cformat!("{}", driver.dir()))?;
     ctx.set_error_handler(Some(|code: i32, msg: &str| eprintln!("aeron error {code}: {msg}")))?;
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
@@ -41,11 +41,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("<< unavailable image");
     });
 
-    let channel = CHANNEL.into_c_string();
     let subscription = aeron
-        .async_add_subscription(&channel, STREAM_ID, Some(&on_avail), Some(&on_unavail))?
+        .async_add_subscription(CHANNEL, STREAM_ID, Some(&on_avail), Some(&on_unavail))?
         .poll_blocking(Duration::from_secs(5))?;
-    println!("subscribing to {CHANNEL} on stream id {STREAM_ID}");
+    println!("subscribing to {} on stream id {STREAM_ID}", CHANNEL.to_str().unwrap());
 
     while running.load(Ordering::SeqCst) {
         // poll_fn: zero-allocation closure poll for non-fragmented messages.

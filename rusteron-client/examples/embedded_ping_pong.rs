@@ -9,8 +9,8 @@ use std::time::Duration;
 
 const PING_STREAM_ID: i32 = 1002;
 const PONG_STREAM_ID: i32 = 1003;
-const PING_CHANNEL: &str = "aeron:udp?endpoint=localhost:20123";
-const PONG_CHANNEL: &str = "aeron:udp?endpoint=localhost:20124";
+const PING_CHANNEL: &std::ffi::CStr = c"aeron:udp?endpoint=localhost:20123";
+const PONG_CHANNEL: &std::ffi::CStr = c"aeron:udp?endpoint=localhost:20124";
 const NUMBER_OF_MESSAGES: usize = 10_000_000;
 const WARMUP_NUMBER_OF_MESSAGES: usize = 100_000;
 const MESSAGE_LENGTH: usize = 32;
@@ -57,16 +57,16 @@ fn run_pong(running_pong: Arc<AtomicBool>) -> Result<(), Box<dyn std::error::Err
     let error_handler = Handler::new(AeronErrorHandlerLogger);
     context.set_error_handler(Some(error_handler.clone()))?;
     let dir = std::env::var("AERON_DIR").expect("AERON_DIR must be set");
-    context.set_dir(&dir.into_c_string())?;
+    context.set_dir(&cformat!("{dir}"))?;
     context.set_idle_sleep_duration_ns(0)?;
     let aeron = Aeron::new(&context)?;
     aeron.start()?;
     let ping_publication = aeron
-        .async_add_publication(&PING_CHANNEL.into_c_string(), PING_STREAM_ID)?
+        .async_add_publication(PING_CHANNEL, PING_STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
     let pong_subscription = aeron
         .async_add_subscription(
-            &PONG_CHANNEL.into_c_string(),
+            PONG_CHANNEL,
             PONG_STREAM_ID,
             Handlers::NONE,
             Handlers::NONE,
@@ -122,16 +122,16 @@ fn run_ping(running: Arc<AtomicBool>, pong_thread: JoinHandle<()>) -> Result<His
     let dir = std::env::var("AERON_DIR").expect("AERON_DIR must be set");
     println!("idle sleep {}", context.get_idle_sleep_duration_ns());
     context.set_idle_sleep_duration_ns(0)?;
-    context.set_dir(&dir.into_c_string())?;
+    context.set_dir(&cformat!("{dir}"))?;
     let aeron = Aeron::new(&context)?;
     aeron.start()?;
 
     let pong_publication = aeron
-        .async_add_publication(&PONG_CHANNEL.into_c_string(), PONG_STREAM_ID)?
+        .async_add_publication(PONG_CHANNEL, PONG_STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
     let ping_subscription = aeron
         .async_add_subscription(
-            &PING_CHANNEL.into_c_string(),
+            PING_CHANNEL,
             PING_STREAM_ID,
             Handlers::NONE,
             Handlers::NONE,

@@ -1139,6 +1139,22 @@ mod tests {
         Ok(())
     }
 
+    /// `from_code` + `Clone` must stay allocation-free so retry loops that keep
+    /// failing on `-1` don't tax the hot path. Message capture is opt-in.
+    #[test]
+    #[serial]
+    fn repeated_c_errors_are_allocation_free() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..200 {
+                let err = AeronCError::from_code(-1);
+                assert_eq!(err.code, -1);
+                assert!(err.message().is_none());
+                let cloned = err.clone();
+                assert_eq!(cloned, err);
+            }
+        });
+    }
+
     #[test]
     #[serial]
     fn async_pub_sub_invalid_endpoint_create_drop_stress() -> Result<(), Box<dyn error::Error>> {

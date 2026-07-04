@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let driver = EmbeddedDriver::launch()?;
 
     let ctx = AeronContext::new()?;
-    ctx.set_dir(&driver.dir().into_c_string())?;
+    ctx.set_dir(&cformat!("{}", driver.dir()))?;
     ctx.set_error_handler(Some(|code: i32, msg: &str| eprintln!("aeron error {code}: {msg}")))?;
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;

@@ -345,9 +345,12 @@ fn process_types(mut name_and_type: Vec<Arg>, handler_names: Option<&BTreeSet<St
         let param2 = &name_and_type[i];
 
         let is_int = param2.c_type == "usize" || param2.c_type == "i32";
-        let length_field = param2.name == "length"
-            || param2.name == "len"
-            || (param2.name.ends_with("_length") && param2.name.starts_with(&param1.name));
+        // Length fields use varied names across Aeron headers; match the common ones so
+        // (buffer, length) pairs merge into a slice rather than leaking two raw params.
+        let length_field = matches!(param2.name.as_str(), "length" | "len" | "count" | "capacity")
+            || param2.name.ends_with("_length")
+            || param2.name.ends_with("_len")
+            || param2.name.ends_with("_size");
         if param2.is_c_void()
             && !param1.is_mut_pointer()
             && param1.c_type.ends_with("_t")
@@ -361,17 +364,15 @@ fn process_types(mut name_and_type: Vec<Arg>, handler_names: Option<&BTreeSet<St
             let processing = ArgProcessing::Handler(vec![param1.clone(), param2.clone()]);
             name_and_type[i - 1].processing = processing.clone();
             name_and_type[i].processing = processing.clone();
-        } else if param1.is_c_string_any() && !param1.is_mut_pointer() && is_int && length_field {
+        } else if param1.is_c_string_any() && is_int && length_field {
             //     pub stripped_channel: *mut ::std::os::raw::c_char,
             //     pub stripped_channel_length: usize,
+            // `*const` pairs become `&str` arguments; `*mut` pairs are C fill-buffers
+            // (snprintf-style) and become `&mut [u8]` arguments / `&str` field reads.
             let processing = ArgProcessing::StringWithLength(vec![param1.clone(), param2.clone()]);
             name_and_type[i - 1].processing = processing.clone();
             name_and_type[i].processing = processing.clone();
-        } else if param1.is_byte_array()
-            // && !param1.is_mut_pointer()
-            && is_int
-            && length_field
-        {
+        } else if param1.is_byte_array() && is_int && length_field {
             //         key_buffer: *const u8,
             //         key_buffer_length: usize,
             let processing = ArgProcessing::ByteArrayWithLength(vec![param1.clone(), param2.clone()]);
@@ -461,6 +462,7 @@ fn extract_return_type(output: &syn::ReturnType) -> String {
 #[cfg(test)]
 mod tests {
     use crate::parser::parse_bindings;
+    use crate::ArgProcessing;
     use std::path::PathBuf;
 
     fn running_under_valgrind() -> bool {
@@ -505,5 +507,54 @@ mod tests {
                 .class_name
         );
         assert!(bindings.handlers.len() > 1);
+    }
+
+    /// `(buffer, frame_length)` must merge into one slice; old heuristic missed `frame_length`.
+    #[test]
+    fn reserved_value_supplier_buffer_merges_with_frame_length() {
+        if running_under_valgrind() {
+            return;
+        }
+
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("bindings")
+            .join("client.rs");
+        let bindings = parse_bindings(&path);
+        let handler = bindings
+            .handlers
+            .iter()
+            .find(|h| h.type_name == "aeron_reserved_value_supplier_t")
+            .expect("reserved value supplier handler missing");
+        let buffer = handler.args.iter().find(|a| a.name == "buffer").unwrap();
+        assert!(
+            matches!(buffer.processing, ArgProcessing::ByteArrayWithLength(_)),
+            "buffer must merge with frame_length into a slice, got {:?}",
+            buffer.processing
+        );
+    }
+
+    /// `*mut c_char` fill-buffers must merge so the wrapper takes `&mut [u8]`.
+    #[test]
+    fn mut_string_fill_buffer_merges() {
+        if running_under_valgrind() {
+            return;
+        }
+
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("bindings")
+            .join("client.rs");
+        let bindings = parse_bindings(&path);
+        let reader = bindings.wrappers.get("aeron_counters_reader_t").unwrap();
+        let method = reader
+            .methods
+            .iter()
+            .find(|m| m.fn_name == "aeron_counters_reader_counter_label")
+            .expect("counter_label method missing");
+        let buffer = method.arguments.iter().find(|a| a.name == "buffer").unwrap();
+        assert!(
+            matches!(buffer.processing, ArgProcessing::StringWithLength(_)),
+            "mut string buffer must merge with its length, got {:?}",
+            buffer.processing
+        );
     }
 }

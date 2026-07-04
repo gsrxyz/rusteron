@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-const CHANNEL: &str = "aeron:udp?endpoint=localhost:40123";
+const CHANNEL: &std::ffi::CStr = c"aeron:udp?endpoint=localhost:40123";
 const STREAM_ID: i32 = 10;
 const MESSAGE: &[u8] = b"Hello World! ";
 
@@ -27,16 +27,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let driver = EmbeddedDriver::launch()?;
     let ctx = AeronContext::new()?;
-    ctx.set_dir(&driver.dir().into_c_string())?;
+    ctx.set_dir(&cformat!("{}", driver.dir()))?;
     ctx.set_error_handler(Some(|code: i32, msg: &str| eprintln!("aeron error {code}: {msg}")))?;
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
 
-    let channel = CHANNEL.into_c_string();
     let publication = aeron
-        .async_add_publication(&channel, STREAM_ID)?
+        .async_add_publication(CHANNEL, STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
-    println!("publishing to {CHANNEL} on stream id {STREAM_ID}");
+    println!("publishing to {} on stream id {STREAM_ID}", CHANNEL.to_str().unwrap());
 
     let mut count: u64 = 0;
     while running.load(Ordering::SeqCst) {

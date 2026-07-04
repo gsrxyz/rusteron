@@ -44,30 +44,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // persistent subscription below, so we build it explicitly rather than via
     // `archive_connect()` (which hides it).
     let aeron_context = AeronContext::new()?;
-    aeron_context.set_dir(&aeron_dir.into_c_string())?;
-    aeron_context.set_client_name(&format!("ps-example-{id}").into_c_string())?;
+    aeron_context.set_dir(&cformat!("{aeron_dir}"))?;
+    aeron_context.set_client_name(&cformat!("ps-example-{id}"))?;
     let aeron = Aeron::new(&aeron_context)?;
     aeron.start()?;
 
     let archive_context = AeronArchiveContext::new()?;
     archive_context.set_aeron(&aeron)?;
-    archive_context.set_control_request_channel(&format!("aeron:udp?endpoint=localhost:{req_port}").into_c_string())?;
-    archive_context
-        .set_control_response_channel(&format!("aeron:udp?endpoint=localhost:{resp_port}").into_c_string())?;
-    archive_context
-        .set_recording_events_channel(&format!("aeron:udp?endpoint=localhost:{events_port}").into_c_string())?;
+    archive_context.set_control_request_channel(&cformat!("aeron:udp?endpoint=localhost:{req_port}"))?;
+    archive_context.set_control_response_channel(&cformat!("aeron:udp?endpoint=localhost:{resp_port}"))?;
+    archive_context.set_recording_events_channel(&cformat!("aeron:udp?endpoint=localhost:{events_port}"))?;
 
     let archive =
         AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?.poll_blocking(Duration::from_secs(20))?;
     println!("connected to archive");
 
     // 1. Record a live IPC stream and seed it with a little history.
-    let live_channel = "aeron:ipc";
+    let live_channel = c"aeron:ipc";
     let stream_id = 1001;
-    archive.start_recording(&live_channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+    archive.start_recording(live_channel, stream_id, SOURCE_LOCATION_LOCAL, true)?;
 
     let publication = aeron
-        .async_add_publication(&live_channel.into_c_string(), stream_id)?
+        .async_add_publication(live_channel, stream_id)?
         .poll_blocking(Duration::from_secs(5))?;
     while !publication.is_connected() {
         sleep(Duration::from_millis(10));
@@ -118,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ps = persistent_subscription_builder()?
         .aeron(&aeron)?
         .archive_context(&archive_context)?
-        .live_channel(live_channel)?
+        .live_channel(live_channel.to_str()?)?
         .live_stream_id(stream_id)?
         .replay_channel("aeron:udp?endpoint=localhost:0")? // ephemeral scratch channel
         .replay_stream_id(stream_id + 1)?
@@ -135,6 +133,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //    `ps.poll_once()` runs the PS state machine (and drives the archive async client)
     //    internally, so — unlike a manual replay loop — there is no need to call
     //    `archive.poll_for_recording_signals()` here. Abort if the PS fails terminally.
+    //
+    //    Each live message carries a send timestamp in the frame's reserved-value field:
+    //    Aeron invokes the supplier synchronously inside `offer`, handing it the whole
+    //    frame (header + payload) as a mutable slice; the returned i64 is stored in the
+    //    header, where subscribers can read it back via `header.reserved_value()`.
+    let send_timestamp_supplier = Handler::new(|_frame: &mut [u8]| Aeron::nano_clock());
     let deadline = Instant::now() + Duration::from_secs(30);
     let mut live_sent = 0;
     while !ps.is_live() && Instant::now() < deadline {
@@ -144,7 +148,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         live_sent += 1;
         let msg = format!("Live-{live_sent}");
-        let _ = publication.offer_with_reserved_value(msg.as_bytes(), Handlers::NONE);
+        let _ = publication.offer_with_reserved_value(msg.as_bytes(), Some(&send_timestamp_supplier));
         let fragments = ps.poll_once(|buf, _hdr| println!("  fragment ({} bytes)", buf.len()), 100)?;
         if fragments == 0 {
             sleep(Duration::from_millis(1));

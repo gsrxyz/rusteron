@@ -40,18 +40,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let aeron_context = AeronContext::new()?;
-    aeron_context.set_dir(&aeron_dir.into_c_string())?;
+    aeron_context.set_dir(&cformat!("{aeron_dir}"))?;
     aeron_context.set_error_handler(Some(|code: i32, msg: &str| eprintln!("[client error] {code}: {msg}")))?;
     let aeron = Aeron::new(&aeron_context)?;
     aeron.start()?;
 
     let archive_context = AeronArchiveContext::new()?;
     archive_context.set_aeron(&aeron)?;
-    archive_context.set_control_request_channel(&format!("aeron:udp?endpoint=localhost:{req_port}").into_c_string())?;
+    archive_context.set_control_request_channel(&cformat!("aeron:udp?endpoint=localhost:{req_port}"))?;
     archive_context
-        .set_control_response_channel(&format!("aeron:udp?endpoint=localhost:{resp_port}").into_c_string())?;
+        .set_control_response_channel(&cformat!("aeron:udp?endpoint=localhost:{resp_port}"))?;
     archive_context
-        .set_recording_events_channel(&format!("aeron:udp?endpoint=localhost:{events_port}").into_c_string())?;
+        .set_recording_events_channel(&cformat!("aeron:udp?endpoint=localhost:{events_port}"))?;
     let archive =
         AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?.poll_blocking(Duration::from_secs(20))?;
     println!("connected to archive");
@@ -60,9 +60,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // tear it down (simulating the upstream service dying) and re-add it cleanly.
     let live_channel = "aeron:ipc";
     let stream_id = 3201;
-    archive.start_recording(&live_channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+    archive.start_recording(&cformat!("{live_channel}"), stream_id, SOURCE_LOCATION_LOCAL, true)?;
     let mut publication = aeron
-        .async_add_exclusive_publication(&live_channel.into_c_string(), stream_id)?
+        .async_add_exclusive_publication(&cformat!("{live_channel}"), stream_id)?
         .poll_blocking(Duration::from_secs(5))?;
     let start = Instant::now();
     while !publication.is_connected() && start.elapsed() < Duration::from_secs(5) {
@@ -154,7 +154,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── Phase 3: the live stream comes back — rejoin ─────────────────────
     println!("phase 3: restoring the live publication...");
     publication = aeron
-        .async_add_exclusive_publication(&live_channel.into_c_string(), stream_id)?
+        .async_add_exclusive_publication(&cformat!("{live_channel}"), stream_id)?
         .poll_blocking(Duration::from_secs(5))?;
     let deadline = Instant::now() + Duration::from_secs(30);
     while joined.load(Ordering::SeqCst) < 2 && Instant::now() < deadline {

@@ -110,14 +110,15 @@ impl AeronArchiveError {
         }
     }
 
-    /// Mirror of [`AeronCError::from_c_code`] for archive control operations: snapshots
-    /// the current thread-local `aeron_errmsg()` text and parses the embedded code out
-    /// of it. Use this at FFI error sites on `aeron_archive_*` calls.
+    /// Builds the typed error at an `aeron_archive_*` FFI error site: reads the current
+    /// thread-local `aeron_errmsg()` text and parses the embedded `errorCode=N` out of
+    /// it (that is where the C archive client stores the real control-response code).
     ///
-    /// Like its client counterpart, retryable codes skip the message snapshot to keep
-    /// retry loops allocation-free; the message can be reconstructed later via
-    /// [`AeronCError::get_last_err_message`] on the lossy conversion below if needed.
-    pub fn from_c_code(code: i32) -> Self {
+    /// Unlike [`AeronCError::from_code`], this *does* read and copy the error text —
+    /// it has to, the typed code only exists inside the message. Archive control
+    /// operations are request/response calls, not hot-path loops, so the copy is
+    /// acceptable there.
+    pub fn from_code(code: i32) -> Self {
         let message = Aeron::errmsg();
         if message.contains("errorCode=") {
             Self::parse(message)
@@ -450,7 +451,7 @@ impl AeronArchiveReplayMerge {
             )
         };
         if result < 0 {
-            Err(AeronCError::from_c_code(result))
+            Err(AeronCError::from_code(result))
         } else {
             Ok(result)
         }

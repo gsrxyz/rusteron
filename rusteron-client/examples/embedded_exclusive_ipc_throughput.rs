@@ -31,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let error_handler = Handler::new(AeronErrorHandlerLogger);
     ctx.set_error_handler(Some(error_handler.clone()))?;
     let dir = std::env::var("AERON_DIR").expect("AERON_DIR must be set");
-    ctx.set_dir(&dir.into_c_string())?;
+    ctx.set_dir(&cformat!("{dir}"))?;
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
 

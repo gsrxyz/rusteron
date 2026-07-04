@@ -61,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 2. Connect a client + archive context. The error logger surfaces async client errors.
     // `cformat!` = format + CString in one named step (the one heap allocation stays visible).
     let aeron_context = AeronContext::new()?;
-    aeron_context.set_dir(&aeron_dir.into_c_string())?;
+    aeron_context.set_dir(&cformat!("{aeron_dir}"))?;
     let aeron = Aeron::new(&aeron_context)?;
     aeron.start()?;
     let archive_context = AeronArchiveContext::new()?;
@@ -77,10 +77,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. Start recording an IPC stream and publish a small batch.
     let channel = "aeron:ipc";
     let stream_id = 4001;
-    archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+    archive.start_recording(&cformat!("{channel}"), stream_id, SOURCE_LOCATION_LOCAL, true)?;
     let publication = retry_transient(Instant::now() + Duration::from_secs(10), || {
         aeron
-            .async_add_publication(&channel.into_c_string(), stream_id)?
+            .async_add_publication(&cformat!("{channel}"), stream_id)?
             .poll_blocking(Duration::from_secs(2))
     })?;
 
@@ -118,7 +118,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let replay_stream_id = 4002;
     let replay_params = AeronArchiveReplayParams::builder().position(0).follow_live().build()?;
     let replay_session_id =
-        archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)?;
+        archive.start_replay(recording_id, &cformat!("{channel}"), replay_stream_id, &replay_params)?;
     let replay_channel = ChannelUri::add_session_id(channel, replay_session_id as i32).into_c_string();
     let replay_sub = retry_transient(Instant::now() + Duration::from_secs(10), || {
         aeron

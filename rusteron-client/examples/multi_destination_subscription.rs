@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let driver = EmbeddedDriver::launch()?;
 
     let ctx = AeronContext::new()?;
-    ctx.set_dir(&driver.dir().into_c_string())?;
+    ctx.set_dir(&cformat!("{}", driver.dir()))?;
     ctx.set_error_handler(Some(|code: i32, msg: &str| eprintln!("aeron error {code}: {msg}")))?;
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         builder.build(256)?
     };
     let subscription = aeron
-        .async_add_subscription(&mds_channel.into_c_string(), STREAM_ID, Handlers::NONE, Handlers::NONE)?
+        .async_add_subscription(&cformat!("{mds_channel}"), STREAM_ID, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(5))?;
 
     // Two independent feeds on their own endpoints.
@@ -44,15 +44,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let port_b = find_unused_udp_port(port_a + 1).expect("no free port");
     let destination_a = AeronUriStringBuilder::udp(&format!("127.0.0.1:{port_a}"))?.build(256)?;
     let destination_b = AeronUriStringBuilder::udp(&format!("127.0.0.1:{port_b}"))?.build(256)?;
-    subscription.add_destination(&destination_a.clone().into_c_string(), Duration::from_secs(5))?;
-    subscription.add_destination(&destination_b.clone().into_c_string(), Duration::from_secs(5))?;
+    subscription.add_destination(&cformat!("{destination_a}"), Duration::from_secs(5))?;
+    subscription.add_destination(&cformat!("{destination_b}"), Duration::from_secs(5))?;
     println!("subscription aggregating {destination_a} + {destination_b}");
 
     let publication_a = aeron
-        .async_add_publication(&destination_a.into_c_string(), STREAM_ID)?
+        .async_add_publication(&cformat!("{destination_a}"), STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
     let publication_b = aeron
-        .async_add_publication(&destination_b.into_c_string(), STREAM_ID)?
+        .async_add_publication(&cformat!("{destination_b}"), STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
 
     let start = Instant::now();

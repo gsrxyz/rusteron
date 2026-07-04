@@ -8,33 +8,31 @@ pub static AERON_IPC_STREAM: &std::ffi::CStr = c"aeron:ipc";
 /// your own iovec array for larger gathers.
 pub const MAX_OFFER_PARTS: usize = 8;
 
-// SAFETY (accepted unsoundness — latency trade-off):
-// These handle types wrap `Rc` (via `CResource::OwnedOnHeap`), so in principle
-// they are `!Send + !Sync`. We deliberately keep `Rc` (non-atomic refcount) for
-// latency — `Arc` is banned in this library. The idiomatic Aeron usage is to
-// MOVE a handle to a single owning thread and use it exclusively there, never
-// sharing `&Handle` across threads, so we retain `Send` to support that pattern.
+// SAFETY: these handles wrap `Rc` (via `CResource::OwnedOnHeap`), so they are
+// `!Send + !Sync` in principle. `Rc` (non-atomic refcount) is kept for latency.
+// The supported usage pattern is to MOVE a handle to a single owning thread and
+// use it exclusively there; `Send` is retained to allow that move.
 //
-// `Sync` is intentionally NOT implemented: sharing `&Handle` across threads
-// would let two threads `Rc::clone` the inner `Rc` concurrently → refcount data
-// race → UB. Nothing in this codebase shares `&Handle` across threads.
+// `Sync` is intentionally NOT implemented by default: sharing `&Handle` across
+// threads would let two threads `Rc::clone` concurrently and race the refcount.
 //
-// Retaining `Send` over `Rc` is technically unsound (a non-atomic refcount
-// touched from >1 thread races), but per project policy "rather be unsound than
-// slow" this is documented and accepted. Do NOT clone these handles across
-// threads; do NOT use one handle from multiple threads concurrently.
+// `Send` over `Rc` is technically unsound (a non-atomic refcount touched from
+// more than one thread races). Callers must not clone these handles across
+// threads and must not use one handle from multiple threads concurrently. The
+// `multi-threaded` feature (below) switches to `Arc` and removes this caveat.
 unsafe impl Send for AeronCountersReader {}
 unsafe impl Send for AeronSubscription {}
 unsafe impl Send for AeronPublication {}
 unsafe impl Send for AeronCounter {}
 
-// Under the `multi-threaded` feature the refcount is atomic (`Arc`) so `Send`
-// is sound. We also impl `Sync` so that `&AeronPublication` etc. can be shared
-// across threads for the operations Aeron C documents as thread-safe
-// (offer / try_claim / position / is_connected). The `UnsafeCell` fields inside
-// `ManagedCResource` are only mutated during construction (single-threaded) and
-// close (the last-dropper thread), never during the shared-read window, so this
-// follows the same "accepted unsoundness" policy as the `Send` impls above.
+// SAFETY: under `multi-threaded` the refcount is atomic (`Arc`), so `Send` is sound,
+// and `Sync` is implemented so `&Handle` can be shared across threads. The `UnsafeCell`
+// fields inside `ManagedCResource` are mutated only during construction and close,
+// never during the shared-read window.
+//
+// This only lifts the Rust-side barrier; the caller must still confirm the underlying
+// Aeron object is thread-safe (e.g. `AeronPublication` is, `AeronExclusivePublication`
+// is not). See the README "Multi-threaded handles" section.
 // Enable with `features = ["multi-threaded"]` in Cargo.toml.
 #[cfg(feature = "multi-threaded")]
 unsafe impl Sync for AeronCountersReader {}
@@ -688,7 +686,7 @@ impl AeronSubscription {
             )
         };
         if result < 0 {
-            Err(AeronCError::from_c_code(result))
+            Err(AeronCError::from_code(result))
         } else {
             Ok(result)
         }
@@ -827,28 +825,15 @@ impl AeronCError {
         self.message().unwrap_or_else(|| Aeron::errmsg())
     }
 
-    /// Construct from a live C error code returned by an Aeron FFI call, eagerly
-    /// snapshotting the current `aeron_errmsg()` text for non-retryable codes.
-    ///
-    /// Unlike reading `aeron_errmsg()` (via [`Self::get_last_err_message`]) at
-    /// `Display` time — by which point another error on the same thread may have
-    /// overwritten the buffer — the snapshot is taken at the error site and is
-    /// stable for the lifetime of this `AeronCError`.
-    ///
-    /// Retryable codes (`AeronErrorType::is_retryable`: back-pressure, admin
-    /// action, buffer-full, timeout) skip the snapshot so retry loops stay
-    /// allocation-free. They can reconstruct the message later via
-    /// [`Self::get_last_err_message`] if needed.
-    ///
-    /// This is what generated wrappers call; user code constructing an error from
-    /// a known code should use [`Self::from_code`]
-    /// (no message capture) or [`Self::with_message`].
-    pub fn from_c_code(code: i32) -> Self {
-        let mut err = Self::from_code(code);
-        if code < 0 && !err.kind().is_retryable() {
-            err.msg = Some(Aeron::errmsg().into());
+    /// Attach the current `aeron_errmsg()` text to this error (one allocation).
+    /// Call at the error site when the error will be stored, logged later, or sent
+    /// across threads — otherwise `Display` reads the live buffer, which a later
+    /// error can overwrite.
+    pub fn capture_errmsg(mut self) -> Self {
+        if self.msg.is_none() {
+            self.msg = Some(Aeron::errmsg().into());
         }
-        err
+        self
     }
 }
 
@@ -1319,8 +1304,7 @@ impl AeronCountersReader {
             let capacity = dst.capacity();
             let vec = dst.as_mut_vec();
             vec.set_len(capacity);
-            let written =
-                self.counter_label(counter_id, vec.as_mut_ptr() as *mut _, capacity)? as usize;
+            let written = self.counter_label(counter_id, &mut vec[..])? as usize;
             vec.set_len(std::cmp::min(written, capacity));
         }
         Ok(())
@@ -1899,7 +1883,7 @@ impl AeronImage {
             )
         };
         if result < 0 {
-            Err(AeronCError::from_c_code(result))
+            Err(AeronCError::from_code(result))
         } else {
             Ok(result)
         }

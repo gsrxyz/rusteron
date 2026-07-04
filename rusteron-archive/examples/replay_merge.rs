@@ -46,32 +46,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let aeron_context = AeronContext::new()?;
-    aeron_context.set_dir(&aeron_dir.clone().into_c_string())?;
+    aeron_context.set_dir(&cformat!("{aeron_dir}"))?;
     aeron_context.set_error_handler(Some(|code: i32, msg: &str| eprintln!("[client error] {code}: {msg}")))?;
     let aeron = Aeron::new(&aeron_context)?;
     aeron.start()?;
 
     let archive_context = AeronArchiveContext::new()?;
     archive_context.set_aeron(&aeron)?;
-    archive_context.set_control_request_channel(&format!("aeron:udp?endpoint=localhost:{req_port}").into_c_string())?;
+    archive_context.set_control_request_channel(&cformat!("aeron:udp?endpoint=localhost:{req_port}"))?;
     archive_context
-        .set_control_response_channel(&format!("aeron:udp?endpoint=localhost:{resp_port}").into_c_string())?;
+        .set_control_response_channel(&cformat!("aeron:udp?endpoint=localhost:{resp_port}"))?;
     archive_context
-        .set_recording_events_channel(&format!("aeron:udp?endpoint=localhost:{events_port}").into_c_string())?;
+        .set_recording_events_channel(&cformat!("aeron:udp?endpoint=localhost:{events_port}"))?;
     let archive =
         AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?.poll_blocking(Duration::from_secs(20))?;
     println!("connected to archive");
 
     // ── Publisher on an MDC (multi-destination-cast) channel, recorded remotely ──
     let publication = aeron.add_publication(
-        &format!("aeron:udp?control={control_endpoint}|control-mode=dynamic|term-length=65536").into_c_string(),
+        &cformat!("aeron:udp?control={control_endpoint}|control-mode=dynamic|term-length=65536"),
         STREAM_ID,
         Duration::from_secs(5),
     )?;
     let session_id = publication.session_id();
     archive.start_recording(
-        &format!("aeron:udp?endpoint=localhost:{recording_port}|control={control_endpoint}|session-id={session_id}")
-            .into_c_string(),
+        &cformat!("aeron:udp?endpoint=localhost:{recording_port}|control={control_endpoint}|session-id={session_id}"),
         STREAM_ID,
         SOURCE_LOCATION_REMOTE,
         true,
@@ -122,7 +121,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
 
     let subscription = aeron.add_subscription(
-        &format!("aeron:udp?control-mode=manual|session-id={session_id}").into_c_string(),
+        &cformat!("aeron:udp?control-mode=manual|session-id={session_id}"),
         STREAM_ID,
         Handlers::NONE,
         Handlers::NONE,
@@ -131,9 +130,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let replay_merge = AeronArchiveReplayMerge::new(
         &subscription,
         &archive,
-        &format!("aeron:udp?session-id={session_id}").into_c_string(),
+        &cformat!("aeron:udp?session-id={session_id}"),
         c"aeron:udp?endpoint=localhost:0", // replay destination (ephemeral)
-        &format!("aeron:udp?endpoint=localhost:{live_port}|control={control_endpoint}").into_c_string(),
+        &cformat!("aeron:udp?endpoint=localhost:{live_port}|control={control_endpoint}"),
         recording_id,
         0, // start position: from the beginning
         Aeron::epoch_clock(),
