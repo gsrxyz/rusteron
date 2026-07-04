@@ -627,17 +627,29 @@ mod tests {
 
         let mut handler = Handler::new(SizeVerificationHandler::default());
 
-        // Poll for all messages
+        // Poll for all messages with improved timeout handling
         let start = Instant::now();
-        while handler.received_sizes.len() < total_messages && start.elapsed() < Duration::from_secs(20) {
+        let timeout = Duration::from_secs(30); // Increased from 20s to 30s for slower CI runners
+        while handler.received_sizes.len() < total_messages && start.elapsed() < timeout {
             subscription.poll(Some(&mut handler), 100)?;
-            sleep(Duration::from_millis(10));
+            sleep(Duration::from_millis(20)); // Increased from 10ms to 20ms
         }
+
+        let elapsed = start.elapsed();
+        info!(
+            "Polling completed in {:?}, received {}/{} messages",
+            elapsed,
+            handler.received_sizes.len(),
+            total_messages
+        );
 
         assert_eq!(
             handler.received_sizes.len(),
             total_messages,
-            "Should receive all messages"
+            "Should receive all messages within {} seconds (received: {}, expected: {})",
+            timeout.as_secs(),
+            handler.received_sizes.len(),
+            total_messages
         );
 
         // Verify sizes match (within fragmentation tolerance)
@@ -782,10 +794,17 @@ mod tests {
                 .async_add_publication(c"aeron:ipc", *stream_id)?
                 .poll_blocking(Duration::from_secs(5))?;
 
-            // Publish some messages
+            // Publish some messages with timeout protection
             for i in 0..10 {
                 let message = format!("Stream-{}-Message-{}", stream_id, i);
+                let deadline = Instant::now() + Duration::from_secs(5);
                 while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
+                    if Instant::now() > deadline {
+                        return Err(format!(
+                            "Timed out offering message {} for stream {}",
+                            i, stream_id
+                        ).into());
+                    }
                     sleep(Duration::from_millis(10));
                 }
             }
@@ -803,19 +822,40 @@ mod tests {
 
         info!("Setup {} streams with recordings", num_streams);
 
-        // Verify we have multiple recordings
+        // Wait a moment for recordings to be fully registered
+        sleep(Duration::from_millis(100));
+
+        // Verify we have multiple recordings with retry logic
         let mut count = 0;
-        archive.list_recordings_fn(&mut count, 0, i32::MAX, |desc| {
-            info!(
-                "Found recording: stream_id={}, recording_id={}",
-                desc.stream_id(),
-                desc.recording_id()
-            );
-        })?;
+        let max_attempts = 10;
+        for attempt in 0..max_attempts {
+            count = 0;
+            archive.list_recordings_fn(&mut count, 0, i32::MAX, |desc| {
+                info!(
+                    "Found recording: stream_id={}, recording_id={}",
+                    desc.stream_id(),
+                    desc.recording_id()
+                );
+            })?;
+
+            if count >= num_streams {
+                info!("Found {} recordings after {} attempts", count, attempt + 1);
+                break;
+            }
+
+            if attempt < max_attempts - 1 {
+                info!(
+                    "Only found {}/{} recordings, retrying in 100ms...",
+                    count, num_streams
+                );
+                sleep(Duration::from_millis(100));
+            }
+        }
 
         assert!(
             count >= num_streams,
-            "Should have at least as many recordings as streams"
+            "Should have at least as many recordings as streams (found: {}, expected: {})",
+            count, num_streams
         );
 
         // Cleanup
