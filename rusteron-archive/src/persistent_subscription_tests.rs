@@ -38,6 +38,27 @@ mod tests {
     use std::thread::sleep;
     use std::time::{Duration, Instant};
 
+    /// Retry an archive control operation until `deadline`. Archive control ops
+    /// (`start_recording`, `start_replay`, …) can transiently return `code: -1`
+    /// (GenericError, "no error") while the Java archive / conductor settles under
+    /// CI load — and that code is **not** `is_retryable()`, so the
+    /// `retry_transient`-style helpers don't catch it. This wrapper retries on any
+    /// `AeronCError` for a short window, which makes the integration tests
+    /// deterministic under load without slowing the success path (the op almost
+    /// always succeeds on the first try).
+    fn retry_archive_op<T, F>(deadline: Instant, mut op: F) -> Result<T, AeronCError>
+    where
+        F: FnMut() -> Result<T, AeronCError>,
+    {
+        loop {
+            match op() {
+                Ok(v) => return Ok(v),
+                Err(e) if Instant::now() < deadline => sleep(Duration::from_millis(50)),
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
     /// Test error handler for tracking Aeron errors
     #[derive(Default, Debug)]
     struct ErrorCount {
@@ -141,8 +162,9 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 1001;
 
-        let subscription_id =
-            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        let subscription_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
         info!("Started recording subscription_id={}", subscription_id);
 
         let publication = aeron_archive
@@ -254,7 +276,9 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 1002;
 
-        archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
@@ -298,8 +322,9 @@ mod tests {
         // Phase 2: replay the initial batch and verify.
         let replay_stream_id = 1003;
         let replay_params = AeronArchiveReplayParams::new(-1, i32::MAX, 0, i64::MAX, 0, 0)?;
-        let replay_session_id =
-            archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)?;
+        let replay_session_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)
+        })?;
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
         let replay_sub = aeron_archive
             .async_add_subscription(
@@ -413,8 +438,9 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 1004;
 
-        let subscription_id =
-            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        let subscription_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
@@ -532,8 +558,9 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 1005;
 
-        let subscription_id =
-            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        let subscription_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
@@ -593,8 +620,9 @@ mod tests {
         let stream_id = 1006;
 
         // Start recording
-        let subscription_id =
-            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        let subscription_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
         info!("Started recording with subscription_id={}", subscription_id);
 
         // Create publication
@@ -674,8 +702,9 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 1007;
 
-        let subscription_id =
-            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        let subscription_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
@@ -722,8 +751,9 @@ mod tests {
         let replay_stream_id = 1008;
         let replay_params = AeronArchiveReplayParams::new(-1, i32::MAX, 0, i64::MAX, 0, 0)?;
 
-        let replay_session_id =
-            archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)?;
+        let replay_session_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)
+        })?;
 
         // Create subscription for replay
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
@@ -917,8 +947,9 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 1012;
 
-        let subscription_id =
-            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        let subscription_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
@@ -993,8 +1024,9 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 1014;
 
-        let subscription_id =
-            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        let subscription_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
@@ -1130,7 +1162,9 @@ mod tests {
 
         let live_channel = "aeron:ipc";
         let stream_id = 3001;
-        archive.start_recording(&live_channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&live_channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
 
         let publication = aeron_archive
             .async_add_publication(&live_channel.into_c_string(), stream_id)?
@@ -1272,7 +1306,9 @@ mod tests {
 
         let live_channel = "aeron:ipc";
         let stream_id = 3101;
-        archive.start_recording(&live_channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&live_channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
 
         // Exclusive publication so we can tear it down and re-add cleanly.
         let mut publication = aeron_archive

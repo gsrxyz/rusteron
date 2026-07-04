@@ -53,6 +53,27 @@ mod tests {
         None
     }
 
+    /// Retry an archive control operation until `deadline`. Archive control ops
+    /// (`start_recording`, `start_replay`, …) can transiently return `code: -1`
+    /// (GenericError, "no error") while the Java archive / conductor settles under
+    /// CI load — and that code is **not** `is_retryable()`, so the
+    /// `retry_transient`-style helpers don't catch it. This wrapper retries on any
+    /// `AeronCError` for a short window, which makes the integration tests
+    /// deterministic under load without slowing the success path (the op almost
+    /// always succeeds on the first try).
+    fn retry_archive_op<T, F>(deadline: Instant, mut op: F) -> Result<T, AeronCError>
+    where
+        F: FnMut() -> Result<T, AeronCError>,
+    {
+        loop {
+            match op() {
+                Ok(v) => return Ok(v),
+                Err(e) if Instant::now() < deadline => sleep(Duration::from_millis(50)),
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
     /// Helper function to start Aeron Archive with dynamic port allocation
     fn start_aeron_archive_with_config(
         aeron_dir_suffix: &str,
@@ -144,7 +165,9 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 2001;
 
-        archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
@@ -180,8 +203,9 @@ mod tests {
         // Phase 2: replay the historical batch and verify it.
         let replay_stream_id = 2002;
         let replay_params = AeronArchiveReplayParams::new(-1, i32::MAX, 0, i64::MAX, 0, 0)?;
-        let replay_session_id =
-            archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)?;
+        let replay_session_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)
+        })?;
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
         let replay_sub = aeron_archive
             .async_add_subscription(
@@ -295,8 +319,9 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 2003;
 
-        let subscription_id =
-            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        let subscription_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
@@ -347,8 +372,9 @@ mod tests {
         let replay_stream_id = 2004;
         let replay_params = AeronArchiveReplayParams::new(-1, i32::MAX, 0, i64::MAX, 0, 0)?;
 
-        let replay_session_id =
-            archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)?;
+        let replay_session_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)
+        })?;
 
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
@@ -439,8 +465,9 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 2005;
 
-        let subscription_id =
-            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        let subscription_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
@@ -481,8 +508,9 @@ mod tests {
         let replay_stream_id = 2006;
         let replay_params = AeronArchiveReplayParams::new(-1, i32::MAX, 0, i64::MAX, 0, 0)?;
 
-        let replay_session_id =
-            archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)?;
+        let replay_session_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)
+        })?;
 
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
@@ -559,8 +587,9 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 2007;
 
-        let subscription_id =
-            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        let subscription_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
@@ -603,8 +632,9 @@ mod tests {
         let replay_stream_id = 2008;
         let replay_params = AeronArchiveReplayParams::new(-1, i32::MAX, 0, i64::MAX, 0, 0)?;
 
-        let replay_session_id =
-            archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)?;
+        let replay_session_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)
+        })?;
 
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
@@ -689,8 +719,9 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 2009;
 
-        let subscription_id =
-            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        let subscription_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
         info!("Started recording with subscription_id={}", subscription_id);
 
         let publication = aeron_archive
@@ -714,8 +745,9 @@ mod tests {
         sleep(Duration::from_millis(500));
 
         // Restart recording
-        let subscription_id2 =
-            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        let subscription_id2 = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
         info!("Restarted recording with subscription_id={}", subscription_id2);
 
         // Phase 2: Record more messages
@@ -780,8 +812,9 @@ mod tests {
 
         // Setup multiple streams
         for stream_id in &stream_ids {
-            let subscription_id =
-                archive.start_recording(&"aeron:ipc".into_c_string(), *stream_id, SOURCE_LOCATION_LOCAL, true)?;
+            let subscription_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+                archive.start_recording(&"aeron:ipc".into_c_string(), *stream_id, SOURCE_LOCATION_LOCAL, true)
+            })?;
 
             let publication = aeron_archive
                 .async_add_publication(&"aeron:ipc".into_c_string(), *stream_id)?
@@ -875,8 +908,9 @@ mod tests {
         let channel = "aeron:ipc";
         let stream_id = 4002;
 
-        let subscription_id =
-            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        let subscription_id = retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
@@ -919,7 +953,9 @@ mod tests {
 
         let channel = "aeron:ipc";
         let stream_id = 5001;
-        archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+        retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
+        })?;
 
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
