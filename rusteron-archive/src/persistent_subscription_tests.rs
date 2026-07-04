@@ -642,7 +642,9 @@ mod tests {
         assert!(found_recording.get(), "Should find recording for our stream");
 
         // Stop recording
-        archive.stop_recording_channel_and_stream(&channel.into_c_string(), stream_id)?;
+        retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.stop_recording_channel_and_stream(&channel.into_c_string(), stream_id)
+        })?;
         info!("Stopped recording");
 
         // List recordings again to verify

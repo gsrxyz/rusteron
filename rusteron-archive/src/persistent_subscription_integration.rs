@@ -714,7 +714,9 @@ mod tests {
         info!("Phase 1: Published {} messages", phase1_count);
 
         // Stop recording
-        archive.stop_recording_channel_and_stream(&channel.into_c_string(), stream_id)?;
+        retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.stop_recording_channel_and_stream(&channel.into_c_string(), stream_id)
+        })?;
         info!("Stopped recording");
 
         sleep(Duration::from_millis(500));
@@ -958,7 +960,9 @@ mod tests {
         // then wait for the stop to take effect (stop_position becomes non-null) before
         // truncating — otherwise the archive rejects it with "cannot truncate active recording".
         drop(publication);
-        archive.stop_recording_channel_and_stream(&channel.into_c_string(), stream_id)?;
+        retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.stop_recording_channel_and_stream(&channel.into_c_string(), stream_id)
+        })?;
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut stopped = false;
         while !stopped && Instant::now() < deadline {
@@ -975,11 +979,15 @@ mod tests {
         assert!(stopped, "recording {recording_id} never stopped");
 
         let halfway = published_position / 2;
-        archive.truncate_recording(recording_id, halfway)?;
+        retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.truncate_recording(recording_id, halfway)
+        })?;
         info!("truncated {recording_id} to {halfway}");
 
         // Purge deletes the recording entirely.
-        archive.purge_recording(recording_id)?;
+        retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+            archive.purge_recording(recording_id)
+        })?;
         info!("purged recording {recording_id}");
 
         drop(archive);
