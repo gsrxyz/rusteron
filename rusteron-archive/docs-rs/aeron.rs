@@ -4957,6 +4957,12 @@ impl AeronArchivePersistentSubscription {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn poll_once<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
         &self,
         mut handler: AeronFragmentHandlerHandlerImpl,
@@ -5064,6 +5070,12 @@ impl AeronArchivePersistentSubscription {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn controlled_poll_once<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
@@ -6572,6 +6584,12 @@ impl AeronArchiveRecordingDescriptorPoller {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn reset_once<
         AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl: FnMut(AeronArchiveRecordingDescriptor) -> (),
     >(
@@ -7430,6 +7448,12 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn reset_once<
         AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl: FnMut(AeronArchiveRecordingSubscriptionDescriptor) -> (),
     >(
@@ -8005,6 +8029,12 @@ impl AeronArchiveReplayMerge {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn poll_once<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
         &self,
         mut handler: AeronFragmentHandlerHandlerImpl,
@@ -9603,6 +9633,12 @@ impl AeronArchive {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn list_recording_once<
         AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl: FnMut(AeronArchiveRecordingDescriptor) -> (),
     >(
@@ -9736,6 +9772,12 @@ impl AeronArchive {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn list_recordings_once<
         AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl: FnMut(AeronArchiveRecordingDescriptor) -> (),
     >(
@@ -9882,6 +9924,12 @@ impl AeronArchive {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn list_recordings_for_uri_once<
         AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl: FnMut(AeronArchiveRecordingDescriptor) -> (),
     >(
@@ -10197,6 +10245,12 @@ impl AeronArchive {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn list_recording_subscriptions_once<
         AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl: FnMut(AeronArchiveRecordingSubscriptionDescriptor) -> (),
     >(
@@ -13893,6 +13947,12 @@ impl AeronCnc {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn error_log_read_once<AeronErrorLogReaderFuncHandlerImpl: FnMut(i32, i64, i64, &str) -> ()>(
         &self,
         mut callback: AeronErrorLogReaderFuncHandlerImpl,
@@ -13995,6 +14055,12 @@ impl AeronCnc {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn loss_reporter_read_once<
         AeronLossReporterReadEntryFuncHandlerImpl: FnMut(i64, i64, i64, i64, i32, i32, &str, &str) -> (),
     >(
@@ -16808,6 +16874,12 @@ impl AeronCountersReader {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn foreach_counter_once<
         AeronCountersReaderForeachCounterFuncHandlerImpl: FnMut(i64, i32, i32, &[u8], &str) -> (),
     >(
@@ -18148,6 +18220,12 @@ impl AeronExclusivePublication {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn offerv_once<AeronReservedValueSupplierHandlerImpl: FnMut(*mut u8, usize) -> i64>(
         &self,
         iov: &AeronIovec,
@@ -20804,6 +20882,12 @@ impl AeronImage {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn poll_once<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
         &self,
         mut handler: AeronFragmentHandlerHandlerImpl,
@@ -20901,6 +20985,12 @@ impl AeronImage {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn controlled_poll_once<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
@@ -21009,6 +21099,12 @@ impl AeronImage {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn bounded_poll_once<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
         &self,
         mut handler: AeronFragmentHandlerHandlerImpl,
@@ -21116,6 +21212,12 @@ impl AeronImage {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn bounded_controlled_poll_once<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
@@ -21225,6 +21327,12 @@ impl AeronImage {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn controlled_peek_once<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
@@ -21337,6 +21445,12 @@ impl AeronImage {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn block_poll_once<AeronBlockHandlerHandlerImpl: FnMut(&[u8], i32, i32) -> ()>(
         &self,
         mut handler: AeronBlockHandlerHandlerImpl,
@@ -22964,6 +23078,12 @@ impl AeronLossReporter {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn read_once<
         AeronLossReporterReadEntryFuncHandlerImpl: FnMut(i64, i64, i64, i64, i32, i32, &str, &str) -> (),
     >(
@@ -25667,6 +25787,12 @@ impl AeronPublication {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn offerv_once<AeronReservedValueSupplierHandlerImpl: FnMut(*mut u8, usize) -> i64>(
         &self,
         iov: &AeronIovec,
@@ -28550,6 +28676,12 @@ impl AeronSubscription {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn poll_once<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
         &self,
         mut handler: AeronFragmentHandlerHandlerImpl,
@@ -28653,6 +28785,12 @@ impl AeronSubscription {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn controlled_poll_once<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
@@ -28748,6 +28886,12 @@ impl AeronSubscription {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn block_poll_once<AeronBlockHandlerHandlerImpl: FnMut(&[u8], i32, i32) -> ()>(
         &self,
         mut handler: AeronBlockHandlerHandlerImpl,
@@ -32517,6 +32661,12 @@ impl AeronUri {
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
     #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
     pub fn parse_params_once<AeronUriParseCallbackHandlerImpl: FnMut(&str, &str) -> ::std::os::raw::c_int>(
         uri: *mut ::std::os::raw::c_char,
         mut param_func: AeronUriParseCallbackHandlerImpl,

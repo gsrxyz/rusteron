@@ -735,6 +735,12 @@ impl CWrapper {
                         /// and the closure may borrow local state. Prefer this over the retained
                         /// [`Handler`]-based form on the hot path; only generated for callbacks the C
                         /// client does not retain (i.e. not stored for later firing).
+                        ///
+                        /// # Panics
+                        ///
+                        /// A panic inside the closure cannot unwind across the `extern "C"` callback
+                        /// boundary and **aborts the process** (since Rust 1.81). Return early instead
+                        /// of panicking in production fragment handlers.
                         pub fn #once_fn_name #once_where(#possible_self #(#once_args),*) -> #return_type {
                             #set_closed
                             unsafe {
