@@ -560,10 +560,19 @@ mod tests {
             }
         }
 
-        // Verify recording exists
+        // Verify recording exists. The archive registers the recording-position
+        // counter asynchronously via its conductor thread, so a one-shot lookup
+        // races the conductor on a loaded runner (this previously flaked on the
+        // macOS CI box). Poll for up to 5s, matching the pattern in
+        // test_replay_merge_with_late_joiner below.
         let session_id = publication.get_constants()?.session_id;
         let counters_reader = aeron_archive.counters_reader();
-        let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
+        let mut counter_id = -1;
+        let start = Instant::now();
+        while counter_id == -1 && start.elapsed() < Duration::from_secs(5) {
+            counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
+            sleep(Duration::from_millis(10));
+        }
         assert!(counter_id >= 0, "Should find recording counter");
 
         // Clean shutdown
