@@ -1572,7 +1572,10 @@ mod tests {
 
         // Call close_now on the archive — must not segfault or double-free
         unsafe {
-            assert!(archive.close_now().is_ok(), "close_now should succeed after all children dropped");
+            assert!(
+                archive.close_now().is_ok(),
+                "close_now should succeed after all children dropped"
+            );
         }
 
         // Aeron client should still be usable (archive close doesn't close aeron)

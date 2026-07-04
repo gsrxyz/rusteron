@@ -3674,10 +3674,22 @@ mod tests {
             .expect("add publication 2");
 
         let sub1 = aeron
-            .add_subscription(AERON_IPC_STREAM, 1001, Handlers::NONE, Handlers::NONE, Duration::from_secs(5))
+            .add_subscription(
+                AERON_IPC_STREAM,
+                1001,
+                Handlers::NONE,
+                Handlers::NONE,
+                Duration::from_secs(5),
+            )
             .expect("add subscription 1");
         let sub2 = aeron
-            .add_subscription(AERON_IPC_STREAM, 1002, Handlers::NONE, Handlers::NONE, Duration::from_secs(5))
+            .add_subscription(
+                AERON_IPC_STREAM,
+                1002,
+                Handlers::NONE,
+                Handlers::NONE,
+                Duration::from_secs(5),
+            )
             .expect("add subscription 2");
 
         let excl_pub = aeron
@@ -3693,7 +3705,10 @@ mod tests {
 
         // Call close_now on the parent — must not segfault or double-free
         unsafe {
-            assert!(aeron.close_now().is_ok(), "close_now should succeed after all children dropped");
+            assert!(
+                aeron.close_now().is_ok(),
+                "close_now should succeed after all children dropped"
+            );
         }
 
         teardown_aeron_after_uaf_test(driver, error_handler);
