@@ -52,6 +52,7 @@ rusteron-code-gen = { workspace = true }
 serial_test = { workspace = true }
 
 [features]
+multi-threaded = [] # Rc -> Arc + unsafe impl Sync for cross-thread sharing
 # using static as different modules have different versions of aeron which don't seem to play nicely
 default        = ["build-from-source"]
 static         = ["build-from-source"]   # Statically links the Aeron C code

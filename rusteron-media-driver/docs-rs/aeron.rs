@@ -38,7 +38,7 @@ impl DarwinPthreadHandlerRec {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -136,8 +136,15 @@ use std::cell::UnsafeCell;
 use std::fmt::Formatter;
 use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
+#[doc = " Reference-counting smart pointer: `Rc` by default, `Arc` under the"]
+#[doc = " `multi-threaded` feature. Swap is transparent — `RcOrArc::new`, `.clone()`,"]
+#[doc = " `strong_count` all work on both."]
+#[cfg(not(feature = "multi-threaded"))]
+pub type RcOrArc<T> = std::rc::Rc<T>;
+#[cfg(feature = "multi-threaded")]
+pub type RcOrArc<T> = std::sync::Arc<T>;
 pub enum CResource<T> {
-    OwnedOnHeap(std::rc::Rc<ManagedCResource<T>>),
+    OwnedOnHeap(RcOrArc<ManagedCResource<T>>),
     #[doc = " Always initialised by construction (zeroed or `new(v)`). Never store"]
     #[doc = " `uninit()` — `Clone` and `get()` assume it's valid."]
     OwnedOnStack(std::mem::MaybeUninit<T>),
@@ -180,7 +187,7 @@ impl<T> CResource<T> {
         }
     }
     #[inline]
-    pub fn as_owned(&self) -> Option<&std::rc::Rc<ManagedCResource<T>>> {
+    pub fn as_owned(&self) -> Option<&RcOrArc<ManagedCResource<T>>> {
         match self {
             CResource::OwnedOnHeap(r) => Some(r),
             CResource::OwnedOnStack(_) | CResource::Borrowed(_) => None,
@@ -223,7 +230,7 @@ impl<T> CResource<T> {
     pub(crate) fn close_resource_deferred_if_shared(&self) -> Result<(), AeronCError> {
         match self {
             CResource::OwnedOnHeap(r) => {
-                let refs = std::rc::Rc::strong_count(r);
+                let refs = RcOrArc::strong_count(r);
                 if refs > 1 {
                     log::info!(
                         "close deferred for {} because {} references are still alive",
@@ -278,7 +285,7 @@ pub struct ManagedCResource<T> {
     #[doc = " Keeps deps alive (e.g. the Aeron client while a pub/sub exists)."]
     #[doc = " Mutated only at construction from the owning thread — no locking,"]
     #[doc = " same Send-over-Rc unsoundness stance. Empty vec doesn't allocate."]
-    dependencies: UnsafeCell<Vec<std::rc::Rc<dyn std::any::Any>>>,
+    dependencies: UnsafeCell<Vec<RcOrArc<dyn std::any::Any>>>,
 }
 impl<T> std::fmt::Debug for ManagedCResource<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -295,6 +302,10 @@ impl<T> std::fmt::Debug for ManagedCResource<T> {
             .finish()
     }
 }
+#[cfg(feature = "multi-threaded")]
+unsafe impl<T> Send for ManagedCResource<T> {}
+#[cfg(feature = "multi-threaded")]
+unsafe impl<T> Sync for ManagedCResource<T> {}
 impl<T> ManagedCResource<T> {
     #[doc = " Creates a new ManagedCResource with a given initializer and cleanup function."]
     #[doc = ""]
@@ -339,13 +350,13 @@ impl<T> ManagedCResource<T> {
     }
     #[inline]
     pub fn add_dependency<D: std::any::Any>(&self, dep: D) {
-        if let Some(dep) = (&dep as &dyn std::any::Any).downcast_ref::<std::rc::Rc<dyn std::any::Any>>() {
+        if let Some(dep) = (&dep as &dyn std::any::Any).downcast_ref::<RcOrArc<dyn std::any::Any>>() {
             unsafe {
                 (*self.dependencies.get()).push(dep.clone());
             }
         } else {
             unsafe {
-                (*self.dependencies.get()).push(std::rc::Rc::new(dep));
+                (*self.dependencies.get()).push(RcOrArc::new(dep));
             }
         }
     }
@@ -734,6 +745,13 @@ pub struct Handler<T> {
     inner: std::sync::Arc<UnsafeCell<T>>,
 }
 unsafe impl<T: Send> Send for Handler<T> {}
+#[doc = " Under the `multi-threaded` feature, `Handler` is also `Sync` so callbacks can"]
+#[doc = " be registered from one thread and the handle shared across threads. The"]
+#[doc = " underlying `Arc<UnsafeCell<T>>` is `!Sync` by construction; this impl follows"]
+#[doc = " the same \"accepted unsoundness\" policy as the handle-type impls — callbacks"]
+#[doc = " fire from the conductor thread only, never concurrently."]
+#[cfg(feature = "multi-threaded")]
+unsafe impl<T: Send> Sync for Handler<T> {}
 impl<T> Clone for Handler<T> {
     fn clone(&self) -> Self {
         Self {
@@ -1093,7 +1111,7 @@ impl OpaquePthreadAttr {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -1222,7 +1240,7 @@ impl OpaquePthreadCond {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -1351,7 +1369,7 @@ impl OpaquePthreadMutex {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -1480,7 +1498,7 @@ impl OpaquePthread {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -1621,7 +1639,7 @@ impl Addrinfo {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -1642,7 +1660,7 @@ impl Addrinfo {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -1853,7 +1871,7 @@ impl AeronAgentRunner {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -1877,7 +1895,7 @@ impl AeronAgentRunner {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -2215,7 +2233,7 @@ impl AeronAsyncAddCounter {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -2333,7 +2351,7 @@ impl AeronCounter {
             false,
         )?;
         Ok(Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         })
     }
 }
@@ -2411,7 +2429,7 @@ impl AeronAsyncAddCounter {
             false,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_async)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_async)),
         };
         result.inner.add_dependency(client.clone());
         Ok(result)
@@ -2502,7 +2520,7 @@ impl AeronAsyncAddExclusivePublication {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -2657,7 +2675,7 @@ impl AeronExclusivePublication {
             false,
         )?;
         Ok(Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         })
     }
 }
@@ -2730,7 +2748,7 @@ impl AeronAsyncAddExclusivePublication {
             false,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_async)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_async)),
         };
         result.inner.add_dependency(client.clone());
         Ok(result)
@@ -2821,7 +2839,7 @@ impl AeronAsyncAddPublication {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -2940,7 +2958,7 @@ impl AeronPublication {
             false,
         )?;
         Ok(Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         })
     }
 }
@@ -3008,7 +3026,7 @@ impl AeronAsyncAddPublication {
             false,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_async)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_async)),
         };
         result.inner.add_dependency(client.clone());
         Ok(result)
@@ -3099,7 +3117,7 @@ impl AeronAsyncAddSubscription {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -3223,7 +3241,7 @@ impl AeronSubscription {
             false,
         )?;
         Ok(Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         })
     }
 }
@@ -3355,7 +3373,7 @@ impl AeronAsyncAddSubscription {
             false,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_async)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_async)),
         };
         result.inner.add_dependency(client.clone());
         if let Some(__handler) = on_available_image_handler {
@@ -3466,7 +3484,7 @@ impl AeronAsyncDestinationById {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -3610,7 +3628,7 @@ impl AeronAsyncDestination {
             false,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
         };
         Ok(result)
     }
@@ -3653,7 +3671,7 @@ impl AeronAsyncDestination {
             false,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
         };
         Ok(result)
     }
@@ -3692,7 +3710,7 @@ impl AeronAsyncDestination {
             false,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
         };
         Ok(result)
     }
@@ -3894,7 +3912,7 @@ impl AeronAsyncExecutor {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -3918,7 +3936,7 @@ impl AeronAsyncExecutor {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -4301,7 +4319,7 @@ impl AeronAsyncExecutorTask {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         if let Some(__handler) = on_cancel {
             if let Some(__inner) = result.inner.as_owned() {
@@ -4330,7 +4348,7 @@ impl AeronAsyncExecutorTask {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -4536,7 +4554,7 @@ impl AeronAsyncGetNextAvailableSessionId {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -4684,7 +4702,7 @@ impl AeronAtomicCounter {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -4811,7 +4829,7 @@ impl AeronBlockingLinkedQueue {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -4835,7 +4853,7 @@ impl AeronBlockingLinkedQueue {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -5114,7 +5132,7 @@ impl AeronBroadcastDescriptor {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -5138,7 +5156,7 @@ impl AeronBroadcastDescriptor {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -5311,7 +5329,7 @@ impl AeronBroadcastRecordDescriptor {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -5335,7 +5353,7 @@ impl AeronBroadcastRecordDescriptor {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -5508,7 +5526,7 @@ impl AeronBroadcastTransmitter {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -5532,7 +5550,7 @@ impl AeronBroadcastTransmitter {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -5761,7 +5779,7 @@ impl AeronBufferClaim {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -5785,7 +5803,7 @@ impl AeronBufferClaim {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -6003,7 +6021,7 @@ impl AeronChannelEndpointStatusKeyLayout {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -6027,7 +6045,7 @@ impl AeronChannelEndpointStatusKeyLayout {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -6194,7 +6212,7 @@ impl AeronClientRegisteringResource {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -6338,7 +6356,7 @@ impl AeronClient {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -6359,7 +6377,7 @@ impl AeronClient {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -6554,7 +6572,7 @@ impl AeronClientTimeout {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -6578,7 +6596,7 @@ impl AeronClientTimeout {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -6743,7 +6761,7 @@ impl AeronClockCache {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -7009,7 +7027,7 @@ impl AeronCncConstants {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -7033,7 +7051,7 @@ impl AeronCncConstants {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -7263,7 +7281,7 @@ impl AeronCncMetadata {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -7287,7 +7305,7 @@ impl AeronCncMetadata {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -7498,7 +7516,7 @@ impl AeronCnc {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -7922,7 +7940,7 @@ impl AeronCongestionControlStrategy {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -8097,7 +8115,7 @@ impl AeronContext {
             false,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
         };
         Ok(result)
     }
@@ -9401,7 +9419,7 @@ impl AeronControlledFragmentAssembler {
             false,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
         };
         if let Some(__handler) = delegate {
             if let Some(__inner) = result.inner.as_owned() {
@@ -9569,7 +9587,7 @@ impl AeronCorrelatedCommand {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -9593,7 +9611,7 @@ impl AeronCorrelatedCommand {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -9758,7 +9776,7 @@ impl AeronCounterCommand {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -9782,7 +9800,7 @@ impl AeronCounterCommand {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -9950,7 +9968,7 @@ impl AeronCounterConstants {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -9974,7 +9992,7 @@ impl AeronCounterConstants {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -10143,7 +10161,7 @@ impl AeronCounterLink {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -10167,7 +10185,7 @@ impl AeronCounterLink {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -10348,7 +10366,7 @@ impl AeronCounterMetadataDescriptor {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -10372,7 +10390,7 @@ impl AeronCounterMetadataDescriptor {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -10553,7 +10571,7 @@ impl AeronCounter {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -10780,7 +10798,7 @@ impl AeronCounterUpdate {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -10804,7 +10822,7 @@ impl AeronCounterUpdate {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -10980,7 +10998,7 @@ impl AeronCounterValueDescriptor {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -11004,7 +11022,7 @@ impl AeronCounterValueDescriptor {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -11208,7 +11226,7 @@ impl AeronCountersManager {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -11232,7 +11250,7 @@ impl AeronCountersManager {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -11776,7 +11794,7 @@ impl AeronCountersReaderBuffers {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -11800,7 +11818,7 @@ impl AeronCountersReaderBuffers {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -11977,7 +11995,7 @@ impl AeronCountersReader {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -12607,7 +12625,7 @@ impl AeronDataHeaderAsLongs {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -12631,7 +12649,7 @@ impl AeronDataHeaderAsLongs {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -12807,7 +12825,7 @@ impl AeronDataHeader {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -12831,7 +12849,7 @@ impl AeronDataHeader {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -13021,7 +13039,7 @@ impl AeronDataPacketDispatcherStreamInterest {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -13045,7 +13063,7 @@ impl AeronDataPacketDispatcherStreamInterest {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -13232,7 +13250,7 @@ impl AeronDataPacketDispatcher {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -13256,7 +13274,7 @@ impl AeronDataPacketDispatcher {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -13881,7 +13899,7 @@ impl AeronDeque {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -13902,7 +13920,7 @@ impl AeronDeque {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -14164,7 +14182,7 @@ impl AeronDestinationByIdCommand {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -14188,7 +14206,7 @@ impl AeronDestinationByIdCommand {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -14363,7 +14381,7 @@ impl AeronDestinationCommand {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -14387,7 +14405,7 @@ impl AeronDestinationCommand {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -14556,7 +14574,7 @@ impl AeronDistinctErrorLogObservationList {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -14580,7 +14598,7 @@ impl AeronDistinctErrorLogObservationList {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -14757,7 +14775,7 @@ impl AeronDistinctErrorLog {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -14781,7 +14799,7 @@ impl AeronDistinctErrorLog {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -15035,7 +15053,7 @@ impl AeronDistinctObservation {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -15059,7 +15077,7 @@ impl AeronDistinctObservation {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -15238,7 +15256,7 @@ impl AeronDlLoadedLibsState {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -15372,7 +15390,7 @@ impl AeronDriverConductorProxy {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -15396,7 +15414,7 @@ impl AeronDriverConductorProxy {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -16003,7 +16021,7 @@ impl AeronDriverConductor {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -16027,7 +16045,7 @@ impl AeronDriverConductor {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -18214,7 +18232,7 @@ impl AeronDriverContextBindingsClientdEntry {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -18238,7 +18256,7 @@ impl AeronDriverContextBindingsClientdEntry {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -18709,7 +18727,7 @@ impl AeronDriverContext {
             false,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
         };
         Ok(result)
     }
@@ -24459,7 +24477,7 @@ impl AeronDriverManagedResource {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -24483,7 +24501,7 @@ impl AeronDriverManagedResource {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -24656,7 +24674,7 @@ impl AeronDriverReceiverImageEntry {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -24680,7 +24698,7 @@ impl AeronDriverReceiverImageEntry {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -24859,7 +24877,7 @@ impl AeronDriverReceiverPendingSetupEntry {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -24883,7 +24901,7 @@ impl AeronDriverReceiverPendingSetupEntry {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -25070,7 +25088,7 @@ impl AeronDriverReceiverProxy {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -25647,7 +25665,7 @@ impl AeronDriverReceiver {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -25671,7 +25689,7 @@ impl AeronDriverReceiver {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -26268,7 +26286,7 @@ impl AeronDriverSenderNetworkPublicationEntry {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -26292,7 +26310,7 @@ impl AeronDriverSenderNetworkPublicationEntry {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -26462,7 +26480,7 @@ impl AeronDriverSenderProxy {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -26486,7 +26504,7 @@ impl AeronDriverSenderProxy {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -26916,7 +26934,7 @@ impl AeronDriverSender {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -26940,7 +26958,7 @@ impl AeronDriverSender {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -27500,7 +27518,7 @@ impl AeronDriver {
             false,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
             _context: Some(context_copy),
         };
         Ok(result)
@@ -27835,7 +27853,7 @@ impl AeronDriverUriPublicationParams {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -27859,7 +27877,7 @@ impl AeronDriverUriPublicationParams {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -28191,7 +28209,7 @@ impl AeronDriverUriSubscriptionParams {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -28215,7 +28233,7 @@ impl AeronDriverUriSubscriptionParams {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -28433,7 +28451,7 @@ impl AeronDutyCycleStallTracker {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -28457,7 +28475,7 @@ impl AeronDutyCycleStallTracker {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -28660,7 +28678,7 @@ impl AeronDutyCycleTracker {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         if let Some(__handler) = measure_and_update {
             if let Some(__inner) = result.inner.as_owned() {
@@ -28689,7 +28707,7 @@ impl AeronDutyCycleTracker {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -28859,7 +28877,7 @@ impl AeronEndOfLifeResource {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -28883,7 +28901,7 @@ impl AeronEndOfLifeResource {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -29063,7 +29081,7 @@ impl AeronErrorLogEntry {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -29087,7 +29105,7 @@ impl AeronErrorLogEntry {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -29269,7 +29287,7 @@ impl AeronErrorResponse {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -29293,7 +29311,7 @@ impl AeronErrorResponse {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -29478,7 +29496,7 @@ impl AeronError {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -29499,7 +29517,7 @@ impl AeronError {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -29806,7 +29824,7 @@ impl AeronExclusivePublication {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -30365,7 +30383,7 @@ impl AeronFeedbackDelayGeneratorState {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -30389,7 +30407,7 @@ impl AeronFeedbackDelayGeneratorState {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -30621,7 +30639,7 @@ impl AeronFlowControlMaxOptions {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -30645,7 +30663,7 @@ impl AeronFlowControlMaxOptions {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -30809,7 +30827,7 @@ impl AeronFlowControlStrategySupplierFuncTableEntry {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -30834,7 +30852,7 @@ impl AeronFlowControlStrategySupplierFuncTableEntry {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -31013,7 +31031,7 @@ impl AeronFlowControlStrategy {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -31291,7 +31309,7 @@ impl AeronFlowControlTaggedOptions {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -31315,7 +31333,7 @@ impl AeronFlowControlTaggedOptions {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -31528,7 +31546,7 @@ impl AeronFragmentAssembler {
             false,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
         };
         if let Some(__handler) = delegate {
             if let Some(__inner) = result.inner.as_owned() {
@@ -31687,7 +31705,7 @@ impl AeronFrameHeader {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -31711,7 +31729,7 @@ impl AeronFrameHeader {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -31884,7 +31902,7 @@ impl AeronGetNextAvailableSessionIdCommand {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -31908,7 +31926,7 @@ impl AeronGetNextAvailableSessionIdCommand {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -32071,7 +32089,7 @@ impl AeronHeader {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -32326,7 +32344,7 @@ impl AeronHeaderValuesFrame {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -32350,7 +32368,7 @@ impl AeronHeaderValuesFrame {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -32549,7 +32567,7 @@ impl AeronHeaderValues {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -32573,7 +32591,7 @@ impl AeronHeaderValues {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -32740,7 +32758,7 @@ impl AeronHeartbeatTimestampKeyLayout {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -32764,7 +32782,7 @@ impl AeronHeartbeatTimestampKeyLayout {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -32927,7 +32945,7 @@ impl AeronIdleStrategy {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -33158,7 +33176,7 @@ impl AeronImageBuffersReady {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -33182,7 +33200,7 @@ impl AeronImageBuffersReady {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -33387,7 +33405,7 @@ impl AeronImageConstants {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -33411,7 +33429,7 @@ impl AeronImageConstants {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -33657,7 +33675,7 @@ impl AeronImageControlledFragmentAssembler {
             false,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
         };
         if let Some(__handler) = delegate {
             if let Some(__inner) = result.inner.as_owned() {
@@ -33858,7 +33876,7 @@ impl AeronImageFragmentAssembler {
             false,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
         };
         if let Some(__handler) = delegate {
             if let Some(__inner) = result.inner.as_owned() {
@@ -34027,7 +34045,7 @@ impl AeronImageMessage {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -34051,7 +34069,7 @@ impl AeronImageMessage {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -34222,7 +34240,7 @@ impl AeronImage {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -35251,7 +35269,7 @@ impl AeronInt64CounterMap {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -35275,7 +35293,7 @@ impl AeronInt64CounterMap {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -35469,7 +35487,7 @@ impl AeronInt64ToPtrHashMap {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -35493,7 +35511,7 @@ impl AeronInt64ToPtrHashMap {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -35675,7 +35693,7 @@ impl AeronInt64ToTaggedPtrEntry {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -35699,7 +35717,7 @@ impl AeronInt64ToTaggedPtrEntry {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -35882,7 +35900,7 @@ impl AeronInt64ToTaggedPtrHashMap {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -35906,7 +35924,7 @@ impl AeronInt64ToTaggedPtrHashMap {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -36084,7 +36102,7 @@ impl AeronIovec {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -36105,7 +36123,7 @@ impl AeronIovec {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -36276,7 +36294,7 @@ impl AeronIpcChannelParams {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -36300,7 +36318,7 @@ impl AeronIpcChannelParams {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -36483,7 +36501,7 @@ impl AeronIpcPublicationEntry {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -36507,7 +36525,7 @@ impl AeronIpcPublicationEntry {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -36703,7 +36721,7 @@ impl AeronIpcPublication {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -37098,7 +37116,7 @@ impl AeronLingerResourceEntry {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -37122,7 +37140,7 @@ impl AeronLingerResourceEntry {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -37293,7 +37311,7 @@ impl AeronLinkedQueueNode {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -37420,7 +37438,7 @@ impl AeronLinkedQueue {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -37444,7 +37462,7 @@ impl AeronLinkedQueue {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -37701,7 +37719,7 @@ impl AeronLocalSockaddrKeyLayout {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -37725,7 +37743,7 @@ impl AeronLocalSockaddrKeyLayout {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -37896,7 +37914,7 @@ impl AeronLogBuffer {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -38149,7 +38167,7 @@ impl AeronLogbufferMetadata {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -38173,7 +38191,7 @@ impl AeronLogbufferMetadata {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -38492,7 +38510,7 @@ impl AeronLossDetectorGap {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -38516,7 +38534,7 @@ impl AeronLossDetectorGap {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -38698,7 +38716,7 @@ impl AeronLossDetector {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -38722,7 +38740,7 @@ impl AeronLossDetector {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -39071,7 +39089,7 @@ impl AeronLossGenerator {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -39095,7 +39113,7 @@ impl AeronLossGenerator {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -39289,7 +39307,7 @@ impl AeronLossReporterEntry {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -39313,7 +39331,7 @@ impl AeronLossReporterEntry {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -39495,7 +39513,7 @@ impl AeronLossReporter {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -39519,7 +39537,7 @@ impl AeronLossReporter {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -39901,7 +39919,7 @@ impl AeronMappedBuffer {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -39925,7 +39943,7 @@ impl AeronMappedBuffer {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -40095,7 +40113,7 @@ impl AeronMappedFile {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -40119,7 +40137,7 @@ impl AeronMappedFile {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -40380,7 +40398,7 @@ impl AeronMappedRawLog {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -40404,7 +40422,7 @@ impl AeronMappedRawLog {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -40696,7 +40714,7 @@ impl AeronMpscConcurrentArrayQueue {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -40720,7 +40738,7 @@ impl AeronMpscConcurrentArrayQueue {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -40938,7 +40956,7 @@ impl AeronMpscRb {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -40959,7 +40977,7 @@ impl AeronMpscRb {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -41483,7 +41501,7 @@ impl AeronNakHeader {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -41507,7 +41525,7 @@ impl AeronNakHeader {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -41686,7 +41704,7 @@ impl AeronNamedInterface {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -41710,7 +41728,7 @@ impl AeronNamedInterface {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -41873,7 +41891,7 @@ impl AeronNetworkPublicationEntry {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -41897,7 +41915,7 @@ impl AeronNetworkPublicationEntry {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -42123,7 +42141,7 @@ impl AeronNetworkPublication {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -42878,7 +42896,7 @@ impl AeronNextAvailableSessionIdResponse {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -42902,7 +42920,7 @@ impl AeronNextAvailableSessionIdResponse {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -43074,7 +43092,7 @@ impl AeronAvailableCounterPair {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         if let Some(__handler) = handler {
             if let Some(__inner) = result.inner.as_owned() {
@@ -43103,7 +43121,7 @@ impl AeronAvailableCounterPair {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -43275,7 +43293,7 @@ impl AeronCloseClientPair {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         if let Some(__handler) = handler {
             if let Some(__inner) = result.inner.as_owned() {
@@ -43304,7 +43322,7 @@ impl AeronCloseClientPair {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -43476,7 +43494,7 @@ impl AeronUnavailableCounterPair {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         if let Some(__handler) = handler {
             if let Some(__inner) = result.inner.as_owned() {
@@ -43505,7 +43523,7 @@ impl AeronUnavailableCounterPair {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -43668,7 +43686,7 @@ impl AeronOperationSucceeded {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -43692,7 +43710,7 @@ impl AeronOperationSucceeded {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -43853,7 +43871,7 @@ impl AeronOptionHeader {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -43877,7 +43895,7 @@ impl AeronOptionHeader {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -44045,7 +44063,7 @@ impl AeronParsedAddress {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -44069,7 +44087,7 @@ impl AeronParsedAddress {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -44243,7 +44261,7 @@ impl AeronParsedInterface {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -44267,7 +44285,7 @@ impl AeronParsedInterface {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -44444,7 +44462,7 @@ impl AeronPerThreadError {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -44468,7 +44486,7 @@ impl AeronPerThreadError {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -44654,7 +44672,7 @@ impl AeronPortManager {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         if let Some(__handler) = free_managed_port {
             if let Some(__inner) = result.inner.as_owned() {
@@ -44683,7 +44701,7 @@ impl AeronPortManager {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -44851,7 +44869,7 @@ impl AeronPosition {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -44875,7 +44893,7 @@ impl AeronPosition {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -45061,7 +45079,7 @@ impl AeronPublicationBuffersReady {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -45085,7 +45103,7 @@ impl AeronPublicationBuffersReady {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -45272,7 +45290,7 @@ impl AeronPublicationCommand {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -45296,7 +45314,7 @@ impl AeronPublicationCommand {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -45508,7 +45526,7 @@ impl AeronPublicationConstants {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -45532,7 +45550,7 @@ impl AeronPublicationConstants {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -45779,7 +45797,7 @@ impl AeronPublicationError {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -45803,7 +45821,7 @@ impl AeronPublicationError {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -46023,7 +46041,7 @@ impl AeronPublicationErrorValues {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -46227,7 +46245,7 @@ impl AeronPublicationImageConnection {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -46251,7 +46269,7 @@ impl AeronPublicationImageConnection {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -46440,7 +46458,7 @@ impl AeronPublicationImageEntry {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -46464,7 +46482,7 @@ impl AeronPublicationImageEntry {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -46674,7 +46692,7 @@ impl AeronPublicationImage {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -47426,7 +47444,7 @@ impl AeronPublicationLink {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -47450,7 +47468,7 @@ impl AeronPublicationLink {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -47619,7 +47637,7 @@ impl AeronPublication {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -48130,7 +48148,7 @@ impl AeronRbDescriptor {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -48154,7 +48172,7 @@ impl AeronRbDescriptor {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -48355,7 +48373,7 @@ impl AeronRbRecordDescriptor {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -48379,7 +48397,7 @@ impl AeronRbRecordDescriptor {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -48542,7 +48560,7 @@ impl AeronReceiveChannelEndpointEntry {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -48566,7 +48584,7 @@ impl AeronReceiveChannelEndpointEntry {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -48742,7 +48760,7 @@ impl AeronReceiveChannelEndpoint {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -49940,7 +49958,7 @@ impl AeronReceiveDestinationEntry {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -49964,7 +49982,7 @@ impl AeronReceiveDestinationEntry {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -50133,7 +50151,7 @@ impl AeronReceiveDestination {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -50320,7 +50338,7 @@ impl AeronRejectImageCommand {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -50344,7 +50362,7 @@ impl AeronRejectImageCommand {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -50521,7 +50539,7 @@ impl AeronRemoveCounterCommand {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -50545,7 +50563,7 @@ impl AeronRemoveCounterCommand {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -50712,7 +50730,7 @@ impl AeronRemovePublicationCommand {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -50736,7 +50754,7 @@ impl AeronRemovePublicationCommand {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -50905,7 +50923,7 @@ impl AeronRemoveSubscriptionCommand {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -50929,7 +50947,7 @@ impl AeronRemoveSubscriptionCommand {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -51099,7 +51117,7 @@ impl AeronResolutionHeaderIpv4 {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -51123,7 +51141,7 @@ impl AeronResolutionHeaderIpv4 {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -51312,7 +51330,7 @@ impl AeronResolutionHeaderIpv6 {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -51336,7 +51354,7 @@ impl AeronResolutionHeaderIpv6 {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -51522,7 +51540,7 @@ impl AeronResolutionHeader {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -51546,7 +51564,7 @@ impl AeronResolutionHeader {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -51728,7 +51746,7 @@ impl AeronResponseSetupHeader {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -51752,7 +51770,7 @@ impl AeronResponseSetupHeader {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -51936,7 +51954,7 @@ impl AeronRetransmitAction {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -51960,7 +51978,7 @@ impl AeronRetransmitAction {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -52155,7 +52173,7 @@ impl AeronRetransmitHandler {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -52179,7 +52197,7 @@ impl AeronRetransmitHandler {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -52561,7 +52579,7 @@ impl AeronRttmHeader {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -52585,7 +52603,7 @@ impl AeronRttmHeader {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -52764,7 +52782,7 @@ impl AeronSendChannelEndpointEntry {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -52788,7 +52806,7 @@ impl AeronSendChannelEndpointEntry {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -52959,7 +52977,7 @@ impl AeronSendChannelEndpoint {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -53474,7 +53492,7 @@ impl AeronSetupHeader {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -53498,7 +53516,7 @@ impl AeronSetupHeader {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -53706,7 +53724,7 @@ impl AeronSpscConcurrentArrayQueue {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -53730,7 +53748,7 @@ impl AeronSpscConcurrentArrayQueue {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -53944,7 +53962,7 @@ impl AeronStaticCounterCommand {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -53968,7 +53986,7 @@ impl AeronStaticCounterCommand {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -54137,7 +54155,7 @@ impl AeronStaticCounterResponse {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -54161,7 +54179,7 @@ impl AeronStaticCounterResponse {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -54344,7 +54362,7 @@ impl AeronStatusMessageHeader {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -54368,7 +54386,7 @@ impl AeronStatusMessageHeader {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -54575,7 +54593,7 @@ impl AeronStatusMessageOptionalHeader {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -54599,7 +54617,7 @@ impl AeronStatusMessageOptionalHeader {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -54762,7 +54780,7 @@ impl AeronStrToPtrHashMapKey {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -54786,7 +54804,7 @@ impl AeronStrToPtrHashMapKey {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -54973,7 +54991,7 @@ impl AeronStrToPtrHashMap {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -54997,7 +55015,7 @@ impl AeronStrToPtrHashMap {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -55189,7 +55207,7 @@ impl AeronStreamPositionCounterKeyLayout {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -55213,7 +55231,7 @@ impl AeronStreamPositionCounterKeyLayout {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -55390,7 +55408,7 @@ impl AeronSubscribableListEntry {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -55414,7 +55432,7 @@ impl AeronSubscribableListEntry {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -55601,7 +55619,7 @@ impl AeronSubscribable {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -55625,7 +55643,7 @@ impl AeronSubscribable {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -55929,7 +55947,7 @@ impl AeronSubscriptionCommand {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -55953,7 +55971,7 @@ impl AeronSubscriptionCommand {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -56142,7 +56160,7 @@ impl AeronSubscriptionConstants {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -56166,7 +56184,7 @@ impl AeronSubscriptionConstants {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -56393,7 +56411,7 @@ impl AeronSubscriptionLink {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -56417,7 +56435,7 @@ impl AeronSubscriptionLink {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -56660,7 +56678,7 @@ impl AeronSubscriptionReady {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -56684,7 +56702,7 @@ impl AeronSubscriptionReady {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -56852,7 +56870,7 @@ impl AeronSubscription {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -57648,7 +57666,7 @@ impl AeronSystemCounter {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -57672,7 +57690,7 @@ impl AeronSystemCounter {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -57839,7 +57857,7 @@ impl AeronSystemCounters {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -57863,7 +57881,7 @@ impl AeronSystemCounters {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -58060,7 +58078,7 @@ impl Aeron {
             false,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
             _context: Some(context_copy),
         };
         Ok(result)
@@ -61145,7 +61163,7 @@ impl AeronTerminateDriverCommand {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -61169,7 +61187,7 @@ impl AeronTerminateDriverCommand {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -61353,7 +61371,7 @@ impl AeronTetherablePosition {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -61377,7 +61395,7 @@ impl AeronTetherablePosition {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -61562,7 +61580,7 @@ impl AeronUdpChannelAsyncParse {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -61586,7 +61604,7 @@ impl AeronUdpChannelAsyncParse {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -61758,7 +61776,7 @@ impl AeronUdpChannelDataPaths {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -61782,7 +61800,7 @@ impl AeronUdpChannelDataPaths {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -62215,7 +62233,7 @@ impl AeronUdpChannelIncomingInterceptor {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -62239,7 +62257,7 @@ impl AeronUdpChannelIncomingInterceptor {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -62449,7 +62467,7 @@ impl AeronUdpChannelInterceptorBindings {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -62473,7 +62491,7 @@ impl AeronUdpChannelInterceptorBindings {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -62722,7 +62740,7 @@ impl AeronUdpChannelOutgoingInterceptor {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -62746,7 +62764,7 @@ impl AeronUdpChannelOutgoingInterceptor {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -62954,7 +62972,7 @@ impl AeronUdpChannelParams {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -62978,7 +62996,7 @@ impl AeronUdpChannelParams {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -63223,7 +63241,7 @@ impl AeronUdpChannel {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -63530,7 +63548,7 @@ impl AeronUdpDestinationEntry {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -63554,7 +63572,7 @@ impl AeronUdpDestinationEntry {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -63751,7 +63769,7 @@ impl AeronUdpDestinationTracker {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -64121,7 +64139,7 @@ impl AeronUriParam {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -64145,7 +64163,7 @@ impl AeronUriParam {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -64318,7 +64336,7 @@ impl AeronUriParams {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -64342,7 +64360,7 @@ impl AeronUriParams {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -64715,7 +64733,7 @@ impl AeronUriStringBuilder {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -65034,7 +65052,7 @@ impl AeronUri {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -65055,7 +65073,7 @@ impl AeronUri {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -65525,7 +65543,7 @@ impl AeronWildcardPortManager {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -65549,7 +65567,7 @@ impl AeronWildcardPortManager {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -65844,7 +65862,7 @@ impl Ifaddrs {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -65996,7 +66014,7 @@ impl In6Addr {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -66152,7 +66170,7 @@ impl Iovec {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -66173,7 +66191,7 @@ impl Iovec {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -66330,7 +66348,7 @@ impl Mmsghdr {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -66462,7 +66480,7 @@ impl Msghdr {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -66483,7 +66501,7 @@ impl Msghdr {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -66664,7 +66682,7 @@ impl Pollfd {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -66685,7 +66703,7 @@ impl Pollfd {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -66880,7 +66898,7 @@ impl Sockaddr {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -66901,7 +66919,7 @@ impl Sockaddr {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -67069,7 +67087,7 @@ impl SockaddrStorage {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]
@@ -67300,7 +67318,7 @@ impl Timespec {
             true,
         )?;
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         };
         Ok(result)
     }
@@ -67321,7 +67339,7 @@ impl Timespec {
         )
         .unwrap();
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         }
     }
     #[inline]

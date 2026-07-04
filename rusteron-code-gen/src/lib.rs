@@ -417,10 +417,12 @@ mod tests {
 mod test {
     use crate::{CResource, ManagedCResource};
 
+    use crate::common::RcOrArc;
     use std::cell::Cell;
-    use std::rc::Rc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    #[allow(unused_imports)]
+    use RcOrArc as Rc;
 
     fn make_resource(val: i32) -> *mut i32 {
         Box::into_raw(Box::new(val))

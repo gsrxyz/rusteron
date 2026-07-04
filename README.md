@@ -82,6 +82,37 @@ Replace `rusteron-client` with `rusteron-archive` or `rusteron-media-driver` as 
 
 For full build instructions, see [BUILD.md](./BUILD.md).
 
+### Multi-threaded (`Sync`) handles
+
+By default, handles (`AeronPublication`, `AeronSubscription`, …) are `Send` but **not
+`Sync`** — they use `Rc` (non-atomic refcount) and are designed for single-thread ownership
+(move to one thread, use exclusively there). Enable the `multi-threaded` feature to swap
+`Rc` → `Arc` and add `unsafe impl Sync` so that `&AeronPublication` can be **shared across
+threads** for the operations Aeron C documents as thread-safe
+(`offer` / `try_claim` / `position` / `is_connected`):
+
+```toml
+[dependencies]
+rusteron-client = { version = "0.2", features = ["multi-threaded"] }
+```
+
+```rust,ignore
+// Share a publication across threads for concurrent offer (Aeron C documents
+// aeron_publication_offer as thread-safe).
+let pub_arc = Arc::new(publication);
+let t1 = { let p = pub_arc.clone(); thread::spawn(move || { p.offer(b"hello")?; }) };
+let t2 = { let p = pub_arc.clone(); thread::spawn(move || { p.offer(b"world")?; }) };
+```
+
+The Arc atomic refcount is **not on the hot path** — `offer` / `poll` read the inner C
+pointer via a `Cell`/field load (no refcount), so the bench shows no measurable overhead
+(Rc 2.84 ns vs Arc 2.82 ns per offer). The `unsafe impl Sync` follows the same "accepted
+unsoundness" policy as the existing `unsafe impl Send`: the `UnsafeCell` fields inside
+`ManagedCResource` are only mutated during construction and close (single-threaded), never
+during the shared-read window. The deferred close + dependency graph (shipped in 0.2)
+structurally prevents the close-while-shared race described in
+[PR #50](https://github.com/gsrxyz/rusteron/pull/50) — children keep parents alive.
+
 ---
 
 ## Development

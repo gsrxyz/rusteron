@@ -27,6 +27,23 @@ unsafe impl Send for AeronSubscription {}
 unsafe impl Send for AeronPublication {}
 unsafe impl Send for AeronCounter {}
 
+// Under the `multi-threaded` feature the refcount is atomic (`Arc`) so `Send`
+// is sound. We also impl `Sync` so that `&AeronPublication` etc. can be shared
+// across threads for the operations Aeron C documents as thread-safe
+// (offer / try_claim / position / is_connected). The `UnsafeCell` fields inside
+// `ManagedCResource` are only mutated during construction (single-threaded) and
+// close (the last-dropper thread), never during the shared-read window, so this
+// follows the same "accepted unsoundness" policy as the `Send` impls above.
+// Enable with `features = ["multi-threaded"]` in Cargo.toml.
+#[cfg(feature = "multi-threaded")]
+unsafe impl Sync for AeronCountersReader {}
+#[cfg(feature = "multi-threaded")]
+unsafe impl Sync for AeronSubscription {}
+#[cfg(feature = "multi-threaded")]
+unsafe impl Sync for AeronPublication {}
+#[cfg(feature = "multi-threaded")]
+unsafe impl Sync for AeronCounter {}
+
 /// High-level connection state of a publication or subscription.
 ///
 /// [`AeronPublication::status`] / [`AeronSubscription::status`] derive
@@ -238,7 +255,7 @@ impl AeronCnc {
         )?;
 
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         };
         Ok(result)
     }
@@ -481,7 +498,7 @@ impl AeronCncMetadata {
         )?;
 
         let result = Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         };
         Ok(result)
     }
@@ -574,7 +591,7 @@ impl AeronSubscription {
         )
         .ok()?;
         Some(AeronImage {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         })
     }
 
@@ -797,7 +814,7 @@ impl Default for AeronUriStringBuilder {
         )
         .expect("should not happen");
         Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
         }
     }
 }

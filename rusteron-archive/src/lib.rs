@@ -404,7 +404,7 @@ impl AeronArchivePersistentSubscription {
         }
 
         Ok(Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         })
     }
 

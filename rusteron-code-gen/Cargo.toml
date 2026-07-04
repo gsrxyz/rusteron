@@ -23,6 +23,7 @@ fd-lock       = { workspace = true }
 trybuild      = "1.0"
 
 [features]
+multi-threaded = [] # Rc -> Arc + unsafe impl Sync for cross-thread sharing
 default        = []
 static         = []
 backtrace      = []     # logs the backtrace on each AeronCError

@@ -15,8 +15,17 @@ use std::cell::UnsafeCell;
 use std::fmt::Formatter;
 use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
+
+/// Reference-counting smart pointer: `Rc` by default, `Arc` under the
+/// `multi-threaded` feature. Swap is transparent — `RcOrArc::new`, `.clone()`,
+/// `strong_count` all work on both.
+#[cfg(not(feature = "multi-threaded"))]
+pub type RcOrArc<T> = std::rc::Rc<T>;
+#[cfg(feature = "multi-threaded")]
+pub type RcOrArc<T> = std::sync::Arc<T>;
+
 pub enum CResource<T> {
-    OwnedOnHeap(std::rc::Rc<ManagedCResource<T>>),
+    OwnedOnHeap(RcOrArc<ManagedCResource<T>>),
     /// Always initialised by construction (zeroed or `new(v)`). Never store
     /// `uninit()` — `Clone` and `get()` assume it's valid.
     OwnedOnStack(std::mem::MaybeUninit<T>),
@@ -68,7 +77,7 @@ impl<T> CResource<T> {
     }
 
     #[inline]
-    pub fn as_owned(&self) -> Option<&std::rc::Rc<ManagedCResource<T>>> {
+    pub fn as_owned(&self) -> Option<&RcOrArc<ManagedCResource<T>>> {
         match self {
             CResource::OwnedOnHeap(r) => Some(r),
             CResource::OwnedOnStack(_) | CResource::Borrowed(_) => None,
@@ -114,7 +123,7 @@ impl<T> CResource<T> {
     pub(crate) fn close_resource_deferred_if_shared(&self) -> Result<(), AeronCError> {
         match self {
             CResource::OwnedOnHeap(r) => {
-                let refs = std::rc::Rc::strong_count(r);
+                let refs = RcOrArc::strong_count(r);
                 if refs > 1 {
                     log::info!(
                         "close deferred for {} because {} references are still alive",
@@ -172,7 +181,7 @@ pub struct ManagedCResource<T> {
     /// Keeps deps alive (e.g. the Aeron client while a pub/sub exists).
     /// Mutated only at construction from the owning thread — no locking,
     /// same Send-over-Rc unsoundness stance. Empty vec doesn't allocate.
-    dependencies: UnsafeCell<Vec<std::rc::Rc<dyn std::any::Any>>>,
+    dependencies: UnsafeCell<Vec<RcOrArc<dyn std::any::Any>>>,
 }
 
 impl<T> std::fmt::Debug for ManagedCResource<T> {
@@ -190,6 +199,17 @@ impl<T> std::fmt::Debug for ManagedCResource<T> {
             .finish()
     }
 }
+
+// Under `multi-threaded` the refcount is `Arc` (atomic), so `Send` is sound.
+// `Sync` enables sharing `&Handle` across threads for the C-documented
+// thread-safe operations (offer / try_claim / position). The `UnsafeCell`
+// fields are only mutated during construction and close (single-threaded),
+// never during the shared-read window — same "accepted unsoundness" policy
+// as the unconditional `unsafe impl Send` on the handle types.
+#[cfg(feature = "multi-threaded")]
+unsafe impl<T> Send for ManagedCResource<T> {}
+#[cfg(feature = "multi-threaded")]
+unsafe impl<T> Sync for ManagedCResource<T> {}
 
 impl<T> ManagedCResource<T> {
     /// Creates a new ManagedCResource with a given initializer and cleanup function.
@@ -241,13 +261,13 @@ impl<T> ManagedCResource<T> {
     #[inline]
     // to prevent the dependencies from being dropped as you have a copy here
     pub fn add_dependency<D: std::any::Any>(&self, dep: D) {
-        if let Some(dep) = (&dep as &dyn std::any::Any).downcast_ref::<std::rc::Rc<dyn std::any::Any>>() {
+        if let Some(dep) = (&dep as &dyn std::any::Any).downcast_ref::<RcOrArc<dyn std::any::Any>>() {
             unsafe {
                 (*self.dependencies.get()).push(dep.clone());
             }
         } else {
             unsafe {
-                (*self.dependencies.get()).push(std::rc::Rc::new(dep));
+                (*self.dependencies.get()).push(RcOrArc::new(dep));
             }
         }
     }
@@ -698,6 +718,14 @@ pub struct Handler<T> {
 // as long as T itself is Send. No Sync: the C conductor thread may call into T via the
 // raw clientd pointer, so shared &Handler across threads would race on T.
 unsafe impl<T: Send> Send for Handler<T> {}
+
+/// Under the `multi-threaded` feature, `Handler` is also `Sync` so callbacks can
+/// be registered from one thread and the handle shared across threads. The
+/// underlying `Arc<UnsafeCell<T>>` is `!Sync` by construction; this impl follows
+/// the same "accepted unsoundness" policy as the handle-type impls — callbacks
+/// fire from the conductor thread only, never concurrently.
+#[cfg(feature = "multi-threaded")]
+unsafe impl<T: Send> Sync for Handler<T> {}
 
 impl<T> Clone for Handler<T> {
     fn clone(&self) -> Self {

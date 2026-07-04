@@ -58,6 +58,7 @@ rusteron-media-driver = { path = "../rusteron-media-driver" }
 serial_test           = { workspace = true }
 
 [features]
+multi-threaded = [] # Rc -> Arc + unsafe impl Sync for cross-thread sharing
 # using static as different modules have different versions of aeron which don't seem to play nicely
 default        = ["build-from-source"]
 static         = ["build-from-source", "rusteron-media-driver/static"]  # Statically links the Aeron C code

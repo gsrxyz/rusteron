@@ -1222,7 +1222,7 @@ impl CWrapper {
                             )?;
 
                             let result = Self {
-                                inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_constructor)),
+                                inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
                                 #(#new_ref_args)*
                             };
                             #(#handler_deps)*
@@ -1256,7 +1256,7 @@ impl CWrapper {
                     ).unwrap();
 
                     Self {
-                        inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+                        inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
                     }
                 }
 
@@ -1344,7 +1344,7 @@ impl CWrapper {
                         )?;
 
                         let result = Self {
-                            inner: CResource::OwnedOnHeap(std::rc::Rc::new(r_constructor)),
+                            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
                         };
                         #(#field_handler_deps)*
                         Ok(result)
@@ -2513,7 +2513,7 @@ pub fn generate_rust_code(
                                 false,
                             )?;
                             Ok(Self {
-                                inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+                                inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
                             })
                         }
                     }
@@ -2571,7 +2571,7 @@ pub fn generate_rust_code(
                                 false,
                             )?;
                             let result = Self {
-                                inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource_async)),
+                                inner: CResource::OwnedOnHeap(RcOrArc::new(resource_async)),
                             };
                             #(#async_dependancies)*
                             // Retained callbacks (e.g. image lifecycle handlers) are stored by
