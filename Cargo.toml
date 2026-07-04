@@ -20,17 +20,17 @@ dunce           = "1.0"
 fd-lock         = "4.0"
 flate2          = { version = "1.1" }
 hdrhistogram    = "7.5"
-itertools       = "0.14"
+itertools       = "0.15"
 log             = "0.4"
 num-format      = "0.4"
 pkg-config      = "0.3"
 proc-macro2     = "1.0"
-proptest        = "1.6"
+proptest        = "1.11"
 quote           = "1.0"
-regex           = "1.11"
+regex           = "1.12"
 reqwest         = { version = "0.13", features = ["blocking"], default-features = false }
 rusteron-code-gen = { path = "rusteron-code-gen", version = "=0.1.168" }
-serial_test     = { version = "3.4", features = ["file_locks"] }
+serial_test     = { version = "3.5", features = ["file_locks"] }
 syn             = { version = "2.0", features = ["full"] }
 tar             = "0.4"
 walkdir         = "2.5"
