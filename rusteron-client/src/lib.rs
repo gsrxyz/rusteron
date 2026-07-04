@@ -1922,7 +1922,7 @@ mod tests {
             })
         };
 
-        // Poll using the inline closure via poll_once until we receive at least 50 messages.
+        // Poll using the inline closure via poll_fn until we receive at least 50 messages.
         while count.load(Ordering::SeqCst) < 50 && start_time.elapsed() < poll_timeout {
             let _ = subscription.poll_fn(
                 |_msg, _header| {
@@ -2113,7 +2113,7 @@ mod tests {
         Ok(())
     }
 
-    /// Test sending and receiving an empty (zero-length) message using inline closures with poll_once.
+    /// Test sending and receiving an empty (zero-length) message using inline closures with poll_fn.
     #[test]
     #[serial]
     pub fn empty_message_test() -> Result<(), Box<dyn error::Error>> {

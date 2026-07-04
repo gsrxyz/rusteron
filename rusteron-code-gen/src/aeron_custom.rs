@@ -185,13 +185,6 @@ impl AeronCnc {
         Ok(())
     }
 
-    /// **Deprecated**: allocate on the heap. Use `new_on_heap` instead.
-    #[deprecated(since = "0.1.122", note = "Use `new_on_heap` instead")]
-    #[inline]
-    pub fn new(aeron_dir: &str) -> Result<AeronCnc, AeronCError> {
-        Self::new_on_heap(aeron_dir)
-    }
-
     /// Note this allocates on the heap, cannot be stored this on stack. As Aeron will do the allocation.
     /// Try to use `read_on_partial_stack` which performs less allocations
     #[inline]
@@ -641,19 +634,6 @@ impl AeronSubscription {
         } else {
             Ok(result)
         }
-    }
-
-    /// Deprecated alias for [`Self::poll_fn`]. The `_once` suffix was widely read
-    /// as "poll one fragment"; [`Self::poll_fn`] makes the closure semantics
-    /// explicit and aligns with the retained-handler [`Self::poll`].
-    #[deprecated(since = "0.1.169", note = "use `poll_fn` instead")]
-    #[inline]
-    pub fn poll_once<H: FnMut(&[u8], AeronHeader)>(
-        &self,
-        handler: H,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        self.poll_fn(handler, fragment_limit)
     }
 }
 
@@ -1876,17 +1856,6 @@ impl AeronImage {
         }
     }
 
-    /// Deprecated alias for [`Self::poll_fn`].
-    #[deprecated(since = "0.1.169", note = "use `poll_fn` instead")]
-    #[inline]
-    pub fn poll_once<H: FnMut(&[u8], AeronHeader)>(
-        &self,
-        handler: H,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        self.poll_fn(handler, fragment_limit)
-    }
-
     /// Instrumented wrapper around [`AeronImage::poll`] that adds tracing spans
     /// when the `instrument-ops` feature is enabled.
     #[inline]
@@ -1896,19 +1865,6 @@ impl AeronImage {
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
         self.poll(handler, fragment_limit)
-    }
-
-    /// Instrumented wrapper around [`AeronImage::poll_fn`] that adds tracing spans
-    /// when the `instrument-ops` feature is enabled.
-    #[inline]
-    pub fn poll_once_instrumented<
-        AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> (),
-    >(
-        &self,
-        handler: AeronFragmentHandlerHandlerImpl,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        self.poll_fn(handler, fragment_limit)
     }
 }
 
@@ -2025,22 +1981,6 @@ impl AeronFragmentClosureAssembler {
         self.handler.clear();
         result
     }
-
-    /// Deprecated two-phase pattern: point the assembler at `ctx`/`func` and return
-    /// the assembler handler for a later `subscription.poll(...)`.
-    ///
-    /// **Unsafe by construction**: `ctx` is stored as a raw pointer that escapes
-    /// the borrow — calling `subscription.poll(...)` after `ctx` is dropped is
-    /// use-after-free. Prefer [`Self::poll`], which scopes the borrow.
-    #[deprecated(since = "0.1.169", note = "use `poll(subscription, ctx, func, limit)` instead — it clears the ctx pointer on return")]
-    pub fn process<T>(
-        &mut self,
-        ctx: &mut T,
-        func: fn(&mut T, &[u8], AeronHeader),
-    ) -> Option<&Handler<AeronFragmentAssembler>> {
-        self.handler.set(ctx, func);
-        Some(&self.assembler)
-    }
 }
 
 pub struct FnMutControlledMessageHandler {
@@ -2128,13 +2068,20 @@ impl AeronControlledFragmentClosureAssembler {
         })
     }
 
-    pub fn process<T>(
+    /// Controlled poll delivering each (possibly reassembled) message to `func`
+    /// with `ctx`, borrowing `ctx` only for the duration of this call.
+    /// Mirrors [`AeronFragmentClosureAssembler::poll`] for the controlled variant.
+    pub fn poll<T>(
         &mut self,
+        subscription: &AeronSubscription,
         ctx: &mut T,
         func: fn(&mut T, &[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
-    ) -> Option<&Handler<AeronControlledFragmentAssembler>> {
+        fragment_limit: usize,
+    ) -> Result<i32, AeronCError> {
         self.handler.set(ctx, func);
-        Some(&self.assembler)
+        let result = subscription.controlled_poll(Some(&self.assembler), fragment_limit);
+        self.handler.clear();
+        result
     }
 }
 

@@ -99,7 +99,7 @@ Retained-callback setters take the callback by value (a closure or trait impl), 
 For short-lived operations such as polling, closures can be used directly:
 
 ```rust,ignore
-subscription.poll_once(|msg, header| {
+subscription.poll_fn(|msg, header| {
     println!("msg={:?}, header={:?}", msg, header)
 });
 ```
@@ -244,7 +244,7 @@ while !ps.is_live() {
     if ps.has_failed() {
         panic!("persistent subscription failed: {:?}", ps.get_failure_reason());
     }
-    let _ = publication.offer_with_reserved_value(b"live", Handlers::no_reserved_value_supplier_handler());
+    let _ = publication.offer_with_reserved_value(b"live", Handlers::NONE);
     ps.poll_once(|buf, _hdr| { /* an assembled replayed or live message */ }, 100)?;
 }
 ps.close()?;

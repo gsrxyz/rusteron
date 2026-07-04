@@ -59,11 +59,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut last_report = Instant::now();
         let (mut last_msgs, mut last_bytes) = (0u64, 0u64);
         while running_sub.load(Ordering::Acquire) {
-            let fragments = subscription.poll(
-                assembler.process(&mut counters, |c, buf, _hdr| {
+            let fragments = assembler.poll(
+                &subscription,
+                &mut counters,
+                |c, buf, _hdr| {
                     c.0.fetch_add(1, Ordering::Relaxed);
                     c.1.fetch_add(buf.len() as u64, Ordering::Relaxed);
-                }),
+                },
                 FRAGMENT_LIMIT,
             )?;
             if fragments == 0 {

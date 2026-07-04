@@ -768,12 +768,6 @@ impl<T> Handler<T> {
         log::info!("creating handler {:?}", inner.get());
         Self { inner }
     }
-    #[deprecated(note = "handlers no longer leak; use Handler::new — the value is freed when the last clone drops")]
-    pub fn leak(handler: T) -> Self {
-        Self::new(handler)
-    }
-    #[deprecated(note = "no longer needed; the handler is freed automatically when the last clone drops")]
-    pub fn release(&mut self) {}
     #[inline(always)]
     pub fn as_raw(&self) -> *mut std::os::raw::c_void {
         self.inner.get() as *mut std::os::raw::c_void
@@ -34444,6 +34438,55 @@ impl AeronImage {
     #[doc = "Poll for new messages in a stream. If new messages are found beyond the last consumed position then they"]
     #[doc = " will be delivered to the handler up to a limited number of fragments as specified."]
     #[doc = " \n"]
+    #[doc = " Use a fragment assembler to assemble messages which span multiple fragments."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
+    #[doc = " \n - `clientd` to pass to the handler."]
+    #[doc = " \n - `fragment_limit` for the number of fragments to be consumed during one polling operation."]
+    #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
+    #[doc = r""]
+    #[doc = r""]
+    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    pub fn poll_once<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
+        &self,
+        mut handler: AeronFragmentHandlerHandlerImpl,
+        fragment_limit: usize,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_image_poll),
+                [
+                    concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string(),
+                    concat!("handler", ": ", stringify!(aeron_fragment_handler_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_image_poll(
+                self.get_inner(),
+                Some(aeron_fragment_handler_t_callback_for_once_closure::<AeronFragmentHandlerHandlerImpl>),
+                &mut handler as *mut _ as *mut std::os::raw::c_void,
+                fragment_limit.into(),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_c_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    #[doc = "Poll for new messages in a stream. If new messages are found beyond the last consumed position then they"]
+    #[doc = " will be delivered to the handler up to a limited number of fragments as specified."]
+    #[doc = " \n"]
     #[doc = " Use a controlled fragment assembler to assemble messages which span multiple fragments."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
@@ -56773,6 +56816,56 @@ impl AeronSubscription {
         }
     }
     #[inline]
+    #[doc = "Poll the images under the subscription for available message fragments."]
+    #[doc = " \n"]
+    #[doc = " Each fragment read will be a whole message if it is under MTU length. If larger than MTU then it will come"]
+    #[doc = " as a series of fragments ordered within a session."]
+    #[doc = " \n"]
+    #[doc = " To assemble messages that span multiple fragments then use `AeronFragmentAssembler`."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `handler` for handling each message fragment as it is read."]
+    #[doc = " \n - `fragment_limit` number of message fragments to limit when polling across multiple images."]
+    #[doc = " \n# Return\n the number of fragments received or -1 for error."]
+    #[doc = r""]
+    #[doc = r""]
+    #[doc = r" **Stack-borrowed closure** (`_once` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    pub fn poll_once<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
+        &self,
+        mut handler: AeronFragmentHandlerHandlerImpl,
+        fragment_limit: usize,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_subscription_poll),
+                [
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
+                    concat!("handler", ": ", stringify!(aeron_fragment_handler_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_subscription_poll(
+                self.get_inner(),
+                Some(aeron_fragment_handler_t_callback_for_once_closure::<AeronFragmentHandlerHandlerImpl>),
+                &mut handler as *mut _ as *mut std::os::raw::c_void,
+                fragment_limit.into(),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_c_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
     #[doc = "Poll in a controlled manner the images under the subscription for available message fragments."]
     #[doc = " Control is applied to fragments in the stream. If more fragments can be read on another stream"]
     #[doc = " they will even if BREAK or ABORT is returned from the fragment handler."]
@@ -67291,13 +67384,6 @@ impl<T: AeronErrorHandlerCallback> AeronErrorHandlerCallback for Handler<T> {
         self.deref_mut().handle_aeron_error_handler(errcode, message)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_error_handler_handler() -> Option<&'static Handler<AeronErrorHandlerLogger>> {
-        None::<&Handler<AeronErrorHandlerLogger>>
-    }
-}
 impl AeronErrorHandlerCallback for NoHandler {
     fn handle_aeron_error_handler(&mut self, errcode: ::std::os::raw::c_int, message: &str) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -67418,14 +67504,6 @@ impl<T: AeronPublicationErrorFrameHandlerCallback> AeronPublicationErrorFrameHan
             .handle_aeron_publication_error_frame_handler(error_frame)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_publication_error_frame_handler_handler()
-    -> Option<&'static Handler<AeronPublicationErrorFrameHandlerLogger>> {
-        None::<&Handler<AeronPublicationErrorFrameHandlerLogger>>
-    }
-}
 impl AeronPublicationErrorFrameHandlerCallback for NoHandler {
     fn handle_aeron_publication_error_frame_handler(&mut self, error_frame: AeronPublicationErrorValues) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -67525,13 +67603,6 @@ impl<T: AeronNotificationCallback> AeronNotificationCallback for Handler<T> {
     fn handle_aeron_notification(&mut self) -> () {
         use std::ops::DerefMut;
         self.deref_mut().handle_aeron_notification()
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_notification_handler() -> Option<&'static Handler<AeronNotificationLogger>> {
-        None::<&Handler<AeronNotificationLogger>>
     }
 }
 impl AeronNotificationCallback for NoHandler {
@@ -67658,13 +67729,6 @@ impl<T: AeronNewPublicationCallback> AeronNewPublicationCallback for Handler<T> 
         use std::ops::DerefMut;
         self.deref_mut()
             .handle_aeron_on_new_publication(channel, stream_id, session_id, correlation_id)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_new_publication_handler() -> Option<&'static Handler<AeronNewPublicationLogger>> {
-        None::<&Handler<AeronNewPublicationLogger>>
     }
 }
 impl AeronNewPublicationCallback for NoHandler {
@@ -67835,13 +67899,6 @@ impl<T: AeronNewSubscriptionCallback> AeronNewSubscriptionCallback for Handler<T
             .handle_aeron_on_new_subscription(channel, stream_id, correlation_id)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_new_subscription_handler() -> Option<&'static Handler<AeronNewSubscriptionLogger>> {
-        None::<&Handler<AeronNewSubscriptionLogger>>
-    }
-}
 impl AeronNewSubscriptionCallback for NoHandler {
     fn handle_aeron_on_new_subscription(&mut self, channel: &str, stream_id: i32, correlation_id: i64) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -67991,13 +68048,6 @@ impl<T: AeronAvailableImageCallback> AeronAvailableImageCallback for Handler<T> 
         self.deref_mut().handle_aeron_on_available_image(subscription, image)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_available_image_handler() -> Option<&'static Handler<AeronAvailableImageLogger>> {
-        None::<&Handler<AeronAvailableImageLogger>>
-    }
-}
 impl AeronAvailableImageCallback for NoHandler {
     fn handle_aeron_on_available_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -68118,13 +68168,6 @@ impl<T: AeronUnavailableImageCallback> AeronUnavailableImageCallback for Handler
     fn handle_aeron_on_unavailable_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> () {
         use std::ops::DerefMut;
         self.deref_mut().handle_aeron_on_unavailable_image(subscription, image)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_unavailable_image_handler() -> Option<&'static Handler<AeronUnavailableImageLogger>> {
-        None::<&Handler<AeronUnavailableImageLogger>>
     }
 }
 impl AeronUnavailableImageCallback for NoHandler {
@@ -68271,13 +68314,6 @@ impl<T: AeronAvailableCounterCallback> AeronAvailableCounterCallback for Handler
         use std::ops::DerefMut;
         self.deref_mut()
             .handle_aeron_on_available_counter(counters_reader, registration_id, counter_id)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_available_counter_handler() -> Option<&'static Handler<AeronAvailableCounterLogger>> {
-        None::<&Handler<AeronAvailableCounterLogger>>
     }
 }
 impl AeronAvailableCounterCallback for NoHandler {
@@ -68435,13 +68471,6 @@ impl<T: AeronUnavailableCounterCallback> AeronUnavailableCounterCallback for Han
             .handle_aeron_on_unavailable_counter(counters_reader, registration_id, counter_id)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_unavailable_counter_handler() -> Option<&'static Handler<AeronUnavailableCounterLogger>> {
-        None::<&Handler<AeronUnavailableCounterLogger>>
-    }
-}
 impl AeronUnavailableCounterCallback for NoHandler {
     fn handle_aeron_on_unavailable_counter(
         &mut self,
@@ -68564,13 +68593,6 @@ impl<T: AeronCloseClientCallback> AeronCloseClientCallback for Handler<T> {
         self.deref_mut().handle_aeron_on_close_client()
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_close_client_handler() -> Option<&'static Handler<AeronCloseClientLogger>> {
-        None::<&Handler<AeronCloseClientLogger>>
-    }
-}
 impl AeronCloseClientCallback for NoHandler {
     fn handle_aeron_on_close_client(&mut self) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -68661,13 +68683,6 @@ impl<T: AeronAgentStartFuncCallback> AeronAgentStartFuncCallback for Handler<T> 
     fn handle_aeron_agent_on_start_func(&mut self, role_name: &str) -> () {
         use std::ops::DerefMut;
         self.deref_mut().handle_aeron_agent_on_start_func(role_name)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_agent_start_func_handler() -> Option<&'static Handler<AeronAgentStartFuncLogger>> {
-        None::<&Handler<AeronAgentStartFuncLogger>>
     }
 }
 impl AeronAgentStartFuncCallback for NoHandler {
@@ -68815,14 +68830,6 @@ impl<T: AeronCountersReaderForeachCounterFuncCallback> AeronCountersReaderForeac
         use std::ops::DerefMut;
         self.deref_mut()
             .handle_aeron_counters_reader_foreach_counter_func(value, id, type_id, key, label)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_counters_reader_foreach_counter_func_handler()
-    -> Option<&'static Handler<AeronCountersReaderForeachCounterFuncLogger>> {
-        None::<&Handler<AeronCountersReaderForeachCounterFuncLogger>>
     }
 }
 impl AeronCountersReaderForeachCounterFuncCallback for NoHandler {
@@ -69017,13 +69024,6 @@ impl<T: AeronReservedValueSupplierCallback> AeronReservedValueSupplierCallback f
             .handle_aeron_reserved_value_supplier(buffer, frame_length)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_reserved_value_supplier_handler() -> Option<&'static Handler<AeronReservedValueSupplierLogger>> {
-        None::<&Handler<AeronReservedValueSupplierLogger>>
-    }
-}
 impl AeronReservedValueSupplierCallback for NoHandler {
     fn handle_aeron_reserved_value_supplier(&mut self, buffer: *mut u8, frame_length: usize) -> i64 {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -69145,13 +69145,6 @@ impl<T: AeronFragmentHandlerCallback> AeronFragmentHandlerCallback for Handler<T
     fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: AeronHeader) -> () {
         use std::ops::DerefMut;
         self.deref_mut().handle_aeron_fragment_handler(buffer, header)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_fragment_handler_handler() -> Option<&'static Handler<AeronFragmentHandlerLogger>> {
-        None::<&Handler<AeronFragmentHandlerLogger>>
     }
 }
 impl AeronFragmentHandlerCallback for NoHandler {
@@ -69323,13 +69316,6 @@ impl<T: AeronControlledFragmentHandlerCallback> AeronControlledFragmentHandlerCa
             .handle_aeron_controlled_fragment_handler(buffer, header)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_controlled_fragment_handler_handler() -> Option<&'static Handler<AeronControlledFragmentHandlerLogger>> {
-        None::<&Handler<AeronControlledFragmentHandlerLogger>>
-    }
-}
 impl AeronControlledFragmentHandlerCallback for NoHandler {
     fn handle_aeron_controlled_fragment_handler(
         &mut self,
@@ -69485,13 +69471,6 @@ impl<T: AeronBlockHandlerCallback> AeronBlockHandlerCallback for Handler<T> {
     fn handle_aeron_block_handler(&mut self, buffer: &[u8], session_id: i32, term_id: i32) -> () {
         use std::ops::DerefMut;
         self.deref_mut().handle_aeron_block_handler(buffer, session_id, term_id)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_block_handler_handler() -> Option<&'static Handler<AeronBlockHandlerLogger>> {
-        None::<&Handler<AeronBlockHandlerLogger>>
     }
 }
 impl AeronBlockHandlerCallback for NoHandler {
@@ -69680,13 +69659,6 @@ impl<T: AeronErrorLogReaderFuncCallback> AeronErrorLogReaderFuncCallback for Han
             last_observation_timestamp,
             error,
         )
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_error_log_reader_func_handler() -> Option<&'static Handler<AeronErrorLogReaderFuncLogger>> {
-        None::<&Handler<AeronErrorLogReaderFuncLogger>>
     }
 }
 impl AeronErrorLogReaderFuncCallback for NoHandler {
@@ -69923,14 +69895,6 @@ impl<T: AeronLossReporterReadEntryFuncCallback> AeronLossReporterReadEntryFuncCa
         )
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_loss_reporter_read_entry_func_handler() -> Option<&'static Handler<AeronLossReporterReadEntryFuncLogger>>
-    {
-        None::<&Handler<AeronLossReporterReadEntryFuncLogger>>
-    }
-}
 impl AeronLossReporterReadEntryFuncCallback for NoHandler {
     fn handle_aeron_loss_reporter_read_entry_func(
         &mut self,
@@ -70137,13 +70101,6 @@ impl<T: AeronIdleStrategyFuncCallback> AeronIdleStrategyFuncCallback for Handler
         self.deref_mut().handle_aeron_idle_strategy_func(work_count)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_idle_strategy_func_handler() -> Option<&'static Handler<AeronIdleStrategyFuncLogger>> {
-        None::<&Handler<AeronIdleStrategyFuncLogger>>
-    }
-}
 impl AeronIdleStrategyFuncCallback for NoHandler {
     fn handle_aeron_idle_strategy_func(&mut self, work_count: ::std::os::raw::c_int) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -70242,13 +70199,6 @@ impl<T: AeronUriParseCallbackCallback> AeronUriParseCallbackCallback for Handler
     fn handle_aeron_uri_parse_callback(&mut self, key: &str, value: &str) -> ::std::os::raw::c_int {
         use std::ops::DerefMut;
         self.deref_mut().handle_aeron_uri_parse_callback(key, value)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_uri_parse_callback_handler() -> Option<&'static Handler<AeronUriParseCallbackLogger>> {
-        None::<&Handler<AeronUriParseCallbackLogger>>
     }
 }
 impl AeronUriParseCallbackCallback for NoHandler {
@@ -70375,14 +70325,6 @@ impl<T: AeronDriverTerminationValidatorFuncCallback> AeronDriverTerminationValid
         self.deref_mut().handle_aeron_driver_termination_validator_func(buffer)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_driver_termination_validator_func_handler()
-    -> Option<&'static Handler<AeronDriverTerminationValidatorFuncLogger>> {
-        None::<&Handler<AeronDriverTerminationValidatorFuncLogger>>
-    }
-}
 impl AeronDriverTerminationValidatorFuncCallback for NoHandler {
     fn handle_aeron_driver_termination_validator_func(&mut self, buffer: &mut [u8]) -> bool {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -70499,13 +70441,6 @@ impl<T: AeronDriverTerminationHookFuncCallback> AeronDriverTerminationHookFuncCa
         self.deref_mut().handle_aeron_driver_termination_hook_func()
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_driver_termination_hook_func_handler() -> Option<&'static Handler<AeronDriverTerminationHookFuncLogger>> {
-        None::<&Handler<AeronDriverTerminationHookFuncLogger>>
-    }
-}
 impl AeronDriverTerminationHookFuncCallback for NoHandler {
     fn handle_aeron_driver_termination_hook_func(&mut self) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -70590,13 +70525,6 @@ impl<T: AeronQueueDrainFuncCallback> AeronQueueDrainFuncCallback for Handler<T> 
     fn handle_aeron_queue_drain_func(&mut self, item: *mut ::std::os::raw::c_void) -> () {
         use std::ops::DerefMut;
         self.deref_mut().handle_aeron_queue_drain_func(item)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_queue_drain_func_handler() -> Option<&'static Handler<AeronQueueDrainFuncLogger>> {
-        None::<&Handler<AeronQueueDrainFuncLogger>>
     }
 }
 impl AeronQueueDrainFuncCallback for NoHandler {
@@ -70698,13 +70626,6 @@ impl<T: AeronRbHandlerCallback> AeronRbHandlerCallback for Handler<T> {
     fn handle_aeron_rb_handler(&mut self, arg1: i32, arg2: *const ::std::os::raw::c_void, arg3: usize) -> () {
         use std::ops::DerefMut;
         self.deref_mut().handle_aeron_rb_handler(arg1, arg2, arg3)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_rb_handler_handler() -> Option<&'static Handler<AeronRbHandlerLogger>> {
-        None::<&Handler<AeronRbHandlerLogger>>
     }
 }
 impl AeronRbHandlerCallback for NoHandler {
@@ -70835,13 +70756,6 @@ impl<T: AeronRbControlledHandlerCallback> AeronRbControlledHandlerCallback for H
     ) -> aeron_rb_read_action_t {
         use std::ops::DerefMut;
         self.deref_mut().handle_aeron_rb_controlled_handler(arg1, arg2, arg3)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_rb_controlled_handler_handler() -> Option<&'static Handler<AeronRbControlledHandlerLogger>> {
-        None::<&Handler<AeronRbControlledHandlerLogger>>
     }
 }
 impl AeronRbControlledHandlerCallback for NoHandler {
@@ -70984,14 +70898,6 @@ impl<T: AeronFlowControlStrategyIdleFuncCallback> AeronFlowControlStrategyIdleFu
         use std::ops::DerefMut;
         self.deref_mut()
             .handle_aeron_flow_control_strategy_on_idle_func(now_ns, snd_lmt, snd_pos, is_end_of_stream)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_flow_control_strategy_idle_func_handler()
-    -> Option<&'static Handler<AeronFlowControlStrategyIdleFuncLogger>> {
-        None::<&Handler<AeronFlowControlStrategyIdleFuncLogger>>
     }
 }
 impl AeronFlowControlStrategyIdleFuncCallback for NoHandler {
@@ -71165,14 +71071,6 @@ impl<T: AeronFlowControlStrategySmFuncCallback> AeronFlowControlStrategySmFuncCa
             position_bits_to_shift,
             now_ns,
         )
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_flow_control_strategy_sm_func_handler() -> Option<&'static Handler<AeronFlowControlStrategySmFuncLogger>>
-    {
-        None::<&Handler<AeronFlowControlStrategySmFuncLogger>>
     }
 }
 impl AeronFlowControlStrategySmFuncCallback for NoHandler {
@@ -71368,14 +71266,6 @@ impl<T: AeronFlowControlStrategySetupFuncCallback> AeronFlowControlStrategySetup
         )
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_flow_control_strategy_setup_func_handler()
-    -> Option<&'static Handler<AeronFlowControlStrategySetupFuncLogger>> {
-        None::<&Handler<AeronFlowControlStrategySetupFuncLogger>>
-    }
-}
 impl AeronFlowControlStrategySetupFuncCallback for NoHandler {
     fn handle_aeron_flow_control_strategy_on_setup_func(
         &mut self,
@@ -71552,14 +71442,6 @@ impl<T: AeronFlowControlStrategyErrorFuncCallback> AeronFlowControlStrategyError
             .handle_aeron_flow_control_strategy_on_error_func(error, recv_addr, now_ns)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_flow_control_strategy_error_func_handler()
-    -> Option<&'static Handler<AeronFlowControlStrategyErrorFuncLogger>> {
-        None::<&Handler<AeronFlowControlStrategyErrorFuncLogger>>
-    }
-}
 impl AeronFlowControlStrategyErrorFuncCallback for NoHandler {
     fn handle_aeron_flow_control_strategy_on_error_func(
         &mut self,
@@ -71722,14 +71604,6 @@ impl<T: AeronFlowControlStrategyTriggerSendSetupFuncCallback> AeronFlowControlSt
         use std::ops::DerefMut;
         self.deref_mut()
             .handle_aeron_flow_control_strategy_on_trigger_send_setup_func(sm, recv_addr, now_ns)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_flow_control_strategy_trigger_send_setup_func_handler()
-    -> Option<&'static Handler<AeronFlowControlStrategyTriggerSendSetupFuncLogger>> {
-        None::<&Handler<AeronFlowControlStrategyTriggerSendSetupFuncLogger>>
     }
 }
 impl AeronFlowControlStrategyTriggerSendSetupFuncCallback for NoHandler {
@@ -71908,14 +71782,6 @@ impl<T: AeronFlowControlStrategyMaxRetransmissionLengthFuncCallback>
             )
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_flow_control_strategy_max_retransmission_length_func_handler()
-    -> Option<&'static Handler<AeronFlowControlStrategyMaxRetransmissionLengthFuncLogger>> {
-        None::<&Handler<AeronFlowControlStrategyMaxRetransmissionLengthFuncLogger>>
-    }
-}
 impl AeronFlowControlStrategyMaxRetransmissionLengthFuncCallback for NoHandler {
     fn handle_aeron_flow_control_strategy_max_retransmission_length_func(
         &mut self,
@@ -72052,14 +71918,6 @@ impl<T: AeronCongestionControlStrategyShouldMeasureRttFuncCallback>
             .handle_aeron_congestion_control_strategy_should_measure_rtt_func(now_ns)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_congestion_control_strategy_should_measure_rtt_func_handler()
-    -> Option<&'static Handler<AeronCongestionControlStrategyShouldMeasureRttFuncLogger>> {
-        None::<&Handler<AeronCongestionControlStrategyShouldMeasureRttFuncLogger>>
-    }
-}
 impl AeronCongestionControlStrategyShouldMeasureRttFuncCallback for NoHandler {
     fn handle_aeron_congestion_control_strategy_should_measure_rtt_func(&mut self, now_ns: i64) -> bool {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -72164,14 +72022,6 @@ impl<T: AeronCongestionControlStrategyRttmSentFuncCallback> AeronCongestionContr
         use std::ops::DerefMut;
         self.deref_mut()
             .handle_aeron_congestion_control_strategy_on_rttm_sent_func(now_ns)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_congestion_control_strategy_rttm_sent_func_handler()
-    -> Option<&'static Handler<AeronCongestionControlStrategyRttmSentFuncLogger>> {
-        None::<&Handler<AeronCongestionControlStrategyRttmSentFuncLogger>>
     }
 }
 impl AeronCongestionControlStrategyRttmSentFuncCallback for NoHandler {
@@ -72303,14 +72153,6 @@ impl<T: AeronCongestionControlStrategyRttmFuncCallback> AeronCongestionControlSt
             .handle_aeron_congestion_control_strategy_on_rttm_func(now_ns, rtt_ns, source_address)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_congestion_control_strategy_rttm_func_handler()
-    -> Option<&'static Handler<AeronCongestionControlStrategyRttmFuncLogger>> {
-        None::<&Handler<AeronCongestionControlStrategyRttmFuncLogger>>
-    }
-}
 impl AeronCongestionControlStrategyRttmFuncCallback for NoHandler {
     fn handle_aeron_congestion_control_strategy_on_rttm_func(
         &mut self,
@@ -72432,14 +72274,6 @@ impl<T: AeronCongestionControlStrategyInitialWindowLengthFuncCallback>
             .handle_aeron_congestion_control_strategy_initial_window_length_func()
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_congestion_control_strategy_initial_window_length_func_handler()
-    -> Option<&'static Handler<AeronCongestionControlStrategyInitialWindowLengthFuncLogger>> {
-        None::<&Handler<AeronCongestionControlStrategyInitialWindowLengthFuncLogger>>
-    }
-}
 impl AeronCongestionControlStrategyInitialWindowLengthFuncCallback for NoHandler {
     fn handle_aeron_congestion_control_strategy_initial_window_length_func(&mut self) -> i32 {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -72538,14 +72372,6 @@ impl<T: AeronCongestionControlStrategyMaxWindowLengthFuncCallback>
             .handle_aeron_congestion_control_strategy_max_window_length_func()
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_congestion_control_strategy_max_window_length_func_handler()
-    -> Option<&'static Handler<AeronCongestionControlStrategyMaxWindowLengthFuncLogger>> {
-        None::<&Handler<AeronCongestionControlStrategyMaxWindowLengthFuncLogger>>
-    }
-}
 impl AeronCongestionControlStrategyMaxWindowLengthFuncCallback for NoHandler {
     fn handle_aeron_congestion_control_strategy_max_window_length_func(&mut self) -> i32 {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -72635,13 +72461,6 @@ impl<T: AeronAgentDoWorkFuncCallback> AeronAgentDoWorkFuncCallback for Handler<T
         self.deref_mut().handle_aeron_agent_do_work_func()
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_agent_do_work_func_handler() -> Option<&'static Handler<AeronAgentDoWorkFuncLogger>> {
-        None::<&Handler<AeronAgentDoWorkFuncLogger>>
-    }
-}
 impl AeronAgentDoWorkFuncCallback for NoHandler {
     fn handle_aeron_agent_do_work_func(&mut self) -> ::std::os::raw::c_int {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -72726,13 +72545,6 @@ impl<T: AeronAgentCloseFuncCallback> AeronAgentCloseFuncCallback for Handler<T> 
     fn handle_aeron_agent_on_close_func(&mut self) -> () {
         use std::ops::DerefMut;
         self.deref_mut().handle_aeron_agent_on_close_func()
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_agent_close_func_handler() -> Option<&'static Handler<AeronAgentCloseFuncLogger>> {
-        None::<&Handler<AeronAgentCloseFuncLogger>>
     }
 }
 impl AeronAgentCloseFuncCallback for NoHandler {
@@ -72850,14 +72662,6 @@ impl<T: AeronCountersReaderForeachMetadataFuncCallback> AeronCountersReaderForea
         use std::ops::DerefMut;
         self.deref_mut()
             .handle_aeron_counters_reader_foreach_metadata_func(id, type_id, key, label)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_counters_reader_foreach_metadata_func_handler()
-    -> Option<&'static Handler<AeronCountersReaderForeachMetadataFuncLogger>> {
-        None::<&Handler<AeronCountersReaderForeachMetadataFuncLogger>>
     }
 }
 impl AeronCountersReaderForeachMetadataFuncCallback for NoHandler {
@@ -73015,14 +72819,6 @@ impl<T: AeronDutyCycleTrackerUpdateFuncCallback> AeronDutyCycleTrackerUpdateFunc
         self.deref_mut().handle_aeron_duty_cycle_tracker_update_func(now_ns)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_duty_cycle_tracker_update_func_handler() -> Option<&'static Handler<AeronDutyCycleTrackerUpdateFuncLogger>>
-    {
-        None::<&Handler<AeronDutyCycleTrackerUpdateFuncLogger>>
-    }
-}
 impl AeronDutyCycleTrackerUpdateFuncCallback for NoHandler {
     fn handle_aeron_duty_cycle_tracker_update_func(&mut self, now_ns: i64) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -73120,14 +72916,6 @@ impl<T: AeronDutyCycleTrackerMeasureAndUpdateFuncCallback> AeronDutyCycleTracker
         use std::ops::DerefMut;
         self.deref_mut()
             .handle_aeron_duty_cycle_tracker_measure_and_update_func(now_ns)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_duty_cycle_tracker_measure_and_update_func_handler()
-    -> Option<&'static Handler<AeronDutyCycleTrackerMeasureAndUpdateFuncLogger>> {
-        None::<&Handler<AeronDutyCycleTrackerMeasureAndUpdateFuncLogger>>
     }
 }
 impl AeronDutyCycleTrackerMeasureAndUpdateFuncCallback for NoHandler {
@@ -73238,14 +73026,6 @@ impl<T: AeronInt64CounterMapForEachFuncCallback> AeronInt64CounterMapForEachFunc
             .handle_aeron_int64_counter_map_for_each_func(key, value)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_int64_counter_map_for_each_func_handler()
-    -> Option<&'static Handler<AeronInt64CounterMapForEachFuncLogger>> {
-        None::<&Handler<AeronInt64CounterMapForEachFuncLogger>>
-    }
-}
 impl AeronInt64CounterMapForEachFuncCallback for NoHandler {
     fn handle_aeron_int64_counter_map_for_each_func(&mut self, key: i64, value: i64) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -73349,14 +73129,6 @@ impl<T: AeronInt64CounterMapPredicateFuncCallback> AeronInt64CounterMapPredicate
         use std::ops::DerefMut;
         self.deref_mut()
             .handle_aeron_int64_counter_map_predicate_func(key, value)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_int64_counter_map_predicate_func_handler()
-    -> Option<&'static Handler<AeronInt64CounterMapPredicateFuncLogger>> {
-        None::<&Handler<AeronInt64CounterMapPredicateFuncLogger>>
     }
 }
 impl AeronInt64CounterMapPredicateFuncCallback for NoHandler {
@@ -73487,14 +73259,6 @@ impl<T: AeronPortManagerGetManagedPortFuncCallback> AeronPortManagerGetManagedPo
             .handle_aeron_port_manager_get_managed_port_func(bind_addr_out, udp_channel, bind_addr)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_port_manager_get_managed_port_func_handler()
-    -> Option<&'static Handler<AeronPortManagerGetManagedPortFuncLogger>> {
-        None::<&Handler<AeronPortManagerGetManagedPortFuncLogger>>
-    }
-}
 impl AeronPortManagerGetManagedPortFuncCallback for NoHandler {
     fn handle_aeron_port_manager_get_managed_port_func(
         &mut self,
@@ -73612,14 +73376,6 @@ impl<T: AeronPortManagerFreeManagedPortFuncCallback> AeronPortManagerFreeManaged
             .handle_aeron_port_manager_free_managed_port_func(bind_addr)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_port_manager_free_managed_port_func_handler()
-    -> Option<&'static Handler<AeronPortManagerFreeManagedPortFuncLogger>> {
-        None::<&Handler<AeronPortManagerFreeManagedPortFuncLogger>>
-    }
-}
 impl AeronPortManagerFreeManagedPortFuncCallback for NoHandler {
     fn handle_aeron_port_manager_free_managed_port_func(&mut self, bind_addr: SockaddrStorage) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -73721,14 +73477,6 @@ impl<T: AeronSendChannelLossSupplierFuncCallback> AeronSendChannelLossSupplierFu
     fn handle_aeron_send_channel_loss_supplier_func(&mut self, endpoint: *mut aeron_send_channel_endpoint_stct) -> () {
         use std::ops::DerefMut;
         self.deref_mut().handle_aeron_send_channel_loss_supplier_func(endpoint)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_send_channel_loss_supplier_func_handler()
-    -> Option<&'static Handler<AeronSendChannelLossSupplierFuncLogger>> {
-        None::<&Handler<AeronSendChannelLossSupplierFuncLogger>>
     }
 }
 impl AeronSendChannelLossSupplierFuncCallback for NoHandler {
@@ -73840,14 +73588,6 @@ impl<T: AeronReceiveChannelLossSupplierFuncCallback> AeronReceiveChannelLossSupp
         use std::ops::DerefMut;
         self.deref_mut()
             .handle_aeron_receive_channel_loss_supplier_func(endpoint)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_receive_channel_loss_supplier_func_handler()
-    -> Option<&'static Handler<AeronReceiveChannelLossSupplierFuncLogger>> {
-        None::<&Handler<AeronReceiveChannelLossSupplierFuncLogger>>
     }
 }
 impl AeronReceiveChannelLossSupplierFuncCallback for NoHandler {
@@ -73969,14 +73709,6 @@ impl<T: AeronAsyncExecutorTaskExecuteFuncCallback> AeronAsyncExecutorTaskExecute
             .handle_aeron_async_executor_task_on_execute_func(executor_clientd)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_async_executor_task_execute_func_handler()
-    -> Option<&'static Handler<AeronAsyncExecutorTaskExecuteFuncLogger>> {
-        None::<&Handler<AeronAsyncExecutorTaskExecuteFuncLogger>>
-    }
-}
 impl AeronAsyncExecutorTaskExecuteFuncCallback for NoHandler {
     fn handle_aeron_async_executor_task_on_execute_func(
         &mut self,
@@ -74082,14 +73814,6 @@ impl<T: AeronAsyncExecutorTaskCancelFuncCallback> AeronAsyncExecutorTaskCancelFu
         use std::ops::DerefMut;
         self.deref_mut()
             .handle_aeron_async_executor_task_on_cancel_func(executor_clientd)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_async_executor_task_cancel_func_handler()
-    -> Option<&'static Handler<AeronAsyncExecutorTaskCancelFuncLogger>> {
-        None::<&Handler<AeronAsyncExecutorTaskCancelFuncLogger>>
     }
 }
 impl AeronAsyncExecutorTaskCancelFuncCallback for NoHandler {
@@ -74219,14 +73943,6 @@ impl<T: AeronStrToPtrHashMapForEachFuncCallback> AeronStrToPtrHashMapForEachFunc
         use std::ops::DerefMut;
         self.deref_mut()
             .handle_aeron_str_to_ptr_hash_map_for_each_func(key, key_len, value)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_str_to_ptr_hash_map_for_each_func_handler()
-    -> Option<&'static Handler<AeronStrToPtrHashMapForEachFuncLogger>> {
-        None::<&Handler<AeronStrToPtrHashMapForEachFuncLogger>>
     }
 }
 impl AeronStrToPtrHashMapForEachFuncCallback for NoHandler {
@@ -74361,14 +74077,6 @@ impl<T: AeronInt64ToPtrHashMapForEachFuncCallback> AeronInt64ToPtrHashMapForEach
             .handle_aeron_int64_to_ptr_hash_map_for_each_func(key, value)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_int64_to_ptr_hash_map_for_each_func_handler()
-    -> Option<&'static Handler<AeronInt64ToPtrHashMapForEachFuncLogger>> {
-        None::<&Handler<AeronInt64ToPtrHashMapForEachFuncLogger>>
-    }
-}
 impl AeronInt64ToPtrHashMapForEachFuncCallback for NoHandler {
     fn handle_aeron_int64_to_ptr_hash_map_for_each_func(&mut self, key: i64, value: *mut ::std::os::raw::c_void) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -74495,14 +74203,6 @@ impl<T: AeronInt64ToPtrHashMapPredicateFuncCallback> AeronInt64ToPtrHashMapPredi
         use std::ops::DerefMut;
         self.deref_mut()
             .handle_aeron_int64_to_ptr_hash_map_predicate_func(key, value)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_int64_to_ptr_hash_map_predicate_func_handler()
-    -> Option<&'static Handler<AeronInt64ToPtrHashMapPredicateFuncLogger>> {
-        None::<&Handler<AeronInt64ToPtrHashMapPredicateFuncLogger>>
     }
 }
 impl AeronInt64ToPtrHashMapPredicateFuncCallback for NoHandler {
@@ -74640,13 +74340,6 @@ impl<T: AeronUriHostnameResolverFuncCallback> AeronUriHostnameResolverFuncCallba
         use std::ops::DerefMut;
         self.deref_mut()
             .handle_aeron_uri_hostname_resolver_func(host, hints, info)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_uri_hostname_resolver_func_handler() -> Option<&'static Handler<AeronUriHostnameResolverFuncLogger>> {
-        None::<&Handler<AeronUriHostnameResolverFuncLogger>>
     }
 }
 impl AeronUriHostnameResolverFuncCallback for NoHandler {
@@ -74808,13 +74501,6 @@ impl<T: AeronIfaddrFuncCallback> AeronIfaddrFuncCallback for Handler<T> {
         self.deref_mut().handle_aeron_ifaddr_func(name, addr, netmask, flags)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_ifaddr_func_handler() -> Option<&'static Handler<AeronIfaddrFuncLogger>> {
-        None::<&Handler<AeronIfaddrFuncLogger>>
-    }
-}
 impl AeronIfaddrFuncCallback for NoHandler {
     fn handle_aeron_ifaddr_func(
         &mut self,
@@ -74972,14 +74658,6 @@ impl<T: AeronRetransmitHandlerResendFuncCallback> AeronRetransmitHandlerResendFu
             .handle_aeron_retransmit_handler_resend_func(term_id, term_offset, length)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_retransmit_handler_resend_func_handler()
-    -> Option<&'static Handler<AeronRetransmitHandlerResendFuncLogger>> {
-        None::<&Handler<AeronRetransmitHandlerResendFuncLogger>>
-    }
-}
 impl AeronRetransmitHandlerResendFuncCallback for NoHandler {
     fn handle_aeron_retransmit_handler_resend_func(
         &mut self,
@@ -75112,14 +74790,6 @@ impl<T: AeronLossGeneratorShouldDropFrameSimpleFuncCallback> AeronLossGeneratorS
         use std::ops::DerefMut;
         self.deref_mut()
             .handle_aeron_loss_generator_should_drop_frame_simple_func(address, buffer)
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_loss_generator_should_drop_frame_simple_func_handler()
-    -> Option<&'static Handler<AeronLossGeneratorShouldDropFrameSimpleFuncLogger>> {
-        None::<&Handler<AeronLossGeneratorShouldDropFrameSimpleFuncLogger>>
     }
 }
 impl AeronLossGeneratorShouldDropFrameSimpleFuncCallback for NoHandler {
@@ -75309,14 +74979,6 @@ impl<T: AeronLossGeneratorShouldDropFrameDetailedFuncCallback> AeronLossGenerato
             )
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_loss_generator_should_drop_frame_detailed_func_handler()
-    -> Option<&'static Handler<AeronLossGeneratorShouldDropFrameDetailedFuncLogger>> {
-        None::<&Handler<AeronLossGeneratorShouldDropFrameDetailedFuncLogger>>
-    }
-}
 impl AeronLossGeneratorShouldDropFrameDetailedFuncCallback for NoHandler {
     fn handle_aeron_loss_generator_should_drop_frame_detailed_func(
         &mut self,
@@ -75497,14 +75159,6 @@ impl<T: AeronInt64ToTaggedPtrHashMapForEachFuncCallback> AeronInt64ToTaggedPtrHa
             .handle_aeron_int64_to_tagged_ptr_hash_map_for_each_func(key, tag, value)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_int64_to_tagged_ptr_hash_map_for_each_func_handler()
-    -> Option<&'static Handler<AeronInt64ToTaggedPtrHashMapForEachFuncLogger>> {
-        None::<&Handler<AeronInt64ToTaggedPtrHashMapForEachFuncLogger>>
-    }
-}
 impl AeronInt64ToTaggedPtrHashMapForEachFuncCallback for NoHandler {
     fn handle_aeron_int64_to_tagged_ptr_hash_map_for_each_func(
         &mut self,
@@ -75649,14 +75303,6 @@ impl<T: AeronInt64ToTaggedPtrHashMapPredicateFuncCallback> AeronInt64ToTaggedPtr
             .handle_aeron_int64_to_tagged_ptr_hash_map_predicate_func(key, tag, value)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_int64_to_tagged_ptr_hash_map_predicate_func_handler()
-    -> Option<&'static Handler<AeronInt64ToTaggedPtrHashMapPredicateFuncLogger>> {
-        None::<&Handler<AeronInt64ToTaggedPtrHashMapPredicateFuncLogger>>
-    }
-}
 impl AeronInt64ToTaggedPtrHashMapPredicateFuncCallback for NoHandler {
     fn handle_aeron_int64_to_tagged_ptr_hash_map_predicate_func(
         &mut self,
@@ -75799,14 +75445,6 @@ impl<T: AeronTermGapScannerGapDetectedFuncCallback> AeronTermGapScannerGapDetect
             .handle_aeron_term_gap_scanner_on_gap_detected_func(term_id, term_offset, length)
     }
 }
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_term_gap_scanner_gap_detected_func_handler()
-    -> Option<&'static Handler<AeronTermGapScannerGapDetectedFuncLogger>> {
-        None::<&Handler<AeronTermGapScannerGapDetectedFuncLogger>>
-    }
-}
 impl AeronTermGapScannerGapDetectedFuncCallback for NoHandler {
     fn handle_aeron_term_gap_scanner_on_gap_detected_func(
         &mut self,
@@ -75921,13 +75559,6 @@ impl<T: AeronEndOfLifeResourceFreeCallback> AeronEndOfLifeResourceFreeCallback f
     fn handle_aeron_end_of_life_resource_free(&mut self) -> bool {
         use std::ops::DerefMut;
         self.deref_mut().handle_aeron_end_of_life_resource_free()
-    }
-}
-impl Handlers {
-    #[doc = r" No handler is set i.e. None with correct type."]
-    #[doc = r" Prefer [`Handlers::none`](Handlers::none) (works for any callback)."]
-    pub fn no_end_of_life_resource_free_handler() -> Option<&'static Handler<AeronEndOfLifeResourceFreeLogger>> {
-        None::<&Handler<AeronEndOfLifeResourceFreeLogger>>
     }
 }
 impl AeronEndOfLifeResourceFreeCallback for NoHandler {

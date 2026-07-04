@@ -738,14 +738,6 @@ impl<T> Handler<T> {
         Self { inner }
     }
 
-    #[deprecated(note = "handlers no longer leak; use Handler::new — the value is freed when the last clone drops")]
-    pub fn leak(handler: T) -> Self {
-        Self::new(handler)
-    }
-
-    #[deprecated(note = "no longer needed; the handler is freed automatically when the last clone drops")]
-    pub fn release(&mut self) {}
-
     #[inline(always)]
     pub fn as_raw(&self) -> *mut std::os::raw::c_void {
         self.inner.get() as *mut std::os::raw::c_void

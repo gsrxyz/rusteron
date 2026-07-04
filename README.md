@@ -231,7 +231,7 @@ Old → new for every renamed/changed API (rows verified against the released 0.
 | `publication.offer_result(buf, supplier)` → `Result<_, AeronCError>` | `publication.offer_with_reserved_value(buf, supplier)` → `Result<_, AeronOfferError>` | Typed offer errors with `is_retryable()`. |
 | `publication.offer_result_simple(buf)` | `publication.offer(buf)` | The common no-supplier case is now the flagship name. |
 | `try_claim_result(len, claim)` / `try_claim_owned` → `AeronCError` | `try_claim(len, claim)` / `try_claim_owned` → `AeronOfferError` | Same RAII `AeronClaim`; typed error. |
-| `subscription.poll_once(f, limit)` | `subscription.poll_fn(f, limit)` | Deprecated alias kept. Same on `AeronImage` / `AeronArchiveReplayMerge`. `_once` read as "one fragment". |
+| `subscription.poll_fn(f, limit)` | `subscription.poll_fn(f, limit)` | Same on `AeronImage` / `AeronArchiveReplayMerge`. `_once` read as "one fragment". |
 | `subscription.for_each_fragment(limit, f)` | `subscription.poll_fn(f, limit)` | Removed (alias with the arguments in the opposite order). |
 | `sub.poll(assembler.process(&mut ctx, f), limit)` | `assembler.poll(&sub, &mut ctx, f, limit)` | `process()` leaked a raw ctx pointer past the borrow (UAF hazard); the new form scopes it. Deprecated alias kept. |
 | `Handlers::no_available_image_handler()`, `no_unavailable_image_handler()`, … | `Handlers::NONE` | One constant, any callback parameter, full inference. Old helpers still compile. |

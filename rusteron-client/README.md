@@ -94,14 +94,14 @@ Only invoked *during* the call, so the `_once` variants borrow a stack closure �
 allocation, may borrow local state:
 
 ```rust,ignore
-subscription.poll_once(|buf: &[u8], header: AeronHeader| {
+subscription.poll_fn(|buf: &[u8], header: AeronHeader| {
     println!("received {} bytes at position {:?}", buf.len(), header.position());
 }, 10)?;
 ```
 
 > For messages larger than the MTU use a fragment assembler with `subscription.poll(Some(&handler), limit)` — `poll_once` delivers raw fragments and does not reassemble.
 
-No handler for an optional slot? Pass the typed `None` helper, e.g. `Handlers::no_available_image_handler()`.
+No handler for an optional slot? Pass the typed `None` helper, e.g. `Handlers::NONE`.
 
 ---
 
@@ -142,14 +142,14 @@ let publication = aeron
 let subscription = aeron
     .async_add_subscription(
         channel, 123,
-        Handlers::no_available_image_handler(),
-        Handlers::no_unavailable_image_handler(),
+        Handlers::NONE,
+        Handlers::NONE,
     )?
     .poll_blocking(Duration::from_secs(5))?;
 
 // offer() returns the log position (>0) or a negative code — see "Errors & offer results".
-while publication.offer_with_reserved_value(b"hello", Handlers::no_reserved_value_supplier_handler()) <= 0 {}
-subscription.poll_once(|buf: &[u8], _hdr: AeronHeader| println!("got {} bytes", buf.len()), 10)?;
+while publication.offer_with_reserved_value(b"hello", Handlers::NONE) <= 0 {}
+subscription.poll_fn(|buf: &[u8], _hdr: AeronHeader| println!("got {} bytes", buf.len()), 10)?;
 ```
 
 ## AddressSanitizer
@@ -212,7 +212,7 @@ Breaking changes, made because the old design allowed double frees and use-after
 | `Handler` was `Sync` | `Send` only (conductor thread may invoke callbacks) |
 | `offer(buf, supplier)` returned a raw `i64` sentinel | `offer(buf)` → `Result<i64, AeronOfferError>` with `is_retryable()`; supplier form: `offer_with_reserved_value`; raw sentinel: `offer_raw` |
 | `offer_result` / `offer_result_simple` / `try_claim_result` (→ `AeronCError`) | `offer_with_reserved_value` / `offer` / `try_claim` (→ typed `AeronOfferError`) |
-| `poll_once(f, limit)` | `poll_fn(f, limit)` — deprecated alias kept; `for_each_fragment` removed |
+| `poll_once(f, limit)` | `poll_fn(f, limit)` — `for_each_fragment` removed |
 | `Handlers::no_xxx_handler()` per callback | `Handlers::NONE` for any callback parameter |
 
 The full old → new table (destinations, fragment assembler, C strings, driver guard) lives
@@ -243,7 +243,7 @@ in the [root README's migration guide](../README.md#migrating-from-01168-to-02).
   For branch-free hot paths, `offer_raw()` / `try_claim_raw()` return the raw `i64` sentinel —
   though measured on `benches/offer_claim_poll.rs` the typed path is within noise of raw
   (~2.9ns vs ~2.8ns per offer): the error enum only materialises on the error path.
-- **Image handlers**: `Handlers::no_available_image_handler()` / `no_unavailable_image_handler()` are fine as a default, but real apps usually react to image availability (logging, synchronization) — Aeron's `Ping` sample uses one as a latch.
+- **Image handlers**: `Handlers::NONE` / `Handlers::NONE` are fine as a default, but real apps usually react to image availability (logging, synchronization) — Aeron's `Ping` sample uses one as a latch.
 
 ## Idle strategies
 

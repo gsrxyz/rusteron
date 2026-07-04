@@ -418,15 +418,4 @@ impl AeronArchiveReplayMerge {
             Ok(result)
         }
     }
-
-    /// Deprecated alias for [`Self::poll_fn`].
-    #[deprecated(since = "0.1.169", note = "use `poll_fn` instead")]
-    #[inline]
-    pub fn poll_once<H: FnMut(&[u8], AeronHeader)>(
-        &self,
-        handler: H,
-        fragment_limit: std::os::raw::c_int,
-    ) -> Result<i32, AeronCError> {
-        self.poll_fn(handler, fragment_limit)
-    }
 }
