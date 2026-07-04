@@ -27,7 +27,7 @@ To use `rusteron-media-driver`, add the appropriate dependency to your `Cargo.to
 ```toml
 [dependencies]
 rusteron-media-driver = "0.2"
-````
+```
 
 </details>
 

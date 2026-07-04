@@ -66,42 +66,46 @@ When using the default dynamic configuration, you must ensure Aeron C libraries 
 
 ## Handlers and Callbacks
 
-Two kinds of callbacks, two rules:
+Two kinds of callbacks:
 
-### 1. Retained callbacks (error handler, image/counter lifecycle, notifications)
+### 1. Retained (error handler, image/counter lifecycle, notifications)
 
 The C client stores these and invokes them later from the conductor thread. Setters take the
-callback **by value** — a closure or any type implementing the callback trait — heap-allocate
-it internally, and keep it alive for as long as C can call it. Nothing to free:
+callback by value (a closure or any `impl Trait`), heap-allocate it into a reference-counted
+`Handler`, and keep a clone inside the registering resource — it is freed when that resource
+drops, no manual `release()`:
 
 ```rust,ignore
 ctx.set_error_handler(Some(|code: i32, msg: &str| eprintln!("aeron error {code}: {msg}")))?;
 ```
 
-Need to read the callback's state later? Keep the returned [`Handler`]:
+Keep the returned `Handler` to read the callback's state later:
 
 ```rust,ignore
 let counts = ctx.set_error_handler(Some(ErrorCounter::default()))?.unwrap();
-// ... later: counts.errors
+// ... later
+println!("{} errors", counts.error_count);
 ```
 
 Registration methods that return a resource (e.g. `add_subscription` with image handlers) take
-`Option<&Handler<T>>` instead and keep a clone — same lifetime guarantee.
+`Option<&Handler<T>>` and clone it into the resource — same lifetime guarantee.
 
-### 2. Synchronous callbacks (`poll`, `controlled_poll`, log readers)
+### 2. Synchronous (`poll`, `controlled_poll`, log readers)
 
-Only invoked *during* the call, so the `_once` variants borrow a stack closure — zero
-allocation, may borrow local state:
+Invoked only during the call, so they take a stack closure — zero allocation, may borrow
+local state:
 
 ```rust,ignore
 subscription.poll_fn(|buf: &[u8], header: AeronHeader| {
-    println!("received {} bytes at position {:?}", buf.len(), header.position());
+    println!("received {} bytes", buf.len());
 }, 10)?;
 ```
 
-> For messages larger than the MTU use a fragment assembler with `subscription.poll(Some(&handler), limit)` — `poll_once` delivers raw fragments and does not reassemble.
+For messages larger than the MTU, wrap the delegate in an `AeronFragmentAssembler` (it
+reassembles fragments before calling back) — `poll_fn` / `poll_once` deliver raw fragments
+only.
 
-No handler for an optional slot? Pass the typed `None` helper, e.g. `Handlers::NONE`.
+No callback for an optional slot? `Handlers::NONE` fits any callback parameter.
 
 ---
 
@@ -147,8 +151,14 @@ let subscription = aeron
     )?
     .poll_blocking(Duration::from_secs(5))?;
 
-// offer() returns the log position (>0) or a negative code — see "Errors & offer results".
-while publication.offer_with_reserved_value(b"hello", Handlers::NONE) <= 0 {}
+// offer() returns Ok(position) or a typed AeronOfferError — see "Errors & offer results".
+loop {
+    match publication.offer(b"hello") {
+        Ok(_) => break,
+        Err(e) if e.is_retryable() => continue,
+        Err(e) => return Err(e.into()),
+    }
+}
 subscription.poll_fn(|buf: &[u8], _hdr: AeronHeader| println!("got {} bytes", buf.len()), 10)?;
 ```
 
@@ -243,7 +253,7 @@ in the [root README's migration guide](../README.md#migrating-from-01168-to-02).
   For branch-free hot paths, `offer_raw()` / `try_claim_raw()` return the raw `i64` sentinel —
   though measured on `benches/offer_claim_poll.rs` the typed path is within noise of raw
   (~2.9ns vs ~2.8ns per offer): the error enum only materialises on the error path.
-- **Image handlers**: `Handlers::NONE` / `Handlers::NONE` are fine as a default, but real apps usually react to image availability (logging, synchronization) — Aeron's `Ping` sample uses one as a latch.
+- **Image handlers**: `Handlers::NONE` for each image slot is a fine default, but real apps usually react to image availability (logging, synchronisation) — Aeron's `Ping` sample uses one as a latch.
 
 ## Idle strategies
 
