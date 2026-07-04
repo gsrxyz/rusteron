@@ -250,9 +250,9 @@ in the [root README's migration guide](../README.md#migrating-from-01168-to-02).
       Err(e) => return Err(e.into()),            // publication gone
   }
   ```
-  For branch-free hot paths, `offer_raw()` / `try_claim_raw()` return the raw `i64` sentinel —
-  though measured on `benches/offer_claim_poll.rs` the typed path is within noise of raw
-  (~2.9ns vs ~2.8ns per offer): the error enum only materialises on the error path.
+  For branch-free hot paths, `offer_raw()` / `try_claim_raw()` return the raw `i64` sentinel.
+  The typed path costs the same on the happy path — the error enum only materialises on the
+  error path.
 - **Image handlers**: `Handlers::NONE` for each image slot is a fine default, but real apps usually react to image availability (logging, synchronisation) — Aeron's `Ping` sample uses one as a latch.
 
 ## Idle strategies
