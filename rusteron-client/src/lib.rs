@@ -3648,6 +3648,94 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
+    /// `close_now` with a complex object graph where Rust drops children before
+    /// the parent. In 0.2's deferred-close model, children close immediately when
+    /// dropped, so calling `close_now()` on a parent after all children have been
+    /// dropped must be safe — the C client handles already-closed resources
+    /// gracefully. This test verifies no segfaults or double-frees (CI runs this
+    /// under ASan which catches use-after-free).
+    ///
+    /// WARNING: if any child handle survives `close_now()`, its C resources are
+    /// freed and the handle becomes unsafe to use (dangling pointer). You MUST
+    /// drop all children before calling `close_now()`, or explicitly `std::mem::forget`
+    /// them and accept the UB.
+    #[test]
+    #[serial]
+    fn close_now_after_all_children_dropped_is_safe() {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        // Build a complex object graph: publications, subscriptions, exclusive publications
+        let pub1 = aeron
+            .add_publication(AERON_IPC_STREAM, 1001, Duration::from_secs(5))
+            .expect("add publication 1");
+        let pub2 = aeron
+            .add_publication(AERON_IPC_STREAM, 1002, Duration::from_secs(5))
+            .expect("add publication 2");
+
+        let sub1 = aeron
+            .add_subscription(AERON_IPC_STREAM, 1001, Handlers::NONE, Handlers::NONE, Duration::from_secs(5))
+            .expect("add subscription 1");
+        let sub2 = aeron
+            .add_subscription(AERON_IPC_STREAM, 1002, Handlers::NONE, Handlers::NONE, Duration::from_secs(5))
+            .expect("add subscription 2");
+
+        let excl_pub = aeron
+            .add_exclusive_publication(AERON_IPC_STREAM, 1003, Duration::from_secs(5))
+            .expect("add exclusive publication");
+
+        // All children must be dropped before close_now - their C resources are freed
+        drop(pub1);
+        drop(pub2);
+        drop(sub1);
+        drop(sub2);
+        drop(excl_pub);
+
+        // Call close_now on the parent — must not segfault or double-free
+        unsafe {
+            assert!(aeron.close_now().is_ok(), "close_now should succeed after all children dropped");
+        }
+
+        teardown_aeron_after_uaf_test(driver, error_handler);
+        // Valgrind will catch any double-frees or use-after-free from this test
+    }
+
+    /// DANGER: This test documents the UB scenario where children survive
+    /// `close_now()`. This is commented-out because it WILL segfault (ASan would
+    /// catch it as use-after-free). This proves you MUST drop all children before
+    /// calling `close_now()`.
+    ///
+    /// What happens:
+    /// 1. `aeron.close_now()` frees the Aeron C client
+    /// 2. All publications/subscriptions are freed in C
+    /// 3. But `pub2` still holds a non-null pointer to freed memory
+    /// 4. `drop(pub2)` calls `aeron_publication_close()` on dangling pointer → UB
+    ///
+    /// DO NOT call `close_now()` with surviving children — it's fundamentally unsafe.
+    #[test]
+    #[serial]
+    #[ignore = "this test WILL segfault - it documents the UB scenario"]
+    fn close_now_with_surviving_children_is_ub_and_segfaults() {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let pub2 = aeron
+            .add_publication(AERON_IPC_STREAM, 1001, Duration::from_secs(5))
+            .expect("add publication");
+
+        // Call close_now while pub2 is still alive — UNSAFE
+        unsafe {
+            let _ = aeron.close_now();
+        }
+
+        // pub2 now holds a dangling pointer. Dropping it calls
+        // aeron_publication_close() on freed memory → SEGFAULT
+        drop(pub2); // <-- BOOM: use-after-free
+
+        // Never reached
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
     /// The client stores the raw context pointer in C for its entire life, so the
     /// context must outlive the client. Dropping the user's `AeronContext` handle
     /// only releases a reference — the client's internal clone keeps the C context

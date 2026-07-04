@@ -1519,6 +1519,73 @@ mod tests {
         drop(media_driver);
         Ok(())
     }
+
+    /// `close_now` with a complex archive object graph where Rust drops children
+    /// (recordings, replays, subscriptions) before the parent. In 0.2's deferred-close
+    /// model, children close immediately when dropped, so calling `close_now()` on
+    /// an archive after all children have been dropped must be safe — the C client
+    /// handles already-closed resources gracefully. This test verifies no
+    /// segfaults or double-frees (CI runs this under ASan which catches use-after-free).
+    ///
+    /// WARNING: if any child handle survives `close_now()`, its C resources are
+    /// freed and the handle becomes unsafe to use (dangling pointer). You MUST
+    /// drop all children before calling `close_now()`, or explicitly `std::mem::forget`
+    /// them and accept the UB.
+    #[test]
+    #[serial]
+    fn close_now_after_all_archive_children_dropped_is_safe() -> Result<(), Box<dyn std::error::Error>> {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+        let (aeron, archive_context, media_driver, _pub_error_frame_handler, error_handler) = start_aeron_archive()?;
+
+        // Build a complex object graph: Aeron subscriptions, archive recording
+        let publication = aeron
+            .add_publication(AERON_IPC_STREAM, 30, Duration::from_secs(5))
+            .expect("add publication");
+
+        let subscription = aeron
+            .add_subscription(
+                AERON_IPC_STREAM,
+                30,
+                Handlers::NONE,
+                Handlers::NONE,
+                Duration::from_secs(5),
+            )
+            .expect("add subscription");
+
+        let archive = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?
+            .poll_blocking(Duration::from_secs(30))
+            .expect("failed to connect to archive");
+
+        let recording_id = archive
+            .start_recording(AERON_IPC_STREAM, 30, SOURCE_LOCATION_LOCAL, true)
+            .expect("start recording");
+
+        // Publish a few messages so the recording has content
+        for _ in 0..5 {
+            let _ = publication.offer(b"test data");
+        }
+
+        // Drop all Aeron and archive children before close_now
+        drop(subscription);
+        drop(publication);
+        // recording_id is just a u64, not a resource handle
+
+        // Call close_now on the archive — must not segfault or double-free
+        unsafe {
+            assert!(archive.close_now().is_ok(), "close_now should succeed after all children dropped");
+        }
+
+        // Aeron client should still be usable (archive close doesn't close aeron)
+        let pub2 = aeron
+            .add_publication(AERON_IPC_STREAM, 31, Duration::from_secs(5))
+            .expect("aeron still usable after archive close_now");
+        drop(pub2);
+        aeron.close()?;
+
+        drop(media_driver);
+        drop(error_handler);
+        Ok(())
+    }
 }
 
 // run `just slow-tests`
