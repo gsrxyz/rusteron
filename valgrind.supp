@@ -296,6 +296,17 @@
    ...
 }
 
+# Additional suppression for syscall-cancel path variations (msync false positive)
+{
+   aeron_driver_conductor_msync_uninitialised
+   Memcheck:Param
+   msync(start)
+   fun:msync
+   fun:__syscall_cancel_arch
+   fun:__internal_syscall_cancel
+   fun:__syscall_cancel
+}
+
 # Upstream Aeron C shutdown race (idle strategy read after context close frees it); outside rusteron's lifecycle.
 {
    aeron_idle_strategy_sleeping_after_context_close
