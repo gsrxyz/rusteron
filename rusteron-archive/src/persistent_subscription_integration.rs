@@ -800,10 +800,7 @@ mod tests {
                 let deadline = Instant::now() + Duration::from_secs(5);
                 while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                     if Instant::now() > deadline {
-                        return Err(format!(
-                            "Timed out offering message {} for stream {}",
-                            i, stream_id
-                        ).into());
+                        return Err(format!("Timed out offering message {} for stream {}", i, stream_id).into());
                     }
                     sleep(Duration::from_millis(10));
                 }
@@ -844,10 +841,7 @@ mod tests {
             }
 
             if attempt < max_attempts - 1 {
-                info!(
-                    "Only found {}/{} recordings, retrying in 100ms...",
-                    count, num_streams
-                );
+                info!("Only found {}/{} recordings, retrying in 100ms...", count, num_streams);
                 sleep(Duration::from_millis(100));
             }
         }
@@ -855,7 +849,8 @@ mod tests {
         assert!(
             count >= num_streams,
             "Should have at least as many recordings as streams (found: {}, expected: {})",
-            count, num_streams
+            count,
+            num_streams
         );
 
         // Cleanup
