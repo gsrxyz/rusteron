@@ -1214,8 +1214,10 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(20);
         while collector.count == 0 && Instant::now() < deadline {
             // asm.poll drives ps.poll(...) internally — it both advances the PS state
-            // machine and delivers (reassembled) fragments. Do NOT also call ps.poll_fn:
-            // that would consume the raw fragments before the assembler sees them.
+            // machine and delivers reassembled messages. Do NOT also call ps.poll_fn:
+            // that would consume the messages before the assembler sees them. (The C
+            // persistent_subscription_poll already reassembles; the Rust assembler is
+            // a pass-through here, kept for API consistency with AeronSubscription.)
             asm.poll(&ps, &mut collector, collect, 100)?;
             sleep(Duration::from_millis(1));
         }

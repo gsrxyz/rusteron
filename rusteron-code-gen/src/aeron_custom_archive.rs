@@ -458,9 +458,12 @@ impl AeronArchiveReplayMerge {
     }
 }
 
-/// Allow [`AeronFragmentClosureAssembler`] to reassemble fragments from a persistent
-/// subscription. PS delivers raw fragments via `aeron_archive_persistent_subscription_poll`;
-/// this routes them through the assembler so the delegate receives whole messages.
+/// Route a persistent subscription through [`AeronFragmentClosureAssembler`] for
+/// API consistency with [`AeronSubscription`]. Note: the C
+/// `aeron_archive_persistent_subscription_poll` already reassembles fragments
+/// internally (via `aeron_image_fragment_assembler_handler`), so the delegate
+/// receives whole messages either way — the Rust assembler here is a pass-through.
+/// Prefer `ps.poll_fn(handler, limit)` directly unless you want the shared API.
 impl FragmentAssemblable for AeronArchivePersistentSubscription {
     #[inline]
     fn poll_with_assembler(

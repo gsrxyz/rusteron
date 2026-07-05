@@ -197,14 +197,22 @@ ps.close()?;
 
 **Polling & errors.** `ps.poll_fn()` drives the PS state machine *and* the archive async client, so you do not call `archive.poll_for_recording_signals()` separately. Loop on `ps.is_live()`, checking `ps.has_failed()` each iteration (reason via `get_failure_reason()`). The listener's `on_error` covers non-terminal errors; `on_live_left`/`on_live_joined` may fire repeatedly as it falls back and rejoins.
 
-**Fragment assembly.** `poll_fn` delivers **raw fragments**; messages larger than the MTU arrive in pieces. Reassemble with `AeronFragmentClosureAssembler` (or `AeronControlledFragmentClosureAssembler` for flow-controlled polling) — both work with a persistent subscription the same way as with `AeronSubscription`:
+**Fragment assembly (already done for you).** Unlike `AeronSubscription`, the persistent subscription **reassembles fragments internally** — the C `aeron_archive_persistent_subscription_poll` routes each image through `aeron_image_fragment_assembler_handler`, so your handler receives whole messages directly. Just poll:
+
+```rust,ignore
+loop {
+    // handler receives whole messages; no assembler needed
+    ps.poll_fn(|buf, _hdr| { /* handle reassembled message */ }, 100)?;
+}
+```
+
+If you prefer the shared assembler API (e.g. to reuse a collector across subscription types), `AeronFragmentClosureAssembler` works too — it polls the PS internally, so it advances the state machine and delivers messages in one call. **Do not also call `ps.poll_fn(…)` separately**: that consumes the messages before the assembler sees them.
 
 ```rust,ignore
 let mut assembler = AeronFragmentClosureAssembler::new()?;
 let mut ctx = Collector::default();
 loop {
-    ps.poll_fn(|_buf, _hdr| {}, 10)?;          // advance the PS state machine
-    assembler.poll(&ps, &mut ctx, Collector::on_msg, 100)?;  // reassembled messages only
+    assembler.poll(&ps, &mut ctx, Collector::on_msg, 100)?;  // polls the PS internally
     if ctx.done { break; }
 }
 ```
