@@ -102,6 +102,11 @@ name              = "streaming_rate"
 path              = "examples/streaming_rate.rs"
 required-features = ["examples"]
 
+[[example]]
+name              = "non_blocking_publisher"
+path              = "examples/non_blocking_publisher.rs"
+required-features = ["examples"]
+
 [[bench]]
 name    = "ping_pong"
 harness = false

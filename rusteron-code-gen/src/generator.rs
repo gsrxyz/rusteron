@@ -2569,6 +2569,26 @@ pub fn generate_rust_code(
                     }
 
                     impl #client_type {
+                        #[doc = r"Blocking convenience wrapper around the async add operation."]
+                        #[doc = r""]
+                        #[doc = r"**Convenience for examples and tests only.** It blocks the calling thread"]
+                        #[doc = r"in a busy-poll loop until the resource is available or `timeout` elapses. In"]
+                        #[doc = r"production, prefer the `async_add_*` variant and drive its `poll()` from your"]
+                        #[doc = r"own event loop rather than blocking on a single operation."]
+                        #[doc = r""]
+                        #[doc = r"# Production pattern (pseudo code)"]
+                        #[doc = r"```text"]
+                        #[doc = r"// Don't block — drive the async poller from your loop"]
+                        #[doc = r"let poller = client.async_add_*(...)?;"]
+                        #[doc = r"loop {"]
+                        #[doc = r"    if let Some(resource) = poller.poll()? {"]
+                        #[doc = r"        break; // ready"]
+                        #[doc = r"    }"]
+                        #[doc = r"    do_other_work(); // service other subscriptions, timers, etc."]
+                        #[doc = r"}"]
+                        #[doc = r"```"]
+                        #[doc = r""]
+                        #[doc = r"See `poll_blocking` on the async poller for the same caveat."]
                         #[inline]
                         pub fn #client_type_method_name_without_async #where_clause_async(&self #(
                     , #async_new_args_for_client)*,  timeout: std::time::Duration) -> Result<#main_class_name, AeronCError> {
@@ -2662,6 +2682,25 @@ pub fn generate_rust_code(
                             }
                         }
 
+                        #[doc = r"Polls synchronously until the async operation completes or `timeout` elapses."]
+                        #[doc = r""]
+                        #[doc = r"**Convenience for examples and tests only.** It blocks the calling thread"]
+                        #[doc = r"in a busy-poll loop. In production, drive `poll()` from your own event loop"]
+                        #[doc = r"(between other work, on a timer, or in a dedicated duty cycle) rather than"]
+                        #[doc = r"blocking on a single operation."]
+                        #[doc = r""]
+                        #[doc = r"# Production pattern (pseudo code)"]
+                        #[doc = r"```text"]
+                        #[doc = r"// Don't block — integrate poll() into your existing loop"]
+                        #[doc = r"loop {"]
+                        #[doc = r"    if let Some(resource) = poller.poll()? {"]
+                        #[doc = r"        break; // ready"]
+                        #[doc = r"    }"]
+                        #[doc = r"    do_other_work(); // service other subscriptions, timers, etc."]
+                        #[doc = r"}"]
+                        #[doc = r"```"]
+                        #[doc = r""]
+                        #[doc = r"See the blocking `add_*(.., timeout)` helpers for the same caveat."]
                         #[inline]
                         pub fn poll_blocking(&self, timeout: std::time::Duration) -> Result<#main_class_name, AeronCError> {
                             if let Some(result) = self.poll()? {
