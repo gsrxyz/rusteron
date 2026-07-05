@@ -24,6 +24,8 @@ pub mod bindings {
 use bindings::*;
 use std::cell::Cell;
 use std::os::raw::c_int;
+#[cfg(feature = "multi-threaded")]
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 /// Result codes returned by `AeronPublication::offer` / `try_claim` (Aeron `aeronc.h`). A positive
