@@ -59,6 +59,11 @@
 }
 
 # Fallback for Rust runtime stack overflow thread metadata retained to process exit.
+# The trailing `...` (instead of a rigid `fun:main` anchor) matches binaries whose
+# valgrind trace terminates at `lang_start` before reaching `main` — code_gen and
+# media_driver test binaries both truncate there. The `set_current_info` +
+# `lang_start_internal` signature is unique to this std-internal allocation, so
+# the wildcard cannot mask a real rusteron leak.
 {
    rust_runtime_stack_overflow_thread_info_reachable
    Memcheck:Leak
@@ -68,7 +73,7 @@
    fun:*stack_overflow*thread_info*set_current_info*
    ...
    fun:*lang_start_internal*
-   fun:main
+   ...
 }
 
 # Rust runtime ThreadInfo allocations persisting to exit (all leak kinds).

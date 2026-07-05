@@ -153,15 +153,28 @@ jobs:
         # Build first WITHOUT LD_PRELOAD (otherwise rustc segfaults). pipefail
         # propagates cargo's exit code through tee: LSan exits 23 on unsuppressed
         # leaks, ASan exits 1 on UAF/double-free — both fail the step.
-        # setarch -R disables ASLR for the test process so libaeron.so always
-        # loads at the same address. With ASLR on, ~1 in 3 runs hit "Shadow
-        # memory range interleaves with an existing memory mapping" because the
-        # randomised library placement lands in ASan's shadow region; pinning
-        # the layout makes the run deterministic.
+        #
+        # ASan init can abort with "Shadow memory range interleaves with an
+        # existing memory mapping" when ASLR places libaeron.so in ASan's shadow
+        # region (~1 in 3 runs). This is an init-time infrastructure failure,
+        # NOT a rusteron bug — it happens before any test runs. Retry on that
+        # specific error; ASLR re-randomises each attempt. Real ASan/LSan errors
+        # (UAF, leaks) fail immediately.
         run: |
           set -o pipefail
           cargo test -p rusteron-client --features sanitize-address --no-run
-          LD_PRELOAD=${{ steps.asan-path.outputs.path }} setarch "$(uname -m)" -R cargo test -p rusteron-client --features sanitize-address -- --nocapture 2>&1 | tee asan-output.txt
+          for attempt in 1 2 3 4 5; do
+            if LD_PRELOAD=${{ steps.asan-path.outputs.path }} cargo test -p rusteron-client --features sanitize-address -- --nocapture 2>&1 | tee asan-output.txt; then
+              exit 0
+            fi
+            if grep -q "Shadow memory range interleaves" asan-output.txt; then
+              echo "ASan shadow-memory collision on attempt $attempt/5 — retrying with fresh ASLR layout"
+              continue
+            fi
+            exit 1
+          done
+          echo "ASan failed to initialise after 5 attempts (shadow collision) — infrastructure limitation, not a rusteron bug. Valgrind provides authoritative leak detection."
+          exit 1
 
   build:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
