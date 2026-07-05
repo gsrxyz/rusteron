@@ -287,7 +287,8 @@ mod idle_strategy_tests {
 
     #[test]
     fn rust_backoff_matches_c_defaults() {
-        // Verify BackoffIdleStrategy uses same defaults as CIdleStrategy::backoff()
+        // Verify BackoffIdleStrategy uses Aeron's canonical backoff defaults
+        // (AERON_IDLE_STRATEGY_BACKOFF_*: 10 spins, 20 yields, park 1µs..1ms).
         let idle = BackoffIdleStrategy::new();
         assert_eq!(idle.max_spins, 10, "max_spins should be 10");
         assert_eq!(idle.max_yields, 20, "max_yields should be 20");

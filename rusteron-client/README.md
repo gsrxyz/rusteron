@@ -176,6 +176,12 @@ loop {
 subscription.poll_fn(|buf: &[u8], _hdr: AeronHeader| println!("got {} bytes", buf.len()), 10)?;
 ```
 
+> **Note on `poll_blocking` / `add_*(.., timeout)`:** these block the calling thread in a
+> busy-poll loop and exist for example/test brevity. In production, drive the async poller's
+> `poll()` from your own event loop instead. See
+> [`examples/non_blocking_publisher.rs`](examples/non_blocking_publisher.rs) for the idiomatic
+> pattern.
+
 ## AddressSanitizer
 
 The `sanitize-address` feature compiles the Aeron C sources with `-fsanitize=address`
@@ -299,10 +305,9 @@ Available: [`BusySpinIdleStrategy`] (lowest latency, pins a core), [`YieldingIdl
 [`SleepingIdleStrategy`] (fixed sleep), [`BackoffIdleStrategy`] (adaptive, general-purpose),
 [`NoOpIdleStrategy`]. Latency benchmarks should keep busy-spin.
 
-Need exact parity with Aeron's C/Java implementations (e.g. cross-language latency
-comparisons)? [`CIdleStrategy`] wraps the C reference strategies behind the same trait:
-`CIdleStrategy::backoff()?` / `busy_spinning()` / `yielding()` / `noop()`. The conductor's
-own idle strategy is configured on the context — use the typed enum
+`BackoffIdleStrategy` is the default and matches Aeron's C/Java backoff exactly (10 spins,
+20 yields, park 1µs..1ms), so there is no need for a C-backed idle strategy to get parity.
+The conductor's own idle strategy is configured on the context — use the typed enum
 (`ctx.set_idle_strategy_kind(AeronIdleStrategyKind::Backoff)?`, which also sets coherent
 init args) — and likewise the media driver's per-agent strategies
 (`set_conductor_idle_strategy_kind` etc. on `AeronDriverContext`).
