@@ -61,6 +61,16 @@ pub trait IdleStrategy {
 
 /// Spin with a CPU pause hint. Lowest latency, pins a core. (Aeron `BusySpinIdleStrategy`.)
 pub struct BusySpinIdleStrategy;
+impl BusySpinIdleStrategy {
+    pub fn new() -> Self {
+        Self
+    }
+}
+impl Default for BusySpinIdleStrategy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl IdleStrategy for BusySpinIdleStrategy {
     #[inline]
     fn idle(&mut self, work_count: i32) {
@@ -73,6 +83,16 @@ impl IdleStrategy for BusySpinIdleStrategy {
 
 /// No-op — never yields the core. (Aeron `NoOpIdleStrategy`.)
 pub struct NoOpIdleStrategy;
+impl NoOpIdleStrategy {
+    pub fn new() -> Self {
+        Self
+    }
+}
+impl Default for NoOpIdleStrategy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl IdleStrategy for NoOpIdleStrategy {
     #[inline]
     fn idle(&mut self, _work_count: i32) {}
@@ -81,6 +101,16 @@ impl IdleStrategy for NoOpIdleStrategy {
 /// Yield the OS thread when idle. Lower CPU than busy-spin, slightly higher latency.
 /// (Aeron `YieldingIdleStrategy`.)
 pub struct YieldingIdleStrategy;
+impl YieldingIdleStrategy {
+    pub fn new() -> Self {
+        Self
+    }
+}
+impl Default for YieldingIdleStrategy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl IdleStrategy for YieldingIdleStrategy {
     #[inline]
     fn idle(&mut self, work_count: i32) {
@@ -206,107 +236,8 @@ impl IdleStrategy for BackoffIdleStrategy {
     }
 }
 
-/// Idle strategy backed by Aeron's C reference implementations (`aeron_idle_strategy_*`).
-///
-/// Semantically equivalent to the pure-Rust strategies above; use it when exact parity with
-/// the C/Java implementations matters (e.g. comparing latency runs across languages, or
-/// matching the driver's configured strategy). Same [`IdleStrategy`] trait, so it drops into
-/// any poll loop.
-///
-/// ```rust,ignore
-/// let mut idle = CIdleStrategy::backoff()?; // aeron's reference backoff (10 spins, 20 yields, 1µs..1ms park)
-/// loop {
-///     let fragments = subscription.poll(Some(&handler), 10)?;
-///     idle.idle(fragments);
-/// }
-/// ```
-pub struct CIdleStrategy {
-    func: unsafe extern "C" fn(*mut std::os::raw::c_void, std::os::raw::c_int),
-    state: *mut std::os::raw::c_void,
-}
-
-impl CIdleStrategy {
-    /// Aeron's reference backoff strategy with its default tuning
-    /// (`AERON_IDLE_STRATEGY_BACKOFF_*`: 10 spins, 20 yields, park 1µs..1ms).
-    pub fn backoff() -> Result<Self, AeronCError> {
-        Self::backoff_with(
-            bindings::AERON_IDLE_STRATEGY_BACKOFF_MAX_SPINS as u64,
-            bindings::AERON_IDLE_STRATEGY_BACKOFF_MAX_YIELDS as u64,
-            bindings::AERON_IDLE_STRATEGY_BACKOFF_MIN_PARK_PERIOD_NS as u64,
-            bindings::AERON_IDLE_STRATEGY_BACKOFF_MAX_PARK_PERIOD_NS as u64,
-        )
-    }
-
-    /// Aeron's reference backoff strategy with explicit tuning.
-    pub fn backoff_with(
-        max_spins: u64,
-        max_yields: u64,
-        min_park_period_ns: u64,
-        max_park_period_ns: u64,
-    ) -> Result<Self, AeronCError> {
-        let mut state: *mut std::os::raw::c_void = std::ptr::null_mut();
-        let result = unsafe {
-            bindings::aeron_idle_strategy_backoff_state_init(
-                &mut state,
-                max_spins,
-                max_yields,
-                min_park_period_ns,
-                max_park_period_ns,
-            )
-        };
-        if result < 0 || state.is_null() {
-            return Err(AeronCError::from_code(result));
-        }
-        Ok(Self {
-            func: bindings::aeron_idle_strategy_backoff_idle,
-            state,
-        })
-    }
-
-    /// Aeron's reference busy-spin strategy (`aeron_idle_strategy_busy_spinning_idle`).
-    pub fn busy_spinning() -> Self {
-        Self {
-            func: bindings::aeron_idle_strategy_busy_spinning_idle,
-            state: std::ptr::null_mut(),
-        }
-    }
-
-    /// Aeron's reference yielding strategy (`aeron_idle_strategy_yielding_idle`).
-    pub fn yielding() -> Self {
-        Self {
-            func: bindings::aeron_idle_strategy_yielding_idle,
-            state: std::ptr::null_mut(),
-        }
-    }
-
-    /// Aeron's reference no-op strategy (`aeron_idle_strategy_noop_idle`).
-    pub fn noop() -> Self {
-        Self {
-            func: bindings::aeron_idle_strategy_noop_idle,
-            state: std::ptr::null_mut(),
-        }
-    }
-}
-
-impl IdleStrategy for CIdleStrategy {
-    #[inline]
-    fn idle(&mut self, work_count: i32) {
-        unsafe { (self.func)(self.state, work_count) }
-    }
-}
-
-impl Drop for CIdleStrategy {
-    fn drop(&mut self) {
-        if !self.state.is_null() {
-            // backoff state is allocated with aeron_alloc; release it with aeron_free
-            unsafe { bindings::aeron_free(self.state) };
-            self.state = std::ptr::null_mut();
-        }
-    }
-}
-
 #[cfg(test)]
-mod c_idle_strategy_tests {
+mod idle_strategy_tests {
     use super::*;
     use std::time::Instant;
 
@@ -326,8 +257,8 @@ mod c_idle_strategy_tests {
     }
 
     #[test]
-    fn c_backoff_idles_and_frees_state() {
-        let mut idle = CIdleStrategy::backoff().expect("backoff state init");
+    fn rust_backoff_idles_correctly() {
+        let mut idle = BackoffIdleStrategy::new();
         // work done -> effectively free
         idle.idle(1);
         // no work: walk spin -> yield -> park without crashing; parking must take real time
@@ -339,19 +270,77 @@ mod c_idle_strategy_tests {
             start.elapsed() >= Duration::from_micros(50),
             "backoff should have parked"
         );
-        drop(idle); // frees the C state via aeron_free
     }
 
     #[test]
-    fn c_stateless_strategies_are_safe() {
-        for mut s in [
-            CIdleStrategy::busy_spinning(),
-            CIdleStrategy::yielding(),
-            CIdleStrategy::noop(),
-        ] {
+    fn rust_stateless_strategies_are_safe() {
+        let strategies: Vec<Box<dyn IdleStrategy>> = vec![
+            Box::new(BusySpinIdleStrategy::default()),
+            Box::new(YieldingIdleStrategy::default()),
+            Box::new(NoOpIdleStrategy::default()),
+        ];
+        for mut s in strategies {
             s.idle(1);
             s.idle(0);
         }
+    }
+
+    #[test]
+    fn rust_backoff_matches_c_defaults() {
+        // Verify BackoffIdleStrategy uses same defaults as CIdleStrategy::backoff()
+        let idle = BackoffIdleStrategy::new();
+        assert_eq!(idle.max_spins, 10, "max_spins should be 10");
+        assert_eq!(idle.max_yields, 20, "max_yields should be 20");
+        assert_eq!(idle.min_park, Duration::from_micros(1), "min_park should be 1µs");
+        assert_eq!(idle.max_park, Duration::from_millis(1), "max_park should be 1ms");
+    }
+
+    #[test]
+    fn busy_spin_and_yield_return_on_work() {
+        let mut s = BusySpinIdleStrategy;
+        s.idle(5); // work done -> must not block
+        s.idle(0); // no work -> just a pause hint, returns immediately
+
+        let mut y = YieldingIdleStrategy;
+        y.idle(3); // work done
+        y.idle(0); // yields once, returns
+    }
+
+    #[test]
+    fn no_op_never_blocks() {
+        let mut s = NoOpIdleStrategy;
+        for _ in 0..1000 {
+            s.idle(0);
+        }
+    }
+
+    #[test]
+    fn sleeping_idle_only_sleeps_when_idle() {
+        let mut s = SleepingIdleStrategy::new(Duration::from_micros(10));
+        let t = std::time::Instant::now();
+        s.idle(1); // work done -> no sleep
+        assert!(t.elapsed() < Duration::from_millis(1));
+
+        let t = std::time::Instant::now();
+        s.idle(0); // idle -> sleeps ~10µs
+        assert!(t.elapsed() >= Duration::from_micros(10));
+    }
+
+    #[test]
+    fn backoff_resets_on_work_and_progresses_to_park() {
+        let mut s = BackoffIdleStrategy::with(2, 2, Duration::from_micros(1), Duration::from_millis(1));
+        // Work done -> resets state (no backoff progression).
+        s.idle(1);
+        assert_eq!(s.state, BACKOFF_NOT_IDLE);
+        assert_eq!(s.spins, 0);
+
+        // Spin a few, then yield, then park: driving it enough with 0 work must reach PARKING.
+        for _ in 0..1000 {
+            s.idle(0);
+        }
+        assert_eq!(s.state, BACKOFF_PARKING);
+        // Park period grows but is capped at max_park.
+        assert!(s.park <= Duration::from_millis(1));
     }
 }
 
@@ -4178,58 +4167,5 @@ mod tests {
 
             panic!("child killed by signal {} (expected SIGABRT=6 for teardown proof)", sig);
         }
-    }
-}
-
-#[cfg(test)]
-mod idle_strategy_tests {
-    use super::*;
-
-    #[test]
-    fn busy_spin_and_yield_return_on_work() {
-        let mut s = BusySpinIdleStrategy;
-        s.idle(5); // work done -> must not block
-        s.idle(0); // no work -> just a pause hint, returns immediately
-
-        let mut y = YieldingIdleStrategy;
-        y.idle(3); // work done
-        y.idle(0); // yields once, returns
-    }
-
-    #[test]
-    fn no_op_never_blocks() {
-        let mut s = NoOpIdleStrategy;
-        for _ in 0..1000 {
-            s.idle(0);
-        }
-    }
-
-    #[test]
-    fn sleeping_idle_only_sleeps_when_idle() {
-        let mut s = SleepingIdleStrategy::new(Duration::from_micros(10));
-        let t = std::time::Instant::now();
-        s.idle(1); // work done -> no sleep
-        assert!(t.elapsed() < Duration::from_millis(1));
-
-        let t = std::time::Instant::now();
-        s.idle(0); // idle -> sleeps ~10µs
-        assert!(t.elapsed() >= Duration::from_micros(10));
-    }
-
-    #[test]
-    fn backoff_resets_on_work_and_progresses_to_park() {
-        let mut s = BackoffIdleStrategy::with(2, 2, Duration::from_micros(1), Duration::from_millis(1));
-        // Work done -> resets state (no backoff progression).
-        s.idle(1);
-        assert_eq!(s.state, BACKOFF_NOT_IDLE);
-        assert_eq!(s.spins, 0);
-
-        // Spin a few, then yield, then park: driving it enough with 0 work must reach PARKING.
-        for _ in 0..1000 {
-            s.idle(0);
-        }
-        assert_eq!(s.state, BACKOFF_PARKING);
-        // Park period grows but is capped at max_park.
-        assert!(s.park <= Duration::from_millis(1));
     }
 }
