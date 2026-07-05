@@ -568,18 +568,9 @@ impl<T> Drop for ManagedCResource<T> {
         // underlying C resource leaks — the exact shape of the
         // `AeronCncMetadata::load_from_file` bug.
         //
-        // Heuristic exception: if the resource registered ANY dependency via
-        // `add_dependency`, assume it is parent-freed (the C side reclaims it on
-        // the parent's close). In the current codebase the only `None + false`
-        // resources are generated async constructors (`aeron_async_add_*`),
-        // which always add the client as a dependency — so "has any dependency"
-        // and "has the client as parent" coincide for them. Caveat: a future
-        // `None + false` resource that adds only a non-parent dependency would
-        // be falsely skipped here. The Box::leak CI lint backstops the common
-        // case; audit None+false sites by hand when adding new ones.
-        //
-        // Resources with no dependency, no cleanup, and no struct ownership are
-        // genuine leaks — there is no legitimate case for that shape.
+        // Exception: resources with a registered dependency are parent-freed
+        // (the C side reclaims them on close). The only `None + false` resources
+        // are async constructors, which add the client as a dependency.
         if self.manual_close_required && !close_ran_before_drop {
             #[cfg(not(feature = "multi-threaded"))]
             let has_dependency = !unsafe { (*self.dependencies.get()).is_empty() };
