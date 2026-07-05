@@ -710,6 +710,14 @@ impl<T> Drop for ManagedCResource<T> {
         if self.manual_close_required && !close_ran_before_drop {
             let resource = self.get();
             if !resource.is_null() {
+                #[cfg(feature = "strict-lifecycle")]
+                panic!(
+                    "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
+                     — resource leaked. Call close()/close_now() before drop, or supply a \
+                     cleanup closure at construction.",
+                    std::any::type_name::<T>()
+                );
+                #[cfg(not(feature = "strict-lifecycle"))]
                 log::warn!(
                     "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
                      — resource likely leaked. Call close()/close_now() before drop, or supply a \
@@ -1338,6 +1346,7 @@ mod handler_tests {
 mod managed_c_resource_lifecycle_tests {
     use super::*;
     #[test]
+    #[cfg(not(feature = "strict-lifecycle"))]
     fn manual_close_required_true_for_none_cleanup_no_struct() {
         let r: ManagedCResource<u8> = ManagedCResource::new(
             |ctx| {

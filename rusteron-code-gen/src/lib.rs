@@ -373,12 +373,15 @@ mod tests {
 
     #[test]
     #[cfg(not(target_os = "windows"))]
-    #[cfg(target_os = "macos")]
     fn archive_aeron_rs_matches_committed_snapshot() {
         // Archive's build.rs merges CUSTOM_ARCHIVE_CODE into the generator skip-list
         // (so hand-written archive methods like ReplayMerge::poll_fn/poll_once suppress
         // the generated variant). The snapshot regeneration must mirror that, or the
         // committed snapshot (built with the merge) drifts from the regeneration.
+        //
+        // Not macOS-gated: the test parses the COMMITTED bindings file
+        // (rusteron-code-gen/bindings/archive.rs), so regeneration is deterministic
+        // regardless of host platform.
         assert_aeron_rs_snapshot_matches(
             "archive.rs",
             "../rusteron-archive/docs-rs/aeron.rs",
@@ -389,7 +392,6 @@ mod tests {
 
     #[test]
     #[cfg(not(target_os = "windows"))]
-    #[cfg(target_os = "macos")]
     fn media_driver_aeron_rs_matches_committed_snapshot() {
         // Mirrors the media_driver trybuild test's filter.
         assert_aeron_rs_snapshot_matches(

@@ -45,6 +45,22 @@ jobs:
       - name: Check clippy lints
         run: cargo clippy --all -- --deny warnings
 
+      - name: Forbid Box::leak in hand-authored code
+        # Box::leak is almost always a "leak to silence the borrow checker" bug
+        # (the AeronCncMetadata::load_from_file mmap leak was exactly this).
+        # Match the call form `Box::leak(` so doc-comment mentions like
+        # "Box::leak + None" don't trip it.
+        run: |
+          if grep -rn 'Box::leak(' --include="*.rs" \
+            rusteron-code-gen/src \
+            rusteron-client/src \
+            rusteron-archive/src \
+            rusteron-media-driver/src; then
+            echo "ERROR: Box::leak() in hand-authored code is almost always a leak-to-silence-the-borrow-checker bug." >&2
+            echo "Use Rc/Arc ownership, a cleanup closure in ManagedCResource::new, or cleanup_struct=true." >&2
+            exit 1
+          fi
+
       - name: Check docs
         run: |
           sudo apt-get update && sudo apt-get install -y uuid-dev libbsd-dev
@@ -235,6 +251,16 @@ jobs:
       - name: Test
         run: |
           cargo test --workspace --all --all-targets ${{ env.feature-flags }} -- --nocapture
+
+      - name: Lifecycle leak check (strict-lifecycle)
+        # Re-run the client lib tests with the strict-lifecycle feature on, so
+        # any owned resource dropped without an explicit close PANICS (the
+        # manual_close_required Drop gate). Catches the Box::leak-class bug at
+        # test time on Linux CI. Only on ubuntu+default to avoid multiplying the
+        # matrix — the panic path is platform-independent.
+        if: matrix.os == 'ubuntu-22.04' && matrix.features == 'default'
+        run: |
+          cargo test -p rusteron-client --features strict-lifecycle --lib -- --nocapture
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4

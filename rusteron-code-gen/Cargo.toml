@@ -28,3 +28,4 @@ default        = []
 static         = []
 backtrace      = []     # logs the backtrace on each AeronCError
 extra-logging  = []
+strict-lifecycle = []   # panic (not just warn) when an owned resource is dropped without close — catches the Box::leak-class bug at test time

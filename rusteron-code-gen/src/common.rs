@@ -570,6 +570,17 @@ impl<T> Drop for ManagedCResource<T> {
         if self.manual_close_required && !close_ran_before_drop {
             let resource = self.get();
             if !resource.is_null() {
+                // Under `strict-lifecycle`, fail loudly — this is the exact shape
+                // of the AeronCncMetadata::load_from_file leak. Default builds log
+                // a warning so production isn't aborted by a Drop-time panic.
+                #[cfg(feature = "strict-lifecycle")]
+                panic!(
+                    "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
+                     — resource leaked. Call close()/close_now() before drop, or supply a \
+                     cleanup closure at construction.",
+                    std::any::type_name::<T>()
+                );
+                #[cfg(not(feature = "strict-lifecycle"))]
                 log::warn!(
                     "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
                      — resource likely leaked. Call close()/close_now() before drop, or supply a \
@@ -1298,6 +1309,7 @@ mod managed_c_resource_lifecycle_tests {
     // (never dereferenced); only the field value is checked.
 
     #[test]
+    #[cfg(not(feature = "strict-lifecycle"))] // would panic on drop under strict-lifecycle
     fn manual_close_required_true_for_none_cleanup_no_struct() {
         // The bug shape: owned, no cleanup closure, no Rust struct ownership.
         let r: ManagedCResource<u8> = ManagedCResource::new(
