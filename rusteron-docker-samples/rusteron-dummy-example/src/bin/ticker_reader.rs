@@ -26,9 +26,9 @@ fn main() -> Result<()> {
     let mut live_log_time = Instant::now().checked_sub(Duration::from_secs(300)).unwrap();
     let live_log = Duration::from_secs(30);
 
-    let mut record_reader = Handler::new(RecorderDescriptorReader::default());
-    let mut replay_msg_count_handler = Handler::new(MessageCountHandler::default());
-    let mut live_msg_count_handler = Handler::new(MessageCountHandler::default());
+    let record_reader = Handler::new(RecorderDescriptorReader::default());
+    let replay_msg_count_handler = Handler::new(MessageCountHandler::default());
+    let live_msg_count_handler = Handler::new(MessageCountHandler::default());
 
     let channel = TICKER_CHANNEL;
     let stream_id = TICKER_STREAM_ID;
@@ -38,7 +38,9 @@ fn main() -> Result<()> {
     while !shutdown.load(Ordering::Acquire) {
         if archive_log_time.elapsed() > archive_log {
             archive_log_time = Instant::now();
-            record_reader.reset();
+            unsafe {
+                record_reader.get_mut().reset();
+            }
             match archive.list_recordings_for_uri(
                 0,
                 i32::MAX,
@@ -141,7 +143,9 @@ fn main() -> Result<()> {
                             Duration::from_secs(5),
                         ) {
                             Ok(subscription) => {
-                                replay_msg_count_handler.reset();
+                                unsafe {
+                                    replay_msg_count_handler.get_mut().reset();
+                                }
                                 let time = Instant::now();
 
                                 let mut count = 0;
@@ -195,7 +199,9 @@ fn main() -> Result<()> {
         if live_log_time.elapsed() > live_log {
             live_log_time = Instant::now();
             info!("live channel sent {:?} since previous log", *live_msg_count_handler);
-            live_msg_count_handler.reset();
+            unsafe {
+                live_msg_count_handler.get_mut().reset();
+            }
         }
     }
 

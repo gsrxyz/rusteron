@@ -2632,6 +2632,11 @@ pub fn generate_rust_code(
                             let mut result = #main_class_name::new(self);
                             if let Ok(result) = &mut result {
                                 unsafe {
+                                    #[cfg(feature = "multi-threaded")]
+                                    for d in (&mut *self.inner.as_owned().unwrap().dependencies.lock().unwrap()).iter_mut() {
+                                      result.inner.add_dependency(d.clone());
+                                    }
+                                    #[cfg(not(feature = "multi-threaded"))]
                                     for d in (&mut *self.inner.as_owned().unwrap().dependencies.get()).iter_mut() {
                                       result.inner.add_dependency(d.clone());
                                     }

@@ -468,17 +468,17 @@ impl AeronCncMetadata {
     /// allocates on heap
     pub fn load_from_file(aeron_dir: &str) -> Result<Self, AeronCError> {
         let aeron_dir = std::ffi::CString::new(aeron_dir).map_err(|_| AeronCError::from_code(-1))?;
-        let mapped_file = std::rc::Rc::new(std::cell::RefCell::new(aeron_mapped_file_t {
+        // Allocate on heap to keep the mapped_file alive
+        let mapped_file = Box::leak(Box::new(aeron_mapped_file_t {
             addr: std::ptr::null_mut(),
             length: 0,
         }));
-        let mapped_file2 = std::rc::Rc::clone(&mapped_file);
         let resource = ManagedCResource::new(
             move |ctx| {
                 let result = unsafe {
                     aeron_cnc_map_file_and_load_metadata(
                         aeron_dir.as_ptr(),
-                        mapped_file.borrow_mut().deref_mut() as *mut aeron_mapped_file_t,
+                        mapped_file,
                         ctx,
                     )
                 };
@@ -488,9 +488,7 @@ impl AeronCncMetadata {
                     -1
                 }
             },
-            Some(Box::new(move |ctx| unsafe {
-                aeron_unmap(mapped_file2.borrow_mut().deref_mut() as *mut aeron_mapped_file_t)
-            })),
+            None, // No cleanup needed - the aeron_cnc_metadata_close will handle unmap
             false,
         )?;
 
@@ -867,6 +865,14 @@ impl AeronUriStringBuilder {
         F: FnOnce(*mut aeron_uri_string_builder_t) -> i32,
     {
         if let Some(inner) = self.inner.as_owned() {
+            #[cfg(feature = "multi-threaded")]
+            if !inner.close_already_called.load(std::sync::atomic::Ordering::SeqCst) {
+                unsafe {
+                    aeron_uri_string_builder_close(inner.get());
+                }
+                inner.close_already_called.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            #[cfg(not(feature = "multi-threaded"))]
             if !inner.close_already_called.get() {
                 unsafe {
                     aeron_uri_string_builder_close(inner.get());
@@ -881,6 +887,9 @@ impl AeronUriStringBuilder {
             Err(AeronCError::from_code(result))
         } else {
             if let Some(inner) = self.inner.as_owned() {
+                #[cfg(feature = "multi-threaded")]
+                inner.close_already_called.store(false, std::sync::atomic::Ordering::SeqCst);
+                #[cfg(not(feature = "multi-threaded"))]
                 inner.close_already_called.set(false);
             }
             Ok(result)

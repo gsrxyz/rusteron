@@ -445,10 +445,9 @@ mod tests {
 
 #[cfg(test)]
 mod test {
-    use crate::{CResource, ManagedCResource};
+    use crate::{CResource, CleanupBox, ManagedCResource};
 
     use crate::common::RcOrArc;
-    use std::cell::Cell;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     #[allow(unused_imports)]
@@ -478,7 +477,7 @@ mod test {
                 *res = std::ptr::null_mut();
             }
             0
-        }) as Box<dyn FnMut(*mut *mut i32) -> i32>);
+        }) as CleanupBox<i32>);
 
         {
             let _resource = ManagedCResource::new(
@@ -508,7 +507,7 @@ mod test {
                 *res = std::ptr::null_mut();
             }
             0
-        }) as Box<dyn FnMut(*mut *mut i32) -> i32>);
+        }) as CleanupBox<i32>);
 
         {
             let _resource = ManagedCResource::new(
@@ -539,7 +538,7 @@ mod test {
                 *res = std::ptr::null_mut();
             }
             0
-        }) as Box<dyn FnMut(*mut *mut i32) -> i32>);
+        }) as CleanupBox<i32>);
 
         let resource = ManagedCResource::new(
             |res: *mut *mut i32| {
@@ -565,18 +564,18 @@ mod test {
 
     #[test]
     fn close_resource_closes_shared_resource_once_across_clones() {
-        let close_count = Rc::new(Cell::new(0));
+        let close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
         let close_count_for_cleanup = close_count.clone();
         let resource_ptr = make_resource(40);
 
         let cleanup = Some(Box::new(move |res: *mut *mut i32| -> i32 {
-            close_count_for_cleanup.set(close_count_for_cleanup.get() + 1);
+            close_count_for_cleanup.fetch_add(1, Ordering::SeqCst);
             unsafe {
                 reclaim_resource(*res);
                 *res = std::ptr::null_mut();
             }
             0
-        }) as Box<dyn FnMut(*mut *mut i32) -> i32>);
+        }) as CleanupBox<i32>);
 
         let resource = ManagedCResource::new(
             |res: *mut *mut i32| {
@@ -598,29 +597,29 @@ mod test {
         assert!(!handle_two.get().is_null());
 
         assert!(handle_one.close_resource().is_ok());
-        assert_eq!(1, close_count.get());
+        assert_eq!(1, close_count.load(Ordering::SeqCst));
         assert!(handle_one.get().is_null());
         assert!(handle_two.get().is_null());
 
         assert!(handle_two.close_resource().is_ok());
-        assert_eq!(1, close_count.get());
+        assert_eq!(1, close_count.load(Ordering::SeqCst));
     }
 
     #[test]
     fn close_resource_defers_owner_close_while_dependent_is_alive() {
-        let close_count = Rc::new(Cell::new(0));
+        let close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
         let close_count_for_cleanup = close_count.clone();
         let owner_ptr = make_resource(60);
         let child_ptr = make_resource(61);
 
         let owner_cleanup = Some(Box::new(move |res: *mut *mut i32| -> i32 {
-            close_count_for_cleanup.set(close_count_for_cleanup.get() + 1);
+            close_count_for_cleanup.fetch_add(1, Ordering::SeqCst);
             unsafe {
                 reclaim_resource(*res);
                 *res = std::ptr::null_mut();
             }
             0
-        }) as Box<dyn FnMut(*mut *mut i32) -> i32>);
+        }) as CleanupBox<i32>);
 
         let owner = ManagedCResource::new(
             |res: *mut *mut i32| {
@@ -656,24 +655,23 @@ mod test {
         child.add_dependency(owner.clone());
 
         assert!(owner.close_resource_deferred_if_shared().is_ok());
-        assert_eq!(0, close_count.get());
+        assert_eq!(0, close_count.load(Ordering::SeqCst));
         assert!(!owner.get().is_null());
 
         drop(owner);
         drop(child);
-        assert_eq!(1, close_count.get());
+        assert_eq!(1, close_count.load(Ordering::SeqCst));
     }
 
     #[test]
     fn close_resource_deferral_is_retryable_if_owner_close_fails_after_dependent_drops() {
-        let close_count = Rc::new(Cell::new(0));
+        let close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
         let close_count_for_cleanup = close_count.clone();
         let owner_ptr = make_resource(70);
         let child_ptr = make_resource(71);
 
         let owner_cleanup = Some(Box::new(move |res: *mut *mut i32| -> i32 {
-            let count = close_count_for_cleanup.get() + 1;
-            close_count_for_cleanup.set(count);
+            let count = close_count_for_cleanup.fetch_add(1, Ordering::SeqCst) + 1;
             if count == 1 {
                 return -1;
             }
@@ -682,7 +680,7 @@ mod test {
                 *res = std::ptr::null_mut();
             }
             0
-        }) as Box<dyn FnMut(*mut *mut i32) -> i32>);
+        }) as CleanupBox<i32>);
 
         let owner = ManagedCResource::new(
             |res: *mut *mut i32| {
@@ -721,27 +719,26 @@ mod test {
         assert!(owner.close_resource_deferred_if_shared().is_ok());
         drop(owner);
         drop(child);
-        assert_eq!(0, close_count.get());
+        assert_eq!(0, close_count.load(Ordering::SeqCst));
         assert!(!owner_retry_handle.get().is_null());
 
         assert!(owner_retry_handle.close_resource_deferred_if_shared().is_err());
-        assert_eq!(1, close_count.get());
+        assert_eq!(1, close_count.load(Ordering::SeqCst));
         assert!(!owner_retry_handle.get().is_null());
 
         assert!(owner_retry_handle.close_resource_deferred_if_shared().is_ok());
-        assert_eq!(2, close_count.get());
+        assert_eq!(2, close_count.load(Ordering::SeqCst));
         assert!(owner_retry_handle.get().is_null());
     }
 
     #[test]
     fn close_resource_propagates_failure_and_allows_retry() {
-        let close_count = Rc::new(Cell::new(0));
+        let close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
         let close_count_for_cleanup = close_count.clone();
         let resource_ptr = make_resource(50);
 
         let cleanup = Some(Box::new(move |res: *mut *mut i32| -> i32 {
-            let count = close_count_for_cleanup.get() + 1;
-            close_count_for_cleanup.set(count);
+            let count = close_count_for_cleanup.fetch_add(1, Ordering::SeqCst) + 1;
             if count == 1 {
                 return -1;
             }
@@ -750,7 +747,7 @@ mod test {
                 *res = std::ptr::null_mut();
             }
             0
-        }) as Box<dyn FnMut(*mut *mut i32) -> i32>);
+        }) as CleanupBox<i32>);
 
         let resource = ManagedCResource::new(
             |res: *mut *mut i32| {
@@ -767,29 +764,29 @@ mod test {
         let handle = CResource::OwnedOnHeap(Rc::new(resource));
 
         assert!(handle.close_resource().is_err());
-        assert_eq!(1, close_count.get());
+        assert_eq!(1, close_count.load(Ordering::SeqCst));
         assert!(!handle.get().is_null());
 
         assert!(handle.close_resource().is_ok());
-        assert_eq!(2, close_count.get());
+        assert_eq!(2, close_count.load(Ordering::SeqCst));
         assert!(handle.get().is_null());
     }
 
     #[test]
     fn close_resource_with_uses_custom_cleanup_once_across_clones() {
-        let default_close_count = Rc::new(Cell::new(0));
-        let custom_close_count = Rc::new(Cell::new(0));
+        let default_close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
+        let custom_close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
         let default_close_count_for_cleanup = default_close_count.clone();
         let resource_ptr = make_resource(80);
 
         let cleanup = Some(Box::new(move |res: *mut *mut i32| -> i32 {
-            default_close_count_for_cleanup.set(default_close_count_for_cleanup.get() + 1);
+            default_close_count_for_cleanup.fetch_add(1, Ordering::SeqCst);
             unsafe {
                 reclaim_resource(*res);
                 *res = std::ptr::null_mut();
             }
             0
-        }) as Box<dyn FnMut(*mut *mut i32) -> i32>);
+        }) as CleanupBox<i32>);
 
         let resource = ManagedCResource::new(
             |res: *mut *mut i32| {
@@ -809,7 +806,7 @@ mod test {
         let custom_close_count_for_cleanup = custom_close_count.clone();
         assert!(handle_one
             .close_resource_with(move |res| {
-                custom_close_count_for_cleanup.set(custom_close_count_for_cleanup.get() + 1);
+                custom_close_count_for_cleanup.fetch_add(1, Ordering::SeqCst);
                 unsafe {
                     reclaim_resource(*res);
                     *res = std::ptr::null_mut();
@@ -818,31 +815,31 @@ mod test {
             })
             .is_ok());
 
-        assert_eq!(0, default_close_count.get());
-        assert_eq!(1, custom_close_count.get());
+        assert_eq!(0, default_close_count.load(Ordering::SeqCst));
+        assert_eq!(1, custom_close_count.load(Ordering::SeqCst));
         assert!(handle_one.get().is_null());
         assert!(handle_two.get().is_null());
 
         assert!(handle_two.close_resource().is_ok());
-        assert_eq!(0, default_close_count.get());
-        assert_eq!(1, custom_close_count.get());
+        assert_eq!(0, default_close_count.load(Ordering::SeqCst));
+        assert_eq!(1, custom_close_count.load(Ordering::SeqCst));
     }
 
     #[test]
     fn close_resource_with_failure_restores_default_cleanup_for_retry() {
-        let default_close_count = Rc::new(Cell::new(0));
-        let custom_close_count = Rc::new(Cell::new(0));
+        let default_close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
+        let custom_close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
         let default_close_count_for_cleanup = default_close_count.clone();
         let resource_ptr = make_resource(90);
 
         let cleanup = Some(Box::new(move |res: *mut *mut i32| -> i32 {
-            default_close_count_for_cleanup.set(default_close_count_for_cleanup.get() + 1);
+            default_close_count_for_cleanup.fetch_add(1, Ordering::SeqCst);
             unsafe {
                 reclaim_resource(*res);
                 *res = std::ptr::null_mut();
             }
             0
-        }) as Box<dyn FnMut(*mut *mut i32) -> i32>);
+        }) as CleanupBox<i32>);
 
         let resource = ManagedCResource::new(
             |res: *mut *mut i32| {
@@ -860,18 +857,18 @@ mod test {
         let custom_close_count_for_cleanup = custom_close_count.clone();
         assert!(handle
             .close_resource_with(move |_res| {
-                custom_close_count_for_cleanup.set(custom_close_count_for_cleanup.get() + 1);
+                custom_close_count_for_cleanup.fetch_add(1, Ordering::SeqCst);
                 -1
             })
             .is_err());
 
-        assert_eq!(0, default_close_count.get());
-        assert_eq!(1, custom_close_count.get());
+        assert_eq!(0, default_close_count.load(Ordering::SeqCst));
+        assert_eq!(1, custom_close_count.load(Ordering::SeqCst));
         assert!(!handle.get().is_null());
 
         assert!(handle.close_resource().is_ok());
-        assert_eq!(1, default_close_count.get());
-        assert_eq!(1, custom_close_count.get());
+        assert_eq!(1, default_close_count.load(Ordering::SeqCst));
+        assert_eq!(1, custom_close_count.load(Ordering::SeqCst));
         assert!(handle.get().is_null());
     }
 

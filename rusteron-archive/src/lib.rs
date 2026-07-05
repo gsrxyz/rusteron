@@ -374,6 +374,9 @@ impl AeronArchivePersistentSubscription {
         // The C subscription now owns the context. Mark it already-closed so dropping
         // `ctx` frees the Rust bookkeeping without re-running the C context close.
         if let Some(inner) = ctx.inner.as_owned() {
+            #[cfg(feature = "multi-threaded")]
+            inner.close_already_called.store(true, Ordering::SeqCst);
+            #[cfg(not(feature = "multi-threaded"))]
             inner.close_already_called.set(true);
         }
 

@@ -133,7 +133,7 @@ fn run_ping(running: Arc<AtomicBool>, pong_thread: JoinHandle<()>) -> Result<His
 
     let mut buffer = vec![0u8; MESSAGE_LENGTH];
 
-    let (mut handler, mut inner_handler) = Handler::with_fragment_assembler(PingRoundTripHandler {
+    let (mut handler, inner_handler) = Handler::with_fragment_assembler(PingRoundTripHandler {
         histogram: Histogram::new(3)?,
     })
     .unwrap();
@@ -142,7 +142,9 @@ fn run_ping(running: Arc<AtomicBool>, pong_thread: JoinHandle<()>) -> Result<His
         record_rtt(&pong_publication, &ping_subscription, &mut buffer, &mut handler);
     }
     println!("warmed up");
-    inner_handler.histogram.reset();
+    unsafe {
+        inner_handler.get_mut().histogram.reset();
+    }
     for _ in 0..NUMBER_OF_MESSAGES {
         record_rtt(&pong_publication, &ping_subscription, &mut buffer, &mut handler);
     }
@@ -151,7 +153,7 @@ fn run_ping(running: Arc<AtomicBool>, pong_thread: JoinHandle<()>) -> Result<His
     running.store(false, Ordering::SeqCst);
     pong_thread.join().expect("Failed to join pong thread");
 
-    let hist = &inner_handler.histogram;
+    let hist = unsafe { &inner_handler.get_mut().histogram };
     Ok(hist.clone())
 }
 

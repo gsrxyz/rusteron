@@ -1,3 +1,4 @@
+
 type aeron_client_registering_resource_t = aeron_client_registering_resource_stct;
 #[derive(Clone)]
 pub struct Addrinfo {
@@ -251,6 +252,10 @@ use std::ops::DerefMut;
 pub type RcOrArc<T> = std::rc::Rc<T>;
 #[cfg(feature = "multi-threaded")]
 pub type RcOrArc<T> = std::sync::Arc<T>;
+#[cfg(not(feature = "multi-threaded"))]
+pub type RefCellOrMutex<T> = std::cell::RefCell<T>;
+#[cfg(feature = "multi-threaded")]
+pub type RefCellOrMutex<T> = std::sync::Mutex<T>;
 #[cfg(not(feature = "multi-threaded"))]
 pub type CleanupBox<T> = Box<dyn FnMut(*mut *mut T) -> i32>;
 #[cfg(feature = "multi-threaded")]
@@ -1949,6 +1954,11 @@ impl AeronAsyncAddCounter {
         let mut result = AeronCounter::new(self);
         if let Ok(result) = &mut result {
             unsafe {
+                #[cfg(feature = "multi-threaded")]
+                for d in (&mut *self.inner.as_owned().unwrap().dependencies.lock().unwrap()).iter_mut() {
+                    result.inner.add_dependency(d.clone());
+                }
+                #[cfg(not(feature = "multi-threaded"))]
                 for d in (&mut *self.inner.as_owned().unwrap().dependencies.get()).iter_mut() {
                     result.inner.add_dependency(d.clone());
                 }
@@ -2248,6 +2258,11 @@ impl AeronAsyncAddExclusivePublication {
         let mut result = AeronExclusivePublication::new(self);
         if let Ok(result) = &mut result {
             unsafe {
+                #[cfg(feature = "multi-threaded")]
+                for d in (&mut *self.inner.as_owned().unwrap().dependencies.lock().unwrap()).iter_mut() {
+                    result.inner.add_dependency(d.clone());
+                }
+                #[cfg(not(feature = "multi-threaded"))]
                 for d in (&mut *self.inner.as_owned().unwrap().dependencies.get()).iter_mut() {
                     result.inner.add_dependency(d.clone());
                 }
@@ -2533,6 +2548,11 @@ impl AeronAsyncAddPublication {
         let mut result = AeronPublication::new(self);
         if let Ok(result) = &mut result {
             unsafe {
+                #[cfg(feature = "multi-threaded")]
+                for d in (&mut *self.inner.as_owned().unwrap().dependencies.lock().unwrap()).iter_mut() {
+                    result.inner.add_dependency(d.clone());
+                }
+                #[cfg(not(feature = "multi-threaded"))]
                 for d in (&mut *self.inner.as_owned().unwrap().dependencies.get()).iter_mut() {
                     result.inner.add_dependency(d.clone());
                 }
@@ -2907,6 +2927,11 @@ impl AeronAsyncAddSubscription {
         let mut result = AeronSubscription::new(self);
         if let Ok(result) = &mut result {
             unsafe {
+                #[cfg(feature = "multi-threaded")]
+                for d in (&mut *self.inner.as_owned().unwrap().dependencies.lock().unwrap()).iter_mut() {
+                    result.inner.add_dependency(d.clone());
+                }
+                #[cfg(not(feature = "multi-threaded"))]
                 for d in (&mut *self.inner.as_owned().unwrap().dependencies.get()).iter_mut() {
                     result.inner.add_dependency(d.clone());
                 }
@@ -76654,3 +76679,4 @@ unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback_for_once_closure
     let closure: &mut F = unsafe { &mut *(resource as *mut F) };
     closure()
 }
+

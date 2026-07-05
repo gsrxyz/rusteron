@@ -27,6 +27,11 @@ pub type RcOrArc<T> = std::rc::Rc<T>;
 pub type RcOrArc<T> = std::sync::Arc<T>;
 
 #[cfg(not(feature = "multi-threaded"))]
+pub type RefCellOrMutex<T> = std::cell::RefCell<T>;
+#[cfg(feature = "multi-threaded")]
+pub type RefCellOrMutex<T> = std::sync::Mutex<T>;
+
+#[cfg(not(feature = "multi-threaded"))]
 pub type CleanupBox<T> = Box<dyn FnMut(*mut *mut T) -> i32>;
 #[cfg(feature = "multi-threaded")]
 pub type CleanupBox<T> = Box<dyn FnMut(*mut *mut T) -> i32 + Send>;
