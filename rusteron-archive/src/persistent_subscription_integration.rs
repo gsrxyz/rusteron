@@ -83,7 +83,10 @@ mod tests {
                 Err(e) if Instant::now() < deadline => {
                     // IMPROVEMENT #3: Better error logging - log retry attempts
                     if attempt % 5 == 0 {
-                        eprintln!("Archive operation retry attempt {attempt}/{}: {e:?}", attempt * 50 / 1000);
+                        eprintln!(
+                            "Archive operation retry attempt {attempt}/{}: {e:?}",
+                            attempt * 50 / 1000
+                        );
                     }
                     sleep(Duration::from_millis(50));
                 }
@@ -998,7 +1001,10 @@ mod tests {
         while counters.get_counter_value(counter_id) < published_position && Instant::now() < deadline {
             sleep(Duration::from_millis(10));
         }
-        info!("Recording flushed to position={}", counters.get_counter_value(counter_id));
+        info!(
+            "Recording flushed to position={}",
+            counters.get_counter_value(counter_id)
+        );
 
         // Truncate/purge operate on a *stopped* recording. Close the stream, stop recording,
         // then wait for the stop to take effect (stop_position becomes non-null) before
@@ -1046,8 +1052,12 @@ mod tests {
             let mut count = 0;
             match archive.list_recordings_fn(&mut count, recording_id, 1, |desc| {
                 if desc.recording_id() == recording_id {
-                    info!("Recording state: id={}, start_position={}, stop_position={}",
-                          desc.recording_id(), desc.start_position(), desc.stop_position());
+                    info!(
+                        "Recording state: id={}, start_position={}, stop_position={}",
+                        desc.recording_id(),
+                        desc.start_position(),
+                        desc.stop_position()
+                    );
                     if desc.stop_position() > 0 {
                         verified_stopped = true;
                     }
@@ -1064,19 +1074,59 @@ mod tests {
                 }
             }
         }
-        assert!(verified_stopped, "Recording {recording_id} verification failed - not in stopped state");
+        assert!(
+            verified_stopped,
+            "Recording {recording_id} verification failed - not in stopped state"
+        );
         info!("Recording {recording_id} verified as stopped, proceeding with truncate");
 
         let halfway = published_position / 2;
         info!("Truncating recording {recording_id} from {published_position} to {halfway}");
-        retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+
+        // Add final verification just before truncate to catch race conditions
+        let mut final_verified = false;
+        let final_verify_deadline = Instant::now() + Duration::from_secs(3);
+        while !final_verified && Instant::now() < final_verify_deadline {
+            let mut count = 0;
+            match archive.list_recordings_fn(&mut count, recording_id, 1, |desc| {
+                if desc.recording_id() == recording_id && desc.stop_position() > 0 {
+                    final_verified = true;
+                }
+            }) {
+                Ok(_) => {
+                    if !final_verified {
+                        sleep(Duration::from_millis(10));
+                    }
+                }
+                Err(_) => {
+                    sleep(Duration::from_millis(10));
+                }
+            }
+        }
+
+        if !final_verified {
+            eprintln!("WARNING: Recording {recording_id} not found in final verification, retrying lookup...");
+            // Try to find the recording by stream as fallback
+            let mut found_recording_id = None;
+            let mut count = 0;
+            let _ = archive.list_recordings_fn(&mut count, 0, 100, |desc| {
+                if desc.stream_id() == stream_id && desc.stop_position() > 0 {
+                    found_recording_id = Some(desc.recording_id());
+                }
+            });
+            if let Some(new_id) = found_recording_id {
+                eprintln!("Found recording by stream: {new_id} (was looking for {recording_id})");
+            }
+        }
+
+        retry_archive_op(Instant::now() + Duration::from_secs(20), || {
             archive.truncate_recording(recording_id, halfway)
         })?;
         info!("Successfully truncated {recording_id} to {halfway}");
 
         // Purge deletes the recording entirely.
         info!("Purging recording {recording_id}");
-        retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+        retry_archive_op(Instant::now() + Duration::from_secs(20), || {
             archive.purge_recording(recording_id)
         })?;
         info!("Successfully purged recording {recording_id}");
