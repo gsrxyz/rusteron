@@ -70,11 +70,27 @@ mod tests {
     where
         F: FnMut() -> Result<T, AeronArchiveError>,
     {
+        let mut attempt = 0;
         loop {
+            attempt += 1;
             match op() {
-                Ok(v) => return Ok(v),
-                Err(e) if Instant::now() < deadline => sleep(Duration::from_millis(50)),
-                Err(e) => return Err(e),
+                Ok(v) => {
+                    if attempt > 1 {
+                        info!("Archive operation succeeded after {attempt} attempts");
+                    }
+                    return Ok(v);
+                }
+                Err(e) if Instant::now() < deadline => {
+                    // IMPROVEMENT #3: Better error logging - log retry attempts
+                    if attempt % 5 == 0 {
+                        eprintln!("Archive operation retry attempt {attempt}/{}: {e:?}", attempt * 50 / 1000);
+                    }
+                    sleep(Duration::from_millis(50));
+                }
+                Err(e) => {
+                    eprintln!("Archive operation failed after {attempt} attempts: {e:?}");
+                    return Err(e);
+                }
             }
         }
     }
@@ -950,6 +966,7 @@ mod tests {
 
         let channel = "aeron:ipc";
         let stream_id = 5001;
+        info!("Starting recording: channel={channel}, stream_id={stream_id}");
         retry_archive_op(Instant::now() + Duration::from_secs(15), || {
             archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
         })?;
@@ -957,59 +974,112 @@ mod tests {
         let publication = aeron_archive
             .async_add_publication(&channel.into_c_string(), stream_id)?
             .poll_blocking(Duration::from_secs(5))?;
-        for i in 0..100 {
+        info!("Publication created successfully");
+        let msg_count = 100;
+        for i in 0..msg_count {
             let m = format!("msg-{i}");
             while publication.offer_raw(m.as_bytes(), Handlers::NONE) <= 0 {
                 sleep(Duration::from_millis(1));
             }
         }
+        info!("Published {msg_count} messages successfully");
 
         // Resolve the recording id and wait for the recorder to flush what we published.
         let session_id = publication.get_constants()?.session_id;
+        info!("Resolved session_id={session_id}");
         let counters = aeron_archive.counters_reader();
         let counter_id =
             crate::testing::find_counter_id_by_session_blocking(&counters, session_id, Duration::from_secs(5))?;
+        info!("Found counter_id={counter_id}");
         let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
         let published_position = publication.position();
+        info!("Resolved recording_id={recording_id}, position={published_position}");
         let deadline = Instant::now() + Duration::from_secs(5);
         while counters.get_counter_value(counter_id) < published_position && Instant::now() < deadline {
             sleep(Duration::from_millis(10));
         }
-        info!("recording_id={recording_id} position={published_position}");
+        info!("Recording flushed to position={}", counters.get_counter_value(counter_id));
 
         // Truncate/purge operate on a *stopped* recording. Close the stream, stop recording,
         // then wait for the stop to take effect (stop_position becomes non-null) before
         // truncating — otherwise the archive rejects it with "cannot truncate active recording".
         drop(publication);
+        info!("Publication dropped, stopping recording {recording_id}");
         retry_archive_op(Instant::now() + Duration::from_secs(15), || {
             archive.stop_recording_channel_and_stream(&channel.into_c_string(), stream_id)
         })?;
-        let deadline = Instant::now() + Duration::from_secs(5);
+        info!("Stop recording request sent, waiting for stop to take effect");
+
+        // IMPROVEMENT #1: Increased timeout from 5s to 10s for better reliability in CI
+        let deadline = Instant::now() + Duration::from_secs(10);
         let mut stopped = false;
+        let mut attempts = 0;
         while !stopped && Instant::now() < deadline {
+            attempts += 1;
             let mut count = 0;
-            archive.list_recordings_fn(&mut count, recording_id, 1, |desc| {
+            match archive.list_recordings_fn(&mut count, recording_id, 1, |desc| {
                 if desc.recording_id() == recording_id && desc.stop_position() > 0 {
                     stopped = true;
                 }
-            })?;
-            if !stopped {
-                sleep(Duration::from_millis(10));
+            }) {
+                Ok(_) => {
+                    if stopped {
+                        info!("Recording {recording_id} stopped after {attempts} attempts (stop_position > 0)");
+                    } else {
+                        sleep(Duration::from_millis(10));
+                    }
+                }
+                Err(e) => {
+                    // IMPROVEMENT #3: Better error logging
+                    eprintln!("Warning: list_recordings failed at attempt {attempts}: {e:?}, retrying...");
+                    sleep(Duration::from_millis(50));
+                }
             }
         }
-        assert!(stopped, "recording {recording_id} never stopped");
+        assert!(stopped, "recording {recording_id} never stopped within 10s deadline");
+
+        // IMPROVEMENT #2: Explicit recording existence and state verification before operations
+        info!("Verifying recording {recording_id} exists and is stopped before truncate");
+        let mut verified_stopped = false;
+        let verify_deadline = Instant::now() + Duration::from_secs(5);
+        while !verified_stopped && Instant::now() < verify_deadline {
+            let mut count = 0;
+            match archive.list_recordings_fn(&mut count, recording_id, 1, |desc| {
+                if desc.recording_id() == recording_id {
+                    info!("Recording state: id={}, start_position={}, stop_position={}",
+                          desc.recording_id(), desc.start_position(), desc.stop_position());
+                    if desc.stop_position() > 0 {
+                        verified_stopped = true;
+                    }
+                }
+            }) {
+                Ok(_) => {
+                    if !verified_stopped {
+                        sleep(Duration::from_millis(20));
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Warning: recording verification query failed: {e:?}, retrying...");
+                    sleep(Duration::from_millis(50));
+                }
+            }
+        }
+        assert!(verified_stopped, "Recording {recording_id} verification failed - not in stopped state");
+        info!("Recording {recording_id} verified as stopped, proceeding with truncate");
 
         let halfway = published_position / 2;
+        info!("Truncating recording {recording_id} from {published_position} to {halfway}");
         retry_archive_op(Instant::now() + Duration::from_secs(15), || {
             archive.truncate_recording(recording_id, halfway)
         })?;
-        info!("truncated {recording_id} to {halfway}");
+        info!("Successfully truncated {recording_id} to {halfway}");
 
         // Purge deletes the recording entirely.
+        info!("Purging recording {recording_id}");
         retry_archive_op(Instant::now() + Duration::from_secs(15), || {
             archive.purge_recording(recording_id)
         })?;
-        info!("purged recording {recording_id}");
+        info!("Successfully purged recording {recording_id}");
 
         Ok(())
     }
