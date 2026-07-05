@@ -187,6 +187,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+> **`poll_blocking` / `add_*(.., timeout)` are for example brevity only** — they block the
+> calling thread in a busy-poll loop. In production, drive the async poller's `poll()` from
+> your own event loop. See
+> [`rusteron-client/examples/non_blocking_publisher.rs`](rusteron-client/examples/non_blocking_publisher.rs)
+> for the idiomatic pattern.
+
 </details>
 
 ### C strings without hidden allocations
