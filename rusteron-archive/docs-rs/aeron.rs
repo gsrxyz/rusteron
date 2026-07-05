@@ -860,22 +860,28 @@ impl<T> Drop for ManagedCResource<T> {
             }
         }
         if self.manual_close_required && !close_ran_before_drop {
-            let resource = self.get();
-            if !resource.is_null() {
-                #[cfg(feature = "strict-lifecycle")]
-                panic!(
-                    "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
-                     — resource leaked. Call close()/close_now() before drop, or supply a \
-                     cleanup closure at construction.",
-                    std::any::type_name::<T>()
-                );
-                #[cfg(not(feature = "strict-lifecycle"))]
-                log::warn!(
-                    "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
-                     — resource likely leaked. Call close()/close_now() before drop, or supply a \
-                     cleanup closure at construction.",
-                    std::any::type_name::<T>()
-                );
+            #[cfg(not(feature = "multi-threaded"))]
+            let parent_anchored = !unsafe { (*self.dependencies.get()).is_empty() };
+            #[cfg(feature = "multi-threaded")]
+            let parent_anchored = !self.dependencies.lock().unwrap().is_empty();
+            if !parent_anchored {
+                let resource = self.get();
+                if !resource.is_null() {
+                    #[cfg(feature = "strict-lifecycle")]
+                    panic!(
+                        "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
+                         — resource leaked. Call close()/close_now() before drop, or supply a \
+                         cleanup closure at construction.",
+                        std::any::type_name::<T>()
+                    );
+                    #[cfg(not(feature = "strict-lifecycle"))]
+                    log::warn!(
+                        "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
+                         — resource likely leaked. Call close()/close_now() before drop, or supply a \
+                         cleanup closure at construction.",
+                        std::any::type_name::<T>()
+                    );
+                }
             }
         }
         if self.cleanup_struct {

@@ -563,30 +563,45 @@ impl<T> Drop for ManagedCResource<T> {
         }
 
         // Validation: an owned resource built with `cleanup: None` AND
-        // `cleanup_struct: false` has NO path that can free it. If it reaches
-        // Drop without an explicit `close()`/`close_now()`, the underlying C
-        // resource leaks. This is the exact shape of the
-        // `AeronCncMetadata::load_from_file` bug. There is no legitimate case.
+        // `cleanup_struct: false` has NO Rust path that can free it. If it
+        // reaches Drop without an explicit `close()`/`close_now()`, the
+        // underlying C resource leaks — the exact shape of the
+        // `AeronCncMetadata::load_from_file` bug.
+        //
+        // Exception: resources that registered a parent dependency via
+        // `add_dependency` are parent-freed — the C side (e.g. the Aeron client)
+        // reclaims them on its own close. Generated async constructors
+        // (aeron_async_add_*) are exactly this shape: `None + false` plus
+        // `add_dependency(client)`. They are not leaks.
+        //
+        // Resources with no parent, no cleanup, and no struct ownership are
+        // genuine leaks — there is no legitimate case for that shape.
         if self.manual_close_required && !close_ran_before_drop {
-            let resource = self.get();
-            if !resource.is_null() {
-                // Under `strict-lifecycle`, fail loudly — this is the exact shape
-                // of the AeronCncMetadata::load_from_file leak. Default builds log
-                // a warning so production isn't aborted by a Drop-time panic.
-                #[cfg(feature = "strict-lifecycle")]
-                panic!(
-                    "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
-                     — resource leaked. Call close()/close_now() before drop, or supply a \
-                     cleanup closure at construction.",
-                    std::any::type_name::<T>()
-                );
-                #[cfg(not(feature = "strict-lifecycle"))]
-                log::warn!(
-                    "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
-                     — resource likely leaked. Call close()/close_now() before drop, or supply a \
-                     cleanup closure at construction.",
-                    std::any::type_name::<T>()
-                );
+            #[cfg(not(feature = "multi-threaded"))]
+            let parent_anchored = !unsafe { (*self.dependencies.get()).is_empty() };
+            #[cfg(feature = "multi-threaded")]
+            let parent_anchored = !self.dependencies.lock().unwrap().is_empty();
+            if !parent_anchored {
+                let resource = self.get();
+                if !resource.is_null() {
+                    // Under `strict-lifecycle`, fail loudly — this is the exact shape
+                    // of the AeronCncMetadata::load_from_file leak. Default builds log
+                    // a warning so production isn't aborted by a Drop-time panic.
+                    #[cfg(feature = "strict-lifecycle")]
+                    panic!(
+                        "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
+                         — resource leaked. Call close()/close_now() before drop, or supply a \
+                         cleanup closure at construction.",
+                        std::any::type_name::<T>()
+                    );
+                    #[cfg(not(feature = "strict-lifecycle"))]
+                    log::warn!(
+                        "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
+                         — resource likely leaked. Call close()/close_now() before drop, or supply a \
+                         cleanup closure at construction.",
+                        std::any::type_name::<T>()
+                    );
+                }
             }
         }
 
