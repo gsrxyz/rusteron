@@ -198,7 +198,7 @@ jobs:
     timeout-minutes: 45
 
     strategy:
-      fail-fast: true
+      fail-fast: false  # one flaky job (e.g. archive integration tests on macOS) must not cancel the matrix and hide results from other platforms/features
       matrix:
 #        os: [ubuntu-latest, macos-latest, windows-latest]
         os: [ubuntu-22.04, macos-latest]
