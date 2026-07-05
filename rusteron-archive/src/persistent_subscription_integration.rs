@@ -195,7 +195,8 @@ mod tests {
         // Resolve the recording and wait for it to flush everything we published.
         let session_id = publication.get_constants()?.session_id;
         let counters_reader = aeron_archive.counters_reader();
-        let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
+        let counter_id =
+            crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
         let recording_id = RecordingPos::get_recording_id_block(&counters_reader, counter_id, Duration::from_secs(5))?;
         let published_position = publication.position();
         let start = Instant::now();
@@ -232,11 +233,11 @@ mod tests {
                 }
             }
         }
-        let mut handler = Handler::new(Tracker::default());
+        let handler = Handler::new(Tracker::default());
 
         let start = Instant::now();
         while handler.historical < historical_count && start.elapsed() < Duration::from_secs(20) {
-            replay_sub.poll(Some(&mut handler), 100)?;
+            replay_sub.poll(Some(&handler), 100)?;
             sleep(Duration::from_millis(10));
         }
         assert_eq!(
@@ -253,7 +254,7 @@ mod tests {
             .poll_blocking(Duration::from_secs(5))?;
         let start = Instant::now();
         while live_sub.image_count()? == 0 && start.elapsed() < Duration::from_secs(5) {
-            live_sub.poll(Some(&mut handler), 10)?;
+            live_sub.poll(Some(&handler), 10)?;
             sleep(Duration::from_millis(10));
         }
 
@@ -270,7 +271,7 @@ mod tests {
         }
         let start = Instant::now();
         while handler.live < live_count && start.elapsed() < Duration::from_secs(20) {
-            live_sub.poll(Some(&mut handler), 100)?;
+            live_sub.poll(Some(&handler), 100)?;
             sleep(Duration::from_millis(10));
         }
         assert_eq!(handler.live, live_count, "should receive all live messages");
@@ -355,7 +356,8 @@ mod tests {
         // Get recording ID
         let session_id = publication.get_constants()?.session_id;
         let counters_reader = aeron_archive.counters_reader();
-        let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
+        let counter_id =
+            crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
         let recording_id = RecordingPos::get_recording_id_block(&counters_reader, counter_id, Duration::from_secs(5))?;
 
         // Replay entire recording
@@ -390,14 +392,14 @@ mod tests {
             }
         }
 
-        let mut handler = Handler::new(RestartHandler::default());
+        let handler = Handler::new(RestartHandler::default());
 
         // Poll for all messages
         let start = Instant::now();
         while (handler.before_restart + handler.after_restart) < (batch1_count + batch2_count)
             && start.elapsed() < Duration::from_secs(20)
         {
-            subscription.poll(Some(&mut handler), 100)?;
+            subscription.poll(Some(&handler), 100)?;
             sleep(Duration::from_millis(10));
         }
 
@@ -482,7 +484,8 @@ mod tests {
         // Get recording ID
         let session_id = publication.get_constants()?.session_id;
         let counters_reader = aeron_archive.counters_reader();
-        let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
+        let counter_id =
+            crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
         let recording_id = RecordingPos::get_recording_id_block(&counters_reader, counter_id, Duration::from_secs(5))?;
 
         // Replay
@@ -510,13 +513,13 @@ mod tests {
             }
         }
 
-        let mut handler = Handler::new(ThroughputHandler::default());
+        let handler = Handler::new(ThroughputHandler::default());
 
         // Measure replay throughput
         let start_replay = Instant::now();
 
         while handler.count < message_count && start_replay.elapsed() < Duration::from_secs(20) {
-            subscription.poll(Some(&mut handler), 1000)?;
+            subscription.poll(Some(&handler), 1000)?;
         }
 
         let replay_duration = start_replay.elapsed();
@@ -597,7 +600,8 @@ mod tests {
         // Get recording ID
         let session_id = publication.get_constants()?.session_id;
         let counters_reader = aeron_archive.counters_reader();
-        let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
+        let counter_id =
+            crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
         let recording_id = RecordingPos::get_recording_id_block(&counters_reader, counter_id, Duration::from_secs(5))?;
 
         // Replay
@@ -625,13 +629,13 @@ mod tests {
             }
         }
 
-        let mut handler = Handler::new(SizeVerificationHandler::default());
+        let handler = Handler::new(SizeVerificationHandler::default());
 
         // Poll for all messages with improved timeout handling
         let start = Instant::now();
         let timeout = Duration::from_secs(30); // Increased from 20s to 30s for slower CI runners
         while handler.received_sizes.len() < total_messages && start.elapsed() < timeout {
-            subscription.poll(Some(&mut handler), 100)?;
+            subscription.poll(Some(&handler), 100)?;
             sleep(Duration::from_millis(20)); // Increased from 10ms to 20ms
         }
 
@@ -809,7 +813,11 @@ mod tests {
             // Get recording ID
             let session_id = publication.get_constants()?.session_id;
             let counters_reader = aeron_archive.counters_reader();
-            let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
+            let counter_id = crate::testing::find_counter_id_by_session_blocking(
+                &counters_reader,
+                session_id,
+                Duration::from_secs(5),
+            )?;
             let recording_id =
                 RecordingPos::get_recording_id_block(&counters_reader, counter_id, Duration::from_secs(5))?;
 
@@ -959,7 +967,8 @@ mod tests {
         // Resolve the recording id and wait for the recorder to flush what we published.
         let session_id = publication.get_constants()?.session_id;
         let counters = aeron_archive.counters_reader();
-        let counter_id = RecordingPos::find_counter_id_by_session(&counters, session_id);
+        let counter_id =
+            crate::testing::find_counter_id_by_session_blocking(&counters, session_id, Duration::from_secs(5))?;
         let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
         let published_position = publication.position();
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -1045,7 +1054,8 @@ mod tests {
         // Wait for the recording to flush the offer.
         let session_id = publication.get_constants()?.session_id;
         let counters = aeron_archive.counters_reader();
-        let counter_id = RecordingPos::find_counter_id_by_session(&counters, session_id);
+        let counter_id =
+            crate::testing::find_counter_id_by_session_blocking(&counters, session_id, Duration::from_secs(5))?;
         let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
         let published_position = publication.position();
         let wait = Instant::now() + Duration::from_secs(5);
@@ -1139,7 +1149,8 @@ mod tests {
 
         let session_id = publication.get_constants()?.session_id;
         let counters = aeron_archive.counters_reader();
-        let counter_id = RecordingPos::find_counter_id_by_session(&counters, session_id);
+        let counter_id =
+            crate::testing::find_counter_id_by_session_blocking(&counters, session_id, Duration::from_secs(5))?;
         let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
         let published_position = publication.position();
         let wait = Instant::now() + Duration::from_secs(5);

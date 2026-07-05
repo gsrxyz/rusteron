@@ -2192,8 +2192,8 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
         impl<T: #closure_type_name> #closure_type_name for Handler<T> {
             #[inline]
             fn #handle_method_name(&mut self, #(#closure_args),*) -> #closure_return_type {
-                use std::ops::DerefMut;
-                self.deref_mut().#handle_method_name(#(#wrapper_closure_args),*)
+                let inner = unsafe { &mut *self.inner.get() };
+                inner.#handle_method_name(#(#wrapper_closure_args),*)
             }
         }
 
@@ -2228,7 +2228,7 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
                 stringify!(#fn_name),
                 [#(#arg_names_for_logging),*].join(", ")
             );
-            let closure: &mut F = &mut *(#closure_name as *mut F);
+            let closure: &mut F = unsafe { &mut *(#closure_name as *mut F) };
             closure.#handle_method_name(#(#converted_args),*)
         }
 
@@ -2253,7 +2253,7 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
                 stringify!(#closure_fn_name),
                 [#(#arg_names_for_logging),*].join(", ")
             );
-            let closure: &mut F = &mut *(#closure_name as *mut F);
+            let closure: &mut F = unsafe { &mut *(#closure_name as *mut F) };
             closure(#(#converted_args),*)
         }
 

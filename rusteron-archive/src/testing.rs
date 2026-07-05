@@ -399,3 +399,21 @@ pub fn set_panic_hook() {
 pub fn find_unused_udp_port(start: u16) -> Option<u16> {
     (start..65535).find(|p| std::net::UdpSocket::bind(("127.0.0.1", *p)).is_ok())
 }
+
+pub fn find_counter_id_by_session_blocking(
+    counters_reader: &crate::AeronCountersReader,
+    session_id: i32,
+    wait: Duration,
+) -> Result<i32, crate::AeronCError> {
+    let start = Instant::now();
+    loop {
+        let counter_id = crate::RecordingPos::find_counter_id_by_session(counters_reader, session_id);
+        if counter_id >= 0 {
+            return Ok(counter_id);
+        }
+        if start.elapsed() >= wait {
+            return Err(crate::AeronCError::from_code(-1));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}

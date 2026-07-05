@@ -1,4 +1,3 @@
-
 type aeron_client_registering_resource_t = aeron_client_registering_resource_stct;
 #[derive(Clone)]
 pub struct AeronAgentRunner {
@@ -394,7 +393,9 @@ use std::backtrace::Backtrace;
 use std::cell::UnsafeCell;
 use std::fmt::Formatter;
 use std::mem::MaybeUninit;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
+#[allow(unused_imports)]
+use std::ops::DerefMut;
 #[doc = " Reference-counting smart pointer: `Rc` by default, `Arc` under the"]
 #[doc = " `multi-threaded` feature. Swap is transparent — `RcOrArc::new`, `.clone()`,"]
 #[doc = " `strong_count` all work on both."]
@@ -402,6 +403,10 @@ use std::ops::{Deref, DerefMut};
 pub type RcOrArc<T> = std::rc::Rc<T>;
 #[cfg(feature = "multi-threaded")]
 pub type RcOrArc<T> = std::sync::Arc<T>;
+#[cfg(not(feature = "multi-threaded"))]
+pub type CleanupBox<T> = Box<dyn FnMut(*mut *mut T) -> i32>;
+#[cfg(feature = "multi-threaded")]
+pub type CleanupBox<T> = Box<dyn FnMut(*mut *mut T) -> i32 + Send>;
 pub enum CResource<T> {
     OwnedOnHeap(RcOrArc<ManagedCResource<T>>),
     #[doc = " Always initialised by construction (zeroed or `new(v)`). Never store"]
@@ -529,36 +534,39 @@ impl<T> std::fmt::Debug for CResource<T> {
 #[doc = " `aeron_close`). The Rc dependency graph ensures parents outlive children"]
 #[doc = " structurally — you cannot race `aeron_close` ahead of a live child handle."]
 #[allow(dead_code)]
+#[allow(dead_code)]
 pub struct ManagedCResource<T> {
+    #[cfg(not(feature = "multi-threaded"))]
     resource: std::cell::Cell<*mut T>,
-    #[doc = " Interior mutability so the cleanup can be invoked through a shared"]
-    #[doc = " `&self` reference when the resource is shared via `Rc`.  The"]
-    #[doc = " `close_already_called` gate ensures single-execution: only the first"]
-    #[doc = " call to `close()` or `close_shared()` takes and runs the closure."]
-    cleanup: UnsafeCell<Option<Box<dyn FnMut(*mut *mut T) -> i32>>>,
+    #[cfg(feature = "multi-threaded")]
+    resource: std::sync::atomic::AtomicPtr<T>,
+    #[cfg(not(feature = "multi-threaded"))]
+    cleanup: UnsafeCell<Option<CleanupBox<T>>>,
+    #[cfg(feature = "multi-threaded")]
+    cleanup: std::sync::Mutex<Option<CleanupBox<T>>>,
     cleanup_struct: bool,
-    #[doc = " Set when close() has been called (gate against double-cleanup)."]
+    #[cfg(not(feature = "multi-threaded"))]
     close_already_called: std::cell::Cell<bool>,
-    #[doc = " indicates if the underlying resource has already been handed off and should not be re-polled"]
+    #[cfg(feature = "multi-threaded")]
+    close_already_called: std::sync::atomic::AtomicBool,
+    #[cfg(not(feature = "multi-threaded"))]
     resource_released: std::cell::Cell<bool>,
-    #[doc = " Keeps deps alive (e.g. the Aeron client while a pub/sub exists)."]
-    #[doc = " Mutated only at construction from the owning thread — no locking,"]
-    #[doc = " same Send-over-Rc unsoundness stance. Empty vec doesn't allocate."]
+    #[cfg(feature = "multi-threaded")]
+    resource_released: std::sync::atomic::AtomicBool,
+    #[cfg(not(feature = "multi-threaded"))]
     dependencies: UnsafeCell<Vec<RcOrArc<dyn std::any::Any>>>,
+    #[cfg(feature = "multi-threaded")]
+    dependencies: std::sync::Mutex<Vec<RcOrArc<dyn std::any::Any>>>,
 }
 impl<T> std::fmt::Debug for ManagedCResource<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ManagedCResource")
-            .field(
-                "resource",
-                if self.close_already_called.get() {
-                    &"<closed>"
-                } else {
-                    &self.resource
-                },
-            )
-            .field("type", &std::any::type_name::<T>())
-            .finish()
+        let mut debug = f.debug_struct("ManagedCResource");
+        if self.get_close_already_called() {
+            debug.field("resource", &"<closed>");
+        } else {
+            debug.field("resource", &self.get());
+        }
+        debug.field("type", &std::any::type_name::<T>()).finish()
     }
 }
 #[cfg(feature = "multi-threaded")]
@@ -574,17 +582,32 @@ impl<T> ManagedCResource<T> {
     #[doc = " `cleanup_struct` where it should clean up the struct in rust"]
     pub fn new(
         init: impl FnOnce(*mut *mut T) -> i32,
-        cleanup: Option<Box<dyn FnMut(*mut *mut T) -> i32>>,
+        cleanup: Option<CleanupBox<T>>,
         cleanup_struct: bool,
     ) -> Result<Self, AeronCError> {
         let resource = Self::initialise(init)?;
         let result = Self {
+            #[cfg(not(feature = "multi-threaded"))]
             resource: std::cell::Cell::new(resource),
+            #[cfg(feature = "multi-threaded")]
+            resource: std::sync::atomic::AtomicPtr::new(resource),
+            #[cfg(not(feature = "multi-threaded"))]
             cleanup: UnsafeCell::new(cleanup),
+            #[cfg(feature = "multi-threaded")]
+            cleanup: std::sync::Mutex::new(cleanup),
             cleanup_struct,
+            #[cfg(not(feature = "multi-threaded"))]
             close_already_called: std::cell::Cell::new(false),
+            #[cfg(feature = "multi-threaded")]
+            close_already_called: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(not(feature = "multi-threaded"))]
             resource_released: std::cell::Cell::new(false),
+            #[cfg(feature = "multi-threaded")]
+            resource_released: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(not(feature = "multi-threaded"))]
             dependencies: UnsafeCell::new(vec![]),
+            #[cfg(feature = "multi-threaded")]
+            dependencies: std::sync::Mutex::new(vec![]),
         };
         #[cfg(feature = "extra-logging")]
         log::info!("created c resource: {:?}", result);
@@ -601,7 +624,70 @@ impl<T> ManagedCResource<T> {
     #[doc = " Gets a raw pointer to the resource."]
     #[inline(always)]
     pub fn get(&self) -> *mut T {
-        self.resource.get()
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.resource.get()
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.resource.load(std::sync::atomic::Ordering::Acquire)
+        }
+    }
+    #[inline(always)]
+    fn set_resource(&self, val: *mut T) {
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.resource.set(val);
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.resource.store(val, std::sync::atomic::Ordering::Release);
+        }
+    }
+    #[inline(always)]
+    fn get_close_already_called(&self) -> bool {
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.close_already_called.get()
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.close_already_called.load(std::sync::atomic::Ordering::Acquire)
+        }
+    }
+    #[inline(always)]
+    fn set_close_already_called(&self, val: bool) {
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.close_already_called.set(val);
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.close_already_called
+                .store(val, std::sync::atomic::Ordering::Release);
+        }
+    }
+    #[inline(always)]
+    fn get_resource_released(&self) -> bool {
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.resource_released.get()
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.resource_released.load(std::sync::atomic::Ordering::Acquire)
+        }
+    }
+    #[inline(always)]
+    fn set_resource_released(&self, val: bool) {
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.resource_released.set(val);
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.resource_released.store(val, std::sync::atomic::Ordering::Release);
+        }
     }
     #[doc = " Mutable access to the underlying C struct, minted from `&self`."]
     #[doc = ""]
@@ -610,24 +696,44 @@ impl<T> ManagedCResource<T> {
     #[doc = " alive while the returned `&mut` is in use."]
     #[inline(always)]
     pub unsafe fn get_mut(&self) -> &mut T {
-        &mut *self.resource.get()
+        &mut *self.get()
     }
     #[inline]
     pub fn add_dependency<D: std::any::Any>(&self, dep: D) {
         if let Some(dep) = (&dep as &dyn std::any::Any).downcast_ref::<RcOrArc<dyn std::any::Any>>() {
+            #[cfg(not(feature = "multi-threaded"))]
             unsafe {
                 (*self.dependencies.get()).push(dep.clone());
             }
+            #[cfg(feature = "multi-threaded")]
+            {
+                self.dependencies.lock().unwrap().push(dep.clone());
+            }
         } else {
+            #[cfg(not(feature = "multi-threaded"))]
             unsafe {
                 (*self.dependencies.get()).push(RcOrArc::new(dep));
+            }
+            #[cfg(feature = "multi-threaded")]
+            {
+                self.dependencies.lock().unwrap().push(RcOrArc::new(dep));
             }
         }
     }
     #[inline]
     pub fn get_dependency<V: Clone + 'static>(&self) -> Option<V> {
+        #[cfg(not(feature = "multi-threaded"))]
         unsafe {
             (*self.dependencies.get())
+                .iter()
+                .filter_map(|x| x.as_ref().downcast_ref::<V>().cloned())
+                .next()
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.dependencies
+                .lock()
+                .unwrap()
                 .iter()
                 .filter_map(|x| x.as_ref().downcast_ref::<V>().cloned())
                 .next()
@@ -635,12 +741,12 @@ impl<T> ManagedCResource<T> {
     }
     #[inline]
     pub fn is_resource_released(&self) -> bool {
-        self.resource_released.get()
+        self.get_resource_released()
     }
     #[inline]
     pub fn mark_resource_released(&self) {
-        self.resource_released.set(true);
-        self.resource.set(std::ptr::null_mut());
+        self.set_resource_released(true);
+        self.set_resource(std::ptr::null_mut());
     }
     #[doc = " Closes the resource through a shared reference."]
     #[doc = ""]
@@ -653,27 +759,35 @@ impl<T> ManagedCResource<T> {
     #[doc = " This is the method called by the generated `close(self)` method on"]
     #[doc = " wrapper types."]
     pub(crate) fn close_shared(&self) -> Result<(), AeronCError> {
-        if self.close_already_called.get() {
+        if self.get_close_already_called() {
             return Ok(());
         }
+        #[cfg(not(feature = "multi-threaded"))]
         let cleanup = unsafe { (*self.cleanup.get()).take() };
+        #[cfg(feature = "multi-threaded")]
+        let cleanup = self.cleanup.lock().unwrap().take();
         if let Some(mut cleanup) = cleanup {
-            let mut resource = self.resource.get();
+            let mut resource = self.get();
             if !resource.is_null() {
                 let result = cleanup(&mut resource);
                 if result < 0 {
+                    #[cfg(not(feature = "multi-threaded"))]
                     unsafe {
                         *self.cleanup.get() = Some(cleanup);
+                    }
+                    #[cfg(feature = "multi-threaded")]
+                    {
+                        *self.cleanup.lock().unwrap() = Some(cleanup);
                     }
                     return Err(AeronCError::from_code(result));
                 }
             }
-            self.close_already_called.set(true);
+            self.set_close_already_called(true);
             if !self.cleanup_struct {
-                self.resource.set(std::ptr::null_mut());
+                self.set_resource(std::ptr::null_mut());
             }
         } else {
-            self.close_already_called.set(true);
+            self.set_close_already_called(true);
         }
         Ok(())
     }
@@ -687,30 +801,38 @@ impl<T> ManagedCResource<T> {
         &self,
         mut custom_cleanup: impl FnMut(*mut *mut T) -> i32,
     ) -> Result<(), AeronCError> {
-        if self.close_already_called.get() {
+        if self.get_close_already_called() {
             return Ok(());
         }
+        #[cfg(not(feature = "multi-threaded"))]
         let stored_cleanup = unsafe { (*self.cleanup.get()).take() };
-        let mut resource = self.resource.get();
+        #[cfg(feature = "multi-threaded")]
+        let stored_cleanup = self.cleanup.lock().unwrap().take();
+        let mut resource = self.get();
         if !resource.is_null() {
             let result = custom_cleanup(&mut resource);
             if result < 0 {
+                #[cfg(not(feature = "multi-threaded"))]
                 unsafe {
                     *self.cleanup.get() = stored_cleanup;
+                }
+                #[cfg(feature = "multi-threaded")]
+                {
+                    *self.cleanup.lock().unwrap() = stored_cleanup;
                 }
                 return Err(AeronCError::from_code(result));
             }
         }
-        self.close_already_called.set(true);
+        self.set_close_already_called(true);
         if !self.cleanup_struct {
-            self.resource.set(std::ptr::null_mut());
+            self.set_resource(std::ptr::null_mut());
         }
         Ok(())
     }
 }
 impl<T> Drop for ManagedCResource<T> {
     fn drop(&mut self) {
-        if !self.close_already_called.get() {
+        if !self.get_close_already_called() {
             if let Err(e) = self.close_shared() {
                 log::warn!(
                     "cleanup failed for {} during Drop with code {}",
@@ -720,14 +842,14 @@ impl<T> Drop for ManagedCResource<T> {
             }
         }
         if self.cleanup_struct {
-            #[cfg(feature = "extra-logging")]
-            log::info!("closing rust struct resource: {:?}", self.resource.get());
-            let resource = self.resource.get();
+            let resource = self.get();
             if !resource.is_null() {
+                #[cfg(feature = "extra-logging")]
+                log::info!("closing rust struct resource: {:?}", resource);
                 unsafe {
                     let _ = Box::from_raw(resource);
                 }
-                self.resource.set(std::ptr::null_mut());
+                self.set_resource(std::ptr::null_mut());
             }
         }
     }
@@ -1050,18 +1172,20 @@ impl<T> Handler<T> {
     pub fn as_raw(&self) -> *mut std::os::raw::c_void {
         self.inner.get() as *mut std::os::raw::c_void
     }
+    #[doc = " Get a mutable reference to the inner value."]
+    #[doc = ""]
+    #[doc = " # Safety"]
+    #[doc = " Caller must ensure that no other references to the inner value are active."]
+    #[inline(always)]
+    pub unsafe fn get_mut(&self) -> &mut T {
+        &mut *self.inner.get()
+    }
 }
 impl<T> Deref for Handler<T> {
     type Target = T;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         unsafe { &*self.inner.get() }
-    }
-}
-impl<T> DerefMut for Handler<T> {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.inner.get() }
     }
 }
 pub fn find_unused_udp_port(start_port: u16) -> Option<u16> {
@@ -32744,8 +32868,8 @@ impl<F: FnMut(::std::os::raw::c_int, &str) -> ()> AeronErrorHandlerCallback for 
 impl<T: AeronErrorHandlerCallback> AeronErrorHandlerCallback for Handler<T> {
     #[inline]
     fn handle_aeron_error_handler(&mut self, errcode: ::std::os::raw::c_int, message: &str) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut().handle_aeron_error_handler(errcode, message)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_error_handler(errcode, message)
     }
 }
 impl AeronErrorHandlerCallback for NoHandler {
@@ -32779,7 +32903,7 @@ unsafe extern "C" fn aeron_error_handler_t_callback<F: AeronErrorHandlerCallback
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_error_handler(
         errcode.into(),
         if message.is_null() {
@@ -32818,7 +32942,7 @@ unsafe extern "C" fn aeron_error_handler_t_callback_for_once_closure<F: FnMut(::
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(
         errcode.into(),
         if message.is_null() {
@@ -32863,9 +32987,8 @@ impl<F: FnMut(AeronPublicationErrorValues) -> ()> AeronPublicationErrorFrameHand
 impl<T: AeronPublicationErrorFrameHandlerCallback> AeronPublicationErrorFrameHandlerCallback for Handler<T> {
     #[inline]
     fn handle_aeron_publication_error_frame_handler(&mut self, error_frame: AeronPublicationErrorValues) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut()
-            .handle_aeron_publication_error_frame_handler(error_frame)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_publication_error_frame_handler(error_frame)
     }
 }
 impl AeronPublicationErrorFrameHandlerCallback for NoHandler {
@@ -32899,7 +33022,7 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback<F: AeronPu
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_publication_error_frame_handler(error_frame.into())
 }
 #[allow(dead_code)]
@@ -32933,7 +33056,7 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_for_once_c
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(error_frame.into())
 }
 #[doc = "Generalised notification callback."]
@@ -32965,8 +33088,8 @@ impl<F: FnMut() -> ()> AeronNotificationCallback for F {
 impl<T: AeronNotificationCallback> AeronNotificationCallback for Handler<T> {
     #[inline]
     fn handle_aeron_notification(&mut self) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut().handle_aeron_notification()
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_notification()
     }
 }
 impl AeronNotificationCallback for NoHandler {
@@ -32993,7 +33116,7 @@ unsafe extern "C" fn aeron_notification_t_callback<F: AeronNotificationCallback>
         stringify!(aeron_notification_t_callback),
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_notification()
 }
 #[allow(dead_code)]
@@ -33015,7 +33138,7 @@ unsafe extern "C" fn aeron_notification_t_callback_for_once_closure<F: FnMut() -
         stringify!(aeron_notification_t_callback_for_once_closure),
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure()
 }
 #[doc = "Function called by aeron_client_t to deliver notification that the media driver has added an aeron_publication_t"]
@@ -33090,9 +33213,8 @@ impl<T: AeronNewPublicationCallback> AeronNewPublicationCallback for Handler<T> 
         session_id: i32,
         correlation_id: i64,
     ) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut()
-            .handle_aeron_on_new_publication(channel, stream_id, session_id, correlation_id)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_on_new_publication(channel, stream_id, session_id, correlation_id)
     }
 }
 impl AeronNewPublicationCallback for NoHandler {
@@ -33145,7 +33267,7 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback<F: AeronNewPublicationC
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_on_new_publication(
         if channel.is_null() {
             ""
@@ -33199,7 +33321,7 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback_for_once_closure<F: FnM
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(
         if channel.is_null() {
             ""
@@ -33258,9 +33380,8 @@ impl<F: FnMut(&str, i32, i64) -> ()> AeronNewSubscriptionCallback for F {
 impl<T: AeronNewSubscriptionCallback> AeronNewSubscriptionCallback for Handler<T> {
     #[inline]
     fn handle_aeron_on_new_subscription(&mut self, channel: &str, stream_id: i32, correlation_id: i64) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut()
-            .handle_aeron_on_new_subscription(channel, stream_id, correlation_id)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_on_new_subscription(channel, stream_id, correlation_id)
     }
 }
 impl AeronNewSubscriptionCallback for NoHandler {
@@ -33305,7 +33426,7 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback<F: AeronNewSubscriptio
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_on_new_subscription(
         if channel.is_null() {
             ""
@@ -33356,7 +33477,7 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback_for_once_closure<F: Fn
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(
         if channel.is_null() {
             ""
@@ -33408,8 +33529,8 @@ impl<F: FnMut(AeronSubscription, AeronImage) -> ()> AeronAvailableImageCallback 
 impl<T: AeronAvailableImageCallback> AeronAvailableImageCallback for Handler<T> {
     #[inline]
     fn handle_aeron_on_available_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut().handle_aeron_on_available_image(subscription, image)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_on_available_image(subscription, image)
     }
 }
 impl AeronAvailableImageCallback for NoHandler {
@@ -33447,7 +33568,7 @@ unsafe extern "C" fn aeron_on_available_image_t_callback<F: AeronAvailableImageC
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_on_available_image(subscription.into(), image.into())
 }
 #[allow(dead_code)]
@@ -33485,7 +33606,7 @@ unsafe extern "C" fn aeron_on_available_image_t_callback_for_once_closure<
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(subscription.into(), image.into())
 }
 #[doc = "Function called by aeron_client_t to deliver notifications that an aeron_image_t has been removed from use and"]
@@ -33530,8 +33651,8 @@ impl<F: FnMut(AeronSubscription, AeronImage) -> ()> AeronUnavailableImageCallbac
 impl<T: AeronUnavailableImageCallback> AeronUnavailableImageCallback for Handler<T> {
     #[inline]
     fn handle_aeron_on_unavailable_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut().handle_aeron_on_unavailable_image(subscription, image)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_on_unavailable_image(subscription, image)
     }
 }
 impl AeronUnavailableImageCallback for NoHandler {
@@ -33570,7 +33691,7 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback<F: AeronUnavailableIm
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_on_unavailable_image(subscription.into(), image.into())
 }
 #[allow(dead_code)]
@@ -33609,7 +33730,7 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback_for_once_closure<
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(subscription.into(), image.into())
 }
 #[doc = "Function called by aeron_client_t to deliver notifications that a counter has been added to the driver."]
@@ -33675,9 +33796,8 @@ impl<T: AeronAvailableCounterCallback> AeronAvailableCounterCallback for Handler
         registration_id: i64,
         counter_id: i32,
     ) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut()
-            .handle_aeron_on_available_counter(counters_reader, registration_id, counter_id)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_on_available_counter(counters_reader, registration_id, counter_id)
     }
 }
 impl AeronAvailableCounterCallback for NoHandler {
@@ -33723,7 +33843,7 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback<F: AeronAvailableCoun
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_on_available_counter(counters_reader.into(), registration_id.into(), counter_id.into())
 }
 #[allow(dead_code)]
@@ -33764,7 +33884,7 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback_for_once_closure<
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(counters_reader.into(), registration_id.into(), counter_id.into())
 }
 #[doc = "Function called by aeron_client_t to deliver notifications that a counter has been removed from the driver."]
@@ -33830,9 +33950,8 @@ impl<T: AeronUnavailableCounterCallback> AeronUnavailableCounterCallback for Han
         registration_id: i64,
         counter_id: i32,
     ) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut()
-            .handle_aeron_on_unavailable_counter(counters_reader, registration_id, counter_id)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_on_unavailable_counter(counters_reader, registration_id, counter_id)
     }
 }
 impl AeronUnavailableCounterCallback for NoHandler {
@@ -33878,7 +33997,7 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback<F: AeronUnavailable
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_on_unavailable_counter(counters_reader.into(), registration_id.into(), counter_id.into())
 }
 #[allow(dead_code)]
@@ -33919,7 +34038,7 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback_for_once_closure<
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(counters_reader.into(), registration_id.into(), counter_id.into())
 }
 #[doc = "Function called by aeron_client_t to deliver notifications that the client is closing."]
@@ -33953,8 +34072,8 @@ impl<F: FnMut() -> ()> AeronCloseClientCallback for F {
 impl<T: AeronCloseClientCallback> AeronCloseClientCallback for Handler<T> {
     #[inline]
     fn handle_aeron_on_close_client(&mut self) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut().handle_aeron_on_close_client()
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_on_close_client()
     }
 }
 impl AeronCloseClientCallback for NoHandler {
@@ -33983,7 +34102,7 @@ unsafe extern "C" fn aeron_on_close_client_t_callback<F: AeronCloseClientCallbac
         stringify!(aeron_on_close_client_t_callback),
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_on_close_client()
 }
 #[allow(dead_code)]
@@ -34010,7 +34129,7 @@ unsafe extern "C" fn aeron_on_close_client_t_callback_for_once_closure<F: FnMut(
         stringify!(aeron_on_close_client_t_callback_for_once_closure),
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure()
 }
 #[doc = r""]
@@ -34045,8 +34164,8 @@ impl<F: FnMut(&str) -> ()> AeronAgentStartFuncCallback for F {
 impl<T: AeronAgentStartFuncCallback> AeronAgentStartFuncCallback for Handler<T> {
     #[inline]
     fn handle_aeron_agent_on_start_func(&mut self, role_name: &str) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut().handle_aeron_agent_on_start_func(role_name)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_agent_on_start_func(role_name)
     }
 }
 impl AeronAgentStartFuncCallback for NoHandler {
@@ -34077,7 +34196,7 @@ unsafe extern "C" fn aeron_agent_on_start_func_t_callback<F: AeronAgentStartFunc
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(state as *mut F);
+    let closure: &mut F = unsafe { &mut *(state as *mut F) };
     closure.handle_aeron_agent_on_start_func(if role_name.is_null() {
         ""
     } else {
@@ -34110,7 +34229,7 @@ unsafe extern "C" fn aeron_agent_on_start_func_t_callback_for_once_closure<F: Fn
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(state as *mut F);
+    let closure: &mut F = unsafe { &mut *(state as *mut F) };
     closure(if role_name.is_null() {
         ""
     } else {
@@ -34191,9 +34310,8 @@ impl<T: AeronCountersReaderForeachCounterFuncCallback> AeronCountersReaderForeac
         key: &[u8],
         label: &str,
     ) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut()
-            .handle_aeron_counters_reader_foreach_counter_func(value, id, type_id, key, label)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_counters_reader_foreach_counter_func(value, id, type_id, key, label)
     }
 }
 impl AeronCountersReaderForeachCounterFuncCallback for NoHandler {
@@ -34255,7 +34373,7 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback<
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_counters_reader_foreach_counter_func(
         value.into(),
         id.into(),
@@ -34324,7 +34442,7 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback_for_o
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(
         value.into(),
         id.into(),
@@ -34383,8 +34501,8 @@ impl<F: FnMut(&mut [u8]) -> i64> AeronReservedValueSupplierCallback for F {
 impl<T: AeronReservedValueSupplierCallback> AeronReservedValueSupplierCallback for Handler<T> {
     #[inline]
     fn handle_aeron_reserved_value_supplier(&mut self, buffer: &mut [u8]) -> i64 {
-        use std::ops::DerefMut;
-        self.deref_mut().handle_aeron_reserved_value_supplier(buffer)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_reserved_value_supplier(buffer)
     }
 }
 impl AeronReservedValueSupplierCallback for NoHandler {
@@ -34422,7 +34540,7 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback<F: AeronReservedVa
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_reserved_value_supplier(unsafe {
         if buffer.is_null() {
             &mut [] as &mut [_]
@@ -34464,7 +34582,7 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback_for_once_closure<F
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(unsafe {
         if buffer.is_null() {
             &mut [] as &mut [_]
@@ -34518,8 +34636,8 @@ impl<F: FnMut(&[u8], AeronHeader) -> ()> AeronFragmentHandlerCallback for F {
 impl<T: AeronFragmentHandlerCallback> AeronFragmentHandlerCallback for Handler<T> {
     #[inline]
     fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: AeronHeader) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut().handle_aeron_fragment_handler(buffer, header)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_fragment_handler(buffer, header)
     }
 }
 impl AeronFragmentHandlerCallback for NoHandler {
@@ -34563,7 +34681,7 @@ unsafe extern "C" fn aeron_fragment_handler_t_callback<F: AeronFragmentHandlerCa
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_fragment_handler(
         if buffer.is_null() {
             &[] as &[_]
@@ -34612,7 +34730,7 @@ unsafe extern "C" fn aeron_fragment_handler_t_callback_for_once_closure<F: FnMut
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(
         if buffer.is_null() {
             &[] as &[_]
@@ -34686,9 +34804,8 @@ impl<T: AeronControlledFragmentHandlerCallback> AeronControlledFragmentHandlerCa
         buffer: &[u8],
         header: AeronHeader,
     ) -> aeron_controlled_fragment_handler_action_t {
-        use std::ops::DerefMut;
-        self.deref_mut()
-            .handle_aeron_controlled_fragment_handler(buffer, header)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_controlled_fragment_handler(buffer, header)
     }
 }
 impl AeronControlledFragmentHandlerCallback for NoHandler {
@@ -34737,7 +34854,7 @@ unsafe extern "C" fn aeron_controlled_fragment_handler_t_callback<F: AeronContro
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_controlled_fragment_handler(
         if buffer.is_null() {
             &[] as &[_]
@@ -34789,7 +34906,7 @@ unsafe extern "C" fn aeron_controlled_fragment_handler_t_callback_for_once_closu
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(
         if buffer.is_null() {
             &[] as &[_]
@@ -34844,8 +34961,8 @@ impl<F: FnMut(&[u8], i32, i32) -> ()> AeronBlockHandlerCallback for F {
 impl<T: AeronBlockHandlerCallback> AeronBlockHandlerCallback for Handler<T> {
     #[inline]
     fn handle_aeron_block_handler(&mut self, buffer: &[u8], session_id: i32, term_id: i32) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut().handle_aeron_block_handler(buffer, session_id, term_id)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_block_handler(buffer, session_id, term_id)
     }
 }
 impl AeronBlockHandlerCallback for NoHandler {
@@ -34890,7 +35007,7 @@ unsafe extern "C" fn aeron_block_handler_t_callback<F: AeronBlockHandlerCallback
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_block_handler(
         if buffer.is_null() {
             &[] as &[_]
@@ -34941,7 +35058,7 @@ unsafe extern "C" fn aeron_block_handler_t_callback_for_once_closure<F: FnMut(&[
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(
         if buffer.is_null() {
             &[] as &[_]
@@ -35027,8 +35144,8 @@ impl<T: AeronErrorLogReaderFuncCallback> AeronErrorLogReaderFuncCallback for Han
         last_observation_timestamp: i64,
         error: &str,
     ) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut().handle_aeron_error_log_reader_func(
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_error_log_reader_func(
             observation_count,
             first_observation_timestamp,
             last_observation_timestamp,
@@ -35086,7 +35203,7 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback<F: AeronErrorLogRead
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_error_log_reader_func(
         observation_count.into(),
         first_observation_timestamp.into(),
@@ -35145,7 +35262,7 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback_for_once_closure<F: 
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(
         observation_count.into(),
         first_observation_timestamp.into(),
@@ -35261,8 +35378,8 @@ impl<T: AeronLossReporterReadEntryFuncCallback> AeronLossReporterReadEntryFuncCa
         channel: &str,
         source: &str,
     ) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut().handle_aeron_loss_reporter_read_entry_func(
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_loss_reporter_read_entry_func(
             observation_count,
             total_bytes_lost,
             first_observation_timestamp,
@@ -35338,7 +35455,7 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback<F: AeronLoss
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_loss_reporter_read_entry_func(
         observation_count.into(),
         total_bytes_lost.into(),
@@ -35422,7 +35539,7 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback_for_once_clo
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(
         observation_count.into(),
         total_bytes_lost.into(),
@@ -35484,8 +35601,8 @@ impl<F: FnMut(::std::os::raw::c_int) -> ()> AeronIdleStrategyFuncCallback for F 
 impl<T: AeronIdleStrategyFuncCallback> AeronIdleStrategyFuncCallback for Handler<T> {
     #[inline]
     fn handle_aeron_idle_strategy_func(&mut self, work_count: ::std::os::raw::c_int) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut().handle_aeron_idle_strategy_func(work_count)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_idle_strategy_func(work_count)
     }
 }
 impl AeronIdleStrategyFuncCallback for NoHandler {
@@ -35516,7 +35633,7 @@ unsafe extern "C" fn aeron_idle_strategy_func_t_callback<F: AeronIdleStrategyFun
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(state as *mut F);
+    let closure: &mut F = unsafe { &mut *(state as *mut F) };
     closure.handle_aeron_idle_strategy_func(work_count.into())
 }
 #[allow(dead_code)]
@@ -35545,7 +35662,7 @@ unsafe extern "C" fn aeron_idle_strategy_func_t_callback_for_once_closure<F: FnM
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(state as *mut F);
+    let closure: &mut F = unsafe { &mut *(state as *mut F) };
     closure(work_count.into())
 }
 #[doc = "Callback to return encoded credentials."]
@@ -35597,9 +35714,8 @@ impl<T: AeronArchiveCredentialsEncodedCredentialsSupplierFuncCallback>
     fn handle_aeron_archive_credentials_encoded_credentials_supplier_func(
         &mut self,
     ) -> *mut aeron_archive_encoded_credentials_t {
-        use std::ops::DerefMut;
-        self.deref_mut()
-            .handle_aeron_archive_credentials_encoded_credentials_supplier_func()
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_archive_credentials_encoded_credentials_supplier_func()
     }
 }
 impl AeronArchiveCredentialsEncodedCredentialsSupplierFuncCallback for NoHandler {
@@ -35635,7 +35751,7 @@ unsafe extern "C" fn aeron_archive_credentials_encoded_credentials_supplier_func
         stringify!(aeron_archive_credentials_encoded_credentials_supplier_func_t_callback),
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_archive_credentials_encoded_credentials_supplier_func()
 }
 #[allow(dead_code)]
@@ -35664,7 +35780,7 @@ unsafe extern "C" fn aeron_archive_credentials_encoded_credentials_supplier_func
         stringify!(aeron_archive_credentials_encoded_credentials_supplier_func_t_callback_for_once_closure),
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure()
 }
 #[doc = "Callback to return encoded credentials given a specific encoded challenge."]
@@ -35719,9 +35835,8 @@ impl<T: AeronArchiveCredentialsChallengeSupplierFuncCallback> AeronArchiveCreden
         &mut self,
         encoded_challenge: AeronArchiveEncodedCredentials,
     ) -> *mut aeron_archive_encoded_credentials_t {
-        use std::ops::DerefMut;
-        self.deref_mut()
-            .handle_aeron_archive_credentials_challenge_supplier_func(encoded_challenge)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_archive_credentials_challenge_supplier_func(encoded_challenge)
     }
 }
 impl AeronArchiveCredentialsChallengeSupplierFuncCallback for NoHandler {
@@ -35764,7 +35879,7 @@ unsafe extern "C" fn aeron_archive_credentials_challenge_supplier_func_t_callbac
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_archive_credentials_challenge_supplier_func(encoded_challenge.into())
 }
 #[allow(dead_code)]
@@ -35799,7 +35914,7 @@ unsafe extern "C" fn aeron_archive_credentials_challenge_supplier_func_t_callbac
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(encoded_challenge.into())
 }
 #[doc = "Callback to return encoded credentials so they may be reused or freed."]
@@ -35837,8 +35952,8 @@ impl<F: FnMut(AeronArchiveEncodedCredentials) -> ()> AeronArchiveCredentialsFree
 impl<T: AeronArchiveCredentialsFreeFuncCallback> AeronArchiveCredentialsFreeFuncCallback for Handler<T> {
     #[inline]
     fn handle_aeron_archive_credentials_free_func(&mut self, credentials: AeronArchiveEncodedCredentials) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut().handle_aeron_archive_credentials_free_func(credentials)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_archive_credentials_free_func(credentials)
     }
 }
 impl AeronArchiveCredentialsFreeFuncCallback for NoHandler {
@@ -35872,7 +35987,7 @@ unsafe extern "C" fn aeron_archive_credentials_free_func_t_callback<F: AeronArch
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_archive_credentials_free_func(credentials.into())
 }
 #[allow(dead_code)]
@@ -35906,7 +36021,7 @@ unsafe extern "C" fn aeron_archive_credentials_free_func_t_callback_for_once_clo
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(credentials.into())
 }
 #[doc = "Callback to allow execution of a delegating invoker to be run."]
@@ -35942,8 +36057,8 @@ impl<F: FnMut() -> ()> AeronArchiveDelegatingInvokerFuncCallback for F {
 impl<T: AeronArchiveDelegatingInvokerFuncCallback> AeronArchiveDelegatingInvokerFuncCallback for Handler<T> {
     #[inline]
     fn handle_aeron_archive_delegating_invoker_func(&mut self) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut().handle_aeron_archive_delegating_invoker_func()
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_archive_delegating_invoker_func()
     }
 }
 impl AeronArchiveDelegatingInvokerFuncCallback for NoHandler {
@@ -35970,7 +36085,7 @@ unsafe extern "C" fn aeron_archive_delegating_invoker_func_t_callback<F: AeronAr
         stringify!(aeron_archive_delegating_invoker_func_t_callback),
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_archive_delegating_invoker_func()
 }
 #[allow(dead_code)]
@@ -35995,7 +36110,7 @@ unsafe extern "C" fn aeron_archive_delegating_invoker_func_t_callback_for_once_c
         stringify!(aeron_archive_delegating_invoker_func_t_callback_for_once_closure),
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure()
 }
 #[doc = "Callback to return recording descriptors."]
@@ -36050,9 +36165,8 @@ impl<T: AeronArchiveRecordingDescriptorConsumerFuncCallback> AeronArchiveRecordi
         &mut self,
         recording_descriptor: AeronArchiveRecordingDescriptor,
     ) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut()
-            .handle_aeron_archive_recording_descriptor_consumer_func(recording_descriptor)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_archive_recording_descriptor_consumer_func(recording_descriptor)
     }
 }
 impl AeronArchiveRecordingDescriptorConsumerFuncCallback for NoHandler {
@@ -36092,7 +36206,7 @@ unsafe extern "C" fn aeron_archive_recording_descriptor_consumer_func_t_callback
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_archive_recording_descriptor_consumer_func(recording_descriptor.into())
 }
 #[allow(dead_code)]
@@ -36124,7 +36238,7 @@ unsafe extern "C" fn aeron_archive_recording_descriptor_consumer_func_t_callback
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(recording_descriptor.into())
 }
 #[doc = "Callback to return recording subscription descriptors."]
@@ -36183,9 +36297,8 @@ impl<T: AeronArchiveRecordingSubscriptionDescriptorConsumerFuncCallback>
         &mut self,
         recording_subscription_descriptor: AeronArchiveRecordingSubscriptionDescriptor,
     ) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut()
-            .handle_aeron_archive_recording_subscription_descriptor_consumer_func(recording_subscription_descriptor)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_archive_recording_subscription_descriptor_consumer_func(recording_subscription_descriptor)
     }
 }
 impl AeronArchiveRecordingSubscriptionDescriptorConsumerFuncCallback for NoHandler {
@@ -36229,7 +36342,7 @@ unsafe extern "C" fn aeron_archive_recording_subscription_descriptor_consumer_fu
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure
         .handle_aeron_archive_recording_subscription_descriptor_consumer_func(recording_subscription_descriptor.into())
 }
@@ -36266,7 +36379,7 @@ unsafe extern "C" fn aeron_archive_recording_subscription_descriptor_consumer_fu
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(recording_subscription_descriptor.into())
 }
 #[doc = "Callback to return recording signals."]
@@ -36316,9 +36429,8 @@ impl<T: AeronArchiveRecordingSignalConsumerFuncCallback> AeronArchiveRecordingSi
         &mut self,
         recording_signal: AeronArchiveRecordingSignal,
     ) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut()
-            .handle_aeron_archive_recording_signal_consumer_func(recording_signal)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_archive_recording_signal_consumer_func(recording_signal)
     }
 }
 impl AeronArchiveRecordingSignalConsumerFuncCallback for NoHandler {
@@ -36358,7 +36470,7 @@ unsafe extern "C" fn aeron_archive_recording_signal_consumer_func_t_callback<
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_archive_recording_signal_consumer_func(recording_signal.into())
 }
 #[allow(dead_code)]
@@ -36390,7 +36502,7 @@ unsafe extern "C" fn aeron_archive_recording_signal_consumer_func_t_callback_for
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(recording_signal.into())
 }
 #[doc = r""]
@@ -36429,8 +36541,8 @@ impl<F: FnMut(&str, &str) -> ::std::os::raw::c_int> AeronUriParseCallbackCallbac
 impl<T: AeronUriParseCallbackCallback> AeronUriParseCallbackCallback for Handler<T> {
     #[inline]
     fn handle_aeron_uri_parse_callback(&mut self, key: &str, value: &str) -> ::std::os::raw::c_int {
-        use std::ops::DerefMut;
-        self.deref_mut().handle_aeron_uri_parse_callback(key, value)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_uri_parse_callback(key, value)
     }
 }
 impl AeronUriParseCallbackCallback for NoHandler {
@@ -36463,7 +36575,7 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback<F: AeronUriParseCallbac
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_uri_parse_callback(
         if key.is_null() {
             ""
@@ -36507,7 +36619,7 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback_for_once_closure<
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(
         if key.is_null() {
             ""
@@ -36557,9 +36669,8 @@ impl<F: FnMut(&str, *mut ::std::os::raw::c_void) -> ()> AeronStrToPtrHashMapForE
 impl<T: AeronStrToPtrHashMapForEachFuncCallback> AeronStrToPtrHashMapForEachFuncCallback for Handler<T> {
     #[inline]
     fn handle_aeron_str_to_ptr_hash_map_for_each_func(&mut self, key: &str, value: *mut ::std::os::raw::c_void) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut()
-            .handle_aeron_str_to_ptr_hash_map_for_each_func(key, value)
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_str_to_ptr_hash_map_for_each_func(key, value)
     }
 }
 impl AeronStrToPtrHashMapForEachFuncCallback for NoHandler {
@@ -36594,7 +36705,7 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback<F: Aeron
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_str_to_ptr_hash_map_for_each_func(
         if key.is_null() {
             ""
@@ -36641,7 +36752,7 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback_for_once
         ]
         .join(", ")
     );
-    let closure: &mut F = &mut *(clientd as *mut F);
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(
         if key.is_null() {
             ""
@@ -36684,8 +36795,8 @@ impl<F: FnMut() -> ::std::os::raw::c_int> AeronAgentDoWorkFuncCallback for F {
 impl<T: AeronAgentDoWorkFuncCallback> AeronAgentDoWorkFuncCallback for Handler<T> {
     #[inline]
     fn handle_aeron_agent_do_work_func(&mut self) -> ::std::os::raw::c_int {
-        use std::ops::DerefMut;
-        self.deref_mut().handle_aeron_agent_do_work_func()
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_agent_do_work_func()
     }
 }
 impl AeronAgentDoWorkFuncCallback for NoHandler {
@@ -36711,7 +36822,7 @@ unsafe extern "C" fn aeron_agent_do_work_func_t_callback<F: AeronAgentDoWorkFunc
         stringify!(aeron_agent_do_work_func_t_callback),
         [format!("{} = {:?}", stringify!(arg1), arg1)].join(", ")
     );
-    let closure: &mut F = &mut *(arg1 as *mut F);
+    let closure: &mut F = unsafe { &mut *(arg1 as *mut F) };
     closure.handle_aeron_agent_do_work_func()
 }
 #[allow(dead_code)]
@@ -36735,7 +36846,7 @@ unsafe extern "C" fn aeron_agent_do_work_func_t_callback_for_once_closure<F: FnM
         stringify!(aeron_agent_do_work_func_t_callback_for_once_closure),
         [format!("{} = {:?}", stringify!(arg1), arg1)].join(", ")
     );
-    let closure: &mut F = &mut *(arg1 as *mut F);
+    let closure: &mut F = unsafe { &mut *(arg1 as *mut F) };
     closure()
 }
 #[doc = r""]
@@ -36770,8 +36881,8 @@ impl<F: FnMut() -> ()> AeronAgentCloseFuncCallback for F {
 impl<T: AeronAgentCloseFuncCallback> AeronAgentCloseFuncCallback for Handler<T> {
     #[inline]
     fn handle_aeron_agent_on_close_func(&mut self) -> () {
-        use std::ops::DerefMut;
-        self.deref_mut().handle_aeron_agent_on_close_func()
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_agent_on_close_func()
     }
 }
 impl AeronAgentCloseFuncCallback for NoHandler {
@@ -36797,7 +36908,7 @@ unsafe extern "C" fn aeron_agent_on_close_func_t_callback<F: AeronAgentCloseFunc
         stringify!(aeron_agent_on_close_func_t_callback),
         [format!("{} = {:?}", stringify!(arg1), arg1)].join(", ")
     );
-    let closure: &mut F = &mut *(arg1 as *mut F);
+    let closure: &mut F = unsafe { &mut *(arg1 as *mut F) };
     closure.handle_aeron_agent_on_close_func()
 }
 #[allow(dead_code)]
@@ -36821,7 +36932,6 @@ unsafe extern "C" fn aeron_agent_on_close_func_t_callback_for_once_closure<F: Fn
         stringify!(aeron_agent_on_close_func_t_callback_for_once_closure),
         [format!("{} = {:?}", stringify!(arg1), arg1)].join(", ")
     );
-    let closure: &mut F = &mut *(arg1 as *mut F);
+    let closure: &mut F = unsafe { &mut *(arg1 as *mut F) };
     closure()
 }
-

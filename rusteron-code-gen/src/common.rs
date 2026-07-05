@@ -14,7 +14,9 @@ use std::backtrace::Backtrace;
 use std::cell::UnsafeCell;
 use std::fmt::Formatter;
 use std::mem::MaybeUninit;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
+#[allow(unused_imports)]
+use std::ops::DerefMut;
 
 /// Reference-counting smart pointer: `Rc` by default, `Arc` under the
 /// `multi-threaded` feature. Swap is transparent — `RcOrArc::new`, `.clone()`,
@@ -23,6 +25,11 @@ use std::ops::{Deref, DerefMut};
 pub type RcOrArc<T> = std::rc::Rc<T>;
 #[cfg(feature = "multi-threaded")]
 pub type RcOrArc<T> = std::sync::Arc<T>;
+
+#[cfg(not(feature = "multi-threaded"))]
+pub type CleanupBox<T> = Box<dyn FnMut(*mut *mut T) -> i32>;
+#[cfg(feature = "multi-threaded")]
+pub type CleanupBox<T> = Box<dyn FnMut(*mut *mut T) -> i32 + Send>;
 
 pub enum CResource<T> {
     OwnedOnHeap(RcOrArc<ManagedCResource<T>>),
@@ -166,37 +173,45 @@ impl<T> std::fmt::Debug for CResource<T> {
 /// `aeron_close`). The Rc dependency graph ensures parents outlive children
 /// structurally — you cannot race `aeron_close` ahead of a live child handle.
 #[allow(dead_code)]
+#[allow(dead_code)]
 pub struct ManagedCResource<T> {
+    #[cfg(not(feature = "multi-threaded"))]
     resource: std::cell::Cell<*mut T>,
-    /// Interior mutability so the cleanup can be invoked through a shared
-    /// `&self` reference when the resource is shared via `Rc`.  The
-    /// `close_already_called` gate ensures single-execution: only the first
-    /// call to `close()` or `close_shared()` takes and runs the closure.
-    cleanup: UnsafeCell<Option<Box<dyn FnMut(*mut *mut T) -> i32>>>,
+    #[cfg(feature = "multi-threaded")]
+    resource: std::sync::atomic::AtomicPtr<T>,
+
+    #[cfg(not(feature = "multi-threaded"))]
+    cleanup: UnsafeCell<Option<CleanupBox<T>>>,
+    #[cfg(feature = "multi-threaded")]
+    cleanup: std::sync::Mutex<Option<CleanupBox<T>>>,
+
     cleanup_struct: bool,
-    /// Set when close() has been called (gate against double-cleanup).
+
+    #[cfg(not(feature = "multi-threaded"))]
     close_already_called: std::cell::Cell<bool>,
-    /// indicates if the underlying resource has already been handed off and should not be re-polled
+    #[cfg(feature = "multi-threaded")]
+    close_already_called: std::sync::atomic::AtomicBool,
+
+    #[cfg(not(feature = "multi-threaded"))]
     resource_released: std::cell::Cell<bool>,
-    /// Keeps deps alive (e.g. the Aeron client while a pub/sub exists).
-    /// Mutated only at construction from the owning thread — no locking,
-    /// same Send-over-Rc unsoundness stance. Empty vec doesn't allocate.
+    #[cfg(feature = "multi-threaded")]
+    resource_released: std::sync::atomic::AtomicBool,
+
+    #[cfg(not(feature = "multi-threaded"))]
     dependencies: UnsafeCell<Vec<RcOrArc<dyn std::any::Any>>>,
+    #[cfg(feature = "multi-threaded")]
+    dependencies: std::sync::Mutex<Vec<RcOrArc<dyn std::any::Any>>>,
 }
 
 impl<T> std::fmt::Debug for ManagedCResource<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ManagedCResource")
-            .field(
-                "resource",
-                if self.close_already_called.get() {
-                    &"<closed>"
-                } else {
-                    &self.resource
-                },
-            )
-            .field("type", &std::any::type_name::<T>())
-            .finish()
+        let mut debug = f.debug_struct("ManagedCResource");
+        if self.get_close_already_called() {
+            debug.field("resource", &"<closed>");
+        } else {
+            debug.field("resource", &self.get());
+        }
+        debug.field("type", &std::any::type_name::<T>()).finish()
     }
 }
 
@@ -220,18 +235,38 @@ impl<T> ManagedCResource<T> {
     /// `cleanup_struct` where it should clean up the struct in rust
     pub fn new(
         init: impl FnOnce(*mut *mut T) -> i32,
-        cleanup: Option<Box<dyn FnMut(*mut *mut T) -> i32>>,
+        cleanup: Option<CleanupBox<T>>,
         cleanup_struct: bool,
     ) -> Result<Self, AeronCError> {
         let resource = Self::initialise(init)?;
 
         let result = Self {
+            #[cfg(not(feature = "multi-threaded"))]
             resource: std::cell::Cell::new(resource),
+            #[cfg(feature = "multi-threaded")]
+            resource: std::sync::atomic::AtomicPtr::new(resource),
+
+            #[cfg(not(feature = "multi-threaded"))]
             cleanup: UnsafeCell::new(cleanup),
+            #[cfg(feature = "multi-threaded")]
+            cleanup: std::sync::Mutex::new(cleanup),
+
             cleanup_struct,
+
+            #[cfg(not(feature = "multi-threaded"))]
             close_already_called: std::cell::Cell::new(false),
+            #[cfg(feature = "multi-threaded")]
+            close_already_called: std::sync::atomic::AtomicBool::new(false),
+
+            #[cfg(not(feature = "multi-threaded"))]
             resource_released: std::cell::Cell::new(false),
+            #[cfg(feature = "multi-threaded")]
+            resource_released: std::sync::atomic::AtomicBool::new(false),
+
+            #[cfg(not(feature = "multi-threaded"))]
             dependencies: UnsafeCell::new(vec![]),
+            #[cfg(feature = "multi-threaded")]
+            dependencies: std::sync::Mutex::new(vec![]),
         };
         #[cfg(feature = "extra-logging")]
         log::info!("created c resource: {:?}", result);
@@ -250,7 +285,75 @@ impl<T> ManagedCResource<T> {
     /// Gets a raw pointer to the resource.
     #[inline(always)]
     pub fn get(&self) -> *mut T {
-        self.resource.get()
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.resource.get()
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.resource.load(std::sync::atomic::Ordering::Acquire)
+        }
+    }
+
+    #[inline(always)]
+    fn set_resource(&self, val: *mut T) {
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.resource.set(val);
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.resource.store(val, std::sync::atomic::Ordering::Release);
+        }
+    }
+
+    #[inline(always)]
+    fn get_close_already_called(&self) -> bool {
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.close_already_called.get()
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.close_already_called.load(std::sync::atomic::Ordering::Acquire)
+        }
+    }
+
+    #[inline(always)]
+    fn set_close_already_called(&self, val: bool) {
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.close_already_called.set(val);
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.close_already_called
+                .store(val, std::sync::atomic::Ordering::Release);
+        }
+    }
+
+    #[inline(always)]
+    fn get_resource_released(&self) -> bool {
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.resource_released.get()
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.resource_released.load(std::sync::atomic::Ordering::Acquire)
+        }
+    }
+
+    #[inline(always)]
+    fn set_resource_released(&self, val: bool) {
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.resource_released.set(val);
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.resource_released.store(val, std::sync::atomic::Ordering::Release);
+        }
     }
 
     /// Mutable access to the underlying C struct, minted from `&self`.
@@ -260,27 +363,47 @@ impl<T> ManagedCResource<T> {
     /// alive while the returned `&mut` is in use.
     #[inline(always)]
     pub unsafe fn get_mut(&self) -> &mut T {
-        &mut *self.resource.get()
+        &mut *self.get()
     }
 
     #[inline]
     // to prevent the dependencies from being dropped as you have a copy here
     pub fn add_dependency<D: std::any::Any>(&self, dep: D) {
         if let Some(dep) = (&dep as &dyn std::any::Any).downcast_ref::<RcOrArc<dyn std::any::Any>>() {
+            #[cfg(not(feature = "multi-threaded"))]
             unsafe {
                 (*self.dependencies.get()).push(dep.clone());
             }
+            #[cfg(feature = "multi-threaded")]
+            {
+                self.dependencies.lock().unwrap().push(dep.clone());
+            }
         } else {
+            #[cfg(not(feature = "multi-threaded"))]
             unsafe {
                 (*self.dependencies.get()).push(RcOrArc::new(dep));
+            }
+            #[cfg(feature = "multi-threaded")]
+            {
+                self.dependencies.lock().unwrap().push(RcOrArc::new(dep));
             }
         }
     }
 
     #[inline]
     pub fn get_dependency<V: Clone + 'static>(&self) -> Option<V> {
+        #[cfg(not(feature = "multi-threaded"))]
         unsafe {
             (*self.dependencies.get())
+                .iter()
+                .filter_map(|x| x.as_ref().downcast_ref::<V>().cloned())
+                .next()
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.dependencies
+                .lock()
+                .unwrap()
                 .iter()
                 .filter_map(|x| x.as_ref().downcast_ref::<V>().cloned())
                 .next()
@@ -289,16 +412,16 @@ impl<T> ManagedCResource<T> {
 
     #[inline]
     pub fn is_resource_released(&self) -> bool {
-        self.resource_released.get()
+        self.get_resource_released()
     }
 
     #[inline]
     pub fn mark_resource_released(&self) {
-        self.resource_released.set(true);
+        self.set_resource_released(true);
         // The C client frees async resources when their poll completes (created,
         // errored, or cancelled). Null the stale pointer so any later use faults
         // deterministically on null instead of reading freed memory.
-        self.resource.set(std::ptr::null_mut());
+        self.set_resource(std::ptr::null_mut());
     }
 
     /// Closes the resource through a shared reference.
@@ -312,7 +435,7 @@ impl<T> ManagedCResource<T> {
     /// This is the method called by the generated `close(self)` method on
     /// wrapper types.
     pub(crate) fn close_shared(&self) -> Result<(), AeronCError> {
-        if self.close_already_called.get() {
+        if self.get_close_already_called() {
             return Ok(());
         }
 
@@ -320,28 +443,37 @@ impl<T> ManagedCResource<T> {
         // single-threaded low-latency handles. close_shared() is not Sync; the
         // first caller takes the cleanup closure and either completes close or
         // restores the closure on failure so a later call/drop can retry.
+        #[cfg(not(feature = "multi-threaded"))]
         let cleanup = unsafe { (*self.cleanup.get()).take() };
+        #[cfg(feature = "multi-threaded")]
+        let cleanup = self.cleanup.lock().unwrap().take();
+
         if let Some(mut cleanup) = cleanup {
-            let mut resource = self.resource.get();
+            let mut resource = self.get();
             if !resource.is_null() {
                 let result = cleanup(&mut resource);
                 if result < 0 {
+                    #[cfg(not(feature = "multi-threaded"))]
                     unsafe {
                         *self.cleanup.get() = Some(cleanup);
+                    }
+                    #[cfg(feature = "multi-threaded")]
+                    {
+                        *self.cleanup.lock().unwrap() = Some(cleanup);
                     }
                     return Err(AeronCError::from_code(result));
                 }
             }
 
-            self.close_already_called.set(true);
+            self.set_close_already_called(true);
             if !self.cleanup_struct {
                 // C-owned resources have been freed by the close function.
                 // Null the shared pointer so clones cannot keep using a
                 // dangling pointer after explicit close.
-                self.resource.set(std::ptr::null_mut());
+                self.set_resource(std::ptr::null_mut());
             }
         } else {
-            self.close_already_called.set(true);
+            self.set_close_already_called(true);
         }
 
         Ok(())
@@ -357,25 +489,34 @@ impl<T> ManagedCResource<T> {
         &self,
         mut custom_cleanup: impl FnMut(*mut *mut T) -> i32,
     ) -> Result<(), AeronCError> {
-        if self.close_already_called.get() {
+        if self.get_close_already_called() {
             return Ok(());
         }
 
+        #[cfg(not(feature = "multi-threaded"))]
         let stored_cleanup = unsafe { (*self.cleanup.get()).take() };
-        let mut resource = self.resource.get();
+        #[cfg(feature = "multi-threaded")]
+        let stored_cleanup = self.cleanup.lock().unwrap().take();
+
+        let mut resource = self.get();
         if !resource.is_null() {
             let result = custom_cleanup(&mut resource);
             if result < 0 {
+                #[cfg(not(feature = "multi-threaded"))]
                 unsafe {
                     *self.cleanup.get() = stored_cleanup;
+                }
+                #[cfg(feature = "multi-threaded")]
+                {
+                    *self.cleanup.lock().unwrap() = stored_cleanup;
                 }
                 return Err(AeronCError::from_code(result));
             }
         }
 
-        self.close_already_called.set(true);
+        self.set_close_already_called(true);
         if !self.cleanup_struct {
-            self.resource.set(std::ptr::null_mut());
+            self.set_resource(std::ptr::null_mut());
         }
 
         Ok(())
@@ -388,7 +529,7 @@ impl<T> Drop for ManagedCResource<T> {
         // logging, and pointer-nulling.  close_already_called prevents
         // double-execution if the resource was already closed through
         // another clone.
-        if !self.close_already_called.get() {
+        if !self.get_close_already_called() {
             if let Err(e) = self.close_shared() {
                 log::warn!(
                     "cleanup failed for {} during Drop with code {}",
@@ -399,14 +540,14 @@ impl<T> Drop for ManagedCResource<T> {
         }
 
         if self.cleanup_struct {
-            #[cfg(feature = "extra-logging")]
-            log::info!("closing rust struct resource: {:?}", self.resource.get());
-            let resource = self.resource.get();
+            let resource = self.get();
             if !resource.is_null() {
+                #[cfg(feature = "extra-logging")]
+                log::info!("closing rust struct resource: {:?}", resource);
                 unsafe {
                     let _ = Box::from_raw(resource);
                 }
-                self.resource.set(std::ptr::null_mut());
+                self.set_resource(std::ptr::null_mut());
             }
         }
     }
@@ -771,6 +912,15 @@ impl<T> Handler<T> {
     pub fn as_raw(&self) -> *mut std::os::raw::c_void {
         self.inner.get() as *mut std::os::raw::c_void
     }
+
+    /// Get a mutable reference to the inner value.
+    ///
+    /// # Safety
+    /// Caller must ensure that no other references to the inner value are active.
+    #[inline(always)]
+    pub unsafe fn get_mut(&self) -> &mut T {
+        &mut *self.inner.get()
+    }
 }
 
 impl<T> Deref for Handler<T> {
@@ -779,13 +929,6 @@ impl<T> Deref for Handler<T> {
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         unsafe { &*self.inner.get() }
-    }
-}
-
-impl<T> DerefMut for Handler<T> {
-    #[inline(always)]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.inner.get() }
     }
 }
 

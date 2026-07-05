@@ -128,7 +128,7 @@ impl AeronIdleStrategyKind {
     /// (hyphen-separated); the rest ignore init args.
     pub const fn default_init_args(&self) -> &'static str {
         match self {
-            AeronIdleStrategyKind::Sleeping => "1000000", // 1ms
+            AeronIdleStrategyKind::Sleeping => "1000000",           // 1ms
             AeronIdleStrategyKind::Backoff => "10-20-1000-1000000", // aeron defaults
             _ => "",
         }
@@ -137,7 +137,7 @@ impl AeronIdleStrategyKind {
     /// [`Self::default_init_args`] as a compile-time C string (no runtime allocation).
     pub const fn default_init_args_c(&self) -> &'static std::ffi::CStr {
         match self {
-            AeronIdleStrategyKind::Sleeping => c"1000000", // 1ms
+            AeronIdleStrategyKind::Sleeping => c"1000000",           // 1ms
             AeronIdleStrategyKind::Backoff => c"10-20-1000-1000000", // aeron defaults
             _ => c"",
         }
@@ -229,9 +229,7 @@ impl AeronCnc {
     /// literals work directly.
     #[inline]
     pub fn read(aeron_dir: &std::ffi::CStr, mut handler: impl FnMut(&mut AeronCnc)) -> Result<(), AeronCError> {
-        let cnc = ManagedCResource::initialise(move |cnc| unsafe {
-            aeron_cnc_init(cnc, aeron_dir.as_ptr(), 0)
-        })?;
+        let cnc = ManagedCResource::initialise(move |cnc| unsafe { aeron_cnc_init(cnc, aeron_dir.as_ptr(), 0) })?;
         let mut cnc = Self {
             inner: CResource::Borrowed(cnc),
         };
@@ -469,8 +467,7 @@ impl AeronCncMetadata {
     #[inline]
     /// allocates on heap
     pub fn load_from_file(aeron_dir: &str) -> Result<Self, AeronCError> {
-        let aeron_dir =
-            std::ffi::CString::new(aeron_dir).map_err(|_| AeronCError::from_code(-1))?;
+        let aeron_dir = std::ffi::CString::new(aeron_dir).map_err(|_| AeronCError::from_code(-1))?;
         let mapped_file = std::rc::Rc::new(std::cell::RefCell::new(aeron_mapped_file_t {
             addr: std::ptr::null_mut(),
             length: 0,
@@ -505,10 +502,7 @@ impl AeronCncMetadata {
 
     #[inline]
     /// allocates on stack
-    pub fn read_from_file(
-        aeron_dir: &std::ffi::CString,
-        mut handler: impl FnMut(Self),
-    ) -> Result<(), AeronCError> {
+    pub fn read_from_file(aeron_dir: &std::ffi::CString, mut handler: impl FnMut(Self)) -> Result<(), AeronCError> {
         let mut mapped_file = aeron_mapped_file_t {
             addr: std::ptr::null_mut(),
             length: 0,
@@ -630,20 +624,12 @@ impl AeronSubscription {
             .get_dependency::<Aeron>()
             .ok_or_else(|| AeronCError::with_message(-1, "subscription has no owning Aeron client"))?;
         let result = self.async_add_destination(&client, destination)?;
-        if result
-            .aeron_subscription_async_destination_poll()
-            .unwrap_or_default()
-            > 0
-        {
+        if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
             return Ok(());
         }
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
-            if result
-                .aeron_subscription_async_destination_poll()
-                .unwrap_or_default()
-                > 0
-            {
+            if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
                 return Ok(());
             }
             #[cfg(debug_assertions)]
@@ -698,11 +684,7 @@ impl AeronExclusivePublication {
         client: &Aeron,
         destination: &std::ffi::CStr,
     ) -> Result<AeronAsyncDestination, AeronCError> {
-        AeronAsyncDestination::aeron_exclusive_publication_async_add_destination(
-            client,
-            self,
-            destination,
-        )
+        AeronAsyncDestination::aeron_exclusive_publication_async_add_destination(client, self, destination)
     }
 
     /// Add `destination` (see [`AeronSubscription::add_destination`]); the owning
@@ -717,20 +699,12 @@ impl AeronExclusivePublication {
             .get_dependency::<Aeron>()
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_add_destination(&client, destination)?;
-        if result
-            .aeron_subscription_async_destination_poll()
-            .unwrap_or_default()
-            > 0
-        {
+        if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
             return Ok(());
         }
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
-            if result
-                .aeron_subscription_async_destination_poll()
-                .unwrap_or_default()
-                > 0
-            {
+            if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
                 return Ok(());
             }
             #[cfg(debug_assertions)]
@@ -762,20 +736,12 @@ impl AeronPublication {
             .get_dependency::<Aeron>()
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_add_destination(&client, destination)?;
-        if result
-            .aeron_subscription_async_destination_poll()
-            .unwrap_or_default()
-            > 0
-        {
+        if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
             return Ok(());
         }
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
-            if result
-                .aeron_subscription_async_destination_poll()
-                .unwrap_or_default()
-                > 0
-            {
+            if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
                 return Ok(());
             }
             #[cfg(debug_assertions)]
@@ -902,7 +868,9 @@ impl AeronUriStringBuilder {
     {
         if let Some(inner) = self.inner.as_owned() {
             if !inner.close_already_called.get() {
-                unsafe { aeron_uri_string_builder_close(inner.get()); }
+                unsafe {
+                    aeron_uri_string_builder_close(inner.get());
+                }
                 inner.close_already_called.set(true);
             }
         }
@@ -922,10 +890,9 @@ impl AeronUriStringBuilder {
     #[inline]
     #[doc = "Initialize a new AeronUriStringBuilder. If already initialized, it will close the previous builder to prevent memory leaks."]
     pub fn init_new(&self) -> Result<i32, AeronCError> {
-        self.reinit_run(
-            "aeron_uri_string_builder_init_new(self.get_inner())",
-            |ptr| unsafe { aeron_uri_string_builder_init_new(ptr) },
-        )
+        self.reinit_run("aeron_uri_string_builder_init_new(self.get_inner())", |ptr| unsafe {
+            aeron_uri_string_builder_init_new(ptr)
+        })
     }
 
     #[inline]
@@ -945,8 +912,7 @@ impl AeronUriStringBuilder {
     }
 
     pub fn put_str(&self, key: &std::ffi::CStr, value: &str) -> Result<&Self, AeronCError> {
-        let value = std::ffi::CString::new(value)
-            .map_err(|_| AeronCError::from_code(PARSE_CSTR_ERROR_CODE))?;
+        let value = std::ffi::CString::new(value).map_err(|_| AeronCError::from_code(PARSE_CSTR_ERROR_CODE))?;
         self.put(&key, &value)?;
         Ok(self)
     }
@@ -1171,9 +1137,8 @@ impl AeronUriStringBuilder {
         Ok(self)
     }
     pub fn untethered_window_limit_timeout(&self, value: i64) -> Result<&Self, AeronCError> {
-        let key =
-            std::ffi::CStr::from_bytes_until_nul(AERON_URI_UNTETHERED_WINDOW_LIMIT_TIMEOUT_KEY)
-                .map_err(|_| AeronCError::from_code(PARSE_CSTR_ERROR_CODE))?;
+        let key = std::ffi::CStr::from_bytes_until_nul(AERON_URI_UNTETHERED_WINDOW_LIMIT_TIMEOUT_KEY)
+            .map_err(|_| AeronCError::from_code(PARSE_CSTR_ERROR_CODE))?;
         self.put_int64(key, value)?;
         Ok(self)
     }
@@ -1218,8 +1183,7 @@ impl AeronUriStringBuilder {
     #[inline]
     pub fn remove(&self, key: &std::ffi::CStr) -> Result<i32, AeronCError> {
         unsafe {
-            let result =
-                aeron_uri_string_builder_put(self.get_inner(), key.as_ptr(), std::ptr::null());
+            let result = aeron_uri_string_builder_put(self.get_inner(), key.as_ptr(), std::ptr::null());
             if result < 0 {
                 Err(AeronCError::from_code(result))
             } else {
@@ -1237,8 +1201,7 @@ impl AeronUriStringBuilder {
     /// ```
     #[inline]
     pub fn remove_str(&self, key: &str) -> Result<i32, AeronCError> {
-        let key = std::ffi::CString::new(key)
-            .map_err(|_| AeronCError::from_code(PARSE_CSTR_ERROR_CODE))?;
+        let key = std::ffi::CString::new(key).map_err(|_| AeronCError::from_code(PARSE_CSTR_ERROR_CODE))?;
         self.remove(&key)
     }
 }
@@ -1282,11 +1245,7 @@ impl AeronCountersReader {
     #[doc = " \n**param** buffer to store the counter in."]
     #[doc = " \n**param** buffer_length length of the output buffer"]
     #[doc = " \n**return** -1 on failure, number of characters copied to buffer on success."]
-    pub fn get_counter_label(
-        &self,
-        counter_id: i32,
-        max_length: usize,
-    ) -> Result<String, AeronCError> {
+    pub fn get_counter_label(&self, counter_id: i32, max_length: usize) -> Result<String, AeronCError> {
         let mut result = String::with_capacity(max_length);
         self.get_counter_label_into(counter_id, &mut result)?;
         Ok(result)
@@ -1294,11 +1253,7 @@ impl AeronCountersReader {
 
     #[inline]
     #[doc = "Get the label for a counter."]
-    pub fn get_counter_label_into(
-        &self,
-        counter_id: i32,
-        dst: &mut String,
-    ) -> Result<(), AeronCError> {
+    pub fn get_counter_label_into(&self, counter_id: i32, dst: &mut String) -> Result<(), AeronCError> {
         unsafe {
             let capacity = dst.capacity();
             let vec = dst.as_mut_vec();
@@ -1319,18 +1274,10 @@ impl AeronCountersReader {
 
     #[inline]
     #[doc = "Get the key for a counter."]
-    pub fn get_counter_key_into(
-        &self,
-        counter_id: i32,
-        dst: &mut Vec<u8>,
-    ) -> Result<(), AeronCError> {
+    pub fn get_counter_key_into(&self, counter_id: i32, dst: &mut Vec<u8>) -> Result<(), AeronCError> {
         let mut key_ptr: *mut u8 = std::ptr::null_mut();
         unsafe {
-            let result = bindings::aeron_counters_reader_metadata_key(
-                self.get_inner(),
-                counter_id,
-                &mut key_ptr,
-            );
+            let result = bindings::aeron_counters_reader_metadata_key(self.get_inner(), counter_id, &mut key_ptr);
             if result < 0 || key_ptr.is_null() {
                 return Err(AeronCError::from_code(result));
             }
@@ -1354,10 +1301,7 @@ impl AeronCountersReader {
 }
 
 impl Aeron {
-    pub fn new_blocking(
-        context: &AeronContext,
-        timeout: std::time::Duration,
-    ) -> Result<Self, AeronCError> {
+    pub fn new_blocking(context: &AeronContext, timeout: std::time::Duration) -> Result<Self, AeronCError> {
         if let Ok(aeron) = Aeron::new(&context) {
             return Ok(aeron);
         }
@@ -1407,14 +1351,9 @@ impl AeronControlledFragmentHandlerCallback for AeronControlledFragmentAssembler
 impl<T: AeronFragmentHandlerCallback + 'static> Handler<T> {
     /// Wrap `handler` in a fragment assembler; both are reference-counted and freed
     /// automatically when the last clones drop (the assembler keeps the delegate alive).
-    pub fn with_fragment_assembler(
-        handler: T,
-    ) -> Result<(Handler<AeronFragmentAssembler>, Handler<T>), AeronCError> {
+    pub fn with_fragment_assembler(handler: T) -> Result<(Handler<AeronFragmentAssembler>, Handler<T>), AeronCError> {
         let handler = Handler::new(handler);
-        Ok((
-            Handler::new(AeronFragmentAssembler::new(Some(&handler))?),
-            handler,
-        ))
+        Ok((Handler::new(AeronFragmentAssembler::new(Some(&handler))?), handler))
     }
 
     #[deprecated(note = "use Handler::with_fragment_assembler")]
@@ -2024,9 +1963,13 @@ impl AeronFragmentClosureAssembler {
         func: fn(&mut T, &[u8], AeronHeader),
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
-        self.handler.set(ctx, func);
+        unsafe {
+            self.handler.get_mut().set(ctx, func);
+        }
         let result = pollable.poll_with_assembler(Some(&self.assembler), fragment_limit);
-        self.handler.clear();
+        unsafe {
+            self.handler.get_mut().clear();
+        }
         result
     }
 }
@@ -2064,11 +2007,7 @@ impl FnMutControlledMessageHandler {
     }
 
     #[inline(always)]
-    pub fn call(
-        &mut self,
-        msg: &[u8],
-        header: AeronHeader,
-    ) -> aeron_controlled_fragment_handler_action_t {
+    pub fn call(&mut self, msg: &[u8], header: AeronHeader) -> aeron_controlled_fragment_handler_action_t {
         (self.func)(self.ctx, msg, header)
     }
 
@@ -2145,9 +2084,13 @@ impl AeronControlledFragmentClosureAssembler {
         func: fn(&mut T, &[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
-        self.handler.set(ctx, func);
+        unsafe {
+            self.handler.get_mut().set(ctx, func);
+        }
         let result = pollable.controlled_poll_with_assembler(Some(&self.assembler), fragment_limit);
-        self.handler.clear();
+        unsafe {
+            self.handler.get_mut().clear();
+        }
         result
     }
 }
@@ -2257,9 +2200,7 @@ pub fn validate_endpoint_for_aeron_udp(endpoint: &str) -> Result<(), AeronCError
 
     // IPv6 addresses are bracketed: `[IPv6]:port`. Extract the host part.
     if endpoint.starts_with('[') {
-        let end_bracket = endpoint
-            .find(']')
-            .ok_or_else(|| AeronCError::from_code(-1))?;
+        let end_bracket = endpoint.find(']').ok_or_else(|| AeronCError::from_code(-1))?;
         if end_bracket == 1 {
             // Empty `[]` is invalid.
             return Err(AeronCError::from_code(-1));
@@ -2267,9 +2208,7 @@ pub fn validate_endpoint_for_aeron_udp(endpoint: &str) -> Result<(), AeronCError
         let host_part = &endpoint[1..end_bracket];
         // Find the port separator colon AFTER the closing bracket.
         let after_bracket = &endpoint[end_bracket..];
-        let colon_offset = after_bracket
-            .find(':')
-            .ok_or_else(|| AeronCError::from_code(-1))?;
+        let colon_offset = after_bracket.find(':').ok_or_else(|| AeronCError::from_code(-1))?;
         let colon_pos = end_bracket + colon_offset;
         if colon_offset != 1 || colon_pos + 1 >= endpoint.len() {
             // Port must immediately follow `]` and be non-empty.
@@ -2283,9 +2222,7 @@ pub fn validate_endpoint_for_aeron_udp(endpoint: &str) -> Result<(), AeronCError
 
     // Unbracketed form: `host:port`. Split on the last `:` (IPv4 has at most
     // 3 colons for dotted decimals; we only want the port separator).
-    let colon_pos = endpoint
-        .rfind(':')
-        .ok_or_else(|| AeronCError::from_code(-1))?;
+    let colon_pos = endpoint.rfind(':').ok_or_else(|| AeronCError::from_code(-1))?;
     if colon_pos == 0 || colon_pos + 1 >= endpoint.len() {
         // Require non-empty host and port.
         return Err(AeronCError::from_code(-1));
@@ -2373,9 +2310,7 @@ fn validate_port(port: &str) -> Result<(), AeronCError> {
     }
 
     // Parse as u16; reject values that overflow 65535.
-    let port_num = port
-        .parse::<u32>()
-        .map_err(|_| AeronCError::from_code(-1))?;
+    let port_num = port.parse::<u32>().map_err(|_| AeronCError::from_code(-1))?;
     if port_num > 65535 {
         return Err(AeronCError::from_code(-1));
     }
@@ -2395,18 +2330,9 @@ mod aeron_custom_tests {
 
     #[test]
     fn from_position_maps_every_sentinel_distinctly() {
-        assert_eq!(
-            AeronOfferError::from_position(-1),
-            Err(AeronOfferError::NotConnected)
-        );
-        assert_eq!(
-            AeronOfferError::from_position(-2),
-            Err(AeronOfferError::BackPressured)
-        );
-        assert_eq!(
-            AeronOfferError::from_position(-3),
-            Err(AeronOfferError::AdminAction)
-        );
+        assert_eq!(AeronOfferError::from_position(-1), Err(AeronOfferError::NotConnected));
+        assert_eq!(AeronOfferError::from_position(-2), Err(AeronOfferError::BackPressured));
+        assert_eq!(AeronOfferError::from_position(-3), Err(AeronOfferError::AdminAction));
         assert_eq!(AeronOfferError::from_position(-4), Err(AeronOfferError::Closed));
         assert_eq!(
             AeronOfferError::from_position(-5),
@@ -2447,10 +2373,7 @@ mod aeron_custom_tests {
     #[test]
     fn status_from_error_returns_none_for_non_status_errors() {
         // PublicationMaxPositionExceeded (-5) is not a status-like transition.
-        assert_eq!(
-            AeronStatus::from_error(&AeronOfferError::MaxPositionExceeded),
-            None
-        );
+        assert_eq!(AeronStatus::from_error(&AeronOfferError::MaxPositionExceeded), None);
     }
 
     #[test]
@@ -2486,10 +2409,7 @@ mod aeron_custom_tests {
     fn status_tracker_emits_on_transition() {
         let mut tracker = AeronStatusTracker::new();
         tracker.observe(AeronStatus::Disconnected);
-        assert_eq!(
-            tracker.observe(AeronStatus::Connected),
-            Some(AeronStatus::Connected)
-        );
+        assert_eq!(tracker.observe(AeronStatus::Connected), Some(AeronStatus::Connected));
     }
 
     #[test]
@@ -2507,20 +2427,14 @@ mod aeron_custom_tests {
         assert_eq!(tracker.observe(AeronStatus::Connected), None);
 
         tracker.reset();
-        assert_eq!(
-            tracker.observe(AeronStatus::Connected),
-            Some(AeronStatus::Connected)
-        );
+        assert_eq!(tracker.observe(AeronStatus::Connected), Some(AeronStatus::Connected));
     }
 
     #[test]
     fn status_tracker_records_closed_transition() {
         let mut tracker = AeronStatusTracker::new();
         tracker.observe(AeronStatus::Connected);
-        assert_eq!(
-            tracker.observe(AeronStatus::Closed),
-            Some(AeronStatus::Closed)
-        );
+        assert_eq!(tracker.observe(AeronStatus::Closed), Some(AeronStatus::Closed));
         // No further transitions from Closed.
         assert_eq!(tracker.observe(AeronStatus::Closed), None);
     }
@@ -2534,22 +2448,13 @@ mod aeron_custom_tests {
             tracker.observe(AeronStatus::Disconnected),
             Some(AeronStatus::Disconnected)
         );
-        assert_eq!(
-            tracker.observe(AeronStatus::Connected),
-            Some(AeronStatus::Connected)
-        );
+        assert_eq!(tracker.observe(AeronStatus::Connected), Some(AeronStatus::Connected));
         assert_eq!(
             tracker.observe(AeronStatus::BackPressured),
             Some(AeronStatus::BackPressured)
         );
-        assert_eq!(
-            tracker.observe(AeronStatus::Connected),
-            Some(AeronStatus::Connected)
-        );
-        assert_eq!(
-            tracker.observe(AeronStatus::Closed),
-            Some(AeronStatus::Closed)
-        );
+        assert_eq!(tracker.observe(AeronStatus::Connected), Some(AeronStatus::Connected));
+        assert_eq!(tracker.observe(AeronStatus::Closed), Some(AeronStatus::Closed));
     }
 
     // --- validate_endpoint_for_aeron_udp tests ---

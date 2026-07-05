@@ -199,12 +199,12 @@ mod tests {
             }
         }
 
-        let mut handler = Handler::new(MessageHandler::default());
+        let handler = Handler::new(MessageHandler::default());
 
         // Drain the subscription's image into existence before publishing.
         let start = Instant::now();
         while subscription.image_count()? == 0 && start.elapsed() < Duration::from_secs(5) {
-            subscription.poll(Some(&mut handler), 10)?;
+            subscription.poll(Some(&handler), 10)?;
             sleep(Duration::from_millis(10));
         }
         assert!(
@@ -223,7 +223,7 @@ mod tests {
         // Poll for messages
         let start = Instant::now();
         while handler.count.get() < message_count && start.elapsed() < Duration::from_secs(10) {
-            subscription.poll(Some(&mut handler), 10)?;
+            subscription.poll(Some(&handler), 10)?;
             sleep(Duration::from_millis(10));
         }
 
@@ -291,13 +291,8 @@ mod tests {
         // Resolve the recording and wait for it to flush.
         let session_id = publication.get_constants()?.session_id;
         let counters_reader = aeron_archive.counters_reader();
-        let mut counter_id = -1;
-        let start = Instant::now();
-        while counter_id == -1 && start.elapsed() < Duration::from_secs(5) {
-            counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
-            sleep(Duration::from_millis(10));
-        }
-        assert!(counter_id >= 0, "Could not find recording counter");
+        let counter_id =
+            crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
 
         let recording_id = RecordingPos::get_recording_id(&counters_reader, counter_id)?;
         let published_position = publication.position();
@@ -336,11 +331,11 @@ mod tests {
                 }
             }
         }
-        let mut handler = Handler::new(PhaseHandler::default());
+        let handler = Handler::new(PhaseHandler::default());
 
         let start = Instant::now();
         while handler.replay_count < initial_message_count && start.elapsed() < Duration::from_secs(20) {
-            replay_sub.poll(Some(&mut handler), 100)?;
+            replay_sub.poll(Some(&handler), 100)?;
             sleep(Duration::from_millis(10));
         }
         assert!(
@@ -357,7 +352,7 @@ mod tests {
             .poll_blocking(Duration::from_secs(5))?;
         let start = Instant::now();
         while subscription.image_count()? == 0 && start.elapsed() < Duration::from_secs(5) {
-            subscription.poll(Some(&mut handler), 10)?;
+            subscription.poll(Some(&handler), 10)?;
             sleep(Duration::from_millis(10));
         }
 
@@ -375,7 +370,7 @@ mod tests {
 
         let start = Instant::now();
         while handler.live_count < live_message_count && start.elapsed() < Duration::from_secs(20) {
-            subscription.poll(Some(&mut handler), 100)?;
+            subscription.poll(Some(&handler), 100)?;
             sleep(Duration::from_millis(10));
         }
         assert!(
@@ -433,7 +428,8 @@ mod tests {
         // Get recording ID
         let session_id = publication.get_constants()?.session_id;
         let counters_reader = aeron_archive.counters_reader();
-        let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
+        let counter_id =
+            crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
         let recording_id = RecordingPos::get_recording_id_block(&counters_reader, counter_id, Duration::from_secs(5))?;
 
         // Simulate connection interruption by closing the archive
@@ -555,13 +551,8 @@ mod tests {
         // test_replay_merge_with_late_joiner below.
         let session_id = publication.get_constants()?.session_id;
         let counters_reader = aeron_archive.counters_reader();
-        let mut counter_id = -1;
-        let start = Instant::now();
-        while counter_id == -1 && start.elapsed() < Duration::from_secs(5) {
-            counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
-            sleep(Duration::from_millis(10));
-        }
-        assert!(counter_id >= 0, "Should find recording counter");
+        let counter_id =
+            crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
 
         // Clean shutdown
         drop(archive);
@@ -715,7 +706,8 @@ mod tests {
         // Get recording ID
         let session_id = publication.get_constants()?.session_id;
         let counters_reader = aeron_archive.counters_reader();
-        let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
+        let counter_id =
+            crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
         let recording_id = RecordingPos::get_recording_id_block(&counters_reader, counter_id, Duration::from_secs(5))?;
 
         // Wait for the recording to capture everything we published before replaying,
@@ -761,12 +753,12 @@ mod tests {
             }
         }
 
-        let mut handler = Handler::new(VerificationHandler::default());
+        let handler = Handler::new(VerificationHandler::default());
 
         // Poll for all messages
         let start = Instant::now();
         while handler.received.len() < test_messages.len() && start.elapsed() < Duration::from_secs(20) {
-            subscription.poll(Some(&mut handler), 100)?;
+            subscription.poll(Some(&handler), 100)?;
             sleep(Duration::from_millis(10));
         }
 
@@ -930,7 +922,8 @@ mod tests {
         // Get recording position (wait for the recording to capture the messages)
         let session_id = publication.get_constants()?.session_id;
         let counters_reader = aeron_archive.counters_reader();
-        let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
+        let counter_id =
+            crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
         let mut recording_position = counters_reader.get_counter_value(counter_id);
         let start = Instant::now();
         while recording_position <= 0 && start.elapsed() < Duration::from_secs(5) {
@@ -1027,7 +1020,7 @@ mod tests {
         while start.elapsed() < Duration::from_secs(5) {
             let mut all_ready = true;
             for (i, sub) in subscriptions.iter().enumerate() {
-                sub.poll(Some(&mut handlers[i]), 10)?;
+                sub.poll(Some(&handlers[i]), 10)?;
                 if sub.image_count()? == 0 {
                     all_ready = false;
                 }
@@ -1055,7 +1048,7 @@ mod tests {
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(10) {
             for (i, sub) in subscriptions.iter().enumerate() {
-                sub.poll(Some(&mut handlers[i]), 10)?;
+                sub.poll(Some(&handlers[i]), 10)?;
             }
             sleep(Duration::from_millis(10));
 
@@ -1139,7 +1132,8 @@ mod tests {
 
         let session_id = publication.get_constants()?.session_id;
         let counters_reader = aeron_archive.counters_reader();
-        let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
+        let counter_id =
+            crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
         let recording_id = RecordingPos::get_recording_id_block(&counters_reader, counter_id, Duration::from_secs(5))?;
         let published_position = publication.position();
         let start = Instant::now();
@@ -1273,7 +1267,8 @@ mod tests {
         }
         let session_id = publication.get_constants()?.session_id;
         let counters_reader = aeron_archive.counters_reader();
-        let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
+        let counter_id =
+            crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
         let recording_id = RecordingPos::get_recording_id_block(&counters_reader, counter_id, Duration::from_secs(5))?;
 
         struct ResilienceListener {
