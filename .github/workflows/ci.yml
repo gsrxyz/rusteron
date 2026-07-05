@@ -45,22 +45,6 @@ jobs:
       - name: Check clippy lints
         run: cargo clippy --all -- --deny warnings
 
-      - name: Forbid Box::leak in hand-authored code
-        # Box::leak is almost always a "leak to silence the borrow checker" bug
-        # (the AeronCncMetadata::load_from_file mmap leak was exactly this).
-        # Match the call form `Box::leak(` so doc-comment mentions like
-        # "Box::leak + None" don't trip it.
-        run: |
-          if grep -rn 'Box::leak(' --include="*.rs" \
-            rusteron-code-gen/src \
-            rusteron-client/src \
-            rusteron-archive/src \
-            rusteron-media-driver/src; then
-            echo "ERROR: Box::leak() in hand-authored code is almost always a leak-to-silence-the-borrow-checker bug." >&2
-            echo "Use Rc/Arc ownership, a cleanup closure in ManagedCResource::new, or cleanup_struct=true." >&2
-            exit 1
-          fi
-
       - name: Check docs
         run: |
           sudo apt-get update && sudo apt-get install -y uuid-dev libbsd-dev

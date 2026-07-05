@@ -1525,17 +1525,6 @@ mod tests {
         Ok(())
     }
 
-    /// `close_now` with a complex archive object graph where Rust drops children
-    /// (recordings, replays, subscriptions) before the parent. In 0.2's deferred-close
-    /// model, children close immediately when dropped, so calling `close_now()` on
-    /// an archive after all children have been dropped must be safe — the C client
-    /// handles already-closed resources gracefully. This test verifies no
-    /// segfaults or double-frees (CI runs this under ASan which catches use-after-free).
-    ///
-    /// WARNING: if any child handle survives `close_now()`, its C resources are
-    /// freed and the handle becomes unsafe to use (dangling pointer). You MUST
-    /// drop all children before calling `close_now()`, or explicitly `std::mem::forget`
-    /// them and accept the UB.
     #[test]
     #[serial]
     fn close_now_after_all_archive_children_dropped_is_safe() -> Result<(), Box<dyn std::error::Error>> {

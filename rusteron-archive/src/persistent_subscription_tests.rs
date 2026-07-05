@@ -38,14 +38,7 @@ mod tests {
     use std::thread::sleep;
     use std::time::{Duration, Instant};
 
-    /// Retry an archive control operation until `deadline`. Archive control ops
-    /// (`start_recording`, `start_replay`, …) can transiently return `code: -1`
-    /// (GenericError, "no error") while the Java archive / conductor settles under
-    /// CI load — and that code is **not** `is_retryable()`, so the
-    /// `retry_transient`-style helpers don't catch it. This wrapper retries on any
-    /// archive control error for a short window, which makes the integration tests
-    /// deterministic under load without slowing the success path (the op almost
-    /// always succeeds on the first try).
+    /// Retry an archive control operation until `deadline`
     fn retry_archive_op<T, F>(deadline: Instant, mut op: F) -> Result<T, AeronArchiveError>
     where
         F: FnMut() -> Result<T, AeronArchiveError>,
@@ -544,11 +537,7 @@ mod tests {
             }
         }
 
-        // Verify recording exists. The archive registers the recording-position
-        // counter asynchronously via its conductor thread, so a one-shot lookup
-        // races the conductor on a loaded runner (this previously flaked on the
-        // macOS CI box). Poll for up to 5s, matching the pattern in
-        // test_replay_merge_with_late_joiner below.
+        // Verify recording exists
         let session_id = publication.get_constants()?.session_id;
         let counters_reader = aeron_archive.counters_reader();
         let counter_id =

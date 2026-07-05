@@ -58,14 +58,7 @@ mod tests {
     struct NoopPsListener;
     impl PersistentSubscriptionListener for NoopPsListener {}
 
-    /// Retry an archive control operation until `deadline`. Archive control ops
-    /// (`start_recording`, `start_replay`, …) can transiently return `code: -1`
-    /// (GenericError, "no error") while the Java archive / conductor settles under
-    /// CI load — and that code is **not** `is_retryable()`, so the
-    /// `retry_transient`-style helpers don't catch it. This wrapper retries on any
-    /// archive control error for a short window, which makes the integration tests
-    /// deterministic under load without slowing the success path (the op almost
-    /// always succeeds on the first try).
+    /// Retry an archive control operation until `deadline`
     fn retry_archive_op<T, F>(deadline: Instant, mut op: F) -> Result<T, AeronArchiveError>
     where
         F: FnMut() -> Result<T, AeronArchiveError>,
@@ -1214,10 +1207,8 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(20);
         while collector.count == 0 && Instant::now() < deadline {
             // asm.poll drives ps.poll(...) internally — it both advances the PS state
-            // machine and delivers reassembled messages. Do NOT also call ps.poll_fn:
-            // that would consume the messages before the assembler sees them. (The C
-            // persistent_subscription_poll already reassembles; the Rust assembler is
-            // a pass-through here, kept for API consistency with AeronSubscription.)
+            // machine and delivers (reassembled) fragments. Do NOT also call ps.poll_fn:
+            // that would consume the raw fragments before the assembler sees them.
             asm.poll(&ps, &mut collector, collect, 100)?;
             sleep(Duration::from_millis(1));
         }

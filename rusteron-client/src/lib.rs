@@ -1324,10 +1324,6 @@ mod tests {
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
         media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
-        // Under Valgrind execution can be ~20-30x slower on CI runners; a 140 KB
-        // IPC send + poll cycle has measured a ~98 s gap between client keepalives,
-        // so the default 60 s liveness timeout evicts the client mid-test. Extend
-        // timeouts substantially when running under Valgrind.
         let (liveness_ns, unblock_ns, driver_timeout_ms) = if running_under_valgrind() {
             (180_000_000_000u64, 185_000_000_000u64, 180_000)
         } else {
@@ -1544,10 +1540,6 @@ mod tests {
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
         media_driver_ctx.set_dir(&format!("{}{}", media_driver_ctx.get_dir(), Aeron::epoch_clock()).into_c_string())?;
-        // Under Valgrind execution can be ~20-30x slower on CI runners; a 140 KB
-        // IPC send + poll cycle has measured a ~98 s gap between client keepalives,
-        // so the default 60 s liveness timeout evicts the client mid-test. Extend
-        // timeouts substantially when running under Valgrind.
         let (liveness_ns, unblock_ns, driver_timeout_ms) = if running_under_valgrind() {
             (180_000_000_000u64, 185_000_000_000u64, 180_000)
         } else {
