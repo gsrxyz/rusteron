@@ -7772,6 +7772,59 @@ impl AeronArchiveReplayMerge {
         }
     }
     #[inline]
+    #[doc = "Poll the image used for the merging replay and live stream."]
+    #[doc = " The aeron_archive_replay_merge_do_work will be called before the poll so that processing of the merge can be done."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `handler` the handler to call for incoming fragments"]
+    #[doc = " \n - `clientd` the clientd to provide to the handler"]
+    #[doc = " \n - `fragment_limit` the max number of fragments to process before returning"]
+    #[doc = " \n# Return\n >= 0 indicates the number of fragments processed, -1 for failure"]
+    #[doc = r""]
+    #[doc = r""]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
+    pub fn poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
+        &self,
+        mut handler: AeronFragmentHandlerHandlerImpl,
+        fragment_limit: ::std::os::raw::c_int,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_archive_replay_merge_poll),
+                [
+                    concat!("replay_merge", ": ", stringify!(*mut aeron_archive_replay_merge_t)).to_string(),
+                    concat!("handler", ": ", stringify!(aeron_fragment_handler_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_archive_replay_merge_poll(
+                self.get_inner(),
+                Some(aeron_fragment_handler_t_callback_for_once_closure::<AeronFragmentHandlerHandlerImpl>),
+                &mut handler as *mut _ as *mut std::os::raw::c_void,
+                fragment_limit.into(),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
     #[doc = "The image used for the replay and live stream."]
     #[doc = ""]
     #[doc = " \n# Return\n the `AeronImage`"]
@@ -20976,6 +21029,61 @@ impl AeronImage {
     #[doc = "Poll for new messages in a stream. If new messages are found beyond the last consumed position then they"]
     #[doc = " will be delivered to the handler up to a limited number of fragments as specified."]
     #[doc = " \n"]
+    #[doc = " Use a fragment assembler to assemble messages which span multiple fragments."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
+    #[doc = " \n - `clientd` to pass to the handler."]
+    #[doc = " \n - `fragment_limit` for the number of fragments to be consumed during one polling operation."]
+    #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
+    #[doc = r""]
+    #[doc = r""]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
+    pub fn poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
+        &self,
+        mut handler: AeronFragmentHandlerHandlerImpl,
+        fragment_limit: usize,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_image_poll),
+                [
+                    concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string(),
+                    concat!("handler", ": ", stringify!(aeron_fragment_handler_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_image_poll(
+                self.get_inner(),
+                Some(aeron_fragment_handler_t_callback_for_once_closure::<AeronFragmentHandlerHandlerImpl>),
+                &mut handler as *mut _ as *mut std::os::raw::c_void,
+                fragment_limit.into(),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    #[doc = "Poll for new messages in a stream. If new messages are found beyond the last consumed position then they"]
+    #[doc = " will be delivered to the handler up to a limited number of fragments as specified."]
+    #[doc = " \n"]
     #[doc = " Use a controlled fragment assembler to assemble messages which span multiple fragments."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
@@ -28906,6 +29014,62 @@ impl AeronSubscription {
                     callback
                 },
                 handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
+                fragment_limit.into(),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    #[doc = "Poll the images under the subscription for available message fragments."]
+    #[doc = " \n"]
+    #[doc = " Each fragment read will be a whole message if it is under MTU length. If larger than MTU then it will come"]
+    #[doc = " as a series of fragments ordered within a session."]
+    #[doc = " \n"]
+    #[doc = " To assemble messages that span multiple fragments then use `AeronFragmentAssembler`."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `handler` for handling each message fragment as it is read."]
+    #[doc = " \n - `fragment_limit` number of message fragments to limit when polling across multiple images."]
+    #[doc = " \n# Return\n the number of fragments received or -1 for error."]
+    #[doc = r""]
+    #[doc = r""]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
+    pub fn poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
+        &self,
+        mut handler: AeronFragmentHandlerHandlerImpl,
+        fragment_limit: usize,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_subscription_poll),
+                [
+                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
+                    concat!("handler", ": ", stringify!(aeron_fragment_handler_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_subscription_poll(
+                self.get_inner(),
+                Some(aeron_fragment_handler_t_callback_for_once_closure::<AeronFragmentHandlerHandlerImpl>),
+                &mut handler as *mut _ as *mut std::os::raw::c_void,
                 fragment_limit.into(),
             );
             #[cfg(feature = "log-c-bindings")]

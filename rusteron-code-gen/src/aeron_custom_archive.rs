@@ -432,32 +432,6 @@ impl AeronArchiveRecordingSignal {
     }
 }
 
-impl AeronArchiveReplayMerge {
-    /// Poll the replay-merge delivering each fragment to `handler`, borrowing the
-    /// closure only for this call (zero allocation). Named to match
-    /// [`AeronSubscription::poll_fn`].
-    #[inline]
-    pub fn poll_fn<H: FnMut(&[u8], AeronHeader)>(
-        &self,
-        mut handler: H,
-        fragment_limit: std::os::raw::c_int,
-    ) -> Result<i32, AeronCError> {
-        let result = unsafe {
-            aeron_archive_replay_merge_poll(
-                self.get_inner(),
-                Some(aeron_fragment_handler_t_callback_for_once_closure::<H>),
-                &mut handler as *mut _ as *mut std::os::raw::c_void,
-                fragment_limit.into(),
-            )
-        };
-        if result < 0 {
-            Err(AeronCError::from_code(result))
-        } else {
-            Ok(result)
-        }
-    }
-}
-
 /// Route a persistent subscription through [`AeronFragmentClosureAssembler`] for
 /// API consistency with [`AeronSubscription`]. Note: the C
 /// `aeron_archive_persistent_subscription_poll` already reassembles fragments
