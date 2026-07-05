@@ -1,3 +1,4 @@
+
 // code here is included in all modules and extends generated classes
 pub static AERON_IPC_STREAM: &std::ffi::CStr = c"aeron:ipc";
 
@@ -463,26 +464,53 @@ impl std::convert::TryFrom<i32> for AeronSystemCounterType {
     }
 }
 
+// SAFETY: `aeron_mapped_file_t` is a plain `{ addr: *mut c_void, length: u64 }`.
+// It is touched only inside the init closure (runs once at construction) and the
+// cleanup closure (runs once at drop) of `AeronCncMetadata::load_from_file` — never
+// concurrently. This matches the `unsafe impl Send` policy for `ManagedCResource<T>`
+// and the handle types at the top of this file, and unblocks the cleanup closure
+// under the `multi-threaded` feature where `CleanupBox<T>: Send`.
+unsafe impl Send for aeron_mapped_file_t {}
+
 impl AeronCncMetadata {
     #[inline]
     /// allocates on heap
     pub fn load_from_file(aeron_dir: &str) -> Result<Self, AeronCError> {
         let aeron_dir = std::ffi::CString::new(aeron_dir).map_err(|_| AeronCError::from_code(-1))?;
-        // Allocate on heap to keep the mapped_file alive
-        let mapped_file = Box::leak(Box::new(aeron_mapped_file_t {
+        // Shared between init and cleanup so the mapping populated by
+        // aeron_cnc_map_file_and_load_metadata stays live for aeron_unmap on drop.
+        let mapped_file = RcOrArc::new(RefCellOrMutex::new(aeron_mapped_file_t {
             addr: std::ptr::null_mut(),
             length: 0,
         }));
+        let mapped_file_for_cleanup = RcOrArc::clone(&mapped_file);
         let resource = ManagedCResource::new(
             move |ctx| {
-                let result = unsafe { aeron_cnc_map_file_and_load_metadata(aeron_dir.as_ptr(), mapped_file, ctx) };
+                #[cfg(not(feature = "multi-threaded"))]
+                let mut g = mapped_file.borrow_mut();
+                #[cfg(feature = "multi-threaded")]
+                let mut g = mapped_file.lock().unwrap();
+                let result = unsafe {
+                    aeron_cnc_map_file_and_load_metadata(
+                        aeron_dir.as_ptr(),
+                        &mut *g as *mut aeron_mapped_file_t,
+                        ctx,
+                    )
+                };
                 if result == aeron_cnc_load_result_t::AERON_CNC_LOAD_SUCCESS {
                     1
                 } else {
                     -1
                 }
             },
-            None, // No cleanup needed - the aeron_cnc_close will handle unmap
+            Some(Box::new(move |_ctx| {
+                #[cfg(not(feature = "multi-threaded"))]
+                let mut g = mapped_file_for_cleanup.borrow_mut();
+                #[cfg(feature = "multi-threaded")]
+                let mut g = mapped_file_for_cleanup.lock().unwrap();
+                unsafe { aeron_unmap(&mut *g as *mut aeron_mapped_file_t) };
+                0
+            })),
             false,
         )?;
 
@@ -864,9 +892,7 @@ impl AeronUriStringBuilder {
                 unsafe {
                     aeron_uri_string_builder_close(inner.get());
                 }
-                inner
-                    .close_already_called
-                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                inner.close_already_called.store(true, std::sync::atomic::Ordering::SeqCst);
             }
             #[cfg(not(feature = "multi-threaded"))]
             if !inner.close_already_called.get() {
@@ -884,9 +910,7 @@ impl AeronUriStringBuilder {
         } else {
             if let Some(inner) = self.inner.as_owned() {
                 #[cfg(feature = "multi-threaded")]
-                inner
-                    .close_already_called
-                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                inner.close_already_called.store(false, std::sync::atomic::Ordering::SeqCst);
                 #[cfg(not(feature = "multi-threaded"))]
                 inner.close_already_called.set(false);
             }
@@ -2610,3 +2634,4 @@ impl AeronCError {
         self.kind().is_unrecoverable()
     }
 }
+
