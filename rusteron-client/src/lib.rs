@@ -1165,16 +1165,14 @@ mod tests {
             )?;
 
             let start = Instant::now();
-            let mut publication = None;
             let mut publication_done = false;
-            let mut subscription = None;
             let mut subscription_done = false;
 
             while !(publication_done && subscription_done) && start.elapsed() < POLL_TIMEOUT {
                 if !publication_done {
                     match pub_poller.poll() {
                         Ok(Some(pub_)) => {
-                            publication = Some(pub_);
+                            let _ = pub_;
                             publication_done = true;
                         }
                         Ok(None) => {}
@@ -1188,7 +1186,7 @@ mod tests {
                 if !subscription_done {
                     match sub_poller.poll() {
                         Ok(Some(sub_)) => {
-                            subscription = Some(sub_);
+                            let _ = sub_;
                             subscription_done = true;
                         }
                         Ok(None) => {}
