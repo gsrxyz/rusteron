@@ -1,4 +1,3 @@
-
 // code here is included in all modules and extends generated classes
 pub static AERON_IPC_STREAM: &std::ffi::CStr = c"aeron:ipc";
 
@@ -476,20 +475,14 @@ impl AeronCncMetadata {
         }));
         let resource = ManagedCResource::new(
             move |ctx| {
-                let result = unsafe {
-                    aeron_cnc_map_file_and_load_metadata(
-                        aeron_dir.as_ptr(),
-                        mapped_file,
-                        ctx,
-                    )
-                };
+                let result = unsafe { aeron_cnc_map_file_and_load_metadata(aeron_dir.as_ptr(), mapped_file, ctx) };
                 if result == aeron_cnc_load_result_t::AERON_CNC_LOAD_SUCCESS {
                     1
                 } else {
                     -1
                 }
             },
-            None, // No cleanup needed - the aeron_cnc_metadata_close will handle unmap
+            None, // No cleanup needed - the aeron_cnc_close will handle unmap
             false,
         )?;
 
@@ -871,7 +864,9 @@ impl AeronUriStringBuilder {
                 unsafe {
                     aeron_uri_string_builder_close(inner.get());
                 }
-                inner.close_already_called.store(true, std::sync::atomic::Ordering::SeqCst);
+                inner
+                    .close_already_called
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
             }
             #[cfg(not(feature = "multi-threaded"))]
             if !inner.close_already_called.get() {
@@ -889,7 +884,9 @@ impl AeronUriStringBuilder {
         } else {
             if let Some(inner) = self.inner.as_owned() {
                 #[cfg(feature = "multi-threaded")]
-                inner.close_already_called.store(false, std::sync::atomic::Ordering::SeqCst);
+                inner
+                    .close_already_called
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
                 #[cfg(not(feature = "multi-threaded"))]
                 inner.close_already_called.set(false);
             }
@@ -2613,4 +2610,3 @@ impl AeronCError {
         self.kind().is_unrecoverable()
     }
 }
-
