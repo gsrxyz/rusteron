@@ -1619,6 +1619,26 @@ impl AeronArchiveContext {
     }
 }
 impl AeronArchiveContext {
+    #[doc = r"Blocking convenience wrapper around the async add operation."]
+    #[doc = r""]
+    #[doc = r"**Convenience for examples and tests only.** It blocks the calling thread"]
+    #[doc = r"in a busy-poll loop until the resource is available or `timeout` elapses. In"]
+    #[doc = r"production, prefer the `async_add_*` variant and drive its `poll()` from your"]
+    #[doc = r"own event loop rather than blocking on a single operation."]
+    #[doc = r""]
+    #[doc = r"# Production pattern (pseudo code)"]
+    #[doc = r"```text"]
+    #[doc = r"// Don't block — drive the async poller from your loop"]
+    #[doc = r"let poller = client.async_add_*(...)?;"]
+    #[doc = r"loop {"]
+    #[doc = r"    if let Some(resource) = poller.poll()? {"]
+    #[doc = r"        break; // ready"]
+    #[doc = r"    }"]
+    #[doc = r"    do_other_work(); // service other subscriptions, timers, etc."]
+    #[doc = r"}"]
+    #[doc = r"```"]
+    #[doc = r""]
+    #[doc = r"See `poll_blocking` on the async poller for the same caveat."]
     #[inline]
     pub fn aeron_archive_connect(&self, timeout: std::time::Duration) -> Result<AeronArchive, AeronCError> {
         let start = std::time::Instant::now();
@@ -1702,6 +1722,25 @@ impl AeronArchiveAsyncConnect {
             }
         }
     }
+    #[doc = r"Polls synchronously until the async operation completes or `timeout` elapses."]
+    #[doc = r""]
+    #[doc = r"**Convenience for examples and tests only.** It blocks the calling thread"]
+    #[doc = r"in a busy-poll loop. In production, drive `poll()` from your own event loop"]
+    #[doc = r"(between other work, on a timer, or in a dedicated duty cycle) rather than"]
+    #[doc = r"blocking on a single operation."]
+    #[doc = r""]
+    #[doc = r"# Production pattern (pseudo code)"]
+    #[doc = r"```text"]
+    #[doc = r"// Don't block — integrate poll() into your existing loop"]
+    #[doc = r"loop {"]
+    #[doc = r"    if let Some(resource) = poller.poll()? {"]
+    #[doc = r"        break; // ready"]
+    #[doc = r"    }"]
+    #[doc = r"    do_other_work(); // service other subscriptions, timers, etc."]
+    #[doc = r"}"]
+    #[doc = r"```"]
+    #[doc = r""]
+    #[doc = r"See the blocking `add_*(.., timeout)` helpers for the same caveat."]
     #[inline]
     pub fn poll_blocking(&self, timeout: std::time::Duration) -> Result<AeronArchive, AeronCError> {
         if let Some(result) = self.poll()? {
@@ -10847,6 +10886,26 @@ impl Aeron {
     }
 }
 impl Aeron {
+    #[doc = r"Blocking convenience wrapper around the async add operation."]
+    #[doc = r""]
+    #[doc = r"**Convenience for examples and tests only.** It blocks the calling thread"]
+    #[doc = r"in a busy-poll loop until the resource is available or `timeout` elapses. In"]
+    #[doc = r"production, prefer the `async_add_*` variant and drive its `poll()` from your"]
+    #[doc = r"own event loop rather than blocking on a single operation."]
+    #[doc = r""]
+    #[doc = r"# Production pattern (pseudo code)"]
+    #[doc = r"```text"]
+    #[doc = r"// Don't block — drive the async poller from your loop"]
+    #[doc = r"let poller = client.async_add_*(...)?;"]
+    #[doc = r"loop {"]
+    #[doc = r"    if let Some(resource) = poller.poll()? {"]
+    #[doc = r"        break; // ready"]
+    #[doc = r"    }"]
+    #[doc = r"    do_other_work(); // service other subscriptions, timers, etc."]
+    #[doc = r"}"]
+    #[doc = r"```"]
+    #[doc = r""]
+    #[doc = r"See `poll_blocking` on the async poller for the same caveat."]
     #[inline]
     pub fn add_counter(
         &self,
@@ -10946,6 +11005,25 @@ impl AeronAsyncAddCounter {
             }
         }
     }
+    #[doc = r"Polls synchronously until the async operation completes or `timeout` elapses."]
+    #[doc = r""]
+    #[doc = r"**Convenience for examples and tests only.** It blocks the calling thread"]
+    #[doc = r"in a busy-poll loop. In production, drive `poll()` from your own event loop"]
+    #[doc = r"(between other work, on a timer, or in a dedicated duty cycle) rather than"]
+    #[doc = r"blocking on a single operation."]
+    #[doc = r""]
+    #[doc = r"# Production pattern (pseudo code)"]
+    #[doc = r"```text"]
+    #[doc = r"// Don't block — integrate poll() into your existing loop"]
+    #[doc = r"loop {"]
+    #[doc = r"    if let Some(resource) = poller.poll()? {"]
+    #[doc = r"        break; // ready"]
+    #[doc = r"    }"]
+    #[doc = r"    do_other_work(); // service other subscriptions, timers, etc."]
+    #[doc = r"}"]
+    #[doc = r"```"]
+    #[doc = r""]
+    #[doc = r"See the blocking `add_*(.., timeout)` helpers for the same caveat."]
     #[inline]
     pub fn poll_blocking(&self, timeout: std::time::Duration) -> Result<AeronCounter, AeronCError> {
         if let Some(result) = self.poll()? {
@@ -11155,6 +11233,26 @@ impl Aeron {
     }
 }
 impl Aeron {
+    #[doc = r"Blocking convenience wrapper around the async add operation."]
+    #[doc = r""]
+    #[doc = r"**Convenience for examples and tests only.** It blocks the calling thread"]
+    #[doc = r"in a busy-poll loop until the resource is available or `timeout` elapses. In"]
+    #[doc = r"production, prefer the `async_add_*` variant and drive its `poll()` from your"]
+    #[doc = r"own event loop rather than blocking on a single operation."]
+    #[doc = r""]
+    #[doc = r"# Production pattern (pseudo code)"]
+    #[doc = r"```text"]
+    #[doc = r"// Don't block — drive the async poller from your loop"]
+    #[doc = r"let poller = client.async_add_*(...)?;"]
+    #[doc = r"loop {"]
+    #[doc = r"    if let Some(resource) = poller.poll()? {"]
+    #[doc = r"        break; // ready"]
+    #[doc = r"    }"]
+    #[doc = r"    do_other_work(); // service other subscriptions, timers, etc."]
+    #[doc = r"}"]
+    #[doc = r"```"]
+    #[doc = r""]
+    #[doc = r"See `poll_blocking` on the async poller for the same caveat."]
     #[inline]
     pub fn add_exclusive_publication(
         &self,
@@ -11250,6 +11348,25 @@ impl AeronAsyncAddExclusivePublication {
             }
         }
     }
+    #[doc = r"Polls synchronously until the async operation completes or `timeout` elapses."]
+    #[doc = r""]
+    #[doc = r"**Convenience for examples and tests only.** It blocks the calling thread"]
+    #[doc = r"in a busy-poll loop. In production, drive `poll()` from your own event loop"]
+    #[doc = r"(between other work, on a timer, or in a dedicated duty cycle) rather than"]
+    #[doc = r"blocking on a single operation."]
+    #[doc = r""]
+    #[doc = r"# Production pattern (pseudo code)"]
+    #[doc = r"```text"]
+    #[doc = r"// Don't block — integrate poll() into your existing loop"]
+    #[doc = r"loop {"]
+    #[doc = r"    if let Some(resource) = poller.poll()? {"]
+    #[doc = r"        break; // ready"]
+    #[doc = r"    }"]
+    #[doc = r"    do_other_work(); // service other subscriptions, timers, etc."]
+    #[doc = r"}"]
+    #[doc = r"```"]
+    #[doc = r""]
+    #[doc = r"See the blocking `add_*(.., timeout)` helpers for the same caveat."]
     #[inline]
     pub fn poll_blocking(&self, timeout: std::time::Duration) -> Result<AeronExclusivePublication, AeronCError> {
         if let Some(result) = self.poll()? {
@@ -11450,6 +11567,26 @@ impl Aeron {
     }
 }
 impl Aeron {
+    #[doc = r"Blocking convenience wrapper around the async add operation."]
+    #[doc = r""]
+    #[doc = r"**Convenience for examples and tests only.** It blocks the calling thread"]
+    #[doc = r"in a busy-poll loop until the resource is available or `timeout` elapses. In"]
+    #[doc = r"production, prefer the `async_add_*` variant and drive its `poll()` from your"]
+    #[doc = r"own event loop rather than blocking on a single operation."]
+    #[doc = r""]
+    #[doc = r"# Production pattern (pseudo code)"]
+    #[doc = r"```text"]
+    #[doc = r"// Don't block — drive the async poller from your loop"]
+    #[doc = r"let poller = client.async_add_*(...)?;"]
+    #[doc = r"loop {"]
+    #[doc = r"    if let Some(resource) = poller.poll()? {"]
+    #[doc = r"        break; // ready"]
+    #[doc = r"    }"]
+    #[doc = r"    do_other_work(); // service other subscriptions, timers, etc."]
+    #[doc = r"}"]
+    #[doc = r"```"]
+    #[doc = r""]
+    #[doc = r"See `poll_blocking` on the async poller for the same caveat."]
     #[inline]
     pub fn add_publication(
         &self,
@@ -11540,6 +11677,25 @@ impl AeronAsyncAddPublication {
             }
         }
     }
+    #[doc = r"Polls synchronously until the async operation completes or `timeout` elapses."]
+    #[doc = r""]
+    #[doc = r"**Convenience for examples and tests only.** It blocks the calling thread"]
+    #[doc = r"in a busy-poll loop. In production, drive `poll()` from your own event loop"]
+    #[doc = r"(between other work, on a timer, or in a dedicated duty cycle) rather than"]
+    #[doc = r"blocking on a single operation."]
+    #[doc = r""]
+    #[doc = r"# Production pattern (pseudo code)"]
+    #[doc = r"```text"]
+    #[doc = r"// Don't block — integrate poll() into your existing loop"]
+    #[doc = r"loop {"]
+    #[doc = r"    if let Some(resource) = poller.poll()? {"]
+    #[doc = r"        break; // ready"]
+    #[doc = r"    }"]
+    #[doc = r"    do_other_work(); // service other subscriptions, timers, etc."]
+    #[doc = r"}"]
+    #[doc = r"```"]
+    #[doc = r""]
+    #[doc = r"See the blocking `add_*(.., timeout)` helpers for the same caveat."]
     #[inline]
     pub fn poll_blocking(&self, timeout: std::time::Duration) -> Result<AeronPublication, AeronCError> {
         if let Some(result) = self.poll()? {
@@ -11756,6 +11912,26 @@ impl Aeron {
     }
 }
 impl Aeron {
+    #[doc = r"Blocking convenience wrapper around the async add operation."]
+    #[doc = r""]
+    #[doc = r"**Convenience for examples and tests only.** It blocks the calling thread"]
+    #[doc = r"in a busy-poll loop until the resource is available or `timeout` elapses. In"]
+    #[doc = r"production, prefer the `async_add_*` variant and drive its `poll()` from your"]
+    #[doc = r"own event loop rather than blocking on a single operation."]
+    #[doc = r""]
+    #[doc = r"# Production pattern (pseudo code)"]
+    #[doc = r"```text"]
+    #[doc = r"// Don't block — drive the async poller from your loop"]
+    #[doc = r"let poller = client.async_add_*(...)?;"]
+    #[doc = r"loop {"]
+    #[doc = r"    if let Some(resource) = poller.poll()? {"]
+    #[doc = r"        break; // ready"]
+    #[doc = r"    }"]
+    #[doc = r"    do_other_work(); // service other subscriptions, timers, etc."]
+    #[doc = r"}"]
+    #[doc = r"```"]
+    #[doc = r""]
+    #[doc = r"See `poll_blocking` on the async poller for the same caveat."]
     #[inline]
     pub fn add_subscription<
         AeronAvailableImageHandlerImpl: AeronAvailableImageCallback + 'static,
@@ -11919,6 +12095,25 @@ impl AeronAsyncAddSubscription {
             }
         }
     }
+    #[doc = r"Polls synchronously until the async operation completes or `timeout` elapses."]
+    #[doc = r""]
+    #[doc = r"**Convenience for examples and tests only.** It blocks the calling thread"]
+    #[doc = r"in a busy-poll loop. In production, drive `poll()` from your own event loop"]
+    #[doc = r"(between other work, on a timer, or in a dedicated duty cycle) rather than"]
+    #[doc = r"blocking on a single operation."]
+    #[doc = r""]
+    #[doc = r"# Production pattern (pseudo code)"]
+    #[doc = r"```text"]
+    #[doc = r"// Don't block — integrate poll() into your existing loop"]
+    #[doc = r"loop {"]
+    #[doc = r"    if let Some(resource) = poller.poll()? {"]
+    #[doc = r"        break; // ready"]
+    #[doc = r"    }"]
+    #[doc = r"    do_other_work(); // service other subscriptions, timers, etc."]
+    #[doc = r"}"]
+    #[doc = r"```"]
+    #[doc = r""]
+    #[doc = r"See the blocking `add_*(.., timeout)` helpers for the same caveat."]
     #[inline]
     pub fn poll_blocking(&self, timeout: std::time::Duration) -> Result<AeronSubscription, AeronCError> {
         if let Some(result) = self.poll()? {
