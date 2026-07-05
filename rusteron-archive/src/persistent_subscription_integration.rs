@@ -21,7 +21,7 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
-    use crate::testing::EmbeddedArchiveMediaDriverProcess;
+    use crate::testing::{valgrind_timeout, EmbeddedArchiveMediaDriverProcess};
     use log::{error, info, warn};
     use serial_test::serial;
     use std::error::Error;
@@ -957,13 +957,13 @@ mod tests {
             start_aeron_archive_with_config("purge_test", 9900)?;
 
         let archive = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?
-            .poll_blocking(Duration::from_secs(20))
+            .poll_blocking(valgrind_timeout(20))
             .expect("failed to connect to archive");
 
         let channel = "aeron:ipc";
         let stream_id = 5001;
         info!("Starting recording: channel={channel}, stream_id={stream_id}");
-        retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+        retry_archive_op(Instant::now() + valgrind_timeout(15), || {
             archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
         })?;
 
@@ -985,12 +985,12 @@ mod tests {
         info!("Resolved session_id={session_id}");
         let counters = aeron_archive.counters_reader();
         let counter_id =
-            crate::testing::find_counter_id_by_session_blocking(&counters, session_id, Duration::from_secs(5))?;
+            crate::testing::find_counter_id_by_session_blocking(&counters, session_id, valgrind_timeout(5))?;
         info!("Found counter_id={counter_id}");
-        let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
+        let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, valgrind_timeout(5))?;
         let published_position = publication.position();
         info!("Resolved recording_id={recording_id}, position={published_position}");
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + valgrind_timeout(5);
         while counters.get_counter_value(counter_id) < published_position && Instant::now() < deadline {
             sleep(Duration::from_millis(10));
         }
@@ -1004,13 +1004,13 @@ mod tests {
         // truncating — otherwise the archive rejects it with "cannot truncate active recording".
         drop(publication);
         info!("Publication dropped, stopping recording {recording_id}");
-        retry_archive_op(Instant::now() + Duration::from_secs(15), || {
+        retry_archive_op(Instant::now() + valgrind_timeout(15), || {
             archive.stop_recording_channel_and_stream(&channel.into_c_string(), stream_id)
         })?;
         info!("Stop recording request sent, waiting for stop to take effect");
 
-        // IMPROVEMENT #1: Increased timeout from 5s to 10s for better reliability in CI
-        let deadline = Instant::now() + Duration::from_secs(10);
+        // Valgrind-aware timeout; 10s normally, 30s under Valgrind
+        let deadline = Instant::now() + valgrind_timeout(10);
         let mut stopped = false;
         let mut attempts = 0;
         while !stopped && Instant::now() < deadline {

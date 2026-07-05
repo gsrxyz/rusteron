@@ -594,7 +594,7 @@ mod tests {
     use super::*;
     use log::{error, info};
 
-    use crate::testing::EmbeddedArchiveMediaDriverProcess;
+    use crate::testing::{valgrind_timeout, EmbeddedArchiveMediaDriverProcess};
 
     #[test]
     fn archive_error_parse_extracts_error_code() {
@@ -1439,7 +1439,7 @@ mod tests {
 
         for attempt in 0..max_retries {
             let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?;
-            match archive_connector.poll_blocking(Duration::from_secs(5)) {
+            match archive_connector.poll_blocking(valgrind_timeout(5)) {
                 Ok(archive) => {
                     new_archive = Some(archive);
                     break;

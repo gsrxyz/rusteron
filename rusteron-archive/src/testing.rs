@@ -11,6 +11,22 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 use std::{fs, io, panic, process};
 
+/// Check whether the test is running under Valgrind, used to scale Rust-side
+/// timeouts that would otherwise fire before their C counterpart finishes.
+pub(crate) fn running_under_valgrind() -> bool {
+    std::env::var_os("RUSTERON_VALGRIND").is_some()
+}
+
+/// Return a `Duration` scaled by 3× when running under Valgrind: the same
+/// multiplier the client crate uses for driver / liveness timeouts.
+pub(crate) fn valgrind_timeout(base_secs: u64) -> Duration {
+    if running_under_valgrind() {
+        Duration::from_secs(base_secs.saturating_mul(3))
+    } else {
+        Duration::from_secs(base_secs)
+    }
+}
+
 pub struct EmbeddedArchiveMediaDriverProcess {
     child: Child,
     pub aeron_dir: CString,
@@ -119,7 +135,8 @@ impl EmbeddedArchiveMediaDriverProcess {
 
     pub fn archive_connect(&self) -> Result<(AeronArchive, Aeron), io::Error> {
         let start = Instant::now();
-        while start.elapsed() < Duration::from_secs(30) {
+        let deadline = valgrind_timeout(30);
+        while start.elapsed() < deadline {
             if let Ok(aeron_context) = AeronContext::new() {
                 aeron_context.set_dir(&self.aeron_dir).expect("invalid dir");
                 aeron_context
@@ -139,7 +156,7 @@ impl EmbeddedArchiveMediaDriverProcess {
                                 .set_recording_events_channel(&self.recording_events_channel.as_str().into_c_string())
                                 .expect("invalid recording events channel");
                             if let Ok(connect) = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron) {
-                                if let Ok(archive) = connect.poll_blocking(Duration::from_secs(10)) {
+                                if let Ok(archive) = connect.poll_blocking(valgrind_timeout(10)) {
                                     let i = archive.get_archive_id();
                                     assert!(i > 0);
                                     info!("aeron archive media driver is up [connected with archive id {i}]");
@@ -155,10 +172,7 @@ impl EmbeddedArchiveMediaDriverProcess {
             info!("waiting for aeron to start up, retrying...");
         }
 
-        assert!(
-            start.elapsed() < Duration::from_secs(30),
-            "failed to start up aeron media driver"
-        );
+        assert!(start.elapsed() < deadline, "failed to start up aeron media driver");
 
         return Err(std::io::Error::other("unable to start up aeron media driver client"));
     }

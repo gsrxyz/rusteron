@@ -27,7 +27,7 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
-    use crate::testing::EmbeddedArchiveMediaDriverProcess;
+    use crate::testing::{valgrind_timeout, EmbeddedArchiveMediaDriverProcess};
     use log::{error, info};
     use serial_test::serial;
     use std::cell::Cell;
@@ -462,12 +462,36 @@ mod tests {
         archive_context_reconnect
             .set_recording_events_channel(&archive_context.get_recording_events_channel().into_c_string())?;
 
-        let archive_connector_reconnect =
-            AeronArchiveAsyncConnect::new_with_aeron(&archive_context_reconnect, &aeron_archive)?;
-
-        let archive_reconnected = archive_connector_reconnect
-            .poll_blocking(Duration::from_secs(20))
-            .expect("failed to reconnect to archive");
+        // Retry reconnection with exponential backoff to handle the CLOSING
+        // state race: close() is async and the channel endpoint may still be
+        // shutting down. Matches the pattern in test_archive_reconnect_after_close.
+        let mut retry_delay = Duration::from_millis(200);
+        let max_retries = 10;
+        let mut archive_reconnected = None;
+        for attempt in 0..max_retries {
+            let archive_connector =
+                AeronArchiveAsyncConnect::new_with_aeron(&archive_context_reconnect, &aeron_archive)?;
+            match archive_connector.poll_blocking(valgrind_timeout(20)) {
+                Ok(a) => {
+                    archive_reconnected = Some(a);
+                    break;
+                }
+                Err(e) if attempt < max_retries - 1 => {
+                    let msg = e.to_string();
+                    if msg.contains("CLOSING") || msg.contains("temporarily unavailable") {
+                        info!("Reconnect got CLOSING/temporarily-unavailable, retrying in {retry_delay:?}");
+                        std::thread::sleep(retry_delay);
+                        retry_delay = retry_delay.saturating_mul(2);
+                        continue;
+                    }
+                    return Err(format!("Failed to reconnect to archive: {msg}").into());
+                }
+                Err(e) => {
+                    return Err(format!("Failed to reconnect to archive after {max_retries} retries: {e}").into());
+                }
+            }
+        }
+        let archive_reconnected = archive_reconnected.expect("failed to reconnect to archive after retries");
 
         info!("Successfully reconnected to archive");
 
