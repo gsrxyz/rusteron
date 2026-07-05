@@ -109,6 +109,14 @@ let t2 = { let p = publication.clone(); thread::spawn(move || { p.offer(b"world"
 
 ---
 
+## Documentation & Guides
+
+For detailed guides and code snippets on Aeron features in Rust, see:
+- [Multi-Destination Subscription (MDC / MDS) Guide](./docs/mdc_mds_guide.md)
+- [Media Driver Configuration & Back-pressure Guide](./docs/media_driver_configuration_and_backpressure_guide.md)
+
+---
+
 ## Development
 
 Build tasks use [`just`](https://github.com/casey/just). Run `just` to list commands, or `cargo install just` if needed.

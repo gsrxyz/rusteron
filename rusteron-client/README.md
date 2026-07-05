@@ -253,6 +253,16 @@ in the [root README's migration guide](../README.md#migrating-from-01168-to-02).
 - [`examples/request_response.rs`](./examples/request_response.rs) — response channels (aeron 1.44+): request/response wiring via `control-mode=response` + `response-correlation-id` (port of `response_server.c`/`response_client.c`)
 - [`examples/file_transfer.rs`](./examples/file_transfer.rs) — chunked file transfer with fragment reassembly and verification (port of `FileSender`/`FileReceiver`)
 
+---
+
+## Documentation & Guides
+
+For detailed guides and code snippets on Aeron features in Rust, see:
+- [Multi-Destination Subscription (MDC / MDS) Guide](../docs/mdc_mds_guide.md)
+- [Media Driver Configuration & Back-pressure Guide](../docs/media_driver_configuration_and_backpressure_guide.md)
+
+---
+
 ## Errors & offer results
 
 - **Client errors**: install an error handler on the context (`ctx.set_error_handler(Some(handler))`) so async errors aren't silently lost — Aeron's samples always do.

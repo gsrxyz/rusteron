@@ -100,14 +100,25 @@ archive_context.set_error_handler(Some(|code: i32, msg: &str| eprintln!("archive
 subscription.poll_fn(|buf: &[u8], header: AeronHeader| println!("{} bytes", buf.len()), 10)?;
 ```
 
-`Handlers::NONE` fits any optional callback slot. See the
-[rusteron-client README](../rusteron-client/README.md#handlers-and-callbacks) for the full
-handler model.
+`Handlers::NONE` fits any optional callback slot.
+
+For comprehensive details on how handler registration, callbacks, error checking, and idle strategies work in the `rusteron` ecosystem (which are fully applicable here as well), please refer to the corresponding sections in the **rusteron-client** documentation:
+- [rusteron-client: Handlers and Callbacks](../rusteron-client/README.md#handlers-and-callbacks)
+- [rusteron-client: Errors & Offer Results](../rusteron-client/README.md#errors--offer-results)
+- [rusteron-client: Idle Strategies](../rusteron-client/README.md#idle-strategies)
 
 Archive control operations (`begin_replay`, `start_recording`, …) return
 `Result<_, AeronArchiveError>` — a typed code (`AeronArchiveErrorCode`) plus the archive's
 message. Constructors, async-connect, and context setters return `AeronCError`;
 `From<AeronArchiveError> for AeronCError` keeps `?` working across both.
+
+---
+
+## Documentation & Guides
+
+For detailed guides and code snippets on Aeron features in Rust, see:
+- [Multi-Destination Subscription (MDC / MDS) Guide](../docs/mdc_mds_guide.md)
+- [Media Driver Configuration & Back-pressure Guide](../docs/media_driver_configuration_and_backpressure_guide.md)
 
 ---
 
