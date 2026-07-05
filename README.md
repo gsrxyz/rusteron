@@ -213,17 +213,17 @@ for _ in 0..reconnect_attempts {
 
 ## What's new in 0.2
 
-0.2 is a breaking release (deeper write-up in the [rusteron-client README](./rusteron-client/README.md)):
+0.2 is a breaking release (deeper write-up in the [rusteron-client README](./rusteron-client/README.md#general-patterns)):
 
 - **Deferred close.** `aeron.close()` no longer frees child resources immediately (the 0.1.x behaviour was a use-after-free). Close is deferred until the last reference drops; drop order is arbitrary. `unsafe close_now()` forces immediate teardown.
 - **Reference-counted handlers.** `Handler::leak()`/`release()` are gone; `Handler::new()` is `Arc`-backed and freed when the last clone drops. Retained-callback setters take the value (closure or trait impl) and return the `Handler`. `Handlers::NONE` covers "no callback".
 - **Typed errors.** `offer`/`try_claim` return `Result<i64, AeronOfferError>` with `is_retryable()`. `AeronCError` construction is allocation-free (never reads `aeron_errmsg()`); `capture_errmsg()` opts into attaching the message. Archive control ops return `Result<_, AeronArchiveError>` (`From` keeps `?` working).
-- **Hot path.** Generated wrappers are `#[inline]`; release profile uses fat LTO. `offer_parts(&[&header, &payload])` is a zero-copy vectored publish; `poll_fn` is the zero-alloc closure poll; C-string args follow the `c""`/`cformat!`/reuse pattern above.
+- **Hot path.** `offer_parts(&[&header, &payload])` is a zero-copy vectored publish; C-string args follow the `c""`/`cformat!`/reuse pattern above.
 - **Convenience.** `Aeron::connect_dir`, `AeronDriver::launch_embedded_guard` (RAII), `ChannelUri::add_session_id`, `AeronUriStringBuilder::ipc()/udp()`, retained-image accessors, direct constant getters, and ported samples (basic_publisher/subscriber, ping/pong, file transfer, MDS, request/response).
 
 ## Migrating from 0.1.168 to 0.2
 
-Old → new for every renamed/changed API (rows verified against the released 0.1.168):
+Old → new for every renamed/changed API
 
 | 0.1.168 | 0.2 | Notes |
 |---|---|---|
@@ -231,7 +231,7 @@ Old → new for every renamed/changed API (rows verified against the released 0.
 | `ctx.set_error_handler(Some(&handler))` (borrowed) | `ctx.set_error_handler(Some(handler_or_closure))` | Retained setters take the value; closures work directly; returns the `Handler`. |
 | `aeron.close()` — freed children immediately | deferred close | Frees when the last reference drops; `unsafe close_now()` forces immediate. |
 | `Handler` was `Sync` | `Send` only | The conductor thread invokes callbacks; sharing `&Handler` across threads raced. |
-| `AeronPublication` / `AeronSubscription` / … were `Sync` | `Send` only by default | Handles use `Rc` (single-thread ownership). Enable the `multi-threaded` feature (`Rc` → `Arc` + `unsafe impl Sync`) to share `&Handle` across threads for the ops Aeron C documents as thread-safe (`offer` / `try_claim` / `position` / `is_connected`). |
+| `AeronPublication` / `AeronSubscription` / … were `Sync` | `Send` only by default (use `multi-threaded` feature flag if you need Sync) | Handles use `Rc` (single-thread ownership). Enable the `multi-threaded` feature (`Rc` → `Arc` + `unsafe impl Sync`) to share `&Handle` across threads for the ops Aeron C documents as thread-safe (`offer` / `try_claim` / `position` / `is_connected`). |
 | `publication.offer(buf, supplier)` → raw `i64` | `publication.offer_raw(buf, supplier)` | Same branch-free sentinel return, renamed to make "raw" explicit. |
 | `publication.offer_result(buf, supplier)` → `Result<_, AeronCError>` | `publication.offer_with_reserved_value(buf, supplier)` → `Result<_, AeronOfferError>` | Typed offer errors with `is_retryable()`. |
 | `publication.offer_result_simple(buf)` | `publication.offer(buf)` | The common no-supplier case is now the flagship name. |
@@ -243,7 +243,7 @@ Old → new for every renamed/changed API (rows verified against the released 0.
 | `pub.add_destination(&aeron, dest, timeout)` (`&mut self`) | `pub.add_destination(dest, timeout)` (`&self`) | Owning `Aeron` comes from the handle's dependency graph. Same for subscriptions / exclusive publications. |
 | `AeronCnc::new(dir)` | `AeronCnc::open(&CStr)` or `AeronCnc::read(&CStr, \|cnc\| { … })` | `new_on_heap`/`read_on_partial_stack` renamed; now accept `&CStr` (not `&str`/`&CString`). `read` = scoped (zero-alloc, preferred for one-shot), `open` = owned handle (for repeated polling). |
 | `&"aeron:ipc".into_c_string()` (allocates at runtime) | `c"aeron:ipc"` | See "C strings without hidden allocations" above; `cformat!` for dynamic URIs. |
-| `wrapper.get_inner_mut()` / `ManagedCResource::get_mut()` (safe) | `unsafe …()` | Both mint `&mut` from `&self`; the caller must now promise exclusive access. The only internal caller (`clone_struct`) is wrapped in `unsafe` already. |
+| `wrapper.get_inner_mut()` / `ManagedCResource::get_mut()` (safe) | `unsafe …()` | `&mut` from `&self`; the caller must now promise exclusive access. The only internal caller (`clone_struct`) is wrapped in `unsafe` already. |
 | `ChannelUriStringBuilder::put_string(&CStr, &str)` / `put_strings(&str, &str)` | `put_str(&CStr, &str)` | Single name, single key type (`&CStr` — pair with `c"media"` or `CStr::from_bytes_until_nul`); `put_strings` removed (no external callers). |
 | `archive.begin_replay(...)`, `start_recording(...)`, … → `Result<_, AeronCError>` | `Result<_, AeronArchiveError>` | Control ops on `AeronArchive` return the typed error (parseable code + message). Constructors, async-connect, and context setters still return `AeronCError`; `From<AeronArchiveError> for AeronCError` keeps `?` working across the boundary. |
 | `async_add_exclusive_publication.poll(...).get_registration_id()` on the deprecated `exclusive_exclusive` alias | only `aeron_async_add_exclusive_publication_get_registration_id` is exposed | The deprecated `aeron_async_add_exclusive_exclusive_publication_get_registration_id` C alias is dropped (it collided with the canonical name); use the canonical `get_registration_id()`. |
