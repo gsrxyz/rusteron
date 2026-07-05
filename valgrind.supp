@@ -2,17 +2,22 @@
 #
 # Keep this file present even when empty so `just test-valgrind` can run.
 #
-# Leak gate (scripts/valgrind-run.sh) runs with --errors-for-leak-kinds=all,
-# so EVERY leak kind counts as an error — including "still reachable"
-# allocations held alive by Rc/Arc graphs at process exit. This is intentional:
-# the previous gate (definite,possible) missed the AeronCncMetadata mmap leak
-# because Box::leak produced a &'static mut that was reachable, not "definitely
-# lost".
+# Leak gate (scripts/valgrind-run.sh) fails CI on --errors-for-leak-kinds=
+# definite,possible — i.e. REAL leaks (malloc with no reachable pointer).
+# "Still reachable" allocations (Rust runtime / std bookkeeping held by
+# statics/Arcs at process exit) are shown via --show-leak-kinds=all but do
+# NOT fail, because every Rust binary has them and they are not bugs.
 #
-# When the wider gate surfaces a benign Rust-runtime / test-harness / external-
-# dep reachable allocation, ADD a suppression stanza here (run with
-# VALGRIND_GEN_SUPPRESSIONS=1 to emit ready-made stanzas). Do NOT narrow the
-# gate — real resource-lifecycle leaks in rusteron must fail CI.
+# The Box::leak-class lifecycle bug (reachable, not lost — e.g. the
+# AeronCncMetadata mmap leak) is NOT caught by this gate. It is caught
+# deterministically by the manual_close_required Drop warning in
+# ManagedCResource (common.rs), which fires per-resource on every platform,
+# not just under valgrind on Linux.
+#
+# When valgrind DOES report a definite/possible leak, fix it in rusteron
+# code. Only suppress leaks that are genuinely external (Rust runtime, test
+# harness, system libraries) — run with VALGRIND_GEN_SUPPRESSIONS=1 to emit
+# ready-made stanzas.
 
 # Rust test harness retains thread/runtime state until process exit.
 {
