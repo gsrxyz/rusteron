@@ -709,10 +709,10 @@ impl<T> Drop for ManagedCResource<T> {
         }
         if self.manual_close_required && !close_ran_before_drop {
             #[cfg(not(feature = "multi-threaded"))]
-            let parent_anchored = !unsafe { (*self.dependencies.get()).is_empty() };
+            let has_dependency = !unsafe { (*self.dependencies.get()).is_empty() };
             #[cfg(feature = "multi-threaded")]
-            let parent_anchored = !self.dependencies.lock().unwrap().is_empty();
-            if !parent_anchored {
+            let has_dependency = !self.dependencies.lock().unwrap().is_empty();
+            if !has_dependency {
                 let resource = self.get();
                 if !resource.is_null() {
                     #[cfg(feature = "strict-lifecycle")]

@@ -568,20 +568,24 @@ impl<T> Drop for ManagedCResource<T> {
         // underlying C resource leaks — the exact shape of the
         // `AeronCncMetadata::load_from_file` bug.
         //
-        // Exception: resources that registered a parent dependency via
-        // `add_dependency` are parent-freed — the C side (e.g. the Aeron client)
-        // reclaims them on its own close. Generated async constructors
-        // (aeron_async_add_*) are exactly this shape: `None + false` plus
-        // `add_dependency(client)`. They are not leaks.
+        // Heuristic exception: if the resource registered ANY dependency via
+        // `add_dependency`, assume it is parent-freed (the C side reclaims it on
+        // the parent's close). In the current codebase the only `None + false`
+        // resources are generated async constructors (`aeron_async_add_*`),
+        // which always add the client as a dependency — so "has any dependency"
+        // and "has the client as parent" coincide for them. Caveat: a future
+        // `None + false` resource that adds only a non-parent dependency would
+        // be falsely skipped here. The Box::leak CI lint backstops the common
+        // case; audit None+false sites by hand when adding new ones.
         //
-        // Resources with no parent, no cleanup, and no struct ownership are
+        // Resources with no dependency, no cleanup, and no struct ownership are
         // genuine leaks — there is no legitimate case for that shape.
         if self.manual_close_required && !close_ran_before_drop {
             #[cfg(not(feature = "multi-threaded"))]
-            let parent_anchored = !unsafe { (*self.dependencies.get()).is_empty() };
+            let has_dependency = !unsafe { (*self.dependencies.get()).is_empty() };
             #[cfg(feature = "multi-threaded")]
-            let parent_anchored = !self.dependencies.lock().unwrap().is_empty();
-            if !parent_anchored {
+            let has_dependency = !self.dependencies.lock().unwrap().is_empty();
+            if !has_dependency {
                 let resource = self.get();
                 if !resource.is_null() {
                     // Under `strict-lifecycle`, fail loudly — this is the exact shape
