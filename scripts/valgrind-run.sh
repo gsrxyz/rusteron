@@ -69,14 +69,23 @@ for BIN in $BINARIES; do
       --gen-suppressions=all \
       "$BIN" --test-threads=1 --nocapture 2>&1 || true
   else
-    # Run valgrind and capture output for error detection
+    # Run valgrind and capture output for error detection.
+    # Leak gate: --errors-for-leak-kinds=all counts EVERY leak kind as an error,
+    # including "still reachable" (held alive by an Rc/Arc at process exit).
+    # The previous gate (definite,possible) missed the AeronCncMetadata mmap
+    # leak because Box::leak produced a &'static mut reachable through the Rc
+    # graph — reachable, not "definitely lost". Benign Rust-runtime / test-
+    # harness reachable allocations surfaced by the wider gate MUST be added
+    # to valgrind.supp (see existing stanzas like rust_test_thread_context_possible_leak
+    # and rust_runtime_stack_overflow_thread_info_reachable for the pattern) —
+    # do NOT narrow the gate to silence them.
     VALGRIND_OUTPUT=$(valgrind \
       --tool=memcheck \
       --error-exitcode=1 \
       --track-origins=yes \
       --leak-check=full \
-      --show-leak-kinds=definite,possible,indirect \
-      --errors-for-leak-kinds=definite,possible \
+      --show-leak-kinds=all \
+      --errors-for-leak-kinds=all \
       --num-callers=30 \
       -s \
       --gen-suppressions=all \
