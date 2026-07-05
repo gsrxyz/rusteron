@@ -26,9 +26,9 @@ fn main() -> Result<()> {
     let mut live_log_time = Instant::now().checked_sub(Duration::from_secs(300)).unwrap();
     let live_log = Duration::from_secs(30);
 
-    let mut record_reader = Handler::leak(RecorderDescriptorReader::default());
-    let mut replay_msg_count_handler = Handler::leak(MessageCountHandler::default());
-    let mut live_msg_count_handler = Handler::leak(MessageCountHandler::default());
+    let mut record_reader = Handler::new(RecorderDescriptorReader::default());
+    let mut replay_msg_count_handler = Handler::new(MessageCountHandler::default());
+    let mut live_msg_count_handler = Handler::new(MessageCountHandler::default());
 
     let channel = TICKER_CHANNEL;
     let stream_id = TICKER_STREAM_ID;
@@ -85,7 +85,7 @@ fn main() -> Result<()> {
                         )?;
 
                         while !merge.is_merged() {
-                            merge.poll_once(
+                            merge.poll_fn(
                                 |buff, _header| {
                                     println!("buffer {buff:?}");
                                 },
@@ -131,11 +131,13 @@ fn main() -> Result<()> {
 
                         let channel_replay = format!("{channel}|session-id={session_id}");
                         info!("replay subscription {channel_replay}");
+                        let available_image_handler = Handler::new(AeronAvailableImageLogger);
+                        let unavailable_image_handler = Handler::new(AeronUnavailableImageLogger);
                         match aeron.add_subscription(
                             &channel_replay.to_string().into_c_string(),
                             stream_id,
-                            Some(&Handler::leak(AeronAvailableImageLogger)),
-                            Some(&Handler::leak(AeronUnavailableImageLogger)),
+                            Some(&available_image_handler),
+                            Some(&unavailable_image_handler),
                             Duration::from_secs(5),
                         ) {
                             Ok(subscription) => {

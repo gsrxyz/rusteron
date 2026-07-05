@@ -68,8 +68,8 @@ fn run_pong(running_pong: Arc<AtomicBool>) -> Result<(), Box<dyn std::error::Err
         .async_add_subscription(PONG_CHANNEL, PONG_STREAM_ID, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(4))?;
 
-    println!("PONG: ping publisher {PING_CHANNEL} {PING_STREAM_ID}");
-    println!("PONG: pong subscriber {PONG_CHANNEL} {PONG_STREAM_ID}");
+    println!("PONG: ping publisher {PING_CHANNEL:?} {PING_STREAM_ID}");
+    println!("PONG: pong subscriber {PONG_CHANNEL:?} {PONG_STREAM_ID}");
 
     println!("Starting pong thread");
     pub struct PongRoundTripHandler {
@@ -128,8 +128,8 @@ fn run_ping(running: Arc<AtomicBool>, pong_thread: JoinHandle<()>) -> Result<His
         .async_add_subscription(PING_CHANNEL, PING_STREAM_ID, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(4))?;
 
-    println!("PING: pong publisher {PONG_CHANNEL} {PONG_STREAM_ID}");
-    println!("PING: ping subscriber {PING_CHANNEL} {PING_STREAM_ID}");
+    println!("PING: pong publisher {PONG_CHANNEL:?} {PONG_STREAM_ID}");
+    println!("PING: ping subscriber {PING_CHANNEL:?} {PING_STREAM_ID}");
 
     let mut buffer = vec![0u8; MESSAGE_LENGTH];
 

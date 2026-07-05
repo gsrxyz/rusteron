@@ -88,9 +88,8 @@ pub fn archive_connect() -> Result<(AeronArchive, Aeron), io::Error> {
     while start.elapsed() < Duration::from_secs(30) {
         match AeronContext::new() {
             Ok(aeron_context) => {
-                aeron_context
-                    .set_error_handler(Some(&Handler::leak(AeronErrorHandlerLogger)))
-                    .unwrap();
+                let error_handler = Handler::new(AeronErrorHandlerLogger);
+                aeron_context.set_error_handler(Some(error_handler)).unwrap();
 
                 match Aeron::new(&aeron_context) {
                     Ok(aeron) => {
