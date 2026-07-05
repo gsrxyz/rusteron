@@ -784,3 +784,13 @@
    ...
    fun:*serial_test*code_lock*check_new_key*
 }
+
+{
+   aeron_cnc_metadata_load_from_file_intentional_leak
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   ...
+   fun:*AeronCncMetadata*load_from_file*
+   fun:*rusteron_client*simple_large_send*
+}
