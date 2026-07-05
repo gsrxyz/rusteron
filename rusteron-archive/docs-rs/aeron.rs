@@ -550,6 +550,16 @@ pub struct ManagedCResource<T> {
     #[cfg(feature = "multi-threaded")]
     cleanup: std::sync::Mutex<Option<CleanupBox<T>>>,
     cleanup_struct: bool,
+    #[doc = " `true` when constructed via `new` with `cleanup: None` AND"]
+    #[doc = " `cleanup_struct: false` — an owned resource with no automatic close path."]
+    #[doc = " Drop emits a `log::warn!` if such a resource is dropped without an"]
+    #[doc = " explicit `close()`/`close_now()`, since nothing else can free it."]
+    #[doc = " Catches the `Box::leak + None cleanup` bug class (the"]
+    #[doc = " `AeronCncMetadata::load_from_file` leak was exactly this). False positives"]
+    #[doc = " are impossible: `initialise` (borrowed scope) returns a raw `*mut T` and"]
+    #[doc = " never builds a `ManagedCResource`, and generated `new(_, None, true)`"]
+    #[doc = " resources are excluded by the `!cleanup_struct` conjunct."]
+    manual_close_required: bool,
     #[cfg(not(feature = "multi-threaded"))]
     close_already_called: std::cell::Cell<bool>,
     #[cfg(feature = "multi-threaded")]
@@ -591,6 +601,7 @@ impl<T> ManagedCResource<T> {
         cleanup_struct: bool,
     ) -> Result<Self, AeronCError> {
         let resource = Self::initialise(init)?;
+        let manual_close_required = cleanup.is_none() && !cleanup_struct;
         let result = Self {
             #[cfg(not(feature = "multi-threaded"))]
             resource: std::cell::Cell::new(resource),
@@ -601,6 +612,7 @@ impl<T> ManagedCResource<T> {
             #[cfg(feature = "multi-threaded")]
             cleanup: std::sync::Mutex::new(cleanup),
             cleanup_struct,
+            manual_close_required,
             #[cfg(not(feature = "multi-threaded"))]
             close_already_called: std::cell::Cell::new(false),
             #[cfg(feature = "multi-threaded")]
@@ -837,12 +849,24 @@ impl<T> ManagedCResource<T> {
 }
 impl<T> Drop for ManagedCResource<T> {
     fn drop(&mut self) {
-        if !self.get_close_already_called() {
+        let close_ran_before_drop = self.get_close_already_called();
+        if !close_ran_before_drop {
             if let Err(e) = self.close_shared() {
                 log::warn!(
                     "cleanup failed for {} during Drop with code {}",
                     std::any::type_name::<T>(),
                     e.code,
+                );
+            }
+        }
+        if self.manual_close_required && !close_ran_before_drop {
+            let resource = self.get();
+            if !resource.is_null() {
+                log::warn!(
+                    "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
+                     — resource likely leaked. Call close()/close_now() before drop, or supply a \
+                     cleanup closure at construction.",
+                    std::any::type_name::<T>()
                 );
             }
         }
@@ -1460,6 +1484,58 @@ mod handler_tests {
         assert_eq!(DROPS.load(Ordering::SeqCst), 0, "value must outlive remaining clones");
         drop(clone);
         assert_eq!(DROPS.load(Ordering::SeqCst), 1, "value freed exactly once on last drop");
+    }
+}
+#[cfg(test)]
+mod managed_c_resource_lifecycle_tests {
+    use super::*;
+    #[test]
+    fn manual_close_required_true_for_none_cleanup_no_struct() {
+        let r: ManagedCResource<u8> = ManagedCResource::new(
+            |ctx| {
+                unsafe { *ctx = 0x1 as *mut u8 };
+                1
+            },
+            None,
+            false,
+        )
+        .unwrap_or_else(|e| panic!("init failed: code {}", e.code));
+        assert!(
+            r.manual_close_required,
+            "owned + None cleanup + no struct ownership must require manual close"
+        );
+    }
+    #[test]
+    fn manual_close_required_false_when_cleanup_closure_present() {
+        let r: ManagedCResource<u8> = ManagedCResource::new(
+            |ctx| {
+                unsafe { *ctx = 0x1 as *mut u8 };
+                1
+            },
+            Some(Box::new(|_ctx| 0)),
+            false,
+        )
+        .unwrap_or_else(|e| panic!("init failed: code {}", e.code));
+        assert!(
+            !r.manual_close_required,
+            "real cleanup closure means Drop frees the resource — no warning needed"
+        );
+    }
+    #[test]
+    fn manual_close_required_false_when_struct_owned() {
+        let r: ManagedCResource<u8> = ManagedCResource::new(
+            |ctx| {
+                unsafe { *ctx = Box::into_raw(Box::new(0u8)) };
+                1
+            },
+            None,
+            true,
+        )
+        .unwrap_or_else(|e| panic!("init failed: code {}", e.code));
+        assert!(
+            !r.manual_close_required,
+            "cleanup_struct=true means Rust owns and frees the struct — no warning needed"
+        );
     }
 }
 #[derive(Clone)]

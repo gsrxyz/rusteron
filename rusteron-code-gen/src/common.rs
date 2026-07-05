@@ -192,6 +192,17 @@ pub struct ManagedCResource<T> {
 
     cleanup_struct: bool,
 
+    /// `true` when constructed via `new` with `cleanup: None` AND
+    /// `cleanup_struct: false` — an owned resource with no automatic close path.
+    /// Drop emits a `log::warn!` if such a resource is dropped without an
+    /// explicit `close()`/`close_now()`, since nothing else can free it.
+    /// Catches the `Box::leak + None cleanup` bug class (the
+    /// `AeronCncMetadata::load_from_file` leak was exactly this). False positives
+    /// are impossible: `initialise` (borrowed scope) returns a raw `*mut T` and
+    /// never builds a `ManagedCResource`, and generated `new(_, None, true)`
+    /// resources are excluded by the `!cleanup_struct` conjunct.
+    manual_close_required: bool,
+
     #[cfg(not(feature = "multi-threaded"))]
     close_already_called: std::cell::Cell<bool>,
     #[cfg(feature = "multi-threaded")]
@@ -244,6 +255,9 @@ impl<T> ManagedCResource<T> {
         cleanup_struct: bool,
     ) -> Result<Self, AeronCError> {
         let resource = Self::initialise(init)?;
+        // Compute before `cleanup` is moved into the struct literal below.
+        // `is_none()` borrows `cleanup` immutably; the move happens later.
+        let manual_close_required = cleanup.is_none() && !cleanup_struct;
 
         let result = Self {
             #[cfg(not(feature = "multi-threaded"))]
@@ -257,6 +271,7 @@ impl<T> ManagedCResource<T> {
             cleanup: std::sync::Mutex::new(cleanup),
 
             cleanup_struct,
+            manual_close_required,
 
             #[cfg(not(feature = "multi-threaded"))]
             close_already_called: std::cell::Cell::new(false),
@@ -530,16 +545,36 @@ impl<T> ManagedCResource<T> {
 
 impl<T> Drop for ManagedCResource<T> {
     fn drop(&mut self) {
+        // Capture whether close ran BEFORE Drop — close_shared() below would set
+        // the flag even when the cleanup closure is None, hiding the leak signal.
+        let close_ran_before_drop = self.get_close_already_called();
         // Delegate to close_shared() which handles single-execution, error
         // logging, and pointer-nulling.  close_already_called prevents
         // double-execution if the resource was already closed through
         // another clone.
-        if !self.get_close_already_called() {
+        if !close_ran_before_drop {
             if let Err(e) = self.close_shared() {
                 log::warn!(
                     "cleanup failed for {} during Drop with code {}",
                     std::any::type_name::<T>(),
                     e.code,
+                );
+            }
+        }
+
+        // Validation: an owned resource built with `cleanup: None` AND
+        // `cleanup_struct: false` has NO path that can free it. If it reaches
+        // Drop without an explicit `close()`/`close_now()`, the underlying C
+        // resource leaks. This is the exact shape of the
+        // `AeronCncMetadata::load_from_file` bug. There is no legitimate case.
+        if self.manual_close_required && !close_ran_before_drop {
+            let resource = self.get();
+            if !resource.is_null() {
+                log::warn!(
+                    "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
+                     — resource likely leaked. Call close()/close_now() before drop, or supply a \
+                     cleanup closure at construction.",
+                    std::any::type_name::<T>()
                 );
             }
         }
@@ -1249,5 +1284,70 @@ mod handler_tests {
         assert_eq!(DROPS.load(Ordering::SeqCst), 0, "value must outlive remaining clones");
         drop(clone);
         assert_eq!(DROPS.load(Ordering::SeqCst), 1, "value freed exactly once on last drop");
+    }
+}
+
+#[cfg(test)]
+mod managed_c_resource_lifecycle_tests {
+    use super::*;
+
+    // These tests pin down `manual_close_required` — the field that powers the
+    // Drop-time leak warning. The exact `AeronCncMetadata::load_from_file` bug
+    // was a `new(_, None, false)` resource, so the first test asserts that
+    // construction shape trips the flag. The resource pointers are dummies
+    // (never dereferenced); only the field value is checked.
+
+    #[test]
+    fn manual_close_required_true_for_none_cleanup_no_struct() {
+        // The bug shape: owned, no cleanup closure, no Rust struct ownership.
+        let r: ManagedCResource<u8> = ManagedCResource::new(
+            |ctx| {
+                unsafe { *ctx = 0x1 as *mut u8 };
+                1
+            },
+            None,
+            false,
+        )
+        .unwrap_or_else(|e| panic!("init failed: code {}", e.code));
+        assert!(
+            r.manual_close_required,
+            "owned + None cleanup + no struct ownership must require manual close"
+        );
+    }
+
+    #[test]
+    fn manual_close_required_false_when_cleanup_closure_present() {
+        let r: ManagedCResource<u8> = ManagedCResource::new(
+            |ctx| {
+                unsafe { *ctx = 0x1 as *mut u8 };
+                1
+            },
+            Some(Box::new(|_ctx| 0)),
+            false,
+        )
+        .unwrap_or_else(|e| panic!("init failed: code {}", e.code));
+        assert!(
+            !r.manual_close_required,
+            "real cleanup closure means Drop frees the resource — no warning needed"
+        );
+    }
+
+    #[test]
+    fn manual_close_required_false_when_struct_owned() {
+        // Generated `new(_, None, true)` resources: Rust frees the Box itself
+        // via Box::from_raw in the cleanup_struct branch of Drop.
+        let r: ManagedCResource<u8> = ManagedCResource::new(
+            |ctx| {
+                unsafe { *ctx = Box::into_raw(Box::new(0u8)) };
+                1
+            },
+            None,
+            true,
+        )
+        .unwrap_or_else(|e| panic!("init failed: code {}", e.code));
+        assert!(
+            !r.manual_close_required,
+            "cleanup_struct=true means Rust owns and frees the struct — no warning needed"
+        );
     }
 }
