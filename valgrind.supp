@@ -693,7 +693,10 @@
    fun:main
 }
 
-# Same stack-overflow thread-info allocation for the archive binary
+# Same stack-overflow thread-info allocation for the archive binary.
+# The `...` between alloc and allocate absorbs toolchain-specific frames —
+# current rustc emits an extra `alloc_impl_runtime` frame there that broke
+# an earlier exact-match variant of this stanza.
 {
    rust_runtime_stack_overflow_thread_info_reachable_archive
    Memcheck:Leak
@@ -703,7 +706,7 @@
    fun:*TrackingAllocator*alloc*
    fun:*___rustc12___rust_alloc*
    fun:alloc
-   fun:alloc_impl
+   ...
    fun:allocate
    ...
    fun:*stack_overflow*thread_info*set_current_info*

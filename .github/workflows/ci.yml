@@ -153,10 +153,15 @@ jobs:
         # Build first WITHOUT LD_PRELOAD (otherwise rustc segfaults). pipefail
         # propagates cargo's exit code through tee: LSan exits 23 on unsuppressed
         # leaks, ASan exits 1 on UAF/double-free — both fail the step.
+        # setarch -R disables ASLR for the test process so libaeron.so always
+        # loads at the same address. With ASLR on, ~1 in 3 runs hit "Shadow
+        # memory range interleaves with an existing memory mapping" because the
+        # randomised library placement lands in ASan's shadow region; pinning
+        # the layout makes the run deterministic.
         run: |
           set -o pipefail
           cargo test -p rusteron-client --features sanitize-address --no-run
-          LD_PRELOAD=${{ steps.asan-path.outputs.path }} cargo test -p rusteron-client --features sanitize-address -- --nocapture 2>&1 | tee asan-output.txt
+          LD_PRELOAD=${{ steps.asan-path.outputs.path }} setarch "$(uname -m)" -R cargo test -p rusteron-client --features sanitize-address -- --nocapture 2>&1 | tee asan-output.txt
 
   build:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
