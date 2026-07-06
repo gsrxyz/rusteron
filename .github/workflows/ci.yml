@@ -142,23 +142,7 @@ jobs:
           CXX: clang++
           RUSTERON_SANITIZE: address
           RUSTFLAGS: "-C target-cpu=x86-64"
-          # Leak detection is OFF for ASan — it cannot reliably initialise on
-          # this runner (shadow-memory collision with libaeron.so; see retry
-          # loop below). Authoritative leak detection is valgrind's job (Memory
-          # Check job), and the Box::leak-class lifecycle bug is caught by the
-          # manual_close_required Drop warning in ManagedCResource. ASan's value
-          # here is UAF / heap-overflow detection in the C side.
           ASAN_OPTIONS: "detect_leaks=0:symbolize=1:allocator_may_return_null=1"
-        # Build first WITHOUT LD_PRELOAD (otherwise rustc segfaults). pipefail
-        # propagates cargo's exit code through tee — a real ASan error (UAF,
-        # overflow) exits non-zero and fails the step.
-        #
-        # ASan init can abort with "Shadow memory range interleaves with an
-        # existing memory mapping" when libaeron.so lands in ASan's shadow
-        # region — near-deterministic on the current ubuntu-22.04 image. This
-        # is an init-time infrastructure failure, not a rusteron bug. Retry a
-        # few times (ASLR re-randomises); on exhaustion, exit 0 so CI is not
-        # blocked by the runner limitation. A REAL ASan finding still fails.
         run: |
           set -o pipefail
           cargo test -p rusteron-client --features sanitize-address --no-run

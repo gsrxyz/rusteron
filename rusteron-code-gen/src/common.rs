@@ -192,15 +192,6 @@ pub struct ManagedCResource<T> {
 
     cleanup_struct: bool,
 
-    /// `true` when constructed via `new` with `cleanup: None` AND
-    /// `cleanup_struct: false` — an owned resource with no automatic close path.
-    /// Drop emits a `log::warn!` if such a resource is dropped without an
-    /// explicit `close()`/`close_now()`, since nothing else can free it.
-    /// Catches the `Box::leak + None cleanup` bug class (the
-    /// `AeronCncMetadata::load_from_file` leak was exactly this). False positives
-    /// are impossible: `initialise` (borrowed scope) returns a raw `*mut T` and
-    /// never builds a `ManagedCResource`, and generated `new(_, None, true)`
-    /// resources are excluded by the `!cleanup_struct` conjunct.
     manual_close_required: bool,
 
     #[cfg(not(feature = "multi-threaded"))]
@@ -562,15 +553,6 @@ impl<T> Drop for ManagedCResource<T> {
             }
         }
 
-        // Validation: an owned resource built with `cleanup: None` AND
-        // `cleanup_struct: false` has NO Rust path that can free it. If it
-        // reaches Drop without an explicit `close()`/`close_now()`, the
-        // underlying C resource leaks — the exact shape of the
-        // `AeronCncMetadata::load_from_file` bug.
-        //
-        // Exception: resources with a registered dependency are parent-freed
-        // (the C side reclaims them on close). The only `None + false` resources
-        // are async constructors, which add the client as a dependency.
         if self.manual_close_required && !close_ran_before_drop {
             #[cfg(not(feature = "multi-threaded"))]
             let has_dependency = !unsafe { (*self.dependencies.get()).is_empty() };
@@ -579,9 +561,6 @@ impl<T> Drop for ManagedCResource<T> {
             if !has_dependency {
                 let resource = self.get();
                 if !resource.is_null() {
-                    // Under `strict-lifecycle`, fail loudly — this is the exact shape
-                    // of the AeronCncMetadata::load_from_file leak. Default builds log
-                    // a warning so production isn't aborted by a Drop-time panic.
                     #[cfg(feature = "strict-lifecycle")]
                     panic!(
                         "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
