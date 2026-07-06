@@ -914,6 +914,9 @@ pub enum AeronOfferError {
     #[doc = " The maximum stream position was reached (`-5`). Fatal: a new publication"]
     #[doc = " (new session) is required."]
     MaxPositionExceeded,
+    #[doc = " More than [`MAX_OFFER_PARTS`] buffers passed to `offer_parts` — a caller"]
+    #[doc = " bug, not an Aeron wire error. Fatal (fix the call site)."]
+    TooManyParts,
     #[doc = " Any other negative value (`-6` / unexpected). Fatal; inspect the inner"]
     #[doc = " [`AeronCError`] and `Aeron::errmsg()` for detail."]
     Error(AeronCError),
@@ -956,6 +959,7 @@ impl std::fmt::Display for AeronOfferError {
             AeronOfferError::AdminAction => write!(f, "publication admin action in progress"),
             AeronOfferError::Closed => write!(f, "publication closed"),
             AeronOfferError::MaxPositionExceeded => write!(f, "publication max position exceeded"),
+            AeronOfferError::TooManyParts => write!(f, "too many parts in offer_parts (max 8)"),
             AeronOfferError::Error(e) => write!(f, "publication error (code {})", e.code),
         }
     }

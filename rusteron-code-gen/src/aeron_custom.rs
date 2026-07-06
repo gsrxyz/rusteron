@@ -7,11 +7,6 @@ pub static AERON_IPC_STREAM: &std::ffi::CStr = c"aeron:ipc";
 /// your own iovec array for larger gathers.
 pub const MAX_OFFER_PARTS: usize = 8;
 
-/// Custom sentinel code returned by [`AeronPublication::offer_parts`] /
-/// [`AeronExclusivePublication::offer_parts`] when the parts slice exceeds
-/// [`MAX_OFFER_PARTS`] — distinct from Aeron's standard offer sentinels (-1..=-5).
-pub const AERON_OFFER_ERROR_TOO_MANY_PARTS: i32 = -867468;
-
 // SAFETY: these handles wrap `Rc` (via `CResource::OwnedOnHeap`), so they are
 // `!Send + !Sync` in principle. `Rc` (non-atomic refcount) is kept for latency.
 // The supported usage pattern is to MOVE a handle to a single owning thread and
@@ -1551,13 +1546,13 @@ macro_rules! impl_publication_methods {
             /// ```
             ///
             /// The `aeron_iovec_t` array is built on the stack. Same typed-error semantics
-            /// as [`Self::offer`]. Returns [`AeronOfferError::Error`] with code
-            /// [`AERON_OFFER_ERROR_TOO_MANY_PARTS`] if more than [`MAX_OFFER_PARTS`] parts
-            /// are passed (use [`Self::offerv`] with your own iovec array for larger gathers).
+            /// as [`Self::offer`]. Returns [`AeronOfferError::TooManyParts`] if more than
+            /// [`MAX_OFFER_PARTS`] parts are passed (use [`Self::offerv`] with your own
+            /// iovec array for larger gathers).
             #[inline]
             pub fn offer_parts(&self, parts: &[&[u8]]) -> Result<i64, AeronOfferError> {
                 if parts.len() > MAX_OFFER_PARTS {
-                    return Err(AeronOfferError::Error(AeronCError::from_code(AERON_OFFER_ERROR_TOO_MANY_PARTS)));
+                    return Err(AeronOfferError::TooManyParts);
                 }
                 let mut iov = [aeron_iovec_t {
                     iov_base: std::ptr::null_mut(),
