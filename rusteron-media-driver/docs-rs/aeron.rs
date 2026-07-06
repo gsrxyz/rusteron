@@ -1,4 +1,3 @@
-
 type aeron_client_registering_resource_t = aeron_client_registering_resource_stct;
 #[derive(Clone)]
 pub struct Addrinfo {
@@ -398,15 +397,6 @@ pub struct ManagedCResource<T> {
     #[cfg(feature = "multi-threaded")]
     cleanup: std::sync::Mutex<Option<CleanupBox<T>>>,
     cleanup_struct: bool,
-    #[doc = " `true` when constructed via `new` with `cleanup: None` AND"]
-    #[doc = " `cleanup_struct: false` — an owned resource with no automatic close path."]
-    #[doc = " Drop emits a `log::warn!` if such a resource is dropped without an"]
-    #[doc = " explicit `close()`/`close_now()`, since nothing else can free it."]
-    #[doc = " Catches the `Box::leak + None cleanup` bug class (the"]
-    #[doc = " `AeronCncMetadata::load_from_file` leak was exactly this). False positives"]
-    #[doc = " are impossible: `initialise` (borrowed scope) returns a raw `*mut T` and"]
-    #[doc = " never builds a `ManagedCResource`, and generated `new(_, None, true)`"]
-    #[doc = " resources are excluded by the `!cleanup_struct` conjunct."]
     manual_close_required: bool,
     #[cfg(not(feature = "multi-threaded"))]
     close_already_called: std::cell::Cell<bool>,
@@ -77037,4 +77027,3 @@ unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback_for_once_closure
     let closure: &mut F = unsafe { &mut *(resource as *mut F) };
     closure()
 }
-
