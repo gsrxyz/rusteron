@@ -1,3 +1,4 @@
+
 type aeron_client_registering_resource_t = aeron_client_registering_resource_stct;
 #[derive(Clone)]
 pub struct Addrinfo {
@@ -77027,3 +77028,4 @@ unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback_for_once_closure
     let closure: &mut F = unsafe { &mut *(resource as *mut F) };
     closure()
 }
+

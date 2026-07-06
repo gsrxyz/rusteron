@@ -7,6 +7,11 @@ pub static AERON_IPC_STREAM: &std::ffi::CStr = c"aeron:ipc";
 /// your own iovec array for larger gathers.
 pub const MAX_OFFER_PARTS: usize = 8;
 
+/// Custom sentinel code returned by [`AeronPublication::offer_parts`] /
+/// [`AeronExclusivePublication::offer_parts`] when the parts slice exceeds
+/// [`MAX_OFFER_PARTS`] — distinct from Aeron's standard offer sentinels (-1..=-5).
+pub const AERON_OFFER_ERROR_TOO_MANY_PARTS: i32 = -867468;
+
 // SAFETY: these handles wrap `Rc` (via `CResource::OwnedOnHeap`), so they are
 // `!Send + !Sync` in principle. `Rc` (non-atomic refcount) is kept for latency.
 // The supported usage pattern is to MOVE a handle to a single owning thread and
@@ -1472,283 +1477,168 @@ impl Drop for AeronClaim {
     }
 }
 
-impl AeronPublication {
-    /// Raw, branch-free variant of [`Self::offer`]: returns the new stream position, or a
-    /// negative Aeron sentinel (see [`AeronOfferError::from_position`]).
-    #[inline]
-    pub fn offer_raw<H: AeronReservedValueSupplierCallback>(
-        &self,
-        buffer: &[u8],
-        reserved_value_supplier: Option<&Handler<H>>,
-    ) -> i64 {
-        unsafe {
-            aeron_publication_offer(
-                self.get_inner(),
-                buffer.as_ptr() as *mut _,
-                buffer.len(),
-                {
-                    let callback: aeron_reserved_value_supplier_t = if reserved_value_supplier.is_none() {
-                        None
-                    } else {
-                        Some(aeron_reserved_value_supplier_t_callback::<H>)
-                    };
-                    callback
-                },
-                reserved_value_supplier
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
-            )
-        }
-    }
+macro_rules! impl_publication_methods {
+    ($ty:ty, $offer:ident, $offerv:ident, $try_claim:ident) => {
+        impl $ty {
+            /// Raw, branch-free variant of [`Self::offer`]: returns the new stream position, or a
+            /// negative Aeron sentinel (see [`AeronOfferError::from_position`]).
+            ///
+            /// Distinct name from the generated `offer` method (different signatures)
+            /// to avoid macro-hygiene name conflicts.
+            #[inline]
+            pub fn offer_raw<H: AeronReservedValueSupplierCallback>(
+                &self,
+                buffer: &[u8],
+                reserved_value_supplier: Option<&Handler<H>>,
+            ) -> i64 {
+                unsafe {
+                    $offer(
+                        self.get_inner(),
+                        buffer.as_ptr() as *mut _,
+                        buffer.len(),
+                        {
+                            let callback: aeron_reserved_value_supplier_t = if reserved_value_supplier.is_none() {
+                                None
+                            } else {
+                                Some(aeron_reserved_value_supplier_t_callback::<H>)
+                            };
+                            callback
+                        },
+                        reserved_value_supplier
+                            .map(|m| m.as_raw())
+                            .unwrap_or_else(|| std::ptr::null_mut()),
+                    )
+                }
+            }
 
+            /// Raw, branch-free variant of [`Self::try_claim`]: position or negative sentinel.
+            #[inline]
+            pub fn try_claim_raw(&self, length: usize, buffer_claim: &AeronBufferClaim) -> i64 {
+                unsafe { $try_claim(self.get_inner(), length, buffer_claim.get_inner()) }
+            }
+
+            /// [`Self::offer`] with a reserved-value supplier.
+            #[inline]
+            pub fn offer_with_reserved_value<H: AeronReservedValueSupplierCallback>(
+                &self,
+                buffer: &[u8],
+                reserved_value_supplier: Option<&Handler<H>>,
+            ) -> Result<i64, AeronOfferError> {
+                AeronOfferError::from_position(self.offer_raw(buffer, reserved_value_supplier))
+            }
+
+            /// Zero-copy claim returning a RAII [`AeronClaim`] that is auto-aborted on
+            /// drop unless explicitly committed or aborted.
+            pub fn try_claim_owned(&self, length: usize) -> Result<AeronClaim, AeronOfferError> {
+                let claim = AeronBufferClaim::new_zeroed_on_stack();
+                let position = self.try_claim(length, &claim)?;
+                Ok(AeronClaim {
+                    claim,
+                    position,
+                    finalised: false,
+                })
+            }
+
+            /// Gathering (vectored) publish: offer up to [`MAX_OFFER_PARTS`] buffers as ONE
+            /// message without concatenating them — **zero allocation, zero copy** on the
+            /// caller side (the driver gathers the parts directly).
+            ///
+            /// This is the header+payload send: instead of building a `Vec` per message
+            /// (`vec.extend(header); vec.extend(payload); offer(&vec)`), pass the parts:
+            ///
+            /// ```ignore
+            /// publication.offer_parts(&[&header_bytes, payload])?;
+            /// ```
+            ///
+            /// The `aeron_iovec_t` array is built on the stack. Same typed-error semantics
+            /// as [`Self::offer`]. Returns [`AeronOfferError::Error`] with code
+            /// [`AERON_OFFER_ERROR_TOO_MANY_PARTS`] if more than [`MAX_OFFER_PARTS`] parts
+            /// are passed (use [`Self::offerv`] with your own iovec array for larger gathers).
+            #[inline]
+            pub fn offer_parts(&self, parts: &[&[u8]]) -> Result<i64, AeronOfferError> {
+                if parts.len() > MAX_OFFER_PARTS {
+                    return Err(AeronOfferError::Error(AeronCError::from_code(AERON_OFFER_ERROR_TOO_MANY_PARTS)));
+                }
+                let mut iov = [aeron_iovec_t {
+                    iov_base: std::ptr::null_mut(),
+                    iov_len: 0,
+                }; MAX_OFFER_PARTS];
+                for (slot, part) in iov.iter_mut().zip(parts) {
+                    slot.iov_base = part.as_ptr() as *mut u8;
+                    slot.iov_len = part.len();
+                }
+                let position = unsafe {
+                    $offerv(
+                        self.get_inner(),
+                        iov.as_mut_ptr(),
+                        parts.len(),
+                        None,
+                        std::ptr::null_mut(),
+                    )
+                };
+                AeronOfferError::from_position(position)
+            }
+
+            /// High-level connection state derived from the publication handle.
+            #[inline]
+            pub fn status(&self) -> AeronStatus {
+                if self.is_closed() {
+                    AeronStatus::Closed
+                } else if self.is_connected() {
+                    AeronStatus::Connected
+                } else {
+                    AeronStatus::Disconnected
+                }
+            }
+
+            /// Convenience accessor for the registration id (no direct C accessor exists;
+            /// backed by [`Self::get_constants`]). `session_id`, `stream_id` and `channel`
+            /// have cheap direct getters — prefer those; for `registration_id` /
+            /// `max_payload_length` in a hot loop, call [`Self::get_constants`] once and
+            /// reuse the returned [`AeronPublicationConstants`].
+            #[inline]
+            pub fn registration_id(&self) -> Result<i64, AeronCError> {
+                self.get_constants().map(|c| c.registration_id())
+            }
+
+            /// Convenience accessor for the max payload length (see [`Self::registration_id`]).
+            #[inline]
+            pub fn max_payload_length(&self) -> Result<usize, AeronCError> {
+                self.get_constants().map(|c| c.max_payload_length())
+            }
+        }
+    };
+}
+
+impl_publication_methods!(AeronPublication, aeron_publication_offer, aeron_publication_offerv, aeron_publication_try_claim);
+impl_publication_methods!(AeronExclusivePublication, aeron_exclusive_publication_offer, aeron_exclusive_publication_offerv, aeron_exclusive_publication_try_claim);
+
+impl AeronPublication {
     /// Non-blocking publish of `buffer`, returning the new stream position.
     ///
-    /// This is the common case (no reserved-value supplier). Errors are typed:
-    /// check [`AeronOfferError::is_retryable`] to drive retry loops (back pressure
-    /// / admin action / not connected) vs fatal conditions (closed, max position
-    /// exceeded). Use [`Self::offer_raw`] for the raw sentinel, or
-    /// [`Self::offer_with_reserved_value`] to supply a reserved value.
+    /// Typed-error convenience wrapper over [`Self::offer_raw`]; see
+    /// [`AeronOfferError::is_retryable`] for retry-loop guidance.
     #[inline]
     pub fn offer(&self, buffer: &[u8]) -> Result<i64, AeronOfferError> {
         AeronOfferError::from_position(self.offer_raw::<AeronReservedValueSupplierLogger>(buffer, None))
     }
 
-    /// [`Self::offer`] with a reserved-value supplier.
-    #[inline]
-    pub fn offer_with_reserved_value<H: AeronReservedValueSupplierCallback>(
-        &self,
-        buffer: &[u8],
-        reserved_value_supplier: Option<&Handler<H>>,
-    ) -> Result<i64, AeronOfferError> {
-        AeronOfferError::from_position(self.offer_raw(buffer, reserved_value_supplier))
-    }
-
-    /// Raw, branch-free variant of [`Self::try_claim`]: position or negative sentinel.
-    #[inline]
-    pub fn try_claim_raw(&self, length: usize, buffer_claim: &AeronBufferClaim) -> i64 {
-        unsafe { aeron_publication_try_claim(self.get_inner(), length, buffer_claim.get_inner()) }
-    }
-
-    /// Zero-copy claim of `length` bytes; write into the claim then `commit()`.
-    ///
-    /// Same typed-error semantics as [`Self::offer`]. Prefer
-    /// [`Self::try_claim_owned`] for RAII abort-on-drop.
+    /// Zero-copy claim with typed errors — see [`Self::try_claim_owned`] for RAII.
     #[inline]
     pub fn try_claim(&self, length: usize, buffer_claim: &AeronBufferClaim) -> Result<i64, AeronOfferError> {
         AeronOfferError::from_position(self.try_claim_raw(length, buffer_claim))
-    }
-
-    /// Zero-copy claim returning a RAII [`AeronClaim`] that is auto-aborted on
-    /// drop unless explicitly committed or aborted.
-    pub fn try_claim_owned(&self, length: usize) -> Result<AeronClaim, AeronOfferError> {
-        let claim = AeronBufferClaim::new_zeroed_on_stack();
-        let position = self.try_claim(length, &claim)?;
-        Ok(AeronClaim {
-            claim,
-            position,
-            finalised: false,
-        })
-    }
-
-    /// Gathering (vectored) publish: offer up to [`MAX_OFFER_PARTS`] buffers as ONE
-    /// message without concatenating them — **zero allocation, zero copy** on the
-    /// caller side (the driver gathers the parts directly).
-    ///
-    /// This is the header+payload send: instead of building a `Vec` per message
-    /// (`vec.extend(header); vec.extend(payload); offer(&vec)`), pass the parts:
-    ///
-    /// ```ignore
-    /// publication.offer_parts(&[&header_bytes, payload])?;
-    /// ```
-    ///
-    /// The `aeron_iovec_t` array is built on the stack. Same typed-error semantics
-    /// as [`Self::offer`]. Returns `AeronErrorType::GenericError` if more than
-    /// [`MAX_OFFER_PARTS`] parts are passed (use [`Self::offerv`] with your own
-    /// iovec array for larger gathers).
-    #[inline]
-    pub fn offer_parts(&self, parts: &[&[u8]]) -> Result<i64, AeronOfferError> {
-        if parts.len() > MAX_OFFER_PARTS {
-            return Err(AeronOfferError::Error(AeronCError::from_code(-1)));
-        }
-        let mut iov = [aeron_iovec_t {
-            iov_base: std::ptr::null_mut(),
-            iov_len: 0,
-        }; MAX_OFFER_PARTS];
-        for (slot, part) in iov.iter_mut().zip(parts) {
-            slot.iov_base = part.as_ptr() as *mut u8;
-            slot.iov_len = part.len();
-        }
-        let position = unsafe {
-            aeron_publication_offerv(
-                self.get_inner(),
-                iov.as_mut_ptr(),
-                parts.len(),
-                None,
-                std::ptr::null_mut(),
-            )
-        };
-        AeronOfferError::from_position(position)
-    }
-
-    /// High-level connection state derived from the publication handle.
-    #[inline]
-    pub fn status(&self) -> AeronStatus {
-        if self.is_closed() {
-            AeronStatus::Closed
-        } else if self.is_connected() {
-            AeronStatus::Connected
-        } else {
-            AeronStatus::Disconnected
-        }
-    }
-
-    /// Convenience accessor for the registration id (no direct C accessor exists;
-    /// backed by [`Self::get_constants`]). `session_id`, `stream_id` and `channel`
-    /// have cheap direct getters — prefer those; for `registration_id` /
-    /// `max_payload_length` in a hot loop, call [`Self::get_constants`] once and
-    /// reuse the returned [`AeronPublicationConstants`].
-    #[inline]
-    pub fn registration_id(&self) -> Result<i64, AeronCError> {
-        self.get_constants().map(|c| c.registration_id())
-    }
-
-    /// Convenience accessor for the max payload length (see [`Self::registration_id`]).
-    #[inline]
-    pub fn max_payload_length(&self) -> Result<usize, AeronCError> {
-        self.get_constants().map(|c| c.max_payload_length())
     }
 }
 
 impl AeronExclusivePublication {
-    /// Raw, branch-free variant of [`Self::offer`]: returns the new stream position, or a
-    /// negative Aeron sentinel (see [`AeronOfferError::from_position`]).
-    #[inline]
-    pub fn offer_raw<H: AeronReservedValueSupplierCallback>(
-        &self,
-        buffer: &[u8],
-        reserved_value_supplier: Option<&Handler<H>>,
-    ) -> i64 {
-        unsafe {
-            aeron_exclusive_publication_offer(
-                self.get_inner(),
-                buffer.as_ptr() as *mut _,
-                buffer.len(),
-                {
-                    let callback: aeron_reserved_value_supplier_t = if reserved_value_supplier.is_none() {
-                        None
-                    } else {
-                        Some(aeron_reserved_value_supplier_t_callback::<H>)
-                    };
-                    callback
-                },
-                reserved_value_supplier
-                    .map(|m| m.as_raw())
-                    .unwrap_or_else(|| std::ptr::null_mut()),
-            )
-        }
-    }
-
-    /// Non-blocking publish of `buffer`, returning the new stream position.
-    ///
-    /// This is the common case (no reserved-value supplier). Errors are typed:
-    /// check [`AeronOfferError::is_retryable`] to drive retry loops (back pressure
-    /// / admin action / not connected) vs fatal conditions (closed, max position
-    /// exceeded). Use [`Self::offer_raw`] for the raw sentinel, or
-    /// [`Self::offer_with_reserved_value`] to supply a reserved value.
     #[inline]
     pub fn offer(&self, buffer: &[u8]) -> Result<i64, AeronOfferError> {
         AeronOfferError::from_position(self.offer_raw::<AeronReservedValueSupplierLogger>(buffer, None))
     }
 
-    /// [`Self::offer`] with a reserved-value supplier.
-    #[inline]
-    pub fn offer_with_reserved_value<H: AeronReservedValueSupplierCallback>(
-        &self,
-        buffer: &[u8],
-        reserved_value_supplier: Option<&Handler<H>>,
-    ) -> Result<i64, AeronOfferError> {
-        AeronOfferError::from_position(self.offer_raw(buffer, reserved_value_supplier))
-    }
-
-    /// Raw, branch-free variant of [`Self::try_claim`]: position or negative sentinel.
-    #[inline]
-    pub fn try_claim_raw(&self, length: usize, buffer_claim: &AeronBufferClaim) -> i64 {
-        unsafe { aeron_exclusive_publication_try_claim(self.get_inner(), length, buffer_claim.get_inner()) }
-    }
-
-    /// Zero-copy claim of `length` bytes; write into the claim then `commit()`.
-    ///
-    /// Same typed-error semantics as [`Self::offer`]. Prefer
-    /// [`Self::try_claim_owned`] for RAII abort-on-drop.
     #[inline]
     pub fn try_claim(&self, length: usize, buffer_claim: &AeronBufferClaim) -> Result<i64, AeronOfferError> {
         AeronOfferError::from_position(self.try_claim_raw(length, buffer_claim))
-    }
-
-    /// Zero-copy claim returning a RAII [`AeronClaim`] that is auto-aborted on
-    /// drop unless explicitly committed or aborted.
-    pub fn try_claim_owned(&self, length: usize) -> Result<AeronClaim, AeronOfferError> {
-        let claim = AeronBufferClaim::new_zeroed_on_stack();
-        let position = self.try_claim(length, &claim)?;
-        Ok(AeronClaim {
-            claim,
-            position,
-            finalised: false,
-        })
-    }
-
-    /// Gathering (vectored) publish — see [`AeronPublication::offer_parts`].
-    /// Zero allocation, zero caller-side copy; the `aeron_iovec_t` array is on
-    /// the stack (up to [`MAX_OFFER_PARTS`] parts).
-    #[inline]
-    pub fn offer_parts(&self, parts: &[&[u8]]) -> Result<i64, AeronOfferError> {
-        if parts.len() > MAX_OFFER_PARTS {
-            return Err(AeronOfferError::Error(AeronCError::from_code(-1)));
-        }
-        let mut iov = [aeron_iovec_t {
-            iov_base: std::ptr::null_mut(),
-            iov_len: 0,
-        }; MAX_OFFER_PARTS];
-        for (slot, part) in iov.iter_mut().zip(parts) {
-            slot.iov_base = part.as_ptr() as *mut u8;
-            slot.iov_len = part.len();
-        }
-        let position = unsafe {
-            aeron_exclusive_publication_offerv(
-                self.get_inner(),
-                iov.as_mut_ptr(),
-                parts.len(),
-                None,
-                std::ptr::null_mut(),
-            )
-        };
-        AeronOfferError::from_position(position)
-    }
-
-    /// High-level connection state derived from the publication handle.
-    #[inline]
-    pub fn status(&self) -> AeronStatus {
-        if self.is_closed() {
-            AeronStatus::Closed
-        } else if self.is_connected() {
-            AeronStatus::Connected
-        } else {
-            AeronStatus::Disconnected
-        }
-    }
-
-    /// Convenience accessor for the registration id (no direct C accessor exists;
-    /// backed by [`Self::get_constants`]). See [`AeronPublication::registration_id`]
-    /// for the hot-loop caching note.
-    #[inline]
-    pub fn registration_id(&self) -> Result<i64, AeronCError> {
-        self.get_constants().map(|c| c.registration_id())
-    }
-
-    /// Convenience accessor for the max payload length (see [`AeronPublication::registration_id`]).
-    #[inline]
-    pub fn max_payload_length(&self) -> Result<usize, AeronCError> {
-        self.get_constants().map(|c| c.max_payload_length())
     }
 }
 

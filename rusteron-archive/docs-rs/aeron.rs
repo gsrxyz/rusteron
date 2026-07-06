@@ -1,3 +1,4 @@
+
 type aeron_client_registering_resource_t = aeron_client_registering_resource_stct;
 #[derive(Clone)]
 pub struct AeronAgentRunner {
@@ -37405,3 +37406,4 @@ unsafe extern "C" fn aeron_agent_on_close_func_t_callback_for_once_closure<F: Fn
     let closure: &mut F = unsafe { &mut *(arg1 as *mut F) };
     closure()
 }
+
