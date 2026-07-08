@@ -2,6 +2,13 @@
 // code here is included in all modules and extends generated classes
 pub static AERON_IPC_STREAM: &std::ffi::CStr = c"aeron:ipc";
 
+// bindgen maps C `va_list` to different platform-specific names (e.g.
+// `va_list` on macOS, `VaListTag` on Linux).  The type is treated as an
+// opaque pointer by the fprintf handler — define a catch-all alias so
+// the generated handler wrapper compiles everywhere.
+#[allow(non_camel_case_types)]
+pub type VaListTag = *mut std::ffi::c_void;
+
 /// Max buffer parts accepted by [`AeronPublication::offer_parts`] /
 /// [`AeronExclusivePublication::offer_parts`] — the `aeron_iovec_t` array is
 /// built on the stack, so it has a fixed capacity. Use the raw `offerv` with

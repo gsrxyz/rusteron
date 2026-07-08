@@ -3642,677 +3642,6 @@ impl From<aeron_async_destination_t> for AeronAsyncDestination {
     }
 }
 #[derive(Clone)]
-pub struct AeronAsyncExecutor {
-    inner: CResource<aeron_async_executor_t>,
-}
-impl core::fmt::Debug for AeronAsyncExecutor {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.inner.get().is_null() {
-            f.debug_struct(stringify!(AeronAsyncExecutor))
-                .field("inner", &"null")
-                .finish()
-        } else {
-            f.debug_struct(stringify!(AeronAsyncExecutor))
-                .field("inner", &self.inner)
-                .field(stringify!(async_enabled), &self.async_enabled())
-                .field(stringify!(queue), &self.queue())
-                .field(stringify!(return_queue), &self.return_queue())
-                .field(stringify!(runner), &self.runner())
-                .finish()
-        }
-    }
-}
-impl AeronAsyncExecutor {
-    #[inline]
-    pub fn new(
-        async_enabled: bool,
-        aeron_epoch_clock: aeron_clock_func_t,
-        clientd: *mut ::std::os::raw::c_void,
-        queue: AeronBlockingLinkedQueue,
-        return_queue: AeronBlockingLinkedQueue,
-        runner: AeronAgentRunner,
-        name_resolver: *mut aeron_name_resolver_t,
-    ) -> Result<Self, AeronCError> {
-        let r_constructor = ManagedCResource::new(
-            move |ctx_field| {
-                let inst = aeron_async_executor_t {
-                    async_enabled: async_enabled.into(),
-                    aeron_epoch_clock: aeron_epoch_clock.into(),
-                    clientd: clientd.into(),
-                    queue: queue.into(),
-                    return_queue: return_queue.into(),
-                    runner: runner.into(),
-                    name_resolver: name_resolver.into(),
-                };
-                let inner_ptr: *mut aeron_async_executor_t = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )?;
-        let result = Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
-        };
-        Ok(result)
-    }
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
-    pub fn new_zeroed_on_heap() -> Self {
-        let resource = ManagedCResource::new(
-            move |ctx_field| {
-                #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(aeron_async_executor_t)
-                );
-                let inst: aeron_async_executor_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_async_executor_t = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )
-        .unwrap();
-        Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
-        }
-    }
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
-    #[doc = r" _(Use with care)_"]
-    pub fn new_zeroed_on_stack() -> Self {
-        #[cfg(feature = "extra-logging")]
-        log::debug!(
-            "creating zeroed empty resource on stack {}",
-            stringify!(aeron_async_executor_t)
-        );
-        Self {
-            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
-        }
-    }
-    #[inline]
-    pub fn async_enabled(&self) -> bool {
-        self.async_enabled.into()
-    }
-    #[inline]
-    pub fn aeron_epoch_clock(&self) -> aeron_clock_func_t {
-        self.aeron_epoch_clock.into()
-    }
-    #[inline]
-    pub fn clientd(&self) -> *mut ::std::os::raw::c_void {
-        self.clientd.into()
-    }
-    #[inline]
-    pub fn queue(&self) -> AeronBlockingLinkedQueue {
-        self.queue.into()
-    }
-    #[inline]
-    pub fn return_queue(&self) -> AeronBlockingLinkedQueue {
-        self.return_queue.into()
-    }
-    #[inline]
-    pub fn runner(&self) -> AeronAgentRunner {
-        self.runner.into()
-    }
-    #[inline]
-    pub fn name_resolver(&self) -> *mut aeron_name_resolver_t {
-        self.name_resolver.into()
-    }
-    #[inline]
-    pub fn init(
-        &self,
-        context: &AeronDriverContext,
-        name_resolver: *mut aeron_name_resolver_t,
-        agent_role_name: &std::ffi::CStr,
-        clientd: *mut ::std::os::raw::c_void,
-    ) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_async_executor_init),
-                [
-                    concat!("executor", ": ", stringify!(*mut aeron_async_executor_t)).to_string(),
-                    concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string(),
-                    concat!("name_resolver", ": ", stringify!(*mut aeron_name_resolver_t)).to_string(),
-                    concat!("agent_role_name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("clientd", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_async_executor_init(
-                self.get_inner(),
-                context.get_inner(),
-                name_resolver.into(),
-                agent_role_name.as_ptr(),
-                clientd.into(),
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    pub fn do_work(clientd: *mut ::std::os::raw::c_void) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_async_executor_do_work),
-                [concat!("clientd", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string()].join(", ")
-            );
-            let result = aeron_async_executor_do_work(clientd.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    pub fn on_start(state: *mut ::std::os::raw::c_void, role_name: &std::ffi::CStr) -> () {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_async_executor_on_start),
-                [
-                    concat!("state", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
-                    concat!("role_name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_async_executor_on_start(state.into(), role_name.as_ptr());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    #[doc = ""]
-    #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access — safe to ignore. Closures with a matching signature are accepted directly."]
-    pub fn submit<AeronAsyncExecutorTaskCancelFuncHandlerImpl: AeronAsyncExecutorTaskCancelFuncCallback + 'static>(
-        &self,
-        on_execute: aeron_async_executor_task_on_execute_func_t,
-        on_complete: aeron_async_executor_task_on_complete_func_t,
-        on_cancel: Option<AeronAsyncExecutorTaskCancelFuncHandlerImpl>,
-    ) -> Result<Option<Handler<AeronAsyncExecutorTaskCancelFuncHandlerImpl>>, AeronCError> {
-        let on_cancel = on_cancel.map(Handler::new);
-        let on_cancel_raw = on_cancel
-            .as_ref()
-            .map(|m| m.as_raw())
-            .unwrap_or_else(|| std::ptr::null_mut());
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_async_executor_submit),
-                [
-                    concat!("executor", ": ", stringify!(*mut aeron_async_executor_t)).to_string(),
-                    concat!(
-                        "on_execute",
-                        ": ",
-                        stringify!(aeron_async_executor_task_on_execute_func_t)
-                    )
-                    .to_string(),
-                    concat!(
-                        "on_complete",
-                        ": ",
-                        stringify!(aeron_async_executor_task_on_complete_func_t)
-                    )
-                    .to_string(),
-                    concat!(
-                        "on_cancel",
-                        ": ",
-                        stringify!(aeron_async_executor_task_on_cancel_func_t)
-                    )
-                    .to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_async_executor_submit(
-                self.get_inner(),
-                on_execute.into(),
-                on_complete.into(),
-                {
-                    let callback: aeron_async_executor_task_on_cancel_func_t = if on_cancel_raw.is_null() {
-                        None
-                    } else {
-                        Some(
-                            aeron_async_executor_task_on_cancel_func_t_callback::<
-                                AeronAsyncExecutorTaskCancelFuncHandlerImpl,
-                            >,
-                        )
-                    };
-                    callback
-                },
-                on_cancel_raw,
-            );
-            if let Some(__handler) = &on_cancel {
-                if let Some(__inner) = self.inner.as_owned() {
-                    __inner.add_dependency(__handler.clone());
-                }
-            }
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(on_cancel);
-            }
-        }
-    }
-    #[inline]
-    pub fn process_completions(&self, limit: ::std::os::raw::c_int) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_async_executor_process_completions),
-                [
-                    concat!("executor", ": ", stringify!(*mut aeron_async_executor_t)).to_string(),
-                    format!("{} = {:?}", "limit", limit)
-                ]
-                .join(", ")
-            );
-            let result = aeron_async_executor_process_completions(self.get_inner(), limit.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline(always)]
-    pub fn get_inner(&self) -> *mut aeron_async_executor_t {
-        self.inner.get()
-    }
-    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
-    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
-    #[doc = r" access for the lifetime of the returned reference."]
-    #[doc = r""]
-    #[doc = r" # Safety"]
-    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
-    #[doc = r" alive while the returned `&mut` is in use."]
-    #[inline(always)]
-    pub unsafe fn get_inner_mut(&self) -> &mut aeron_async_executor_t {
-        &mut *self.inner.get()
-    }
-    #[inline(always)]
-    pub fn get_inner_ref(&self) -> &aeron_async_executor_t {
-        unsafe { &*self.inner.get() }
-    }
-}
-impl std::ops::Deref for AeronAsyncExecutor {
-    type Target = aeron_async_executor_t;
-    fn deref(&self) -> &Self::Target {
-        self.get_inner_ref()
-    }
-}
-impl From<*mut aeron_async_executor_t> for AeronAsyncExecutor {
-    #[inline]
-    fn from(value: *mut aeron_async_executor_t) -> Self {
-        AeronAsyncExecutor {
-            inner: CResource::Borrowed(value),
-        }
-    }
-}
-impl From<AeronAsyncExecutor> for *mut aeron_async_executor_t {
-    #[inline]
-    fn from(value: AeronAsyncExecutor) -> Self {
-        value.get_inner()
-    }
-}
-impl From<&AeronAsyncExecutor> for *mut aeron_async_executor_t {
-    #[inline]
-    fn from(value: &AeronAsyncExecutor) -> Self {
-        value.get_inner()
-    }
-}
-impl From<AeronAsyncExecutor> for aeron_async_executor_t {
-    #[inline]
-    fn from(value: AeronAsyncExecutor) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_async_executor_t> for AeronAsyncExecutor {
-    #[inline]
-    fn from(value: *const aeron_async_executor_t) -> Self {
-        AeronAsyncExecutor {
-            inner: CResource::Borrowed(value as *mut aeron_async_executor_t),
-        }
-    }
-}
-impl From<aeron_async_executor_t> for AeronAsyncExecutor {
-    #[inline]
-    fn from(value: aeron_async_executor_t) -> Self {
-        AeronAsyncExecutor {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
-        }
-    }
-}
-#[doc = r" This will create an instance where the struct is zeroed, use with care"]
-impl Default for AeronAsyncExecutor {
-    fn default() -> Self {
-        AeronAsyncExecutor::new_zeroed_on_heap()
-    }
-}
-impl AeronAsyncExecutor {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
-    #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
-        let copy = Self::default();
-        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
-        copy
-    }
-}
-#[cfg(test)]
-mod aeron_async_executor_t_allocation_tests {
-    use super::*;
-    use serial_test::file_serial;
-    #[test]
-    #[file_serial(global)]
-    fn test_new_on_stack() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = AeronAsyncExecutor::new_zeroed_on_stack();
-            }
-        });
-    }
-    #[test]
-    #[file_serial(global)]
-    fn test_default() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = AeronAsyncExecutor::default();
-            }
-        });
-    }
-}
-#[derive(Clone)]
-pub struct AeronAsyncExecutorTask {
-    inner: CResource<aeron_async_executor_task_t>,
-}
-impl core::fmt::Debug for AeronAsyncExecutorTask {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.inner.get().is_null() {
-            f.debug_struct(stringify!(AeronAsyncExecutorTask))
-                .field("inner", &"null")
-                .finish()
-        } else {
-            f.debug_struct(stringify!(AeronAsyncExecutorTask))
-                .field("inner", &self.inner)
-                .field(stringify!(result), &self.result())
-                .field(stringify!(errcode), &self.errcode())
-                .finish()
-        }
-    }
-}
-impl AeronAsyncExecutorTask {
-    #[inline]
-    pub fn new<AeronAsyncExecutorTaskCancelFuncHandlerImpl: AeronAsyncExecutorTaskCancelFuncCallback + 'static>(
-        executor: &AeronAsyncExecutor,
-        on_execute: aeron_async_executor_task_on_execute_func_t,
-        on_complete: aeron_async_executor_task_on_complete_func_t,
-        on_cancel: Option<&Handler<AeronAsyncExecutorTaskCancelFuncHandlerImpl>>,
-        result: ::std::os::raw::c_int,
-        errcode: ::std::os::raw::c_int,
-        errmsg: [::std::os::raw::c_char; 8192usize],
-    ) -> Result<Self, AeronCError> {
-        let executor_copy = executor.clone();
-        let r_constructor = ManagedCResource::new(
-            move |ctx_field| {
-                let inst = aeron_async_executor_task_t {
-                    executor: executor.into(),
-                    on_execute: on_execute.into(),
-                    on_complete: on_complete.into(),
-                    on_cancel: {
-                        let callback: aeron_async_executor_task_on_cancel_func_t = if on_cancel.is_none() {
-                            None
-                        } else {
-                            Some(
-                                aeron_async_executor_task_on_cancel_func_t_callback::<
-                                    AeronAsyncExecutorTaskCancelFuncHandlerImpl,
-                                >,
-                            )
-                        };
-                        callback
-                    },
-                    clientd: on_cancel.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
-                    result: result.into(),
-                    errcode: errcode.into(),
-                    errmsg: errmsg.into(),
-                };
-                let inner_ptr: *mut aeron_async_executor_task_t = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )?;
-        let result = Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
-        };
-        if let Some(__handler) = on_cancel {
-            if let Some(__inner) = result.inner.as_owned() {
-                __inner.add_dependency(__handler.clone());
-            }
-        }
-        Ok(result)
-    }
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
-    pub fn new_zeroed_on_heap() -> Self {
-        let resource = ManagedCResource::new(
-            move |ctx_field| {
-                #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(aeron_async_executor_task_t)
-                );
-                let inst: aeron_async_executor_task_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_async_executor_task_t = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )
-        .unwrap();
-        Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
-        }
-    }
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
-    #[doc = r" _(Use with care)_"]
-    pub fn new_zeroed_on_stack() -> Self {
-        #[cfg(feature = "extra-logging")]
-        log::debug!(
-            "creating zeroed empty resource on stack {}",
-            stringify!(aeron_async_executor_task_t)
-        );
-        Self {
-            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
-        }
-    }
-    #[inline]
-    pub fn executor(&self) -> AeronAsyncExecutor {
-        self.executor.into()
-    }
-    #[inline]
-    pub fn on_execute(&self) -> aeron_async_executor_task_on_execute_func_t {
-        self.on_execute.into()
-    }
-    #[inline]
-    pub fn on_complete(&self) -> aeron_async_executor_task_on_complete_func_t {
-        self.on_complete.into()
-    }
-    #[inline]
-    pub fn on_cancel(&self) -> aeron_async_executor_task_on_cancel_func_t {
-        self.on_cancel.into()
-    }
-    #[inline]
-    pub fn clientd(&self) -> *mut ::std::os::raw::c_void {
-        self.clientd.into()
-    }
-    #[inline]
-    pub fn result(&self) -> ::std::os::raw::c_int {
-        self.result.into()
-    }
-    #[inline]
-    pub fn errcode(&self) -> ::std::os::raw::c_int {
-        self.errcode.into()
-    }
-    #[inline]
-    pub fn errmsg(&self) -> [::std::os::raw::c_char; 8192usize] {
-        self.errmsg.into()
-    }
-    #[inline]
-    pub fn do_complete(&self) -> () {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_async_executor_task_do_complete),
-                [concat!("task", ": ", stringify!(*mut aeron_async_executor_task_t)).to_string()].join(", ")
-            );
-            let result = aeron_async_executor_task_do_complete(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline(always)]
-    pub fn get_inner(&self) -> *mut aeron_async_executor_task_t {
-        self.inner.get()
-    }
-    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
-    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
-    #[doc = r" access for the lifetime of the returned reference."]
-    #[doc = r""]
-    #[doc = r" # Safety"]
-    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
-    #[doc = r" alive while the returned `&mut` is in use."]
-    #[inline(always)]
-    pub unsafe fn get_inner_mut(&self) -> &mut aeron_async_executor_task_t {
-        &mut *self.inner.get()
-    }
-    #[inline(always)]
-    pub fn get_inner_ref(&self) -> &aeron_async_executor_task_t {
-        unsafe { &*self.inner.get() }
-    }
-}
-impl std::ops::Deref for AeronAsyncExecutorTask {
-    type Target = aeron_async_executor_task_t;
-    fn deref(&self) -> &Self::Target {
-        self.get_inner_ref()
-    }
-}
-impl From<*mut aeron_async_executor_task_t> for AeronAsyncExecutorTask {
-    #[inline]
-    fn from(value: *mut aeron_async_executor_task_t) -> Self {
-        AeronAsyncExecutorTask {
-            inner: CResource::Borrowed(value),
-        }
-    }
-}
-impl From<AeronAsyncExecutorTask> for *mut aeron_async_executor_task_t {
-    #[inline]
-    fn from(value: AeronAsyncExecutorTask) -> Self {
-        value.get_inner()
-    }
-}
-impl From<&AeronAsyncExecutorTask> for *mut aeron_async_executor_task_t {
-    #[inline]
-    fn from(value: &AeronAsyncExecutorTask) -> Self {
-        value.get_inner()
-    }
-}
-impl From<AeronAsyncExecutorTask> for aeron_async_executor_task_t {
-    #[inline]
-    fn from(value: AeronAsyncExecutorTask) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_async_executor_task_t> for AeronAsyncExecutorTask {
-    #[inline]
-    fn from(value: *const aeron_async_executor_task_t) -> Self {
-        AeronAsyncExecutorTask {
-            inner: CResource::Borrowed(value as *mut aeron_async_executor_task_t),
-        }
-    }
-}
-impl From<aeron_async_executor_task_t> for AeronAsyncExecutorTask {
-    #[inline]
-    fn from(value: aeron_async_executor_task_t) -> Self {
-        AeronAsyncExecutorTask {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
-        }
-    }
-}
-#[doc = r" This will create an instance where the struct is zeroed, use with care"]
-impl Default for AeronAsyncExecutorTask {
-    fn default() -> Self {
-        AeronAsyncExecutorTask::new_zeroed_on_heap()
-    }
-}
-impl AeronAsyncExecutorTask {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
-    #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
-        let copy = Self::default();
-        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
-        copy
-    }
-}
-#[cfg(test)]
-mod aeron_async_executor_task_t_allocation_tests {
-    use super::*;
-    use serial_test::file_serial;
-    #[test]
-    #[file_serial(global)]
-    fn test_new_on_stack() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = AeronAsyncExecutorTask::new_zeroed_on_stack();
-            }
-        });
-    }
-    #[test]
-    #[file_serial(global)]
-    fn test_default() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = AeronAsyncExecutorTask::default();
-            }
-        });
-    }
-}
-#[derive(Clone)]
 pub struct AeronAsyncGetNextAvailableSessionId {
     inner: CResource<aeron_async_get_next_available_session_id_t>,
 }
@@ -4599,308 +3928,6 @@ mod aeron_atomic_counter_t_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = AeronAtomicCounter::new_zeroed_on_stack();
-            }
-        });
-    }
-}
-#[derive(Clone)]
-pub struct AeronBlockingLinkedQueue {
-    inner: CResource<aeron_blocking_linked_queue_t>,
-}
-impl core::fmt::Debug for AeronBlockingLinkedQueue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.inner.get().is_null() {
-            f.debug_struct(stringify!(AeronBlockingLinkedQueue))
-                .field("inner", &"null")
-                .finish()
-        } else {
-            f.debug_struct(stringify!(AeronBlockingLinkedQueue))
-                .field("inner", &self.inner)
-                .field(stringify!(queue), &self.queue())
-                .finish()
-        }
-    }
-}
-impl AeronBlockingLinkedQueue {
-    #[inline]
-    pub fn new(queue: AeronLinkedQueue, mutex: aeron_mutex_t, cv: aeron_cond_t) -> Result<Self, AeronCError> {
-        let r_constructor = ManagedCResource::new(
-            move |ctx_field| {
-                let inst = aeron_blocking_linked_queue_t {
-                    queue: queue.into(),
-                    mutex: mutex.into(),
-                    cv: cv.into(),
-                };
-                let inner_ptr: *mut aeron_blocking_linked_queue_t = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )?;
-        let result = Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
-        };
-        Ok(result)
-    }
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
-    pub fn new_zeroed_on_heap() -> Self {
-        let resource = ManagedCResource::new(
-            move |ctx_field| {
-                #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(aeron_blocking_linked_queue_t)
-                );
-                let inst: aeron_blocking_linked_queue_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_blocking_linked_queue_t = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )
-        .unwrap();
-        Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
-        }
-    }
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
-    #[doc = r" _(Use with care)_"]
-    pub fn new_zeroed_on_stack() -> Self {
-        #[cfg(feature = "extra-logging")]
-        log::debug!(
-            "creating zeroed empty resource on stack {}",
-            stringify!(aeron_blocking_linked_queue_t)
-        );
-        Self {
-            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
-        }
-    }
-    #[inline]
-    pub fn queue(&self) -> AeronLinkedQueue {
-        self.queue.into()
-    }
-    #[inline]
-    pub fn mutex(&self) -> aeron_mutex_t {
-        self.mutex.into()
-    }
-    #[inline]
-    pub fn cv(&self) -> aeron_cond_t {
-        self.cv.into()
-    }
-    #[inline]
-    pub fn init(&self) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_blocking_linked_queue_init),
-                [concat!("queue", ": ", stringify!(*mut aeron_blocking_linked_queue_t)).to_string()].join(", ")
-            );
-            let result = aeron_blocking_linked_queue_init(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    pub fn offer(&self, element: *mut ::std::os::raw::c_void) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_blocking_linked_queue_offer),
-                [
-                    concat!("queue", ": ", stringify!(*mut aeron_blocking_linked_queue_t)).to_string(),
-                    concat!("element", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_blocking_linked_queue_offer(self.get_inner(), element.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    pub fn poll(&self) -> *mut ::std::os::raw::c_void {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_blocking_linked_queue_poll),
-                [concat!("queue", ": ", stringify!(*mut aeron_blocking_linked_queue_t)).to_string()].join(", ")
-            );
-            let result = aeron_blocking_linked_queue_poll(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    pub fn take(&self) -> *mut ::std::os::raw::c_void {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_blocking_linked_queue_take),
-                [concat!("queue", ": ", stringify!(*mut aeron_blocking_linked_queue_t)).to_string()].join(", ")
-            );
-            let result = aeron_blocking_linked_queue_take(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_blocking_linked_queue_is_empty),
-                [concat!("queue", ": ", stringify!(*mut aeron_blocking_linked_queue_t)).to_string()].join(", ")
-            );
-            let result = aeron_blocking_linked_queue_is_empty(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    pub fn unblock(&self) -> () {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_blocking_linked_queue_unblock),
-                [concat!("queue", ": ", stringify!(*mut aeron_blocking_linked_queue_t)).to_string()].join(", ")
-            );
-            let result = aeron_blocking_linked_queue_unblock(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline(always)]
-    pub fn get_inner(&self) -> *mut aeron_blocking_linked_queue_t {
-        self.inner.get()
-    }
-    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
-    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
-    #[doc = r" access for the lifetime of the returned reference."]
-    #[doc = r""]
-    #[doc = r" # Safety"]
-    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
-    #[doc = r" alive while the returned `&mut` is in use."]
-    #[inline(always)]
-    pub unsafe fn get_inner_mut(&self) -> &mut aeron_blocking_linked_queue_t {
-        &mut *self.inner.get()
-    }
-    #[inline(always)]
-    pub fn get_inner_ref(&self) -> &aeron_blocking_linked_queue_t {
-        unsafe { &*self.inner.get() }
-    }
-}
-impl std::ops::Deref for AeronBlockingLinkedQueue {
-    type Target = aeron_blocking_linked_queue_t;
-    fn deref(&self) -> &Self::Target {
-        self.get_inner_ref()
-    }
-}
-impl From<*mut aeron_blocking_linked_queue_t> for AeronBlockingLinkedQueue {
-    #[inline]
-    fn from(value: *mut aeron_blocking_linked_queue_t) -> Self {
-        AeronBlockingLinkedQueue {
-            inner: CResource::Borrowed(value),
-        }
-    }
-}
-impl From<AeronBlockingLinkedQueue> for *mut aeron_blocking_linked_queue_t {
-    #[inline]
-    fn from(value: AeronBlockingLinkedQueue) -> Self {
-        value.get_inner()
-    }
-}
-impl From<&AeronBlockingLinkedQueue> for *mut aeron_blocking_linked_queue_t {
-    #[inline]
-    fn from(value: &AeronBlockingLinkedQueue) -> Self {
-        value.get_inner()
-    }
-}
-impl From<AeronBlockingLinkedQueue> for aeron_blocking_linked_queue_t {
-    #[inline]
-    fn from(value: AeronBlockingLinkedQueue) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_blocking_linked_queue_t> for AeronBlockingLinkedQueue {
-    #[inline]
-    fn from(value: *const aeron_blocking_linked_queue_t) -> Self {
-        AeronBlockingLinkedQueue {
-            inner: CResource::Borrowed(value as *mut aeron_blocking_linked_queue_t),
-        }
-    }
-}
-impl From<aeron_blocking_linked_queue_t> for AeronBlockingLinkedQueue {
-    #[inline]
-    fn from(value: aeron_blocking_linked_queue_t) -> Self {
-        AeronBlockingLinkedQueue {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
-        }
-    }
-}
-#[doc = r" This will create an instance where the struct is zeroed, use with care"]
-impl Default for AeronBlockingLinkedQueue {
-    fn default() -> Self {
-        AeronBlockingLinkedQueue::new_zeroed_on_heap()
-    }
-}
-impl AeronBlockingLinkedQueue {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
-    #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
-        let copy = Self::default();
-        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
-        copy
-    }
-}
-#[cfg(test)]
-mod aeron_blocking_linked_queue_t_allocation_tests {
-    use super::*;
-    use serial_test::file_serial;
-    #[test]
-    #[file_serial(global)]
-    fn test_new_on_stack() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = AeronBlockingLinkedQueue::new_zeroed_on_stack();
-            }
-        });
-    }
-    #[test]
-    #[file_serial(global)]
-    fn test_default() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = AeronBlockingLinkedQueue::default();
             }
         });
     }
@@ -15430,6 +14457,455 @@ mod aeron_dl_loaded_libs_state_t_allocation_tests {
     }
 }
 #[derive(Clone)]
+pub struct AeronDriverConductorClientCommand {
+    inner: CResource<aeron_driver_conductor_client_command_t>,
+}
+impl core::fmt::Debug for AeronDriverConductorClientCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronDriverConductorClientCommand))
+                .field("inner", &"null")
+                .finish()
+        } else {
+            f.debug_struct(stringify!(AeronDriverConductorClientCommand))
+                .field("inner", &self.inner)
+                .finish()
+        }
+    }
+}
+impl AeronDriverConductorClientCommand {
+    #[inline]
+    pub fn new(
+        execute: ::std::option::Option<
+            unsafe extern "C" fn(
+                conductor: *mut aeron_driver_conductor_t,
+                cmd: *mut aeron_driver_conductor_client_command_stct,
+            ) -> aeron_driver_conductor_command_state_t,
+        >,
+        free: ::std::option::Option<
+            unsafe extern "C" fn(
+                conductor: *mut aeron_driver_conductor_t,
+                cmd: *mut aeron_driver_conductor_client_command_stct,
+            ),
+        >,
+        correlated: &AeronCorrelatedCommand,
+    ) -> Result<Self, AeronCError> {
+        let correlated_copy = correlated.clone();
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = aeron_driver_conductor_client_command_t {
+                    execute: execute.into(),
+                    free: free.into(),
+                    correlated: correlated.into(),
+                };
+                let inner_ptr: *mut aeron_driver_conductor_client_command_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!(
+                    "creating zeroed empty resource on heap {}",
+                    stringify!(aeron_driver_conductor_client_command_t)
+                );
+                let inst: aeron_driver_conductor_client_command_t = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_driver_conductor_client_command_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_driver_conductor_client_command_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
+        }
+    }
+    #[inline]
+    pub fn execute(
+        &self,
+    ) -> ::std::option::Option<
+        unsafe extern "C" fn(
+            conductor: *mut aeron_driver_conductor_t,
+            cmd: *mut aeron_driver_conductor_client_command_stct,
+        ) -> aeron_driver_conductor_command_state_t,
+    > {
+        self.execute.into()
+    }
+    #[inline]
+    pub fn free(
+        &self,
+    ) -> ::std::option::Option<
+        unsafe extern "C" fn(
+            conductor: *mut aeron_driver_conductor_t,
+            cmd: *mut aeron_driver_conductor_client_command_stct,
+        ),
+    > {
+        self.free.into()
+    }
+    #[inline]
+    pub fn correlated(&self) -> AeronCorrelatedCommand {
+        self.correlated.into()
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_driver_conductor_client_command_t {
+        self.inner.get()
+    }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
+    #[inline(always)]
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_conductor_client_command_t {
+        &mut *self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_driver_conductor_client_command_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronDriverConductorClientCommand {
+    type Target = aeron_driver_conductor_client_command_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_driver_conductor_client_command_t> for AeronDriverConductorClientCommand {
+    #[inline]
+    fn from(value: *mut aeron_driver_conductor_client_command_t) -> Self {
+        AeronDriverConductorClientCommand {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronDriverConductorClientCommand> for *mut aeron_driver_conductor_client_command_t {
+    #[inline]
+    fn from(value: AeronDriverConductorClientCommand) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronDriverConductorClientCommand> for *mut aeron_driver_conductor_client_command_t {
+    #[inline]
+    fn from(value: &AeronDriverConductorClientCommand) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronDriverConductorClientCommand> for aeron_driver_conductor_client_command_t {
+    #[inline]
+    fn from(value: AeronDriverConductorClientCommand) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_driver_conductor_client_command_t> for AeronDriverConductorClientCommand {
+    #[inline]
+    fn from(value: *const aeron_driver_conductor_client_command_t) -> Self {
+        AeronDriverConductorClientCommand {
+            inner: CResource::Borrowed(value as *mut aeron_driver_conductor_client_command_t),
+        }
+    }
+}
+impl From<aeron_driver_conductor_client_command_t> for AeronDriverConductorClientCommand {
+    #[inline]
+    fn from(value: aeron_driver_conductor_client_command_t) -> Self {
+        AeronDriverConductorClientCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
+        }
+    }
+}
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for AeronDriverConductorClientCommand {
+    fn default() -> Self {
+        AeronDriverConductorClientCommand::new_zeroed_on_heap()
+    }
+}
+impl AeronDriverConductorClientCommand {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+        copy
+    }
+}
+#[cfg(test)]
+mod aeron_driver_conductor_client_command_t_allocation_tests {
+    use super::*;
+    use serial_test::file_serial;
+    #[test]
+    #[file_serial(global)]
+    fn test_new_on_stack() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverConductorClientCommand::new_zeroed_on_stack();
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverConductorClientCommand::default();
+            }
+        });
+    }
+}
+#[derive(Clone)]
+pub struct AeronDriverConductorDriverCommand {
+    inner: CResource<aeron_driver_conductor_driver_command_t>,
+}
+impl core::fmt::Debug for AeronDriverConductorDriverCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronDriverConductorDriverCommand))
+                .field("inner", &"null")
+                .finish()
+        } else {
+            f.debug_struct(stringify!(AeronDriverConductorDriverCommand))
+                .field("inner", &self.inner)
+                .finish()
+        }
+    }
+}
+impl AeronDriverConductorDriverCommand {
+    #[inline]
+    pub fn new(
+        execute: ::std::option::Option<
+            unsafe extern "C" fn(
+                conductor: *mut aeron_driver_conductor_t,
+                cmd: *mut aeron_driver_conductor_driver_command_stct,
+            ) -> aeron_driver_conductor_command_state_t,
+        >,
+        free: ::std::option::Option<
+            unsafe extern "C" fn(
+                conductor: *mut aeron_driver_conductor_t,
+                cmd: *mut aeron_driver_conductor_driver_command_stct,
+            ),
+        >,
+    ) -> Result<Self, AeronCError> {
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = aeron_driver_conductor_driver_command_t {
+                    execute: execute.into(),
+                    free: free.into(),
+                };
+                let inner_ptr: *mut aeron_driver_conductor_driver_command_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!(
+                    "creating zeroed empty resource on heap {}",
+                    stringify!(aeron_driver_conductor_driver_command_t)
+                );
+                let inst: aeron_driver_conductor_driver_command_t = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_driver_conductor_driver_command_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_driver_conductor_driver_command_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
+        }
+    }
+    #[inline]
+    pub fn execute(
+        &self,
+    ) -> ::std::option::Option<
+        unsafe extern "C" fn(
+            conductor: *mut aeron_driver_conductor_t,
+            cmd: *mut aeron_driver_conductor_driver_command_stct,
+        ) -> aeron_driver_conductor_command_state_t,
+    > {
+        self.execute.into()
+    }
+    #[inline]
+    pub fn free(
+        &self,
+    ) -> ::std::option::Option<
+        unsafe extern "C" fn(
+            conductor: *mut aeron_driver_conductor_t,
+            cmd: *mut aeron_driver_conductor_driver_command_stct,
+        ),
+    > {
+        self.free.into()
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_driver_conductor_driver_command_t {
+        self.inner.get()
+    }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
+    #[inline(always)]
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_conductor_driver_command_t {
+        &mut *self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_driver_conductor_driver_command_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronDriverConductorDriverCommand {
+    type Target = aeron_driver_conductor_driver_command_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_driver_conductor_driver_command_t> for AeronDriverConductorDriverCommand {
+    #[inline]
+    fn from(value: *mut aeron_driver_conductor_driver_command_t) -> Self {
+        AeronDriverConductorDriverCommand {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronDriverConductorDriverCommand> for *mut aeron_driver_conductor_driver_command_t {
+    #[inline]
+    fn from(value: AeronDriverConductorDriverCommand) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronDriverConductorDriverCommand> for *mut aeron_driver_conductor_driver_command_t {
+    #[inline]
+    fn from(value: &AeronDriverConductorDriverCommand) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronDriverConductorDriverCommand> for aeron_driver_conductor_driver_command_t {
+    #[inline]
+    fn from(value: AeronDriverConductorDriverCommand) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_driver_conductor_driver_command_t> for AeronDriverConductorDriverCommand {
+    #[inline]
+    fn from(value: *const aeron_driver_conductor_driver_command_t) -> Self {
+        AeronDriverConductorDriverCommand {
+            inner: CResource::Borrowed(value as *mut aeron_driver_conductor_driver_command_t),
+        }
+    }
+}
+impl From<aeron_driver_conductor_driver_command_t> for AeronDriverConductorDriverCommand {
+    #[inline]
+    fn from(value: aeron_driver_conductor_driver_command_t) -> Self {
+        AeronDriverConductorDriverCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
+        }
+    }
+}
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for AeronDriverConductorDriverCommand {
+    fn default() -> Self {
+        AeronDriverConductorDriverCommand::new_zeroed_on_heap()
+    }
+}
+impl AeronDriverConductorDriverCommand {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+        copy
+    }
+}
+#[cfg(test)]
+mod aeron_driver_conductor_driver_command_t_allocation_tests {
+    use super::*;
+    use serial_test::file_serial;
+    #[test]
+    #[file_serial(global)]
+    fn test_new_on_stack() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverConductorDriverCommand::new_zeroed_on_stack();
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverConductorDriverCommand::default();
+            }
+        });
+    }
+}
+#[derive(Clone)]
 pub struct AeronDriverConductorProxy {
     inner: CResource<aeron_driver_conductor_proxy_t>,
 }
@@ -15450,7 +14926,6 @@ impl AeronDriverConductorProxy {
     #[inline]
     pub fn new(
         conductor: &AeronDriverConductor,
-        threading_mode: aeron_threading_mode_t,
         command_queue: &AeronMpscRb,
         fail_counter: &mut i64,
     ) -> Result<Self, AeronCError> {
@@ -15460,7 +14935,6 @@ impl AeronDriverConductorProxy {
             move |ctx_field| {
                 let inst = aeron_driver_conductor_proxy_t {
                     conductor: conductor.into(),
-                    threading_mode: threading_mode.into(),
                     command_queue: command_queue.into(),
                     fail_counter: fail_counter as *mut _,
                 };
@@ -15515,10 +14989,6 @@ impl AeronDriverConductorProxy {
     #[inline]
     pub fn conductor(&self) -> AeronDriverConductor {
         self.conductor.into()
-    }
-    #[inline]
-    pub fn threading_mode(&self) -> aeron_threading_mode_t {
-        self.threading_mode.into()
     }
     #[inline]
     pub fn command_queue(&self) -> AeronMpscRb {
@@ -15981,7 +15451,6 @@ impl core::fmt::Debug for AeronDriverConductor {
                 .field(stringify!(system_counters), &self.system_counters())
                 .field(stringify!(conductor_proxy), &self.conductor_proxy())
                 .field(stringify!(loss_reporter), &self.loss_reporter())
-                .field(stringify!(executor), &self.executor())
                 .field(
                     stringify!(send_channel_endpoint_by_channel_map),
                     &self.send_channel_endpoint_by_channel_map(),
@@ -15990,7 +15459,6 @@ impl core::fmt::Debug for AeronDriverConductor {
                     stringify!(receive_channel_endpoint_by_channel_map),
                     &self.receive_channel_endpoint_by_channel_map(),
                 )
-                .field(stringify!(end_of_life_queue), &self.end_of_life_queue())
                 .field(stringify!(clock_update_deadline_ns), &self.clock_update_deadline_ns())
                 .field(stringify!(next_session_id), &self.next_session_id())
                 .field(
@@ -16010,10 +15478,6 @@ impl core::fmt::Debug for AeronDriverConductor {
                     stringify!(last_command_consumer_position),
                     &self.last_command_consumer_position(),
                 )
-                .field(
-                    stringify!(async_client_command_in_flight),
-                    &self.async_client_command_in_flight(),
-                )
                 .field(stringify!(is_started), &self.is_started())
                 .finish()
         }
@@ -16030,8 +15494,6 @@ impl AeronDriverConductor {
         system_counters: AeronSystemCounters,
         conductor_proxy: AeronDriverConductorProxy,
         loss_reporter: AeronLossReporter,
-        name_resolver: aeron_name_resolver_t,
-        executor: AeronAsyncExecutor,
         send_channel_endpoint_by_channel_map: AeronStrToPtrHashMap,
         receive_channel_endpoint_by_channel_map: AeronStrToPtrHashMap,
         clients: aeron_driver_conductor_stct_client_stct,
@@ -16044,7 +15506,6 @@ impl AeronDriverConductor {
         receive_channel_endpoints: aeron_driver_conductor_stct_receive_channel_endpoint_stct,
         publication_images: aeron_driver_conductor_stct_publication_image_stct,
         lingering_resources: aeron_driver_conductor_stct_aeron_driver_conductor_lingering_resources_stct,
-        end_of_life_queue: AeronDeque,
         errors_counter: &mut i64,
         images_rejected_counter: &mut i64,
         unblocked_commands_counter: &mut i64,
@@ -16056,11 +15517,14 @@ impl AeronDriverConductor {
         timeout_check_deadline_ns: i64,
         time_of_last_to_driver_position_change_ns: i64,
         last_command_consumer_position: i64,
-        async_client_command_in_flight: bool,
         is_started: bool,
+        client_command: &AeronDriverConductorClientCommand,
+        driver_command: &AeronDriverConductorDriverCommand,
         padding: [u8; 64usize],
     ) -> Result<Self, AeronCError> {
         let context_copy = context.clone();
+        let client_command_copy = client_command.clone();
+        let driver_command_copy = driver_command.clone();
         let r_constructor = ManagedCResource::new(
             move |ctx_field| {
                 let inst = aeron_driver_conductor_t {
@@ -16072,8 +15536,6 @@ impl AeronDriverConductor {
                     system_counters: system_counters.into(),
                     conductor_proxy: conductor_proxy.into(),
                     loss_reporter: loss_reporter.into(),
-                    name_resolver: name_resolver.into(),
-                    executor: executor.into(),
                     send_channel_endpoint_by_channel_map: send_channel_endpoint_by_channel_map.into(),
                     receive_channel_endpoint_by_channel_map: receive_channel_endpoint_by_channel_map.into(),
                     clients: clients.into(),
@@ -16086,7 +15548,6 @@ impl AeronDriverConductor {
                     receive_channel_endpoints: receive_channel_endpoints.into(),
                     publication_images: publication_images.into(),
                     lingering_resources: lingering_resources.into(),
-                    end_of_life_queue: end_of_life_queue.into(),
                     errors_counter: errors_counter as *mut _,
                     images_rejected_counter: images_rejected_counter as *mut _,
                     unblocked_commands_counter: unblocked_commands_counter as *mut _,
@@ -16098,8 +15559,9 @@ impl AeronDriverConductor {
                     timeout_check_deadline_ns: timeout_check_deadline_ns.into(),
                     time_of_last_to_driver_position_change_ns: time_of_last_to_driver_position_change_ns.into(),
                     last_command_consumer_position: last_command_consumer_position.into(),
-                    async_client_command_in_flight: async_client_command_in_flight.into(),
                     is_started: is_started.into(),
+                    client_command: client_command.into(),
+                    driver_command: driver_command.into(),
                     padding: padding.into(),
                 };
                 let inner_ptr: *mut aeron_driver_conductor_t = Box::into_raw(Box::new(inst));
@@ -16183,14 +15645,6 @@ impl AeronDriverConductor {
         self.loss_reporter.into()
     }
     #[inline]
-    pub fn name_resolver(&self) -> aeron_name_resolver_t {
-        self.name_resolver.into()
-    }
-    #[inline]
-    pub fn executor(&self) -> AeronAsyncExecutor {
-        self.executor.into()
-    }
-    #[inline]
     pub fn send_channel_endpoint_by_channel_map(&self) -> AeronStrToPtrHashMap {
         self.send_channel_endpoint_by_channel_map.into()
     }
@@ -16239,10 +15693,6 @@ impl AeronDriverConductor {
         self.lingering_resources.into()
     }
     #[inline]
-    pub fn end_of_life_queue(&self) -> AeronDeque {
-        self.end_of_life_queue.into()
-    }
-    #[inline]
     pub fn errors_counter(&self) -> &mut i64 {
         unsafe { &mut *self.errors_counter }
     }
@@ -16287,12 +15737,16 @@ impl AeronDriverConductor {
         self.last_command_consumer_position.into()
     }
     #[inline]
-    pub fn async_client_command_in_flight(&self) -> bool {
-        self.async_client_command_in_flight.into()
-    }
-    #[inline]
     pub fn is_started(&self) -> bool {
         self.is_started.into()
+    }
+    #[inline]
+    pub fn client_command(&self) -> AeronDriverConductorClientCommand {
+        self.client_command.into()
+    }
+    #[inline]
+    pub fn driver_command(&self) -> AeronDriverConductorDriverCommand {
+        self.driver_command.into()
     }
     #[inline]
     pub fn padding(&self) -> [u8; 64usize] {
@@ -16427,31 +15881,6 @@ impl AeronDriverConductor {
         }
     }
     #[inline]
-    pub fn add_end_of_life_resource(
-        &self,
-        resource: *mut ::std::os::raw::c_void,
-        free_func: aeron_end_of_life_resource_free_t,
-    ) -> () {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_driver_conductor_add_end_of_life_resource),
-                [
-                    concat!("conductor", ": ", stringify!(*mut aeron_driver_conductor_t)).to_string(),
-                    concat!("resource", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
-                    concat!("free_func", ": ", stringify!(aeron_end_of_life_resource_free_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result =
-                aeron_driver_conductor_add_end_of_life_resource(self.get_inner(), resource.into(), free_func.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
     pub fn aeron_client_delete(&self, arg1: &AeronClient) -> () {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -16540,25 +15969,6 @@ impl AeronDriverConductor {
         }
     }
     #[inline]
-    pub fn aeron_ipc_publication_entry_free(&self, entry: &AeronIpcPublicationEntry) -> () {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_ipc_publication_entry_free),
-                [
-                    concat!("conductor", ": ", stringify!(*mut aeron_driver_conductor_t)).to_string(),
-                    concat!("entry", ": ", stringify!(*mut aeron_ipc_publication_entry_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_ipc_publication_entry_free(self.get_inner(), entry.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
     pub fn aeron_network_publication_entry_on_time_event(
         &self,
         entry: &AeronNetworkPublicationEntry,
@@ -16625,25 +16035,6 @@ impl AeronDriverConductor {
                 .join(", ")
             );
             let result = aeron_network_publication_entry_delete(self.get_inner(), arg1.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    pub fn aeron_network_publication_entry_free(&self, entry: &AeronNetworkPublicationEntry) -> () {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_network_publication_entry_free),
-                [
-                    concat!("conductor", ": ", stringify!(*mut aeron_driver_conductor_t)).to_string(),
-                    concat!("entry", ": ", stringify!(*mut aeron_network_publication_entry_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_network_publication_entry_free(self.get_inner(), entry.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -16858,25 +16249,6 @@ impl AeronDriverConductor {
                 .join(", ")
             );
             let result = aeron_publication_image_entry_delete(self.get_inner(), arg1.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    pub fn aeron_publication_image_entry_free(&self, entry: &AeronPublicationImageEntry) -> () {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_publication_image_entry_free),
-                [
-                    concat!("conductor", ": ", stringify!(*mut aeron_driver_conductor_t)).to_string(),
-                    concat!("entry", ": ", stringify!(*mut aeron_publication_image_entry_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_publication_image_entry_free(self.get_inner(), entry.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -17160,6 +16532,32 @@ impl AeronDriverConductor {
                 .join(", ")
             );
             let result = aeron_driver_conductor_on_client_timeout(self.get_inner(), correlation_id.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn on_error(&self, errcode: i32, errmsg: &std::ffi::CStr, correlation_id: i64) -> () {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_conductor_on_error),
+                [
+                    concat!("conductor", ": ", stringify!(*mut aeron_driver_conductor_t)).to_string(),
+                    format!("{} = {:?}", "errcode", errcode),
+                    concat!("errmsg", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    format!("{} = {:?}", "correlation_id", correlation_id)
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_conductor_on_error(
+                self.get_inner(),
+                errcode.into(),
+                errmsg.as_ptr(),
+                correlation_id.into(),
+            );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -18538,12 +17936,12 @@ impl core::fmt::Debug for AeronDriverContext {
                     &self.get_shared_idle_strategy_init_args(),
                 )
                 .field(
-                    stringify!(get_async_executor_idle_strategy),
-                    &self.get_async_executor_idle_strategy(),
+                    stringify!(get_native_resource_agent_idle_strategy),
+                    &self.get_native_resource_agent_idle_strategy(),
                 )
                 .field(
-                    stringify!(get_async_executor_idle_strategy_init_args),
-                    &self.get_async_executor_idle_strategy_init_args(),
+                    stringify!(get_native_resource_agent_idle_strategy_init_args),
+                    &self.get_native_resource_agent_idle_strategy_init_args(),
                 )
                 .field(stringify!(get_resolver_name), &self.get_resolver_name())
                 .field(stringify!(get_resolver_interface), &self.get_resolver_interface())
@@ -18570,7 +17968,6 @@ impl core::fmt::Debug for AeronDriverContext {
                 .field(stringify!(rejoin_stream), &self.rejoin_stream())
                 .field(stringify!(ats_enabled), &self.ats_enabled())
                 .field(stringify!(connect_enabled), &self.connect_enabled())
-                .field(stringify!(async_executor_enabled), &self.async_executor_enabled())
                 .field(stringify!(driver_timeout_ms), &self.driver_timeout_ms())
                 .field(
                     stringify!(client_liveness_timeout_ns),
@@ -18679,16 +18076,26 @@ impl core::fmt::Debug for AeronDriverContext {
                 .field(stringify!(conductor_cpu_affinity_no), &self.conductor_cpu_affinity_no())
                 .field(stringify!(receiver_cpu_affinity_no), &self.receiver_cpu_affinity_no())
                 .field(stringify!(sender_cpu_affinity_no), &self.sender_cpu_affinity_no())
+                .field(
+                    stringify!(native_resource_agent_cpu_affinity_no),
+                    &self.native_resource_agent_cpu_affinity_no(),
+                )
                 .field(stringify!(stream_session_limit), &self.stream_session_limit())
+                .field(stringify!(cpuset_affinity), &self.cpuset_affinity())
+                .field(stringify!(cpuset_warnings_as_errors), &self.cpuset_warnings_as_errors())
                 .field(
                     stringify!(enable_experimental_features),
                     &self.enable_experimental_features(),
                 )
                 .field(stringify!(cnc_map), &self.cnc_map())
                 .field(stringify!(loss_report), &self.loss_report())
+                .field(stringify!(conductor_command_queue), &self.conductor_command_queue())
                 .field(stringify!(sender_command_queue), &self.sender_command_queue())
                 .field(stringify!(receiver_command_queue), &self.receiver_command_queue())
-                .field(stringify!(conductor_command_queue), &self.conductor_command_queue())
+                .field(
+                    stringify!(native_resource_agent_command_queue),
+                    &self.native_resource_agent_command_queue(),
+                )
                 .field(
                     stringify!(conductor_idle_strategy_init_args),
                     &self.conductor_idle_strategy_init_args(),
@@ -18724,12 +18131,12 @@ impl core::fmt::Debug for AeronDriverContext {
                     &self.receiver_idle_strategy_name(),
                 )
                 .field(
-                    stringify!(async_executor_idle_strategy_init_args),
-                    &self.async_executor_idle_strategy_init_args(),
+                    stringify!(native_resource_agent_idle_strategy_init_args),
+                    &self.native_resource_agent_idle_strategy_init_args(),
                 )
                 .field(
-                    stringify!(async_executor_idle_strategy_name),
-                    &self.async_executor_idle_strategy_name(),
+                    stringify!(native_resource_agent_idle_strategy_name),
+                    &self.native_resource_agent_idle_strategy_name(),
                 )
                 .field(stringify!(next_receiver_id), &self.next_receiver_id())
                 .field(
@@ -18890,10 +18297,6 @@ impl AeronDriverContext {
     #[inline]
     pub fn connect_enabled(&self) -> bool {
         self.connect_enabled.into()
-    }
-    #[inline]
-    pub fn async_executor_enabled(&self) -> bool {
-        self.async_executor_enabled.into()
     }
     #[inline]
     pub fn driver_timeout_ms(&self) -> u64 {
@@ -19092,8 +18495,20 @@ impl AeronDriverContext {
         self.sender_cpu_affinity_no.into()
     }
     #[inline]
+    pub fn native_resource_agent_cpu_affinity_no(&self) -> i32 {
+        self.native_resource_agent_cpu_affinity_no.into()
+    }
+    #[inline]
     pub fn stream_session_limit(&self) -> i32 {
         self.stream_session_limit.into()
+    }
+    #[inline]
+    pub fn cpuset_affinity(&self) -> bool {
+        self.cpuset_affinity.into()
+    }
+    #[inline]
+    pub fn cpuset_warnings_as_errors(&self) -> bool {
+        self.cpuset_warnings_as_errors.into()
     }
     #[inline]
     pub fn enable_experimental_features(&self) -> bool {
@@ -19156,16 +18571,20 @@ impl AeronDriverContext {
         self.receiver_cached_clock.into()
     }
     #[inline]
-    pub fn sender_command_queue(&self) -> AeronMpscRb {
+    pub fn conductor_command_queue(&self) -> AeronMpscRb {
+        self.conductor_command_queue.into()
+    }
+    #[inline]
+    pub fn sender_command_queue(&self) -> AeronSpscRb {
         self.sender_command_queue.into()
     }
     #[inline]
-    pub fn receiver_command_queue(&self) -> AeronMpscRb {
+    pub fn receiver_command_queue(&self) -> AeronSpscRb {
         self.receiver_command_queue.into()
     }
     #[inline]
-    pub fn conductor_command_queue(&self) -> AeronMpscRb {
-        self.conductor_command_queue.into()
+    pub fn native_resource_agent_command_queue(&self) -> AeronSpscRb {
+        self.native_resource_agent_command_queue.into()
     }
     #[inline]
     pub fn agent_on_start_func(&self) -> aeron_agent_on_start_func_t {
@@ -19344,32 +18763,32 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn async_executor_idle_strategy_func(&self) -> aeron_idle_strategy_func_t {
-        self.async_executor_idle_strategy_func.into()
+    pub fn native_resource_agent_idle_strategy_func(&self) -> aeron_idle_strategy_func_t {
+        self.native_resource_agent_idle_strategy_func.into()
     }
     #[inline]
-    pub fn async_executor_idle_strategy_state(&self) -> *mut ::std::os::raw::c_void {
-        self.async_executor_idle_strategy_state.into()
+    pub fn native_resource_agent_idle_strategy_state(&self) -> *mut ::std::os::raw::c_void {
+        self.native_resource_agent_idle_strategy_state.into()
     }
     #[inline]
-    pub fn async_executor_idle_strategy_init_args(&self) -> &str {
-        if self.async_executor_idle_strategy_init_args.is_null() {
+    pub fn native_resource_agent_idle_strategy_init_args(&self) -> &str {
+        if self.native_resource_agent_idle_strategy_init_args.is_null() {
             ""
         } else {
             unsafe {
-                std::ffi::CStr::from_ptr(self.async_executor_idle_strategy_init_args)
+                std::ffi::CStr::from_ptr(self.native_resource_agent_idle_strategy_init_args)
                     .to_str()
                     .unwrap_or("")
             }
         }
     }
     #[inline]
-    pub fn async_executor_idle_strategy_name(&self) -> &str {
-        if self.async_executor_idle_strategy_name.is_null() {
+    pub fn native_resource_agent_idle_strategy_name(&self) -> &str {
+        if self.native_resource_agent_idle_strategy_name.is_null() {
             ""
         } else {
             unsafe {
-                std::ffi::CStr::from_ptr(self.async_executor_idle_strategy_name)
+                std::ffi::CStr::from_ptr(self.native_resource_agent_idle_strategy_name)
                     .to_str()
                     .unwrap_or("")
             }
@@ -19382,10 +18801,6 @@ impl AeronDriverContext {
     #[inline]
     pub fn raw_log_map_func(&self) -> aeron_raw_log_map_func_t {
         self.raw_log_map_func.into()
-    }
-    #[inline]
-    pub fn raw_log_close_func(&self) -> aeron_raw_log_close_func_t {
-        self.raw_log_close_func.into()
     }
     #[inline]
     pub fn raw_log_free_func(&self) -> aeron_raw_log_free_func_t {
@@ -19406,6 +18821,10 @@ impl AeronDriverContext {
     #[inline]
     pub fn conductor_proxy(&self) -> AeronDriverConductorProxy {
         self.conductor_proxy.into()
+    }
+    #[inline]
+    pub fn native_resource_agent_proxy(&self) -> AeronDriverNativeResourceAgentProxy {
+        self.native_resource_agent_proxy.into()
     }
     #[inline]
     pub fn sender_proxy(&self) -> AeronDriverSenderProxy {
@@ -21439,19 +20858,19 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn set_async_executor_idle_strategy(&self, value: &std::ffi::CStr) -> Result<i32, AeronCError> {
+    pub fn set_native_resource_agent_idle_strategy(&self, value: &std::ffi::CStr) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
-                stringify!(aeron_driver_context_set_async_executor_idle_strategy),
+                stringify!(aeron_driver_context_set_native_resource_agent_idle_strategy),
                 [
                     concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string(),
                     concat!("value", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
             );
-            let result = aeron_driver_context_set_async_executor_idle_strategy(self.get_inner(), value.as_ptr());
+            let result = aeron_driver_context_set_native_resource_agent_idle_strategy(self.get_inner(), value.as_ptr());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -21462,15 +20881,15 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn get_async_executor_idle_strategy(&self) -> &str {
+    pub fn get_native_resource_agent_idle_strategy(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
-                stringify!(aeron_driver_context_get_async_executor_idle_strategy),
+                stringify!(aeron_driver_context_get_native_resource_agent_idle_strategy),
                 [concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string()].join(", ")
             );
-            let result = aeron_driver_context_get_async_executor_idle_strategy(self.get_inner());
+            let result = aeron_driver_context_get_native_resource_agent_idle_strategy(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result.is_null() {
@@ -21481,20 +20900,25 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn set_async_executor_idle_strategy_init_args(&self, value: &std::ffi::CStr) -> Result<i32, AeronCError> {
+    pub fn set_native_resource_agent_idle_strategy_init_args(
+        &self,
+        value: &std::ffi::CStr,
+    ) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
-                stringify!(aeron_driver_context_set_async_executor_idle_strategy_init_args),
+                stringify!(aeron_driver_context_set_native_resource_agent_idle_strategy_init_args),
                 [
                     concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string(),
                     concat!("value", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_driver_context_set_async_executor_idle_strategy_init_args(self.get_inner(), value.as_ptr());
+            let result = aeron_driver_context_set_native_resource_agent_idle_strategy_init_args(
+                self.get_inner(),
+                value.as_ptr(),
+            );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -21505,15 +20929,15 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn get_async_executor_idle_strategy_init_args(&self) -> &str {
+    pub fn get_native_resource_agent_idle_strategy_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
-                stringify!(aeron_driver_context_get_async_executor_idle_strategy_init_args),
+                stringify!(aeron_driver_context_get_native_resource_agent_idle_strategy_init_args),
                 [concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string()].join(", ")
             );
-            let result = aeron_driver_context_get_async_executor_idle_strategy_init_args(self.get_inner());
+            let result = aeron_driver_context_get_native_resource_agent_idle_strategy_init_args(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result.is_null() {
@@ -23862,44 +23286,6 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn set_async_executor_enabled(&self, value: bool) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_driver_context_set_async_executor_enabled),
-                [
-                    concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string(),
-                    format!("{} = {:?}", "value", value)
-                ]
-                .join(", ")
-            );
-            let result = aeron_driver_context_set_async_executor_enabled(self.get_inner(), value.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    pub fn get_async_executor_enabled(&self) -> bool {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_driver_context_get_async_executor_enabled),
-                [concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string()].join(", ")
-            );
-            let result = aeron_driver_context_get_async_executor_enabled(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
     pub fn set_conductor_cpu_affinity(&self, value: i32) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -24008,6 +23394,120 @@ impl AeronDriverContext {
                 [concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string()].join(", ")
             );
             let result = aeron_driver_context_get_sender_cpu_affinity(self.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn set_native_resource_agent_cpu_affinity(&self, value: i32) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_context_set_native_resource_agent_cpu_affinity),
+                [
+                    concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string(),
+                    format!("{} = {:?}", "value", value)
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_context_set_native_resource_agent_cpu_affinity(self.get_inner(), value.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn get_native_resource_agent_cpu_affinity(&self) -> i32 {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_context_get_native_resource_agent_cpu_affinity),
+                [concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string()].join(", ")
+            );
+            let result = aeron_driver_context_get_native_resource_agent_cpu_affinity(self.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn set_cpuset_affinity(&self, value: bool) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_context_set_cpuset_affinity),
+                [
+                    concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string(),
+                    format!("{} = {:?}", "value", value)
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_context_set_cpuset_affinity(self.get_inner(), value.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn get_cpuset_affinity(&self) -> bool {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_context_get_cpuset_affinity),
+                [concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string()].join(", ")
+            );
+            let result = aeron_driver_context_get_cpuset_affinity(self.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn set_cpuset_warnings_as_errors(&self, value: bool) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_context_set_cpuset_warnings_as_errors),
+                [
+                    concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string(),
+                    format!("{} = {:?}", "value", value)
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_context_set_cpuset_warnings_as_errors(self.get_inner(), value.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn get_cpuset_warnings_as_errors(&self) -> bool {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_context_get_cpuset_warnings_as_errors),
+                [concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string()].join(", ")
+            );
+            let result = aeron_driver_context_get_cpuset_warnings_as_errors(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -24434,6 +23934,34 @@ impl AeronDriverContext {
         }
     }
     #[inline]
+    pub fn apply_cpuset_affinity(
+        &self,
+        cpus: *const ::std::os::raw::c_int,
+        cpu_count: ::std::os::raw::c_int,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_context_apply_cpuset_affinity),
+                [
+                    concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string(),
+                    concat!("cpus", ": ", stringify!(*const ::std::os::raw::c_int)).to_string(),
+                    format!("{} = {:?}", "cpu_count", cpu_count)
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_context_apply_cpuset_affinity(self.get_inner(), cpus.into(), cpu_count.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
     pub fn aeron_send_channel_endpoint_resolution_change(
         &self,
         endpoint: &AeronSendChannelEndpoint,
@@ -24459,6 +23987,25 @@ impl AeronDriverContext {
                 endpoint_name.as_ptr(),
                 new_addr.get_inner(),
             );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn aeron_driver_apply_cpuset_affinity(&self) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_apply_cpuset_affinity),
+                [concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string()].join(", ")
+            );
+            let result = aeron_driver_apply_cpuset_affinity(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -24752,6 +24299,2076 @@ mod aeron_driver_managed_resource_t_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = AeronDriverManagedResource::default();
+            }
+        });
+    }
+}
+#[derive(Clone)]
+pub struct AeronDriverNativeResourceAgentCommandResult {
+    inner: CResource<aeron_driver_native_resource_agent_command_result_t>,
+}
+impl core::fmt::Debug for AeronDriverNativeResourceAgentCommandResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronDriverNativeResourceAgentCommandResult))
+                .field("inner", &"null")
+                .finish()
+        } else {
+            f.debug_struct(stringify!(AeronDriverNativeResourceAgentCommandResult))
+                .field("inner", &self.inner)
+                .finish()
+        }
+    }
+}
+impl AeronDriverNativeResourceAgentCommandResult {
+    #[inline]
+    pub fn new(
+        state: aeron_driver_native_resource_agent_command_state_t,
+        payload: aeron_driver_native_resource_agent_command_result_stct__bindgen_ty_1,
+    ) -> Result<Self, AeronCError> {
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = aeron_driver_native_resource_agent_command_result_t {
+                    state: state.into(),
+                    payload: payload.into(),
+                };
+                let inner_ptr: *mut aeron_driver_native_resource_agent_command_result_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!(
+                    "creating zeroed empty resource on heap {}",
+                    stringify!(aeron_driver_native_resource_agent_command_result_t)
+                );
+                let inst: aeron_driver_native_resource_agent_command_result_t = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_driver_native_resource_agent_command_result_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_driver_native_resource_agent_command_result_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
+        }
+    }
+    #[inline]
+    pub fn state(&self) -> aeron_driver_native_resource_agent_command_state_t {
+        self.state.into()
+    }
+    #[inline]
+    pub fn payload(&self) -> aeron_driver_native_resource_agent_command_result_stct__bindgen_ty_1 {
+        self.payload.into()
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_driver_native_resource_agent_command_result_t {
+        self.inner.get()
+    }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
+    #[inline(always)]
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_native_resource_agent_command_result_t {
+        &mut *self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_driver_native_resource_agent_command_result_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronDriverNativeResourceAgentCommandResult {
+    type Target = aeron_driver_native_resource_agent_command_result_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_driver_native_resource_agent_command_result_t> for AeronDriverNativeResourceAgentCommandResult {
+    #[inline]
+    fn from(value: *mut aeron_driver_native_resource_agent_command_result_t) -> Self {
+        AeronDriverNativeResourceAgentCommandResult {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronDriverNativeResourceAgentCommandResult> for *mut aeron_driver_native_resource_agent_command_result_t {
+    #[inline]
+    fn from(value: AeronDriverNativeResourceAgentCommandResult) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronDriverNativeResourceAgentCommandResult> for *mut aeron_driver_native_resource_agent_command_result_t {
+    #[inline]
+    fn from(value: &AeronDriverNativeResourceAgentCommandResult) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronDriverNativeResourceAgentCommandResult> for aeron_driver_native_resource_agent_command_result_t {
+    #[inline]
+    fn from(value: AeronDriverNativeResourceAgentCommandResult) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_driver_native_resource_agent_command_result_t> for AeronDriverNativeResourceAgentCommandResult {
+    #[inline]
+    fn from(value: *const aeron_driver_native_resource_agent_command_result_t) -> Self {
+        AeronDriverNativeResourceAgentCommandResult {
+            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_command_result_t),
+        }
+    }
+}
+impl From<aeron_driver_native_resource_agent_command_result_t> for AeronDriverNativeResourceAgentCommandResult {
+    #[inline]
+    fn from(value: aeron_driver_native_resource_agent_command_result_t) -> Self {
+        AeronDriverNativeResourceAgentCommandResult {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
+        }
+    }
+}
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for AeronDriverNativeResourceAgentCommandResult {
+    fn default() -> Self {
+        AeronDriverNativeResourceAgentCommandResult::new_zeroed_on_heap()
+    }
+}
+impl AeronDriverNativeResourceAgentCommandResult {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+        copy
+    }
+}
+#[cfg(test)]
+mod aeron_driver_native_resource_agent_command_result_t_allocation_tests {
+    use super::*;
+    use serial_test::file_serial;
+    #[test]
+    #[file_serial(global)]
+    fn test_new_on_stack() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverNativeResourceAgentCommandResult::new_zeroed_on_stack();
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverNativeResourceAgentCommandResult::default();
+            }
+        });
+    }
+}
+#[derive(Clone)]
+pub struct AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
+    inner: CResource<aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t>,
+}
+impl core::fmt::Debug for AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer))
+                .field("inner", &"null")
+                .finish()
+        } else {
+            f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer))
+                .field("inner", &self.inner)
+                .field(stringify!(base), &self.base())
+                .field(stringify!(log_file_name), &self.log_file_name())
+                .finish()
+        }
+    }
+}
+impl AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
+    #[inline]
+    pub fn new(
+        base: AeronDriverNativeResourceAgentProxyCmd,
+        mapped_raw_log: &AeronMappedRawLog,
+        log_file_name: &std::ffi::CStr,
+    ) -> Result<Self, AeronCError> {
+        let mapped_raw_log_copy = mapped_raw_log.clone();
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t {
+                    base: base.into(),
+                    mapped_raw_log: mapped_raw_log.into(),
+                    log_file_name: log_file_name.as_ptr(),
+                };
+                let inner_ptr: *mut aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t =
+                    Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!(
+                    "creating zeroed empty resource on heap {}",
+                    stringify!(aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t)
+                );
+                let inst: aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t =
+                    unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t =
+                    Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
+        }
+    }
+    #[inline]
+    pub fn base(&self) -> AeronDriverNativeResourceAgentProxyCmd {
+        self.base.into()
+    }
+    #[inline]
+    pub fn mapped_raw_log(&self) -> AeronMappedRawLog {
+        self.mapped_raw_log.into()
+    }
+    #[inline]
+    pub fn log_file_name(&self) -> &str {
+        if self.log_file_name.is_null() {
+            ""
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(self.log_file_name).to_str().unwrap_or("") }
+        }
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t {
+        self.inner.get()
+    }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
+    #[inline(always)]
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t {
+        &mut *self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
+    type Target = aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t>
+    for AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer
+{
+    #[inline]
+    fn from(value: *mut aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer>
+    for *mut aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t
+{
+    #[inline]
+    fn from(value: AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer>
+    for *mut aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t
+{
+    #[inline]
+    fn from(value: &AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer>
+    for aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t
+{
+    #[inline]
+    fn from(value: AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t>
+    for AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer
+{
+    #[inline]
+    fn from(value: *const aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
+            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t),
+        }
+    }
+}
+impl From<aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t>
+    for AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer
+{
+    #[inline]
+    fn from(value: aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
+        }
+    }
+}
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
+    fn default() -> Self {
+        AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer::new_zeroed_on_heap()
+    }
+}
+impl AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+        copy
+    }
+}
+#[cfg(test)]
+mod aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t_allocation_tests {
+    use super::*;
+    use serial_test::file_serial;
+    #[test]
+    #[file_serial(global)]
+    fn test_new_on_stack() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer::new_zeroed_on_stack();
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer::default();
+            }
+        });
+    }
+}
+#[derive(Clone)]
+pub struct AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
+    inner: CResource<aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t>,
+}
+impl core::fmt::Debug for AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxyCmdMapLogBuffer))
+                .field("inner", &"null")
+                .finish()
+        } else {
+            f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxyCmdMapLogBuffer))
+                .field("inner", &self.inner)
+                .field(stringify!(base), &self.base())
+                .field(stringify!(log_file_name), &self.log_file_name())
+                .field(stringify!(term_length), &self.term_length())
+                .field(stringify!(is_sparse), &self.is_sparse())
+                .finish()
+        }
+    }
+}
+impl AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
+    #[inline]
+    pub fn new(
+        base: AeronDriverNativeResourceAgentProxyCmd,
+        log_file_name: &str,
+        is_sparse: bool,
+        result: &AeronDriverNativeResourceAgentCommandResult,
+    ) -> Result<Self, AeronCError> {
+        let result_copy = result.clone();
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t {
+                    base: base.into(),
+                    log_file_name: log_file_name.as_ptr() as *const _,
+                    term_length: log_file_name.len(),
+                    is_sparse: is_sparse.into(),
+                    result: result.into(),
+                };
+                let inner_ptr: *mut aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t =
+                    Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!(
+                    "creating zeroed empty resource on heap {}",
+                    stringify!(aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t)
+                );
+                let inst: aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t =
+                    Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
+        }
+    }
+    #[inline]
+    pub fn base(&self) -> AeronDriverNativeResourceAgentProxyCmd {
+        self.base.into()
+    }
+    #[inline]
+    pub fn log_file_name(&self) -> &str {
+        if self.log_file_name.is_null() {
+            ""
+        } else {
+            unsafe {
+                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                    self.log_file_name as *const u8,
+                    self.term_length.try_into().unwrap(),
+                ))
+            }
+        }
+    }
+    #[inline]
+    pub fn term_length(&self) -> usize {
+        self.term_length.into()
+    }
+    #[inline]
+    pub fn is_sparse(&self) -> bool {
+        self.is_sparse.into()
+    }
+    #[inline]
+    pub fn result(&self) -> AeronDriverNativeResourceAgentCommandResult {
+        self.result.into()
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t {
+        self.inner.get()
+    }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
+    #[inline(always)]
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t {
+        &mut *self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
+    type Target = aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t>
+    for AeronDriverNativeResourceAgentProxyCmdMapLogBuffer
+{
+    #[inline]
+    fn from(value: *mut aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronDriverNativeResourceAgentProxyCmdMapLogBuffer>
+    for *mut aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t
+{
+    #[inline]
+    fn from(value: AeronDriverNativeResourceAgentProxyCmdMapLogBuffer) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronDriverNativeResourceAgentProxyCmdMapLogBuffer>
+    for *mut aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t
+{
+    #[inline]
+    fn from(value: &AeronDriverNativeResourceAgentProxyCmdMapLogBuffer) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronDriverNativeResourceAgentProxyCmdMapLogBuffer>
+    for aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t
+{
+    #[inline]
+    fn from(value: AeronDriverNativeResourceAgentProxyCmdMapLogBuffer) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t>
+    for AeronDriverNativeResourceAgentProxyCmdMapLogBuffer
+{
+    #[inline]
+    fn from(value: *const aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
+            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t),
+        }
+    }
+}
+impl From<aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t>
+    for AeronDriverNativeResourceAgentProxyCmdMapLogBuffer
+{
+    #[inline]
+    fn from(value: aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
+        }
+    }
+}
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
+    fn default() -> Self {
+        AeronDriverNativeResourceAgentProxyCmdMapLogBuffer::new_zeroed_on_heap()
+    }
+}
+impl AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+        copy
+    }
+}
+#[cfg(test)]
+mod aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t_allocation_tests {
+    use super::*;
+    use serial_test::file_serial;
+    #[test]
+    #[file_serial(global)]
+    fn test_new_on_stack() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverNativeResourceAgentProxyCmdMapLogBuffer::new_zeroed_on_stack();
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverNativeResourceAgentProxyCmdMapLogBuffer::default();
+            }
+        });
+    }
+}
+#[derive(Clone)]
+pub struct AeronDriverNativeResourceAgentProxyCmdParseChannel {
+    inner: CResource<aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t>,
+}
+impl core::fmt::Debug for AeronDriverNativeResourceAgentProxyCmdParseChannel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxyCmdParseChannel))
+                .field("inner", &"null")
+                .finish()
+        } else {
+            f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxyCmdParseChannel))
+                .field("inner", &self.inner)
+                .field(stringify!(base), &self.base())
+                .finish()
+        }
+    }
+}
+impl AeronDriverNativeResourceAgentProxyCmdParseChannel {
+    #[inline]
+    pub fn new(
+        base: AeronDriverNativeResourceAgentProxyCmd,
+        async_parse: &AeronUdpChannelAsyncParse,
+        result: &AeronDriverNativeResourceAgentCommandResult,
+    ) -> Result<Self, AeronCError> {
+        let async_parse_copy = async_parse.clone();
+        let result_copy = result.clone();
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t {
+                    base: base.into(),
+                    async_parse: async_parse.into(),
+                    result: result.into(),
+                };
+                let inner_ptr: *mut aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t =
+                    Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!(
+                    "creating zeroed empty resource on heap {}",
+                    stringify!(aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t)
+                );
+                let inst: aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t =
+                    Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
+        }
+    }
+    #[inline]
+    pub fn base(&self) -> AeronDriverNativeResourceAgentProxyCmd {
+        self.base.into()
+    }
+    #[inline]
+    pub fn async_parse(&self) -> AeronUdpChannelAsyncParse {
+        self.async_parse.into()
+    }
+    #[inline]
+    pub fn result(&self) -> AeronDriverNativeResourceAgentCommandResult {
+        self.result.into()
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t {
+        self.inner.get()
+    }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
+    #[inline(always)]
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t {
+        &mut *self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronDriverNativeResourceAgentProxyCmdParseChannel {
+    type Target = aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t>
+    for AeronDriverNativeResourceAgentProxyCmdParseChannel
+{
+    #[inline]
+    fn from(value: *mut aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdParseChannel {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronDriverNativeResourceAgentProxyCmdParseChannel>
+    for *mut aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t
+{
+    #[inline]
+    fn from(value: AeronDriverNativeResourceAgentProxyCmdParseChannel) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronDriverNativeResourceAgentProxyCmdParseChannel>
+    for *mut aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t
+{
+    #[inline]
+    fn from(value: &AeronDriverNativeResourceAgentProxyCmdParseChannel) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronDriverNativeResourceAgentProxyCmdParseChannel>
+    for aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t
+{
+    #[inline]
+    fn from(value: AeronDriverNativeResourceAgentProxyCmdParseChannel) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t>
+    for AeronDriverNativeResourceAgentProxyCmdParseChannel
+{
+    #[inline]
+    fn from(value: *const aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdParseChannel {
+            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t),
+        }
+    }
+}
+impl From<aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t>
+    for AeronDriverNativeResourceAgentProxyCmdParseChannel
+{
+    #[inline]
+    fn from(value: aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdParseChannel {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
+        }
+    }
+}
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for AeronDriverNativeResourceAgentProxyCmdParseChannel {
+    fn default() -> Self {
+        AeronDriverNativeResourceAgentProxyCmdParseChannel::new_zeroed_on_heap()
+    }
+}
+impl AeronDriverNativeResourceAgentProxyCmdParseChannel {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+        copy
+    }
+}
+#[cfg(test)]
+mod aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t_allocation_tests {
+    use super::*;
+    use serial_test::file_serial;
+    #[test]
+    #[file_serial(global)]
+    fn test_new_on_stack() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverNativeResourceAgentProxyCmdParseChannel::new_zeroed_on_stack();
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverNativeResourceAgentProxyCmdParseChannel::default();
+            }
+        });
+    }
+}
+#[derive(Clone)]
+pub struct AeronDriverNativeResourceAgentProxyCmdResolveAddress {
+    inner: CResource<aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t>,
+}
+impl core::fmt::Debug for AeronDriverNativeResourceAgentProxyCmdResolveAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxyCmdResolveAddress))
+                .field("inner", &"null")
+                .finish()
+        } else {
+            f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxyCmdResolveAddress))
+                .field("inner", &self.inner)
+                .field(stringify!(base), &self.base())
+                .finish()
+        }
+    }
+}
+impl AeronDriverNativeResourceAgentProxyCmdResolveAddress {
+    #[inline]
+    pub fn new(
+        base: AeronDriverNativeResourceAgentProxyCmd,
+        address_resolution_params: *mut aeron_name_resolver_async_resolve_t,
+        result: &AeronDriverNativeResourceAgentCommandResult,
+    ) -> Result<Self, AeronCError> {
+        let result_copy = result.clone();
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t {
+                    base: base.into(),
+                    address_resolution_params: address_resolution_params.into(),
+                    result: result.into(),
+                };
+                let inner_ptr: *mut aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t =
+                    Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!(
+                    "creating zeroed empty resource on heap {}",
+                    stringify!(aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t)
+                );
+                let inst: aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t =
+                    unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t =
+                    Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
+        }
+    }
+    #[inline]
+    pub fn base(&self) -> AeronDriverNativeResourceAgentProxyCmd {
+        self.base.into()
+    }
+    #[inline]
+    pub fn address_resolution_params(&self) -> *mut aeron_name_resolver_async_resolve_t {
+        self.address_resolution_params.into()
+    }
+    #[inline]
+    pub fn result(&self) -> AeronDriverNativeResourceAgentCommandResult {
+        self.result.into()
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t {
+        self.inner.get()
+    }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
+    #[inline(always)]
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t {
+        &mut *self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronDriverNativeResourceAgentProxyCmdResolveAddress {
+    type Target = aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t>
+    for AeronDriverNativeResourceAgentProxyCmdResolveAddress
+{
+    #[inline]
+    fn from(value: *mut aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdResolveAddress {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronDriverNativeResourceAgentProxyCmdResolveAddress>
+    for *mut aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t
+{
+    #[inline]
+    fn from(value: AeronDriverNativeResourceAgentProxyCmdResolveAddress) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronDriverNativeResourceAgentProxyCmdResolveAddress>
+    for *mut aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t
+{
+    #[inline]
+    fn from(value: &AeronDriverNativeResourceAgentProxyCmdResolveAddress) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronDriverNativeResourceAgentProxyCmdResolveAddress>
+    for aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t
+{
+    #[inline]
+    fn from(value: AeronDriverNativeResourceAgentProxyCmdResolveAddress) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t>
+    for AeronDriverNativeResourceAgentProxyCmdResolveAddress
+{
+    #[inline]
+    fn from(value: *const aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdResolveAddress {
+            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t),
+        }
+    }
+}
+impl From<aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t>
+    for AeronDriverNativeResourceAgentProxyCmdResolveAddress
+{
+    #[inline]
+    fn from(value: aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdResolveAddress {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
+        }
+    }
+}
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for AeronDriverNativeResourceAgentProxyCmdResolveAddress {
+    fn default() -> Self {
+        AeronDriverNativeResourceAgentProxyCmdResolveAddress::new_zeroed_on_heap()
+    }
+}
+impl AeronDriverNativeResourceAgentProxyCmdResolveAddress {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+        copy
+    }
+}
+#[cfg(test)]
+mod aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t_allocation_tests {
+    use super::*;
+    use serial_test::file_serial;
+    #[test]
+    #[file_serial(global)]
+    fn test_new_on_stack() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverNativeResourceAgentProxyCmdResolveAddress::new_zeroed_on_stack();
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverNativeResourceAgentProxyCmdResolveAddress::default();
+            }
+        });
+    }
+}
+#[derive(Clone)]
+pub struct AeronDriverNativeResourceAgentProxyCmd {
+    inner: CResource<aeron_driver_native_resource_agent_proxy_cmd_t>,
+}
+impl core::fmt::Debug for AeronDriverNativeResourceAgentProxyCmd {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxyCmd))
+                .field("inner", &"null")
+                .finish()
+        } else {
+            f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxyCmd))
+                .field("inner", &self.inner)
+                .finish()
+        }
+    }
+}
+impl AeronDriverNativeResourceAgentProxyCmd {
+    #[inline]
+    pub fn new(
+        execute: ::std::option::Option<
+            unsafe extern "C" fn(
+                native_resource_agent: *mut aeron_driver_native_resource_agent_t,
+                cmd: *mut aeron_driver_native_resource_agent_proxy_cmd_stct,
+            ),
+        >,
+    ) -> Result<Self, AeronCError> {
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = aeron_driver_native_resource_agent_proxy_cmd_t {
+                    execute: execute.into(),
+                };
+                let inner_ptr: *mut aeron_driver_native_resource_agent_proxy_cmd_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!(
+                    "creating zeroed empty resource on heap {}",
+                    stringify!(aeron_driver_native_resource_agent_proxy_cmd_t)
+                );
+                let inst: aeron_driver_native_resource_agent_proxy_cmd_t = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_driver_native_resource_agent_proxy_cmd_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_driver_native_resource_agent_proxy_cmd_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
+        }
+    }
+    #[inline]
+    pub fn execute(
+        &self,
+    ) -> ::std::option::Option<
+        unsafe extern "C" fn(
+            native_resource_agent: *mut aeron_driver_native_resource_agent_t,
+            cmd: *mut aeron_driver_native_resource_agent_proxy_cmd_stct,
+        ),
+    > {
+        self.execute.into()
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_driver_native_resource_agent_proxy_cmd_t {
+        self.inner.get()
+    }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
+    #[inline(always)]
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_native_resource_agent_proxy_cmd_t {
+        &mut *self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_driver_native_resource_agent_proxy_cmd_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronDriverNativeResourceAgentProxyCmd {
+    type Target = aeron_driver_native_resource_agent_proxy_cmd_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_driver_native_resource_agent_proxy_cmd_t> for AeronDriverNativeResourceAgentProxyCmd {
+    #[inline]
+    fn from(value: *mut aeron_driver_native_resource_agent_proxy_cmd_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmd {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronDriverNativeResourceAgentProxyCmd> for *mut aeron_driver_native_resource_agent_proxy_cmd_t {
+    #[inline]
+    fn from(value: AeronDriverNativeResourceAgentProxyCmd) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronDriverNativeResourceAgentProxyCmd> for *mut aeron_driver_native_resource_agent_proxy_cmd_t {
+    #[inline]
+    fn from(value: &AeronDriverNativeResourceAgentProxyCmd) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronDriverNativeResourceAgentProxyCmd> for aeron_driver_native_resource_agent_proxy_cmd_t {
+    #[inline]
+    fn from(value: AeronDriverNativeResourceAgentProxyCmd) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_driver_native_resource_agent_proxy_cmd_t> for AeronDriverNativeResourceAgentProxyCmd {
+    #[inline]
+    fn from(value: *const aeron_driver_native_resource_agent_proxy_cmd_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmd {
+            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_proxy_cmd_t),
+        }
+    }
+}
+impl From<aeron_driver_native_resource_agent_proxy_cmd_t> for AeronDriverNativeResourceAgentProxyCmd {
+    #[inline]
+    fn from(value: aeron_driver_native_resource_agent_proxy_cmd_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmd {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
+        }
+    }
+}
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for AeronDriverNativeResourceAgentProxyCmd {
+    fn default() -> Self {
+        AeronDriverNativeResourceAgentProxyCmd::new_zeroed_on_heap()
+    }
+}
+impl AeronDriverNativeResourceAgentProxyCmd {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+        copy
+    }
+}
+#[cfg(test)]
+mod aeron_driver_native_resource_agent_proxy_cmd_t_allocation_tests {
+    use super::*;
+    use serial_test::file_serial;
+    #[test]
+    #[file_serial(global)]
+    fn test_new_on_stack() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverNativeResourceAgentProxyCmd::new_zeroed_on_stack();
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverNativeResourceAgentProxyCmd::default();
+            }
+        });
+    }
+}
+#[derive(Clone)]
+pub struct AeronDriverNativeResourceAgentProxy {
+    inner: CResource<aeron_driver_native_resource_agent_proxy_t>,
+}
+impl core::fmt::Debug for AeronDriverNativeResourceAgentProxy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxy))
+                .field("inner", &"null")
+                .finish()
+        } else {
+            f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxy))
+                .field("inner", &self.inner)
+                .finish()
+        }
+    }
+}
+impl AeronDriverNativeResourceAgentProxy {
+    #[inline]
+    pub fn new(
+        native_resource_agent: &AeronDriverNativeResourceAgent,
+        fail_counter: &mut i64,
+        command_queue: &AeronSpscRb,
+    ) -> Result<Self, AeronCError> {
+        let native_resource_agent_copy = native_resource_agent.clone();
+        let command_queue_copy = command_queue.clone();
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = aeron_driver_native_resource_agent_proxy_t {
+                    native_resource_agent: native_resource_agent.into(),
+                    fail_counter: fail_counter as *mut _,
+                    command_queue: command_queue.into(),
+                };
+                let inner_ptr: *mut aeron_driver_native_resource_agent_proxy_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!(
+                    "creating zeroed empty resource on heap {}",
+                    stringify!(aeron_driver_native_resource_agent_proxy_t)
+                );
+                let inst: aeron_driver_native_resource_agent_proxy_t = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_driver_native_resource_agent_proxy_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_driver_native_resource_agent_proxy_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
+        }
+    }
+    #[inline]
+    pub fn native_resource_agent(&self) -> AeronDriverNativeResourceAgent {
+        self.native_resource_agent.into()
+    }
+    #[inline]
+    pub fn fail_counter(&self) -> &mut i64 {
+        unsafe { &mut *self.fail_counter }
+    }
+    #[inline]
+    pub fn command_queue(&self) -> AeronSpscRb {
+        self.command_queue.into()
+    }
+    #[inline]
+    pub fn resolve_address(
+        &self,
+        address_resolution_params: *mut aeron_name_resolver_async_resolve_t,
+        result: &AeronDriverNativeResourceAgentCommandResult,
+    ) -> () {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_native_resource_agent_proxy_resolve_address),
+                [
+                    concat!(
+                        "native_resource_agent_proxy",
+                        ": ",
+                        stringify!(*mut aeron_driver_native_resource_agent_proxy_t)
+                    )
+                    .to_string(),
+                    concat!(
+                        "address_resolution_params",
+                        ": ",
+                        stringify!(*mut aeron_name_resolver_async_resolve_t)
+                    )
+                    .to_string(),
+                    concat!(
+                        "result",
+                        ": ",
+                        stringify!(*mut aeron_driver_native_resource_agent_command_result_t)
+                    )
+                    .to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_native_resource_agent_proxy_resolve_address(
+                self.get_inner(),
+                address_resolution_params.into(),
+                result.get_inner(),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn parse_udp_channel(
+        &self,
+        async_parse: &AeronUdpChannelAsyncParse,
+        result: &AeronDriverNativeResourceAgentCommandResult,
+    ) -> () {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_native_resource_agent_proxy_parse_udp_channel),
+                [
+                    concat!(
+                        "native_resource_agent_proxy",
+                        ": ",
+                        stringify!(*mut aeron_driver_native_resource_agent_proxy_t)
+                    )
+                    .to_string(),
+                    concat!("async_parse", ": ", stringify!(*mut aeron_udp_channel_async_parse_t)).to_string(),
+                    concat!(
+                        "result",
+                        ": ",
+                        stringify!(*mut aeron_driver_native_resource_agent_command_result_t)
+                    )
+                    .to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_native_resource_agent_proxy_parse_udp_channel(
+                self.get_inner(),
+                async_parse.get_inner(),
+                result.get_inner(),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn free_log_buffer(&self, mapped_raw_log: &AeronMappedRawLog, log_file_name: &std::ffi::CStr) -> () {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_native_resource_agent_proxy_free_log_buffer),
+                [
+                    concat!(
+                        "native_resource_agent_proxy",
+                        ": ",
+                        stringify!(*mut aeron_driver_native_resource_agent_proxy_t)
+                    )
+                    .to_string(),
+                    concat!("mapped_raw_log", ": ", stringify!(*mut aeron_mapped_raw_log_t)).to_string(),
+                    concat!("log_file_name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_native_resource_agent_proxy_free_log_buffer(
+                self.get_inner(),
+                mapped_raw_log.get_inner(),
+                log_file_name.as_ptr(),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn map_log_buffer(
+        &self,
+        log_file_name: &str,
+        is_sparse: bool,
+        result: &AeronDriverNativeResourceAgentCommandResult,
+    ) -> () {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_native_resource_agent_proxy_map_log_buffer),
+                [
+                    concat!(
+                        "native_resource_agent_proxy",
+                        ": ",
+                        stringify!(*mut aeron_driver_native_resource_agent_proxy_t)
+                    )
+                    .to_string(),
+                    format!("{} = {:?}", "log_file_name", log_file_name),
+                    format!("{} = {:?}", "is_sparse", is_sparse)
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_native_resource_agent_proxy_map_log_buffer(
+                self.get_inner(),
+                log_file_name.as_ptr() as *const _,
+                log_file_name.len(),
+                is_sparse.into(),
+                result.get_inner(),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_driver_native_resource_agent_proxy_t {
+        self.inner.get()
+    }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
+    #[inline(always)]
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_native_resource_agent_proxy_t {
+        &mut *self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_driver_native_resource_agent_proxy_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronDriverNativeResourceAgentProxy {
+    type Target = aeron_driver_native_resource_agent_proxy_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_driver_native_resource_agent_proxy_t> for AeronDriverNativeResourceAgentProxy {
+    #[inline]
+    fn from(value: *mut aeron_driver_native_resource_agent_proxy_t) -> Self {
+        AeronDriverNativeResourceAgentProxy {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronDriverNativeResourceAgentProxy> for *mut aeron_driver_native_resource_agent_proxy_t {
+    #[inline]
+    fn from(value: AeronDriverNativeResourceAgentProxy) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronDriverNativeResourceAgentProxy> for *mut aeron_driver_native_resource_agent_proxy_t {
+    #[inline]
+    fn from(value: &AeronDriverNativeResourceAgentProxy) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronDriverNativeResourceAgentProxy> for aeron_driver_native_resource_agent_proxy_t {
+    #[inline]
+    fn from(value: AeronDriverNativeResourceAgentProxy) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_driver_native_resource_agent_proxy_t> for AeronDriverNativeResourceAgentProxy {
+    #[inline]
+    fn from(value: *const aeron_driver_native_resource_agent_proxy_t) -> Self {
+        AeronDriverNativeResourceAgentProxy {
+            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_proxy_t),
+        }
+    }
+}
+impl From<aeron_driver_native_resource_agent_proxy_t> for AeronDriverNativeResourceAgentProxy {
+    #[inline]
+    fn from(value: aeron_driver_native_resource_agent_proxy_t) -> Self {
+        AeronDriverNativeResourceAgentProxy {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
+        }
+    }
+}
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for AeronDriverNativeResourceAgentProxy {
+    fn default() -> Self {
+        AeronDriverNativeResourceAgentProxy::new_zeroed_on_heap()
+    }
+}
+impl AeronDriverNativeResourceAgentProxy {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+        copy
+    }
+}
+#[cfg(test)]
+mod aeron_driver_native_resource_agent_proxy_t_allocation_tests {
+    use super::*;
+    use serial_test::file_serial;
+    #[test]
+    #[file_serial(global)]
+    fn test_new_on_stack() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverNativeResourceAgentProxy::new_zeroed_on_stack();
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverNativeResourceAgentProxy::default();
+            }
+        });
+    }
+}
+#[derive(Clone)]
+pub struct AeronDriverNativeResourceAgent {
+    inner: CResource<aeron_driver_native_resource_agent_t>,
+}
+impl core::fmt::Debug for AeronDriverNativeResourceAgent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronDriverNativeResourceAgent))
+                .field("inner", &"null")
+                .finish()
+        } else {
+            f.debug_struct(stringify!(AeronDriverNativeResourceAgent))
+                .field("inner", &self.inner)
+                .field(
+                    stringify!(native_resource_agent_proxy),
+                    &self.native_resource_agent_proxy(),
+                )
+                .field(stringify!(log_buffers_queue), &self.log_buffers_queue())
+                .finish()
+        }
+    }
+}
+impl AeronDriverNativeResourceAgent {
+    #[inline]
+    pub fn new(
+        native_resource_agent_proxy: AeronDriverNativeResourceAgentProxy,
+        context: &AeronDriverContext,
+        name_resolver: aeron_name_resolver_t,
+        log_buffers_queue: AeronDeque,
+    ) -> Result<Self, AeronCError> {
+        let context_copy = context.clone();
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = aeron_driver_native_resource_agent_t {
+                    native_resource_agent_proxy: native_resource_agent_proxy.into(),
+                    context: context.into(),
+                    name_resolver: name_resolver.into(),
+                    log_buffers_queue: log_buffers_queue.into(),
+                };
+                let inner_ptr: *mut aeron_driver_native_resource_agent_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!(
+                    "creating zeroed empty resource on heap {}",
+                    stringify!(aeron_driver_native_resource_agent_t)
+                );
+                let inst: aeron_driver_native_resource_agent_t = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_driver_native_resource_agent_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_driver_native_resource_agent_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
+        }
+    }
+    #[inline]
+    pub fn native_resource_agent_proxy(&self) -> AeronDriverNativeResourceAgentProxy {
+        self.native_resource_agent_proxy.into()
+    }
+    #[inline]
+    pub fn context(&self) -> AeronDriverContext {
+        self.context.into()
+    }
+    #[inline]
+    pub fn name_resolver(&self) -> aeron_name_resolver_t {
+        self.name_resolver.into()
+    }
+    #[inline]
+    pub fn log_buffers_queue(&self) -> AeronDeque {
+        self.log_buffers_queue.into()
+    }
+    #[inline]
+    pub fn init(&self, context: &AeronDriverContext) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_native_resource_agent_init),
+                [
+                    concat!(
+                        "native_resource_agent",
+                        ": ",
+                        stringify!(*mut aeron_driver_native_resource_agent_t)
+                    )
+                    .to_string(),
+                    concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_native_resource_agent_init(self.get_inner(), context.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn do_work(clientd: *mut ::std::os::raw::c_void) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_native_resource_agent_do_work),
+                [concat!("clientd", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string()].join(", ")
+            );
+            let result = aeron_driver_native_resource_agent_do_work(clientd.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn on_start(state: *mut ::std::os::raw::c_void, role_name: &std::ffi::CStr) -> () {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_native_resource_agent_on_start),
+                [
+                    concat!("state", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
+                    concat!("role_name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_native_resource_agent_on_start(state.into(), role_name.as_ptr());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn on_close(clientd: *mut ::std::os::raw::c_void) -> () {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_native_resource_agent_on_close),
+                [concat!("clientd", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string()].join(", ")
+            );
+            let result = aeron_driver_native_resource_agent_on_close(clientd.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn on_resolve_address(&self, cmd: &AeronDriverNativeResourceAgentProxyCmd) -> () {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_native_resource_agent_on_resolve_address),
+                [
+                    concat!(
+                        "native_resource_agent",
+                        ": ",
+                        stringify!(*mut aeron_driver_native_resource_agent_t)
+                    )
+                    .to_string(),
+                    concat!(
+                        "cmd",
+                        ": ",
+                        stringify!(*mut aeron_driver_native_resource_agent_proxy_cmd_t)
+                    )
+                    .to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_native_resource_agent_on_resolve_address(self.get_inner(), cmd.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn on_parse_udp_channel(&self, cmd: &AeronDriverNativeResourceAgentProxyCmd) -> () {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_native_resource_agent_on_parse_udp_channel),
+                [
+                    concat!(
+                        "native_resource_agent",
+                        ": ",
+                        stringify!(*mut aeron_driver_native_resource_agent_t)
+                    )
+                    .to_string(),
+                    concat!(
+                        "cmd",
+                        ": ",
+                        stringify!(*mut aeron_driver_native_resource_agent_proxy_cmd_t)
+                    )
+                    .to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_native_resource_agent_on_parse_udp_channel(self.get_inner(), cmd.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn on_free_log_buffer(&self, cmd: &AeronDriverNativeResourceAgentProxyCmd) -> () {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_native_resource_agent_on_free_log_buffer),
+                [
+                    concat!(
+                        "native_resource_agent",
+                        ": ",
+                        stringify!(*mut aeron_driver_native_resource_agent_t)
+                    )
+                    .to_string(),
+                    concat!(
+                        "cmd",
+                        ": ",
+                        stringify!(*mut aeron_driver_native_resource_agent_proxy_cmd_t)
+                    )
+                    .to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_native_resource_agent_on_free_log_buffer(self.get_inner(), cmd.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn on_map_log_buffer(&self, cmd: &AeronDriverNativeResourceAgentProxyCmd) -> () {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_native_resource_agent_on_map_log_buffer),
+                [
+                    concat!(
+                        "native_resource_agent",
+                        ": ",
+                        stringify!(*mut aeron_driver_native_resource_agent_t)
+                    )
+                    .to_string(),
+                    concat!(
+                        "cmd",
+                        ": ",
+                        stringify!(*mut aeron_driver_native_resource_agent_proxy_cmd_t)
+                    )
+                    .to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_native_resource_agent_on_map_log_buffer(self.get_inner(), cmd.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_driver_native_resource_agent_t {
+        self.inner.get()
+    }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
+    #[inline(always)]
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_driver_native_resource_agent_t {
+        &mut *self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_driver_native_resource_agent_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronDriverNativeResourceAgent {
+    type Target = aeron_driver_native_resource_agent_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_driver_native_resource_agent_t> for AeronDriverNativeResourceAgent {
+    #[inline]
+    fn from(value: *mut aeron_driver_native_resource_agent_t) -> Self {
+        AeronDriverNativeResourceAgent {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronDriverNativeResourceAgent> for *mut aeron_driver_native_resource_agent_t {
+    #[inline]
+    fn from(value: AeronDriverNativeResourceAgent) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronDriverNativeResourceAgent> for *mut aeron_driver_native_resource_agent_t {
+    #[inline]
+    fn from(value: &AeronDriverNativeResourceAgent) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronDriverNativeResourceAgent> for aeron_driver_native_resource_agent_t {
+    #[inline]
+    fn from(value: AeronDriverNativeResourceAgent) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_driver_native_resource_agent_t> for AeronDriverNativeResourceAgent {
+    #[inline]
+    fn from(value: *const aeron_driver_native_resource_agent_t) -> Self {
+        AeronDriverNativeResourceAgent {
+            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_t),
+        }
+    }
+}
+impl From<aeron_driver_native_resource_agent_t> for AeronDriverNativeResourceAgent {
+    #[inline]
+    fn from(value: aeron_driver_native_resource_agent_t) -> Self {
+        AeronDriverNativeResourceAgent {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
+        }
+    }
+}
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for AeronDriverNativeResourceAgent {
+    fn default() -> Self {
+        AeronDriverNativeResourceAgent::new_zeroed_on_heap()
+    }
+}
+impl AeronDriverNativeResourceAgent {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+        copy
+    }
+}
+#[cfg(test)]
+mod aeron_driver_native_resource_agent_t_allocation_tests {
+    use super::*;
+    use serial_test::file_serial;
+    #[test]
+    #[file_serial(global)]
+    fn test_new_on_stack() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverNativeResourceAgent::new_zeroed_on_stack();
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverNativeResourceAgent::default();
             }
         });
     }
@@ -25237,15 +26854,11 @@ impl AeronDriverReceiverProxy {
         self.receiver.into()
     }
     #[inline]
-    pub fn threading_mode(&self) -> aeron_threading_mode_t {
-        self.threading_mode.into()
-    }
-    #[inline]
     pub fn log(&self) -> aeron_driver_receiver_proxy_stct__bindgen_ty_1 {
         self.log.into()
     }
     #[inline]
-    pub fn command_queue(&self) -> AeronMpscRb {
+    pub fn command_queue(&self) -> AeronSpscRb {
         self.command_queue.into()
     }
     #[inline]
@@ -26605,9 +28218,8 @@ impl AeronDriverSenderProxy {
     #[inline]
     pub fn new(
         sender: &AeronDriverSender,
-        threading_mode: aeron_threading_mode_t,
         log: aeron_driver_sender_proxy_stct__bindgen_ty_1,
-        command_queue: &AeronMpscRb,
+        command_queue: &AeronSpscRb,
         fail_counter: &mut i64,
     ) -> Result<Self, AeronCError> {
         let sender_copy = sender.clone();
@@ -26616,7 +28228,6 @@ impl AeronDriverSenderProxy {
             move |ctx_field| {
                 let inst = aeron_driver_sender_proxy_t {
                     sender: sender.into(),
-                    threading_mode: threading_mode.into(),
                     log: log.into(),
                     command_queue: command_queue.into(),
                     fail_counter: fail_counter as *mut _,
@@ -26674,15 +28285,11 @@ impl AeronDriverSenderProxy {
         self.sender.into()
     }
     #[inline]
-    pub fn threading_mode(&self) -> aeron_threading_mode_t {
-        self.threading_mode.into()
-    }
-    #[inline]
     pub fn log(&self) -> aeron_driver_sender_proxy_stct__bindgen_ty_1 {
         self.log.into()
     }
     #[inline]
-    pub fn command_queue(&self) -> AeronMpscRb {
+    pub fn command_queue(&self) -> AeronSpscRb {
         self.command_queue.into()
     }
     #[inline]
@@ -27640,6 +29247,7 @@ impl core::fmt::Debug for AeronDriver {
             f.debug_struct(stringify!(AeronDriver))
                 .field("inner", &self.inner)
                 .field(stringify!(conductor), &self.conductor())
+                .field(stringify!(native_resource_agent), &self.native_resource_agent())
                 .field(stringify!(sender), &self.sender())
                 .field(stringify!(receiver), &self.receiver())
                 .finish()
@@ -27695,6 +29303,10 @@ impl AeronDriver {
         self.conductor.into()
     }
     #[inline]
+    pub fn native_resource_agent(&self) -> AeronDriverNativeResourceAgent {
+        self.native_resource_agent.into()
+    }
+    #[inline]
     pub fn sender(&self) -> AeronDriverSender {
         self.sender.into()
     }
@@ -27703,7 +29315,7 @@ impl AeronDriver {
         self.receiver.into()
     }
     #[inline]
-    pub fn runners(&self) -> [aeron_agent_runner_t; 3usize] {
+    pub fn runners(&self) -> [aeron_agent_runner_t; 4usize] {
         self.runners.into()
     }
     #[inline]
@@ -34693,6 +36305,8 @@ impl AeronImage {
     #[doc = "Set the subscriber position for this image to indicate where it has been consumed to."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `image` to set the position of."]
+    #[deprecated]
+    #[doc = " @deprecated Will be removed in <code>1.53.0</code>."]
     pub fn set_position(&self, position: i64) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -35249,6 +36863,8 @@ impl AeronImage {
     #[doc = " \n - `clientd` to pass to the handler."]
     #[doc = " \n - `limit_position` up to which can be scanned."]
     #[doc = " \n# Return\n the resulting position after the scan terminates which is a complete message or -1 for error."]
+    #[deprecated]
+    #[doc = " @deprecated Will be removed in <code>1.53.0</code>."]
     pub fn controlled_peek<AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback>(
         &self,
         initial_position: i64,
@@ -35298,6 +36914,8 @@ impl AeronImage {
     #[doc = " \n - `clientd` to pass to the handler."]
     #[doc = " \n - `limit_position` up to which can be scanned."]
     #[doc = " \n# Return\n the resulting position after the scan terminates which is a complete message or -1 for error."]
+    #[deprecated]
+    #[doc = " @deprecated Will be removed in <code>1.53.0</code>."]
     #[doc = r""]
     #[doc = r""]
     #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
@@ -36890,18 +38508,26 @@ impl core::fmt::Debug for AeronIpcPublicationEntry {
         } else {
             f.debug_struct(stringify!(AeronIpcPublicationEntry))
                 .field("inner", &self.inner)
+                .field(stringify!(log_file_name), &self.log_file_name())
                 .finish()
         }
     }
 }
 impl AeronIpcPublicationEntry {
     #[inline]
-    pub fn new(publication: &AeronIpcPublication) -> Result<Self, AeronCError> {
+    pub fn new(
+        publication: &AeronIpcPublication,
+        mapped_raw_log: &AeronMappedRawLog,
+        log_file_name: &std::ffi::CStr,
+    ) -> Result<Self, AeronCError> {
         let publication_copy = publication.clone();
+        let mapped_raw_log_copy = mapped_raw_log.clone();
         let r_constructor = ManagedCResource::new(
             move |ctx_field| {
                 let inst = aeron_ipc_publication_entry_t {
                     publication: publication.into(),
+                    mapped_raw_log: mapped_raw_log.into(),
+                    log_file_name: log_file_name.as_ptr(),
                 };
                 let inner_ptr: *mut aeron_ipc_publication_entry_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
@@ -36954,6 +38580,18 @@ impl AeronIpcPublicationEntry {
     #[inline]
     pub fn publication(&self) -> AeronIpcPublication {
         self.publication.into()
+    }
+    #[inline]
+    pub fn mapped_raw_log(&self) -> AeronMappedRawLog {
+        self.mapped_raw_log.into()
+    }
+    #[inline]
+    pub fn log_file_name(&self) -> &str {
+        if self.log_file_name.is_null() {
+            ""
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(self.log_file_name).to_str().unwrap_or("") }
+        }
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_ipc_publication_entry_t {
@@ -37080,7 +38718,8 @@ impl core::fmt::Debug for AeronIpcPublication {
         } else {
             f.debug_struct(stringify!(AeronIpcPublication))
                 .field("inner", &self.inner)
-                .field(stringify!(mapped_raw_log), &self.mapped_raw_log())
+                .field(stringify!(log_file_name), &self.log_file_name())
+                .field(stringify!(log_file_name_length), &self.log_file_name_length())
                 .field(stringify!(pub_lmt_position), &self.pub_lmt_position())
                 .field(stringify!(pub_pos_position), &self.pub_pos_position())
                 .field(stringify!(position_bits_to_shift), &self.position_bits_to_shift())
@@ -37111,8 +38750,6 @@ impl core::fmt::Debug for AeronIpcPublication {
                 .field(stringify!(starting_term_offset), &self.starting_term_offset())
                 .field(stringify!(channel_length), &self.channel_length())
                 .field(stringify!(channel), &self.channel())
-                .field(stringify!(log_file_name_length), &self.log_file_name_length())
-                .field(stringify!(log_file_name), &self.log_file_name())
                 .finish()
         }
     }
@@ -37161,6 +38798,23 @@ impl AeronIpcPublication {
     #[inline]
     pub fn log_meta_data(&self) -> AeronLogbufferMetadata {
         self.log_meta_data.into()
+    }
+    #[inline]
+    pub fn log_file_name(&self) -> &str {
+        if self.log_file_name.is_null() {
+            ""
+        } else {
+            unsafe {
+                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                    self.log_file_name as *const u8,
+                    self.log_file_name_length.try_into().unwrap(),
+                ))
+            }
+        }
+    }
+    #[inline]
+    pub fn log_file_name_length(&self) -> usize {
+        self.log_file_name_length.into()
     }
     #[inline]
     pub fn pub_lmt_position(&self) -> AeronPosition {
@@ -37251,33 +38905,8 @@ impl AeronIpcPublication {
         if self.channel.is_null() {
             ""
         } else {
-            unsafe {
-                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                    self.channel as *const u8,
-                    self.log_file_name_length.try_into().unwrap(),
-                ))
-            }
+            unsafe { std::ffi::CStr::from_ptr(self.channel).to_str().unwrap_or("") }
         }
-    }
-    #[inline]
-    pub fn log_file_name_length(&self) -> usize {
-        self.log_file_name_length.into()
-    }
-    #[inline]
-    pub fn log_file_name(&self) -> &str {
-        if self.log_file_name.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(self.log_file_name).to_str().unwrap_or("") }
-        }
-    }
-    #[inline]
-    pub fn raw_log_close_func(&self) -> aeron_raw_log_close_func_t {
-        self.raw_log_close_func.into()
-    }
-    #[inline]
-    pub fn raw_log_free_func(&self) -> aeron_raw_log_free_func_t {
-        self.raw_log_free_func.into()
     }
     #[inline]
     pub fn log(&self) -> aeron_ipc_publication_stct__bindgen_ty_1 {
@@ -37290,10 +38919,6 @@ impl AeronIpcPublication {
     #[inline]
     pub fn publications_revoked_counter(&self) -> &mut i64 {
         unsafe { &mut *self.publications_revoked_counter }
-    }
-    #[inline]
-    pub fn mapped_bytes_counter(&self) -> &mut i64 {
-        unsafe { &mut *self.mapped_bytes_counter }
     }
     #[inline]
     pub fn location(dst: &mut [u8], aeron_dir: &std::ffi::CStr, correlation_id: i64) -> Result<i32, AeronCError> {
@@ -37321,21 +38946,6 @@ impl AeronIpcPublication {
             } else {
                 return Ok(result);
             }
-        }
-    }
-    #[inline]
-    pub fn free(&self) -> bool {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_ipc_publication_free),
-                [concat!("publication", ": ", stringify!(*mut aeron_ipc_publication_t)).to_string()].join(", ")
-            );
-            let result = aeron_ipc_publication_free(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
         }
     }
     #[inline]
@@ -37702,425 +39312,6 @@ mod aeron_linger_resource_entry_t_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = AeronLingerResourceEntry::default();
-            }
-        });
-    }
-}
-#[derive(Clone)]
-pub struct AeronLinkedQueueNode {
-    inner: CResource<aeron_linked_queue_node_t>,
-}
-impl core::fmt::Debug for AeronLinkedQueueNode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.inner.get().is_null() {
-            f.debug_struct(stringify!(AeronLinkedQueueNode))
-                .field("inner", &"null")
-                .finish()
-        } else {
-            f.debug_struct(stringify!(AeronLinkedQueueNode))
-                .field("inner", &self.inner)
-                .finish()
-        }
-    }
-}
-impl AeronLinkedQueueNode {
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
-    pub fn new_zeroed_on_heap() -> Self {
-        let resource = ManagedCResource::new(
-            move |ctx_field| {
-                #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(aeron_linked_queue_node_t)
-                );
-                let inst: aeron_linked_queue_node_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_linked_queue_node_t = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )
-        .unwrap();
-        Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
-        }
-    }
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
-    #[doc = r" _(Use with care)_"]
-    pub fn new_zeroed_on_stack() -> Self {
-        #[cfg(feature = "extra-logging")]
-        log::debug!(
-            "creating zeroed empty resource on stack {}",
-            stringify!(aeron_linked_queue_node_t)
-        );
-        Self {
-            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
-        }
-    }
-    #[inline(always)]
-    pub fn get_inner(&self) -> *mut aeron_linked_queue_node_t {
-        self.inner.get()
-    }
-    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
-    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
-    #[doc = r" access for the lifetime of the returned reference."]
-    #[doc = r""]
-    #[doc = r" # Safety"]
-    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
-    #[doc = r" alive while the returned `&mut` is in use."]
-    #[inline(always)]
-    pub unsafe fn get_inner_mut(&self) -> &mut aeron_linked_queue_node_t {
-        &mut *self.inner.get()
-    }
-    #[inline(always)]
-    pub fn get_inner_ref(&self) -> &aeron_linked_queue_node_t {
-        unsafe { &*self.inner.get() }
-    }
-}
-impl std::ops::Deref for AeronLinkedQueueNode {
-    type Target = aeron_linked_queue_node_t;
-    fn deref(&self) -> &Self::Target {
-        self.get_inner_ref()
-    }
-}
-impl From<*mut aeron_linked_queue_node_t> for AeronLinkedQueueNode {
-    #[inline]
-    fn from(value: *mut aeron_linked_queue_node_t) -> Self {
-        AeronLinkedQueueNode {
-            inner: CResource::Borrowed(value),
-        }
-    }
-}
-impl From<AeronLinkedQueueNode> for *mut aeron_linked_queue_node_t {
-    #[inline]
-    fn from(value: AeronLinkedQueueNode) -> Self {
-        value.get_inner()
-    }
-}
-impl From<&AeronLinkedQueueNode> for *mut aeron_linked_queue_node_t {
-    #[inline]
-    fn from(value: &AeronLinkedQueueNode) -> Self {
-        value.get_inner()
-    }
-}
-impl From<AeronLinkedQueueNode> for aeron_linked_queue_node_t {
-    #[inline]
-    fn from(value: AeronLinkedQueueNode) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_linked_queue_node_t> for AeronLinkedQueueNode {
-    #[inline]
-    fn from(value: *const aeron_linked_queue_node_t) -> Self {
-        AeronLinkedQueueNode {
-            inner: CResource::Borrowed(value as *mut aeron_linked_queue_node_t),
-        }
-    }
-}
-impl From<aeron_linked_queue_node_t> for AeronLinkedQueueNode {
-    #[inline]
-    fn from(value: aeron_linked_queue_node_t) -> Self {
-        AeronLinkedQueueNode {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
-        }
-    }
-}
-#[cfg(test)]
-mod aeron_linked_queue_node_t_allocation_tests {
-    use super::*;
-    use serial_test::file_serial;
-    #[test]
-    #[file_serial(global)]
-    fn test_new_on_stack() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = AeronLinkedQueueNode::new_zeroed_on_stack();
-            }
-        });
-    }
-}
-#[derive(Clone)]
-pub struct AeronLinkedQueue {
-    inner: CResource<aeron_linked_queue_t>,
-}
-impl core::fmt::Debug for AeronLinkedQueue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.inner.get().is_null() {
-            f.debug_struct(stringify!(AeronLinkedQueue))
-                .field("inner", &"null")
-                .finish()
-        } else {
-            f.debug_struct(stringify!(AeronLinkedQueue))
-                .field("inner", &self.inner)
-                .finish()
-        }
-    }
-}
-impl AeronLinkedQueue {
-    #[inline]
-    pub fn new(head: &AeronLinkedQueueNode, tail: &AeronLinkedQueueNode) -> Result<Self, AeronCError> {
-        let head_copy = head.clone();
-        let tail_copy = tail.clone();
-        let r_constructor = ManagedCResource::new(
-            move |ctx_field| {
-                let inst = aeron_linked_queue_t {
-                    head: head.into(),
-                    tail: tail.into(),
-                };
-                let inner_ptr: *mut aeron_linked_queue_t = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )?;
-        let result = Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
-        };
-        Ok(result)
-    }
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
-    pub fn new_zeroed_on_heap() -> Self {
-        let resource = ManagedCResource::new(
-            move |ctx_field| {
-                #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(aeron_linked_queue_t)
-                );
-                let inst: aeron_linked_queue_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_linked_queue_t = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )
-        .unwrap();
-        Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
-        }
-    }
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
-    #[doc = r" _(Use with care)_"]
-    pub fn new_zeroed_on_stack() -> Self {
-        #[cfg(feature = "extra-logging")]
-        log::debug!(
-            "creating zeroed empty resource on stack {}",
-            stringify!(aeron_linked_queue_t)
-        );
-        Self {
-            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
-        }
-    }
-    #[inline]
-    pub fn head(&self) -> AeronLinkedQueueNode {
-        self.head.into()
-    }
-    #[inline]
-    pub fn tail(&self) -> AeronLinkedQueueNode {
-        self.tail.into()
-    }
-    #[inline]
-    pub fn init(&self) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_linked_queue_init),
-                [concat!("queue", ": ", stringify!(*mut aeron_linked_queue_t)).to_string()].join(", ")
-            );
-            let result = aeron_linked_queue_init(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    pub fn offer(&self, element: *mut ::std::os::raw::c_void) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_linked_queue_offer),
-                [
-                    concat!("queue", ": ", stringify!(*mut aeron_linked_queue_t)).to_string(),
-                    concat!("element", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_linked_queue_offer(self.get_inner(), element.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    pub fn peek(&self) -> *mut ::std::os::raw::c_void {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_linked_queue_peek),
-                [concat!("queue", ": ", stringify!(*mut aeron_linked_queue_t)).to_string()].join(", ")
-            );
-            let result = aeron_linked_queue_peek(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    pub fn poll(&self) -> *mut ::std::os::raw::c_void {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_linked_queue_poll),
-                [concat!("queue", ": ", stringify!(*mut aeron_linked_queue_t)).to_string()].join(", ")
-            );
-            let result = aeron_linked_queue_poll(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_linked_queue_is_empty),
-                [concat!("queue", ": ", stringify!(*mut aeron_linked_queue_t)).to_string()].join(", ")
-            );
-            let result = aeron_linked_queue_is_empty(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline(always)]
-    pub fn get_inner(&self) -> *mut aeron_linked_queue_t {
-        self.inner.get()
-    }
-    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
-    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
-    #[doc = r" access for the lifetime of the returned reference."]
-    #[doc = r""]
-    #[doc = r" # Safety"]
-    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
-    #[doc = r" alive while the returned `&mut` is in use."]
-    #[inline(always)]
-    pub unsafe fn get_inner_mut(&self) -> &mut aeron_linked_queue_t {
-        &mut *self.inner.get()
-    }
-    #[inline(always)]
-    pub fn get_inner_ref(&self) -> &aeron_linked_queue_t {
-        unsafe { &*self.inner.get() }
-    }
-}
-impl std::ops::Deref for AeronLinkedQueue {
-    type Target = aeron_linked_queue_t;
-    fn deref(&self) -> &Self::Target {
-        self.get_inner_ref()
-    }
-}
-impl From<*mut aeron_linked_queue_t> for AeronLinkedQueue {
-    #[inline]
-    fn from(value: *mut aeron_linked_queue_t) -> Self {
-        AeronLinkedQueue {
-            inner: CResource::Borrowed(value),
-        }
-    }
-}
-impl From<AeronLinkedQueue> for *mut aeron_linked_queue_t {
-    #[inline]
-    fn from(value: AeronLinkedQueue) -> Self {
-        value.get_inner()
-    }
-}
-impl From<&AeronLinkedQueue> for *mut aeron_linked_queue_t {
-    #[inline]
-    fn from(value: &AeronLinkedQueue) -> Self {
-        value.get_inner()
-    }
-}
-impl From<AeronLinkedQueue> for aeron_linked_queue_t {
-    #[inline]
-    fn from(value: AeronLinkedQueue) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_linked_queue_t> for AeronLinkedQueue {
-    #[inline]
-    fn from(value: *const aeron_linked_queue_t) -> Self {
-        AeronLinkedQueue {
-            inner: CResource::Borrowed(value as *mut aeron_linked_queue_t),
-        }
-    }
-}
-impl From<aeron_linked_queue_t> for AeronLinkedQueue {
-    #[inline]
-    fn from(value: aeron_linked_queue_t) -> Self {
-        AeronLinkedQueue {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
-        }
-    }
-}
-#[doc = r" This will create an instance where the struct is zeroed, use with care"]
-impl Default for AeronLinkedQueue {
-    fn default() -> Self {
-        AeronLinkedQueue::new_zeroed_on_heap()
-    }
-}
-impl AeronLinkedQueue {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
-    #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
-        let copy = Self::default();
-        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
-        copy
-    }
-}
-#[cfg(test)]
-mod aeron_linked_queue_t_allocation_tests {
-    use super::*;
-    use serial_test::file_serial;
-    #[test]
-    #[file_serial(global)]
-    fn test_new_on_stack() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = AeronLinkedQueue::new_zeroed_on_stack();
-            }
-        });
-    }
-    #[test]
-    #[file_serial(global)]
-    fn test_default() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = AeronLinkedQueue::default();
             }
         });
     }
@@ -41027,29 +42218,6 @@ impl AeronMappedRawLog {
         }
     }
     #[inline]
-    pub fn aeron_raw_log_close(&self, filename: &std::ffi::CStr) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_raw_log_close),
-                [
-                    concat!("mapped_raw_log", ": ", stringify!(*mut aeron_mapped_raw_log_t)).to_string(),
-                    concat!("filename", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_raw_log_close(self.get_inner(), filename.as_ptr());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
     pub fn aeron_raw_log_free(&self, filename: &std::ffi::CStr) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -41176,264 +42344,6 @@ mod aeron_mapped_raw_log_t_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = AeronMappedRawLog::default();
-            }
-        });
-    }
-}
-#[derive(Clone)]
-pub struct AeronMpscConcurrentArrayQueue {
-    inner: CResource<aeron_mpsc_concurrent_array_queue_t>,
-}
-impl core::fmt::Debug for AeronMpscConcurrentArrayQueue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.inner.get().is_null() {
-            f.debug_struct(stringify!(AeronMpscConcurrentArrayQueue))
-                .field("inner", &"null")
-                .finish()
-        } else {
-            f.debug_struct(stringify!(AeronMpscConcurrentArrayQueue))
-                .field("inner", &self.inner)
-                .field(stringify!(capacity), &self.capacity())
-                .field(stringify!(mask), &self.mask())
-                .finish()
-        }
-    }
-}
-impl AeronMpscConcurrentArrayQueue {
-    #[inline]
-    pub fn new(
-        padding1: [i8; 64usize],
-        producer: aeron_mpsc_concurrent_array_queue_stct__bindgen_ty_1,
-        padding2: [i8; 64usize],
-        consumer: aeron_mpsc_concurrent_array_queue_stct__bindgen_ty_2,
-        padding3: [i8; 64usize],
-        capacity: usize,
-        mask: usize,
-        buffer: *mut *mut ::std::os::raw::c_void,
-    ) -> Result<Self, AeronCError> {
-        let r_constructor = ManagedCResource::new(
-            move |ctx_field| {
-                let inst = aeron_mpsc_concurrent_array_queue_t {
-                    padding1: padding1.into(),
-                    producer: producer.into(),
-                    padding2: padding2.into(),
-                    consumer: consumer.into(),
-                    padding3: padding3.into(),
-                    capacity: capacity.into(),
-                    mask: mask.into(),
-                    buffer: buffer.into(),
-                };
-                let inner_ptr: *mut aeron_mpsc_concurrent_array_queue_t = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )?;
-        let result = Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
-        };
-        Ok(result)
-    }
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
-    pub fn new_zeroed_on_heap() -> Self {
-        let resource = ManagedCResource::new(
-            move |ctx_field| {
-                #[cfg(feature = "extra-logging")]
-                log::info!(
-                    "creating zeroed empty resource on heap {}",
-                    stringify!(aeron_mpsc_concurrent_array_queue_t)
-                );
-                let inst: aeron_mpsc_concurrent_array_queue_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_mpsc_concurrent_array_queue_t = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )
-        .unwrap();
-        Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
-        }
-    }
-    #[inline]
-    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
-    #[doc = r" _(Use with care)_"]
-    pub fn new_zeroed_on_stack() -> Self {
-        #[cfg(feature = "extra-logging")]
-        log::debug!(
-            "creating zeroed empty resource on stack {}",
-            stringify!(aeron_mpsc_concurrent_array_queue_t)
-        );
-        Self {
-            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
-        }
-    }
-    #[inline]
-    pub fn padding1(&self) -> [i8; 64usize] {
-        self.padding1.into()
-    }
-    #[inline]
-    pub fn producer(&self) -> aeron_mpsc_concurrent_array_queue_stct__bindgen_ty_1 {
-        self.producer.into()
-    }
-    #[inline]
-    pub fn padding2(&self) -> [i8; 64usize] {
-        self.padding2.into()
-    }
-    #[inline]
-    pub fn consumer(&self) -> aeron_mpsc_concurrent_array_queue_stct__bindgen_ty_2 {
-        self.consumer.into()
-    }
-    #[inline]
-    pub fn padding3(&self) -> [i8; 64usize] {
-        self.padding3.into()
-    }
-    #[inline]
-    pub fn capacity(&self) -> usize {
-        self.capacity.into()
-    }
-    #[inline]
-    pub fn mask(&self) -> usize {
-        self.mask.into()
-    }
-    #[inline]
-    pub fn buffer(&self) -> *mut *mut ::std::os::raw::c_void {
-        self.buffer.into()
-    }
-    #[inline]
-    pub fn init(&self, length: usize) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_mpsc_concurrent_array_queue_init),
-                [
-                    concat!("queue", ": ", stringify!(*mut aeron_mpsc_concurrent_array_queue_t)).to_string(),
-                    format!("{} = {:?}", "length", length)
-                ]
-                .join(", ")
-            );
-            let result = aeron_mpsc_concurrent_array_queue_init(self.get_inner(), length.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline(always)]
-    pub fn get_inner(&self) -> *mut aeron_mpsc_concurrent_array_queue_t {
-        self.inner.get()
-    }
-    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
-    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
-    #[doc = r" access for the lifetime of the returned reference."]
-    #[doc = r""]
-    #[doc = r" # Safety"]
-    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
-    #[doc = r" alive while the returned `&mut` is in use."]
-    #[inline(always)]
-    pub unsafe fn get_inner_mut(&self) -> &mut aeron_mpsc_concurrent_array_queue_t {
-        &mut *self.inner.get()
-    }
-    #[inline(always)]
-    pub fn get_inner_ref(&self) -> &aeron_mpsc_concurrent_array_queue_t {
-        unsafe { &*self.inner.get() }
-    }
-}
-impl std::ops::Deref for AeronMpscConcurrentArrayQueue {
-    type Target = aeron_mpsc_concurrent_array_queue_t;
-    fn deref(&self) -> &Self::Target {
-        self.get_inner_ref()
-    }
-}
-impl From<*mut aeron_mpsc_concurrent_array_queue_t> for AeronMpscConcurrentArrayQueue {
-    #[inline]
-    fn from(value: *mut aeron_mpsc_concurrent_array_queue_t) -> Self {
-        AeronMpscConcurrentArrayQueue {
-            inner: CResource::Borrowed(value),
-        }
-    }
-}
-impl From<AeronMpscConcurrentArrayQueue> for *mut aeron_mpsc_concurrent_array_queue_t {
-    #[inline]
-    fn from(value: AeronMpscConcurrentArrayQueue) -> Self {
-        value.get_inner()
-    }
-}
-impl From<&AeronMpscConcurrentArrayQueue> for *mut aeron_mpsc_concurrent_array_queue_t {
-    #[inline]
-    fn from(value: &AeronMpscConcurrentArrayQueue) -> Self {
-        value.get_inner()
-    }
-}
-impl From<AeronMpscConcurrentArrayQueue> for aeron_mpsc_concurrent_array_queue_t {
-    #[inline]
-    fn from(value: AeronMpscConcurrentArrayQueue) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_mpsc_concurrent_array_queue_t> for AeronMpscConcurrentArrayQueue {
-    #[inline]
-    fn from(value: *const aeron_mpsc_concurrent_array_queue_t) -> Self {
-        AeronMpscConcurrentArrayQueue {
-            inner: CResource::Borrowed(value as *mut aeron_mpsc_concurrent_array_queue_t),
-        }
-    }
-}
-impl From<aeron_mpsc_concurrent_array_queue_t> for AeronMpscConcurrentArrayQueue {
-    #[inline]
-    fn from(value: aeron_mpsc_concurrent_array_queue_t) -> Self {
-        AeronMpscConcurrentArrayQueue {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
-        }
-    }
-}
-#[doc = r" This will create an instance where the struct is zeroed, use with care"]
-impl Default for AeronMpscConcurrentArrayQueue {
-    fn default() -> Self {
-        AeronMpscConcurrentArrayQueue::new_zeroed_on_heap()
-    }
-}
-impl AeronMpscConcurrentArrayQueue {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
-    #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
-        let copy = Self::default();
-        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
-        copy
-    }
-}
-#[cfg(test)]
-mod aeron_mpsc_concurrent_array_queue_t_allocation_tests {
-    use super::*;
-    use serial_test::file_serial;
-    #[test]
-    #[file_serial(global)]
-    fn test_new_on_stack() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = AeronMpscConcurrentArrayQueue::new_zeroed_on_stack();
-            }
-        });
-    }
-    #[test]
-    #[file_serial(global)]
-    fn test_default() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = AeronMpscConcurrentArrayQueue::default();
             }
         });
     }
@@ -42416,18 +43326,26 @@ impl core::fmt::Debug for AeronNetworkPublicationEntry {
         } else {
             f.debug_struct(stringify!(AeronNetworkPublicationEntry))
                 .field("inner", &self.inner)
+                .field(stringify!(log_file_name), &self.log_file_name())
                 .finish()
         }
     }
 }
 impl AeronNetworkPublicationEntry {
     #[inline]
-    pub fn new(publication: &AeronNetworkPublication) -> Result<Self, AeronCError> {
+    pub fn new(
+        publication: &AeronNetworkPublication,
+        mapped_raw_log: &AeronMappedRawLog,
+        log_file_name: &std::ffi::CStr,
+    ) -> Result<Self, AeronCError> {
         let publication_copy = publication.clone();
+        let mapped_raw_log_copy = mapped_raw_log.clone();
         let r_constructor = ManagedCResource::new(
             move |ctx_field| {
                 let inst = aeron_network_publication_entry_t {
                     publication: publication.into(),
+                    mapped_raw_log: mapped_raw_log.into(),
+                    log_file_name: log_file_name.as_ptr(),
                 };
                 let inner_ptr: *mut aeron_network_publication_entry_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
@@ -42480,6 +43398,18 @@ impl AeronNetworkPublicationEntry {
     #[inline]
     pub fn publication(&self) -> AeronNetworkPublication {
         self.publication.into()
+    }
+    #[inline]
+    pub fn mapped_raw_log(&self) -> AeronMappedRawLog {
+        self.mapped_raw_log.into()
+    }
+    #[inline]
+    pub fn log_file_name(&self) -> &str {
+        if self.log_file_name.is_null() {
+            ""
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(self.log_file_name).to_str().unwrap_or("") }
+        }
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_network_publication_entry_t {
@@ -42606,7 +43536,6 @@ impl core::fmt::Debug for AeronNetworkPublication {
         } else {
             f.debug_struct(stringify!(AeronNetworkPublication))
                 .field("inner", &self.inner)
-                .field(stringify!(mapped_raw_log), &self.mapped_raw_log())
                 .field(stringify!(pub_pos_position), &self.pub_pos_position())
                 .field(stringify!(pub_lmt_position), &self.pub_lmt_position())
                 .field(stringify!(snd_pos_position), &self.snd_pos_position())
@@ -42614,6 +43543,8 @@ impl core::fmt::Debug for AeronNetworkPublication {
                 .field(stringify!(snd_bpe_counter), &self.snd_bpe_counter())
                 .field(stringify!(snd_naks_received_counter), &self.snd_naks_received_counter())
                 .field(stringify!(retransmit_handler), &self.retransmit_handler())
+                .field(stringify!(log_file_name), &self.log_file_name())
+                .field(stringify!(log_file_name_length), &self.log_file_name_length())
                 .field(stringify!(has_initial_connection), &self.has_initial_connection())
                 .field(stringify!(track_sender_limits), &self.track_sender_limits())
                 .field(
@@ -42626,7 +43557,6 @@ impl core::fmt::Debug for AeronNetworkPublication {
                 )
                 .field(stringify!(time_of_last_setup_ns), &self.time_of_last_setup_ns())
                 .field(stringify!(endpoint_address), &self.endpoint_address())
-                .field(stringify!(log_file_name), &self.log_file_name())
                 .field(stringify!(term_buffer_length), &self.term_buffer_length())
                 .field(stringify!(term_window_length), &self.term_window_length())
                 .field(stringify!(trip_gain), &self.trip_gain())
@@ -42653,7 +43583,6 @@ impl core::fmt::Debug for AeronNetworkPublication {
                 .field(stringify!(starting_term_id), &self.starting_term_id())
                 .field(stringify!(term_length_mask), &self.term_length_mask())
                 .field(stringify!(starting_term_offset), &self.starting_term_offset())
-                .field(stringify!(log_file_name_length), &self.log_file_name_length())
                 .field(stringify!(position_bits_to_shift), &self.position_bits_to_shift())
                 .field(stringify!(mtu_length), &self.mtu_length())
                 .field(stringify!(max_messages_per_send), &self.max_messages_per_send())
@@ -42715,12 +43644,8 @@ impl AeronNetworkPublication {
         self.conductor_fields.into()
     }
     #[inline]
-    pub fn conductor_fields_pad(&self) -> [u8; 120usize] {
+    pub fn conductor_fields_pad(&self) -> [u8; 112usize] {
         self.conductor_fields_pad.into()
-    }
-    #[inline]
-    pub fn mapped_raw_log(&self) -> AeronMappedRawLog {
-        self.mapped_raw_log.into()
     }
     #[inline]
     pub fn pub_pos_position(&self) -> AeronPosition {
@@ -42751,10 +43676,6 @@ impl AeronNetworkPublication {
         self.retransmit_handler.into()
     }
     #[inline]
-    pub fn log_meta_data(&self) -> AeronLogbufferMetadata {
-        self.log_meta_data.into()
-    }
-    #[inline]
     pub fn endpoint(&self) -> AeronSendChannelEndpoint {
         self.endpoint.into()
     }
@@ -42765,6 +43686,31 @@ impl AeronNetworkPublication {
     #[inline]
     pub fn cached_clock(&self) -> AeronClockCache {
         self.cached_clock.into()
+    }
+    #[inline]
+    pub fn mapped_raw_log(&self) -> AeronMappedRawLog {
+        self.mapped_raw_log.into()
+    }
+    #[inline]
+    pub fn log_meta_data(&self) -> AeronLogbufferMetadata {
+        self.log_meta_data.into()
+    }
+    #[inline]
+    pub fn log_file_name(&self) -> &str {
+        if self.log_file_name.is_null() {
+            ""
+        } else {
+            unsafe {
+                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                    self.log_file_name as *const u8,
+                    self.log_file_name_length.try_into().unwrap(),
+                ))
+            }
+        }
+    }
+    #[inline]
+    pub fn log_file_name_length(&self) -> usize {
+        self.log_file_name_length.into()
     }
     #[inline]
     pub fn sender_fields_pad_lhs(&self) -> [u8; 64usize] {
@@ -42797,14 +43743,6 @@ impl AeronNetworkPublication {
     #[inline]
     pub fn endpoint_address(&self) -> SockaddrStorage {
         self.endpoint_address.into()
-    }
-    #[inline]
-    pub fn log_file_name(&self) -> &str {
-        if self.log_file_name.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(self.log_file_name).to_str().unwrap_or("") }
-        }
     }
     #[inline]
     pub fn term_buffer_length(&self) -> i64 {
@@ -42875,10 +43813,6 @@ impl AeronNetworkPublication {
         self.starting_term_offset.into()
     }
     #[inline]
-    pub fn log_file_name_length(&self) -> usize {
-        self.log_file_name_length.into()
-    }
-    #[inline]
     pub fn position_bits_to_shift(&self) -> usize {
         self.position_bits_to_shift.into()
     }
@@ -42935,14 +43869,6 @@ impl AeronNetworkPublication {
         self.has_received_unicast_eos.into()
     }
     #[inline]
-    pub fn raw_log_close_func(&self) -> aeron_raw_log_close_func_t {
-        self.raw_log_close_func.into()
-    }
-    #[inline]
-    pub fn raw_log_free_func(&self) -> aeron_raw_log_free_func_t {
-        self.raw_log_free_func.into()
-    }
-    #[inline]
     pub fn log(&self) -> aeron_network_publication_stct__bindgen_ty_1 {
         self.log.into()
     }
@@ -42975,10 +43901,6 @@ impl AeronNetworkPublication {
         unsafe { &mut *self.publications_revoked_counter }
     }
     #[inline]
-    pub fn mapped_bytes_counter(&self) -> &mut i64 {
-        unsafe { &mut *self.mapped_bytes_counter }
-    }
-    #[inline]
     pub fn receiver_liveness_tracker(&self) -> AeronInt64CounterMap {
         self.receiver_liveness_tracker.into()
     }
@@ -43008,21 +43930,6 @@ impl AeronNetworkPublication {
             } else {
                 return Ok(result);
             }
-        }
-    }
-    #[inline]
-    pub fn free(&self) -> bool {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_network_publication_free),
-                [concat!("publication", ": ", stringify!(*mut aeron_network_publication_t)).to_string()].join(", ")
-            );
-            let result = aeron_network_publication_free(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
         }
     }
     #[inline]
@@ -47114,17 +48021,27 @@ impl core::fmt::Debug for AeronPublicationImageEntry {
         } else {
             f.debug_struct(stringify!(AeronPublicationImageEntry))
                 .field("inner", &self.inner)
+                .field(stringify!(log_file_name), &self.log_file_name())
                 .finish()
         }
     }
 }
 impl AeronPublicationImageEntry {
     #[inline]
-    pub fn new(image: &AeronPublicationImage) -> Result<Self, AeronCError> {
+    pub fn new(
+        image: &AeronPublicationImage,
+        mapped_raw_log: &AeronMappedRawLog,
+        log_file_name: &std::ffi::CStr,
+    ) -> Result<Self, AeronCError> {
         let image_copy = image.clone();
+        let mapped_raw_log_copy = mapped_raw_log.clone();
         let r_constructor = ManagedCResource::new(
             move |ctx_field| {
-                let inst = aeron_publication_image_entry_t { image: image.into() };
+                let inst = aeron_publication_image_entry_t {
+                    image: image.into(),
+                    mapped_raw_log: mapped_raw_log.into(),
+                    log_file_name: log_file_name.as_ptr(),
+                };
                 let inner_ptr: *mut aeron_publication_image_entry_t = Box::into_raw(Box::new(inst));
                 unsafe { *ctx_field = inner_ptr };
                 0
@@ -47176,6 +48093,18 @@ impl AeronPublicationImageEntry {
     #[inline]
     pub fn image(&self) -> AeronPublicationImage {
         self.image.into()
+    }
+    #[inline]
+    pub fn mapped_raw_log(&self) -> AeronMappedRawLog {
+        self.mapped_raw_log.into()
+    }
+    #[inline]
+    pub fn log_file_name(&self) -> &str {
+        if self.log_file_name.is_null() {
+            ""
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(self.log_file_name).to_str().unwrap_or("") }
+        }
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_publication_image_entry_t {
@@ -47306,11 +48235,11 @@ impl core::fmt::Debug for AeronPublicationImage {
                 .field(stringify!(source_identity_length), &self.source_identity_length())
                 .field(stringify!(loss_detector), &self.loss_detector())
                 .field(stringify!(feedback_delay_state), &self.feedback_delay_state())
-                .field(stringify!(mapped_raw_log), &self.mapped_raw_log())
                 .field(stringify!(rcv_hwm_position), &self.rcv_hwm_position())
                 .field(stringify!(rcv_pos_position), &self.rcv_pos_position())
                 .field(stringify!(rcv_naks_sent), &self.rcv_naks_sent())
                 .field(stringify!(log_file_name), &self.log_file_name())
+                .field(stringify!(log_file_name_length), &self.log_file_name_length())
                 .field(stringify!(session_id), &self.session_id())
                 .field(stringify!(stream_id), &self.stream_id())
                 .field(stringify!(initial_term_id), &self.initial_term_id())
@@ -47318,7 +48247,6 @@ impl core::fmt::Debug for AeronPublicationImage {
                 .field(stringify!(term_length), &self.term_length())
                 .field(stringify!(mtu_length), &self.mtu_length())
                 .field(stringify!(term_length_mask), &self.term_length_mask())
-                .field(stringify!(log_file_name_length), &self.log_file_name_length())
                 .field(stringify!(position_bits_to_shift), &self.position_bits_to_shift())
                 .field(stringify!(begin_loss_change), &self.begin_loss_change())
                 .field(stringify!(end_loss_change), &self.end_loss_change())
@@ -47427,10 +48355,6 @@ impl AeronPublicationImage {
         self.feedback_delay_state.into()
     }
     #[inline]
-    pub fn mapped_raw_log(&self) -> AeronMappedRawLog {
-        self.mapped_raw_log.into()
-    }
-    #[inline]
     pub fn rcv_hwm_position(&self) -> AeronPosition {
         self.rcv_hwm_position.into()
     }
@@ -47441,10 +48365,6 @@ impl AeronPublicationImage {
     #[inline]
     pub fn rcv_naks_sent(&self) -> AeronAtomicCounter {
         self.rcv_naks_sent.into()
-    }
-    #[inline]
-    pub fn log_meta_data(&self) -> AeronLogbufferMetadata {
-        self.log_meta_data.into()
     }
     #[inline]
     pub fn endpoint(&self) -> AeronReceiveChannelEndpoint {
@@ -47467,12 +48387,29 @@ impl AeronPublicationImage {
         self.cached_clock.into()
     }
     #[inline]
+    pub fn mapped_raw_log(&self) -> AeronMappedRawLog {
+        self.mapped_raw_log.into()
+    }
+    #[inline]
+    pub fn log_meta_data(&self) -> AeronLogbufferMetadata {
+        self.log_meta_data.into()
+    }
+    #[inline]
     pub fn log_file_name(&self) -> &str {
         if self.log_file_name.is_null() {
             ""
         } else {
-            unsafe { std::ffi::CStr::from_ptr(self.log_file_name).to_str().unwrap_or("") }
+            unsafe {
+                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                    self.log_file_name as *const u8,
+                    self.log_file_name_length.try_into().unwrap(),
+                ))
+            }
         }
+    }
+    #[inline]
+    pub fn log_file_name_length(&self) -> usize {
+        self.log_file_name_length.into()
     }
     #[inline]
     pub fn session_id(&self) -> i32 {
@@ -47503,20 +48440,8 @@ impl AeronPublicationImage {
         self.term_length_mask.into()
     }
     #[inline]
-    pub fn log_file_name_length(&self) -> usize {
-        self.log_file_name_length.into()
-    }
-    #[inline]
     pub fn position_bits_to_shift(&self) -> usize {
         self.position_bits_to_shift.into()
-    }
-    #[inline]
-    pub fn raw_log_close_func(&self) -> aeron_raw_log_close_func_t {
-        self.raw_log_close_func.into()
-    }
-    #[inline]
-    pub fn raw_log_free_func(&self) -> aeron_raw_log_free_func_t {
-        self.raw_log_free_func.into()
     }
     #[inline]
     pub fn log(&self) -> aeron_publication_image_stct__bindgen_ty_1 {
@@ -47680,21 +48605,6 @@ impl AeronPublicationImage {
             } else {
                 return Ok(result);
             }
-        }
-    }
-    #[inline]
-    pub fn free(&self) -> bool {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_publication_image_free),
-                [concat!("image", ": ", stringify!(*mut aeron_publication_image_t)).to_string()].join(", ")
-            );
-            let result = aeron_publication_image_free(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
         }
     }
     #[inline]
@@ -54773,6 +55683,519 @@ mod aeron_spsc_concurrent_array_queue_t_allocation_tests {
     }
 }
 #[derive(Clone)]
+pub struct AeronSpscRb {
+    inner: CResource<aeron_spsc_rb_t>,
+}
+impl core::fmt::Debug for AeronSpscRb {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronSpscRb)).field("inner", &"null").finish()
+        } else {
+            f.debug_struct(stringify!(AeronSpscRb))
+                .field("inner", &self.inner)
+                .field(stringify!(capacity), &self.capacity())
+                .field(stringify!(max_message_length), &self.max_message_length())
+                .finish()
+        }
+    }
+}
+impl AeronSpscRb {
+    #[inline]
+    pub fn new(
+        buffer: *mut u8,
+        descriptor: &AeronRbDescriptor,
+        capacity: usize,
+        max_message_length: usize,
+    ) -> Result<Self, AeronCError> {
+        let descriptor_copy = descriptor.clone();
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = aeron_spsc_rb_t {
+                    buffer: buffer.into(),
+                    descriptor: descriptor.into(),
+                    capacity: capacity.into(),
+                    max_message_length: max_message_length.into(),
+                };
+                let inner_ptr: *mut aeron_spsc_rb_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!("creating zeroed empty resource on heap {}", stringify!(aeron_spsc_rb_t));
+                let inst: aeron_spsc_rb_t = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_spsc_rb_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_spsc_rb_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed()),
+        }
+    }
+    #[inline]
+    pub fn buffer(&self) -> *mut u8 {
+        self.buffer.into()
+    }
+    #[inline]
+    pub fn descriptor(&self) -> AeronRbDescriptor {
+        self.descriptor.into()
+    }
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        self.capacity.into()
+    }
+    #[inline]
+    pub fn max_message_length(&self) -> usize {
+        self.max_message_length.into()
+    }
+    #[inline]
+    pub fn init(&self, buffer: *mut ::std::os::raw::c_void, length: usize) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_spsc_rb_init),
+                [
+                    concat!("ring_buffer", ": ", stringify!(*mut aeron_spsc_rb_t)).to_string(),
+                    concat!("buffer", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
+                    format!("{} = {:?}", "length", length)
+                ]
+                .join(", ")
+            );
+            let result = aeron_spsc_rb_init(self.get_inner(), buffer.into(), length.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn write(
+        &self,
+        msg_type_id: i32,
+        msg: *const ::std::os::raw::c_void,
+        length: usize,
+    ) -> aeron_rb_write_result_t {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_spsc_rb_write),
+                [
+                    concat!("ring_buffer", ": ", stringify!(*mut aeron_spsc_rb_t)).to_string(),
+                    format!("{} = {:?}", "msg_type_id", msg_type_id),
+                    concat!("msg", ": ", stringify!(*const ::std::os::raw::c_void)).to_string(),
+                    format!("{} = {:?}", "length", length)
+                ]
+                .join(", ")
+            );
+            let result = aeron_spsc_rb_write(self.get_inner(), msg_type_id.into(), msg.into(), length.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn try_claim(&self, msg_type_id: i32, length: usize) -> i32 {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_spsc_rb_try_claim),
+                [
+                    concat!("ring_buffer", ": ", stringify!(*mut aeron_spsc_rb_t)).to_string(),
+                    format!("{} = {:?}", "msg_type_id", msg_type_id),
+                    format!("{} = {:?}", "length", length)
+                ]
+                .join(", ")
+            );
+            let result = aeron_spsc_rb_try_claim(self.get_inner(), msg_type_id.into(), length.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn commit(&self, offset: i32) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_spsc_rb_commit),
+                [
+                    concat!("ring_buffer", ": ", stringify!(*mut aeron_spsc_rb_t)).to_string(),
+                    format!("{} = {:?}", "offset", offset)
+                ]
+                .join(", ")
+            );
+            let result = aeron_spsc_rb_commit(self.get_inner(), offset.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn abort(&self, offset: i32) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_spsc_rb_abort),
+                [
+                    concat!("ring_buffer", ": ", stringify!(*mut aeron_spsc_rb_t)).to_string(),
+                    format!("{} = {:?}", "offset", offset)
+                ]
+                .join(", ")
+            );
+            let result = aeron_spsc_rb_abort(self.get_inner(), offset.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn read<AeronRbHandlerHandlerImpl: AeronRbHandlerCallback>(
+        &self,
+        handler: Option<&Handler<AeronRbHandlerHandlerImpl>>,
+        message_count_limit: usize,
+    ) -> usize {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_spsc_rb_read),
+                [
+                    concat!("ring_buffer", ": ", stringify!(*mut aeron_spsc_rb_t)).to_string(),
+                    concat!("handler", ": ", stringify!(aeron_rb_handler_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_spsc_rb_read(
+                self.get_inner(),
+                {
+                    let callback: aeron_rb_handler_t = if handler.is_none() {
+                        None
+                    } else {
+                        Some(aeron_rb_handler_t_callback::<AeronRbHandlerHandlerImpl>)
+                    };
+                    callback
+                },
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
+                message_count_limit.into(),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    #[doc = r""]
+    #[doc = r""]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
+    pub fn read_fn<AeronRbHandlerHandlerImpl: FnMut(i32, *const ::std::os::raw::c_void, usize) -> ()>(
+        &self,
+        mut handler: AeronRbHandlerHandlerImpl,
+        message_count_limit: usize,
+    ) -> usize {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_spsc_rb_read),
+                [
+                    concat!("ring_buffer", ": ", stringify!(*mut aeron_spsc_rb_t)).to_string(),
+                    concat!("handler", ": ", stringify!(aeron_rb_handler_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_spsc_rb_read(
+                self.get_inner(),
+                Some(aeron_rb_handler_t_callback_for_once_closure::<AeronRbHandlerHandlerImpl>),
+                &mut handler as *mut _ as *mut std::os::raw::c_void,
+                message_count_limit.into(),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn controlled_read<AeronRbControlledHandlerHandlerImpl: AeronRbControlledHandlerCallback>(
+        &self,
+        handler: Option<&Handler<AeronRbControlledHandlerHandlerImpl>>,
+        message_count_limit: usize,
+    ) -> usize {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_spsc_rb_controlled_read),
+                [
+                    concat!("ring_buffer", ": ", stringify!(*mut aeron_spsc_rb_t)).to_string(),
+                    concat!("handler", ": ", stringify!(aeron_rb_controlled_handler_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_spsc_rb_controlled_read(
+                self.get_inner(),
+                {
+                    let callback: aeron_rb_controlled_handler_t = if handler.is_none() {
+                        None
+                    } else {
+                        Some(aeron_rb_controlled_handler_t_callback::<AeronRbControlledHandlerHandlerImpl>)
+                    };
+                    callback
+                },
+                handler.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
+                message_count_limit.into(),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    #[doc = r""]
+    #[doc = r""]
+    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
+    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
+    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
+    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
+    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r""]
+    #[doc = r" # Panics"]
+    #[doc = r""]
+    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
+    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
+    #[doc = r" of panicking in production fragment handlers."]
+    pub fn controlled_read_fn<
+        AeronRbControlledHandlerHandlerImpl: FnMut(i32, *const ::std::os::raw::c_void, usize) -> aeron_rb_read_action_t,
+    >(
+        &self,
+        mut handler: AeronRbControlledHandlerHandlerImpl,
+        message_count_limit: usize,
+    ) -> usize {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_spsc_rb_controlled_read),
+                [
+                    concat!("ring_buffer", ": ", stringify!(*mut aeron_spsc_rb_t)).to_string(),
+                    concat!("handler", ": ", stringify!(aeron_rb_controlled_handler_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_spsc_rb_controlled_read(
+                self.get_inner(),
+                Some(aeron_rb_controlled_handler_t_callback_for_once_closure::<AeronRbControlledHandlerHandlerImpl>),
+                &mut handler as *mut _ as *mut std::os::raw::c_void,
+                message_count_limit.into(),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn next_correlation_id(&self) -> i64 {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_spsc_rb_next_correlation_id),
+                [concat!("ring_buffer", ": ", stringify!(*mut aeron_spsc_rb_t)).to_string()].join(", ")
+            );
+            let result = aeron_spsc_rb_next_correlation_id(self.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn consumer_heartbeat_time(&self, time_ms: i64) -> () {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_spsc_rb_consumer_heartbeat_time),
+                [
+                    concat!("ring_buffer", ": ", stringify!(*mut aeron_spsc_rb_t)).to_string(),
+                    format!("{} = {:?}", "time_ms", time_ms)
+                ]
+                .join(", ")
+            );
+            let result = aeron_spsc_rb_consumer_heartbeat_time(self.get_inner(), time_ms.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_spsc_rb_t {
+        self.inner.get()
+    }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
+    #[inline(always)]
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_spsc_rb_t {
+        &mut *self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_spsc_rb_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronSpscRb {
+    type Target = aeron_spsc_rb_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_spsc_rb_t> for AeronSpscRb {
+    #[inline]
+    fn from(value: *mut aeron_spsc_rb_t) -> Self {
+        AeronSpscRb {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronSpscRb> for *mut aeron_spsc_rb_t {
+    #[inline]
+    fn from(value: AeronSpscRb) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronSpscRb> for *mut aeron_spsc_rb_t {
+    #[inline]
+    fn from(value: &AeronSpscRb) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronSpscRb> for aeron_spsc_rb_t {
+    #[inline]
+    fn from(value: AeronSpscRb) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_spsc_rb_t> for AeronSpscRb {
+    #[inline]
+    fn from(value: *const aeron_spsc_rb_t) -> Self {
+        AeronSpscRb {
+            inner: CResource::Borrowed(value as *mut aeron_spsc_rb_t),
+        }
+    }
+}
+impl From<aeron_spsc_rb_t> for AeronSpscRb {
+    #[inline]
+    fn from(value: aeron_spsc_rb_t) -> Self {
+        AeronSpscRb {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value)),
+        }
+    }
+}
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for AeronSpscRb {
+    fn default() -> Self {
+        AeronSpscRb::new_zeroed_on_heap()
+    }
+}
+impl AeronSpscRb {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+        copy
+    }
+}
+#[cfg(test)]
+mod aeron_spsc_rb_t_allocation_tests {
+    use super::*;
+    use serial_test::file_serial;
+    #[test]
+    #[file_serial(global)]
+    fn test_new_on_stack() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronSpscRb::new_zeroed_on_stack();
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronSpscRb::default();
+            }
+        });
+    }
+}
+#[derive(Clone)]
 pub struct AeronStaticCounterCommand {
     inner: CResource<aeron_static_counter_command_t>,
 }
@@ -59057,6 +60480,65 @@ impl Aeron {
         }
     }
     #[inline]
+    #[doc = "Global file writing method, allows for interposition"]
+    pub fn fprintf(
+        src_: &std::ffi::CStr,
+        line_: u64,
+        stream: *mut ::std::os::raw::c_void,
+        format: &std::ffi::CStr,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_fprintf),
+                [
+                    concat!("src_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    format!("{} = {:?}", "line_", line_),
+                    concat!("stream", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
+                    concat!("format", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_fprintf(src_.as_ptr(), line_.into(), stream.into(), format.as_ptr());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    #[doc = "update the fprintf_handler, return previously installed handler"]
+    pub fn set_fprintf_handler(fn_: aeron_fprintf_handler_t) -> aeron_fprintf_handler_t {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_set_fprintf_handler),
+                [concat!("fn_", ": ", stringify!(aeron_fprintf_handler_t)).to_string()].join(", ")
+            );
+            let result = aeron_set_fprintf_handler(fn_.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    #[doc = "return the fprintf_handler"]
+    pub fn get_fprintf_handler() -> aeron_fprintf_handler_t {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("{}({})", stringify!(aeron_get_fprintf_handler), [""; 0].join(", "));
+            let result = aeron_get_fprintf_handler();
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
     #[doc = "Start an `Aeron`. This may spawn a thread for the Client Conductor."]
     #[doc = ""]
     #[doc = " \n# Return\n 0 for success and -1 for error."]
@@ -60402,8 +61884,8 @@ impl Aeron {
     #[inline]
     #[doc = "Affinity setting function that complies with the aeron_agent_on_start_func_t structure that can"]
     #[doc = " be used as an agent start function.  The state should be the `AeronDriverContext`* and the function"]
-    #[doc = " will match the values \"conductor\", \"sender\", \"receiver\" and use the respective configuration options from"]
-    #[doc = " the `AeronDriverContext`."]
+    #[doc = " will match the values conductor/sender/receiver/native resource agent thread names and use the respective"]
+    #[doc = " configuration options from the `AeronDriverContext`."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `state` client information passed to function, should be the `AeronDriverContext`*."]
     #[doc = " \n - `role_name` name of the role specified on the agent."]
@@ -60798,6 +62280,99 @@ impl Aeron {
         }
     }
     #[inline]
+    #[doc = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
+    pub fn realpath(path: &std::ffi::CStr, resolved_path: &mut [u8]) -> &'static str {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_realpath),
+                [
+                    concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    format!("{} = {:?}", "resolved_path", resolved_path)
+                ]
+                .join(", ")
+            );
+            let result = aeron_realpath(path.as_ptr(), resolved_path.as_mut_ptr() as *mut _, resolved_path.len());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(result).to_str().unwrap_or("") }
+            }
+        }
+    }
+    #[inline]
+    #[doc = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
+    pub fn tmpdir(path: &mut [u8]) -> &'static str {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_tmpdir),
+                [format!("{} = {:?}", "path", path)].join(", ")
+            );
+            let result = aeron_tmpdir(path.as_mut_ptr() as *mut _, path.len());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(result).to_str().unwrap_or("") }
+            }
+        }
+    }
+    #[inline]
+    pub fn file_exists(path: &std::ffi::CStr) -> bool {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_file_exists),
+                [concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
+            );
+            let result = aeron_file_exists(path.as_ptr());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn ftell(stream: *mut ::std::os::raw::c_void) -> i64 {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_ftell),
+                [concat!("stream", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string()].join(", ")
+            );
+            let result = aeron_ftell(stream.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    #[doc = "Opens or creates a new file in append mode.  Will use 0644 permissions on Linux/Mac and default on Windows."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `path` to the location on the file system."]
+    #[doc = " \n# Return\n A FILE* pointer as a void* to reduce type dependencies.  Returns null on failure."]
+    pub fn open_file_append(path: &std::ffi::CStr) -> *mut ::std::os::raw::c_void {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_open_file_append),
+                [concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
+            );
+            let result = aeron_open_file_append(path.as_ptr());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
     pub fn file_length(path: &std::ffi::CStr) -> i64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -60855,6 +62430,30 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
+        }
+    }
+    #[inline]
+    #[doc = "Returns a new temporary directory, allocates the string which needs to be freed by the user."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `dir_template` to be used to create the temporary directory."]
+    #[doc = " \n# Return\n the new temporary path."]
+    #[doc = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
+    pub fn temp_dir(dir_template: &std::ffi::CStr) -> &'static str {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_temp_dir),
+                [concat!("dir_template", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
+            );
+            let result = aeron_temp_dir(dir_template.as_ptr());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(result).to_str().unwrap_or("") }
+            }
         }
     }
     #[inline]
@@ -61112,342 +62711,6 @@ impl Aeron {
                 .join(", ")
             );
             let result = aeron_config_parse_inferable_boolean(inferable_boolean.as_ptr(), def.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    pub fn parse_size64(str_: &std::ffi::CStr) -> Result<u64, AeronCError> {
-        unsafe {
-            let mut mut_result: u64 = Default::default();
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_parse_size64),
-                [
-                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("result", ": ", stringify!(*mut u64)).to_string()
-                ]
-                .join(", ")
-            );
-            let err_code = aeron_parse_size64(str_.as_ptr(), &mut mut_result);
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
-            if err_code < 0 {
-                return Err(AeronCError::from_code(err_code));
-            } else {
-                return Ok(mut_result);
-            }
-        }
-    }
-    #[inline]
-    pub fn format_size64(value: u64, buffer: &mut [u8]) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_format_size64),
-                [
-                    format!("{} = {:?}", "value", value),
-                    format!("{} = {:?}", "buffer", buffer)
-                ]
-                .join(", ")
-            );
-            let result = aeron_format_size64(value.into(), buffer.as_mut_ptr() as *mut _, buffer.len());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    pub fn parse_duration_ns(str_: &std::ffi::CStr) -> Result<u64, AeronCError> {
-        unsafe {
-            let mut mut_result: u64 = Default::default();
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_parse_duration_ns),
-                [
-                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("result", ": ", stringify!(*mut u64)).to_string()
-                ]
-                .join(", ")
-            );
-            let err_code = aeron_parse_duration_ns(str_.as_ptr(), &mut mut_result);
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
-            if err_code < 0 {
-                return Err(AeronCError::from_code(err_code));
-            } else {
-                return Ok(mut_result);
-            }
-        }
-    }
-    #[inline]
-    pub fn format_duration_ns(duration_ns: u64, buffer: &mut [u8]) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_format_duration_ns),
-                [
-                    format!("{} = {:?}", "duration_ns", duration_ns),
-                    format!("{} = {:?}", "buffer", buffer)
-                ]
-                .join(", ")
-            );
-            let result = aeron_format_duration_ns(duration_ns.into(), buffer.as_mut_ptr() as *mut _, buffer.len());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    pub fn parse_bool(str_: &std::ffi::CStr, def: bool) -> bool {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_parse_bool),
-                [
-                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "def", def)
-                ]
-                .join(", ")
-            );
-            let result = aeron_parse_bool(str_.as_ptr(), def.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    pub fn address_split(
-        address_str: &std::ffi::CStr,
-        parsed_address: &AeronParsedAddress,
-    ) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_address_split),
-                [
-                    concat!("address_str", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("parsed_address", ": ", stringify!(*mut aeron_parsed_address_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_address_split(address_str.as_ptr(), parsed_address.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    pub fn interface_split(
-        interface_str: &std::ffi::CStr,
-        parsed_interface: &AeronParsedInterface,
-    ) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_interface_split),
-                [
-                    concat!("interface_str", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("parsed_interface", ": ", stringify!(*mut aeron_parsed_interface_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_interface_split(interface_str.as_ptr(), parsed_interface.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    pub fn parse_get_line(line: &mut [u8], buffer: &std::ffi::CStr) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_parse_get_line),
-                [format!("{} = {:?}", "line", line)].join(", ")
-            );
-            let result = aeron_parse_get_line(line.as_mut_ptr() as *mut _, line.len(), buffer.as_ptr());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    pub fn config_prop_warning(name: &std::ffi::CStr, str_: &std::ffi::CStr) -> () {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_config_prop_warning),
-                [
-                    concat!("name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_config_prop_warning(name.as_ptr(), str_.as_ptr());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    pub fn config_parse_uint64(name: &std::ffi::CStr, str_: &std::ffi::CStr, def: u64, min: u64, max: u64) -> u64 {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_config_parse_uint64),
-                [
-                    concat!("name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "def", def),
-                    format!("{} = {:?}", "min", min),
-                    format!("{} = {:?}", "max", max)
-                ]
-                .join(", ")
-            );
-            let result = aeron_config_parse_uint64(name.as_ptr(), str_.as_ptr(), def.into(), min.into(), max.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    pub fn config_parse_int32(name: &std::ffi::CStr, str_: &std::ffi::CStr, def: i32, min: i32, max: i32) -> i32 {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_config_parse_int32),
-                [
-                    concat!("name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "def", def),
-                    format!("{} = {:?}", "min", min),
-                    format!("{} = {:?}", "max", max)
-                ]
-                .join(", ")
-            );
-            let result = aeron_config_parse_int32(name.as_ptr(), str_.as_ptr(), def.into(), min.into(), max.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    pub fn config_parse_int64(name: &std::ffi::CStr, str_: &std::ffi::CStr, def: i64, min: i64, max: i64) -> i64 {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_config_parse_int64),
-                [
-                    concat!("name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "def", def),
-                    format!("{} = {:?}", "min", min),
-                    format!("{} = {:?}", "max", max)
-                ]
-                .join(", ")
-            );
-            let result = aeron_config_parse_int64(name.as_ptr(), str_.as_ptr(), def.into(), min.into(), max.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    pub fn config_parse_uint32(name: &std::ffi::CStr, str_: &std::ffi::CStr, def: u32, min: u32, max: u32) -> u32 {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_config_parse_uint32),
-                [
-                    concat!("name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "def", def),
-                    format!("{} = {:?}", "min", min),
-                    format!("{} = {:?}", "max", max)
-                ]
-                .join(", ")
-            );
-            let result = aeron_config_parse_uint32(name.as_ptr(), str_.as_ptr(), def.into(), min.into(), max.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    pub fn config_parse_size64(name: &std::ffi::CStr, str_: &std::ffi::CStr, def: u64, min: u64, max: u64) -> u64 {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_config_parse_size64),
-                [
-                    concat!("name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "def", def),
-                    format!("{} = {:?}", "min", min),
-                    format!("{} = {:?}", "max", max)
-                ]
-                .join(", ")
-            );
-            let result = aeron_config_parse_size64(name.as_ptr(), str_.as_ptr(), def.into(), min.into(), max.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    pub fn config_parse_duration_ns(name: &std::ffi::CStr, str_: &std::ffi::CStr, def: u64, min: u64, max: u64) -> u64 {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_config_parse_duration_ns),
-                [
-                    concat!("name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    format!("{} = {:?}", "def", def),
-                    format!("{} = {:?}", "min", min),
-                    format!("{} = {:?}", "max", max)
-                ]
-                .join(", ")
-            );
-            let result =
-                aeron_config_parse_duration_ns(name.as_ptr(), str_.as_ptr(), def.into(), min.into(), max.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -61943,6 +63206,342 @@ impl Aeron {
             } else {
                 return Ok(result);
             }
+        }
+    }
+    #[inline]
+    pub fn parse_size64(str_: &std::ffi::CStr) -> Result<u64, AeronCError> {
+        unsafe {
+            let mut mut_result: u64 = Default::default();
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_parse_size64),
+                [
+                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    concat!("result", ": ", stringify!(*mut u64)).to_string()
+                ]
+                .join(", ")
+            );
+            let err_code = aeron_parse_size64(str_.as_ptr(), &mut mut_result);
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
+            if err_code < 0 {
+                return Err(AeronCError::from_code(err_code));
+            } else {
+                return Ok(mut_result);
+            }
+        }
+    }
+    #[inline]
+    pub fn format_size64(value: u64, buffer: &mut [u8]) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_format_size64),
+                [
+                    format!("{} = {:?}", "value", value),
+                    format!("{} = {:?}", "buffer", buffer)
+                ]
+                .join(", ")
+            );
+            let result = aeron_format_size64(value.into(), buffer.as_mut_ptr() as *mut _, buffer.len());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn parse_duration_ns(str_: &std::ffi::CStr) -> Result<u64, AeronCError> {
+        unsafe {
+            let mut mut_result: u64 = Default::default();
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_parse_duration_ns),
+                [
+                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    concat!("result", ": ", stringify!(*mut u64)).to_string()
+                ]
+                .join(", ")
+            );
+            let err_code = aeron_parse_duration_ns(str_.as_ptr(), &mut mut_result);
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
+            if err_code < 0 {
+                return Err(AeronCError::from_code(err_code));
+            } else {
+                return Ok(mut_result);
+            }
+        }
+    }
+    #[inline]
+    pub fn format_duration_ns(duration_ns: u64, buffer: &mut [u8]) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_format_duration_ns),
+                [
+                    format!("{} = {:?}", "duration_ns", duration_ns),
+                    format!("{} = {:?}", "buffer", buffer)
+                ]
+                .join(", ")
+            );
+            let result = aeron_format_duration_ns(duration_ns.into(), buffer.as_mut_ptr() as *mut _, buffer.len());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn parse_bool(str_: &std::ffi::CStr, def: bool) -> bool {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_parse_bool),
+                [
+                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    format!("{} = {:?}", "def", def)
+                ]
+                .join(", ")
+            );
+            let result = aeron_parse_bool(str_.as_ptr(), def.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn address_split(
+        address_str: &std::ffi::CStr,
+        parsed_address: &AeronParsedAddress,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_address_split),
+                [
+                    concat!("address_str", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    concat!("parsed_address", ": ", stringify!(*mut aeron_parsed_address_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_address_split(address_str.as_ptr(), parsed_address.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn interface_split(
+        interface_str: &std::ffi::CStr,
+        parsed_interface: &AeronParsedInterface,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_interface_split),
+                [
+                    concat!("interface_str", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    concat!("parsed_interface", ": ", stringify!(*mut aeron_parsed_interface_t)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_interface_split(interface_str.as_ptr(), parsed_interface.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn parse_get_line(line: &mut [u8], buffer: &std::ffi::CStr) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_parse_get_line),
+                [format!("{} = {:?}", "line", line)].join(", ")
+            );
+            let result = aeron_parse_get_line(line.as_mut_ptr() as *mut _, line.len(), buffer.as_ptr());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn config_prop_warning(name: &std::ffi::CStr, str_: &std::ffi::CStr) -> () {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_config_prop_warning),
+                [
+                    concat!("name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_config_prop_warning(name.as_ptr(), str_.as_ptr());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn config_parse_uint64(name: &std::ffi::CStr, str_: &std::ffi::CStr, def: u64, min: u64, max: u64) -> u64 {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_config_parse_uint64),
+                [
+                    concat!("name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    format!("{} = {:?}", "def", def),
+                    format!("{} = {:?}", "min", min),
+                    format!("{} = {:?}", "max", max)
+                ]
+                .join(", ")
+            );
+            let result = aeron_config_parse_uint64(name.as_ptr(), str_.as_ptr(), def.into(), min.into(), max.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn config_parse_int32(name: &std::ffi::CStr, str_: &std::ffi::CStr, def: i32, min: i32, max: i32) -> i32 {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_config_parse_int32),
+                [
+                    concat!("name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    format!("{} = {:?}", "def", def),
+                    format!("{} = {:?}", "min", min),
+                    format!("{} = {:?}", "max", max)
+                ]
+                .join(", ")
+            );
+            let result = aeron_config_parse_int32(name.as_ptr(), str_.as_ptr(), def.into(), min.into(), max.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn config_parse_int64(name: &std::ffi::CStr, str_: &std::ffi::CStr, def: i64, min: i64, max: i64) -> i64 {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_config_parse_int64),
+                [
+                    concat!("name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    format!("{} = {:?}", "def", def),
+                    format!("{} = {:?}", "min", min),
+                    format!("{} = {:?}", "max", max)
+                ]
+                .join(", ")
+            );
+            let result = aeron_config_parse_int64(name.as_ptr(), str_.as_ptr(), def.into(), min.into(), max.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn config_parse_uint32(name: &std::ffi::CStr, str_: &std::ffi::CStr, def: u32, min: u32, max: u32) -> u32 {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_config_parse_uint32),
+                [
+                    concat!("name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    format!("{} = {:?}", "def", def),
+                    format!("{} = {:?}", "min", min),
+                    format!("{} = {:?}", "max", max)
+                ]
+                .join(", ")
+            );
+            let result = aeron_config_parse_uint32(name.as_ptr(), str_.as_ptr(), def.into(), min.into(), max.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn config_parse_size64(name: &std::ffi::CStr, str_: &std::ffi::CStr, def: u64, min: u64, max: u64) -> u64 {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_config_parse_size64),
+                [
+                    concat!("name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    format!("{} = {:?}", "def", def),
+                    format!("{} = {:?}", "min", min),
+                    format!("{} = {:?}", "max", max)
+                ]
+                .join(", ")
+            );
+            let result = aeron_config_parse_size64(name.as_ptr(), str_.as_ptr(), def.into(), min.into(), max.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn config_parse_duration_ns(name: &std::ffi::CStr, str_: &std::ffi::CStr, def: u64, min: u64, max: u64) -> u64 {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_config_parse_duration_ns),
+                [
+                    concat!("name", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    concat!("str_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    format!("{} = {:?}", "def", def),
+                    format!("{} = {:?}", "min", min),
+                    format!("{} = {:?}", "max", max)
+                ]
+                .join(", ")
+            );
+            let result =
+                aeron_config_parse_duration_ns(name.as_ptr(), str_.as_ptr(), def.into(), min.into(), max.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
         }
     }
     #[inline(always)]
@@ -68800,6 +70399,178 @@ mod timespec_allocation_tests {
         });
     }
 }
+#[doc = r""]
+#[doc = r""]
+#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+pub trait AeronFprintfHandlerCallback {
+    fn handle_aeron_fprintf_handler(
+        &mut self,
+        arg1: &str,
+        arg2: u64,
+        arg4: &str,
+        arg5: va_list,
+    ) -> ::std::os::raw::c_int;
+}
+pub struct AeronFprintfHandlerLogger;
+impl AeronFprintfHandlerCallback for AeronFprintfHandlerLogger {
+    fn handle_aeron_fprintf_handler(
+        &mut self,
+        arg1: &str,
+        arg2: u64,
+        arg4: &str,
+        arg5: va_list,
+    ) -> ::std::os::raw::c_int {
+        log::info!(
+            "{}({}\n)",
+            stringify!(handle_aeron_fprintf_handler),
+            [
+                format!("{} : {:?}", stringify!(arg1), arg1),
+                format!("{} : {:?}", stringify!(arg2), arg2),
+                format!("{} : {:?}", stringify!(arg4), arg4),
+                format!("{} : {:?}", stringify!(arg5), arg5)
+            ]
+            .join(", "),
+        );
+        unimplemented!()
+    }
+}
+unsafe impl Send for AeronFprintfHandlerLogger {}
+unsafe impl Sync for AeronFprintfHandlerLogger {}
+#[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
+#[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
+impl<F: FnMut(&str, u64, &str, va_list) -> ::std::os::raw::c_int> AeronFprintfHandlerCallback for F {
+    #[inline]
+    fn handle_aeron_fprintf_handler(
+        &mut self,
+        arg1: &str,
+        arg2: u64,
+        arg4: &str,
+        arg5: va_list,
+    ) -> ::std::os::raw::c_int {
+        self(arg1, arg2, arg4, arg5)
+    }
+}
+#[doc = r" Pass an existing [`Handler`] clone anywhere a callback value is expected, e.g."]
+#[doc = r" to share one callback instance across several registrations."]
+impl<T: AeronFprintfHandlerCallback> AeronFprintfHandlerCallback for Handler<T> {
+    #[inline]
+    fn handle_aeron_fprintf_handler(
+        &mut self,
+        arg1: &str,
+        arg2: u64,
+        arg4: &str,
+        arg5: va_list,
+    ) -> ::std::os::raw::c_int {
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_fprintf_handler(arg1, arg2, arg4, arg5)
+    }
+}
+impl AeronFprintfHandlerCallback for NoHandler {
+    fn handle_aeron_fprintf_handler(
+        &mut self,
+        arg1: &str,
+        arg2: u64,
+        arg4: &str,
+        arg5: va_list,
+    ) -> ::std::os::raw::c_int {
+        unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
+    }
+}
+#[allow(dead_code)]
+unsafe extern "C" fn aeron_fprintf_handler_t_callback<F: AeronFprintfHandlerCallback>(
+    arg1: *const ::std::os::raw::c_char,
+    arg2: u64,
+    arg3: *mut ::std::os::raw::c_void,
+    arg4: *const ::std::os::raw::c_char,
+    arg5: va_list,
+) -> ::std::os::raw::c_int {
+    #[cfg(debug_assertions)]
+    if arg3.is_null() {
+        unimplemented!("closure should not be null")
+    }
+    #[cfg(feature = "extra-logging")]
+    {
+        log::debug!("calling {}", stringify!(handle_aeron_fprintf_handler));
+    }
+    #[cfg(feature = "log-c-bindings")]
+    log::debug!(
+        "{}({}\n)",
+        stringify!(aeron_fprintf_handler_t_callback),
+        [
+            format!("{} = {:?}", stringify!(arg1), arg1),
+            format!("{} = {:?}", stringify!(arg2), arg2),
+            format!("{} = {:?}", stringify!(arg3), arg3),
+            format!("{} = {:?}", stringify!(arg4), arg4),
+            format!("{} = {:?}", stringify!(arg5), arg5)
+        ]
+        .join(", ")
+    );
+    let closure: &mut F = unsafe { &mut *(arg3 as *mut F) };
+    closure.handle_aeron_fprintf_handler(
+        if arg1.is_null() {
+            ""
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(arg1).to_str().unwrap_or("") }
+        },
+        arg2.into(),
+        if arg4.is_null() {
+            ""
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(arg4).to_str().unwrap_or("") }
+        },
+        arg5.into(),
+    )
+}
+#[allow(dead_code)]
+unsafe extern "C" fn aeron_fprintf_handler_t_callback_for_once_closure<
+    F: FnMut(&str, u64, &str, va_list) -> ::std::os::raw::c_int,
+>(
+    arg1: *const ::std::os::raw::c_char,
+    arg2: u64,
+    arg3: *mut ::std::os::raw::c_void,
+    arg4: *const ::std::os::raw::c_char,
+    arg5: va_list,
+) -> ::std::os::raw::c_int {
+    #[cfg(debug_assertions)]
+    if arg3.is_null() {
+        unimplemented!("closure should not be null")
+    }
+    #[cfg(feature = "extra-logging")]
+    {
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_fprintf_handler_t_callback_for_once_closure)
+        );
+    }
+    #[cfg(feature = "log-c-bindings")]
+    log::debug!(
+        "{}({}\n)",
+        stringify!(aeron_fprintf_handler_t_callback_for_once_closure),
+        [
+            format!("{} = {:?}", stringify!(arg1), arg1),
+            format!("{} = {:?}", stringify!(arg2), arg2),
+            format!("{} = {:?}", stringify!(arg3), arg3),
+            format!("{} = {:?}", stringify!(arg4), arg4),
+            format!("{} = {:?}", stringify!(arg5), arg5)
+        ]
+        .join(", ")
+    );
+    let closure: &mut F = unsafe { &mut *(arg3 as *mut F) };
+    closure(
+        if arg1.is_null() {
+            ""
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(arg1).to_str().unwrap_or("") }
+        },
+        arg2.into(),
+        if arg4.is_null() {
+            ""
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(arg4).to_str().unwrap_or("") }
+        },
+        arg5.into(),
+    )
+}
 #[doc = "The error handler to be called when an error occurs."]
 #[doc = r""]
 #[doc = r""]
@@ -74898,6 +76669,92 @@ unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback_for_on
 #[doc = r""]
 #[doc = r""]
 #[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+pub trait AeronEndOfLifeResourceFreeCallback {
+    fn handle_aeron_end_of_life_resource_free(&mut self) -> bool;
+}
+pub struct AeronEndOfLifeResourceFreeLogger;
+impl AeronEndOfLifeResourceFreeCallback for AeronEndOfLifeResourceFreeLogger {
+    fn handle_aeron_end_of_life_resource_free(&mut self) -> bool {
+        log::info!(
+            "{}({}\n)",
+            stringify!(handle_aeron_end_of_life_resource_free),
+            [""].join(", "),
+        );
+        unimplemented!()
+    }
+}
+unsafe impl Send for AeronEndOfLifeResourceFreeLogger {}
+unsafe impl Sync for AeronEndOfLifeResourceFreeLogger {}
+#[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
+#[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
+impl<F: FnMut() -> bool> AeronEndOfLifeResourceFreeCallback for F {
+    #[inline]
+    fn handle_aeron_end_of_life_resource_free(&mut self) -> bool {
+        self()
+    }
+}
+#[doc = r" Pass an existing [`Handler`] clone anywhere a callback value is expected, e.g."]
+#[doc = r" to share one callback instance across several registrations."]
+impl<T: AeronEndOfLifeResourceFreeCallback> AeronEndOfLifeResourceFreeCallback for Handler<T> {
+    #[inline]
+    fn handle_aeron_end_of_life_resource_free(&mut self) -> bool {
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_end_of_life_resource_free()
+    }
+}
+impl AeronEndOfLifeResourceFreeCallback for NoHandler {
+    fn handle_aeron_end_of_life_resource_free(&mut self) -> bool {
+        unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
+    }
+}
+#[allow(dead_code)]
+unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback<F: AeronEndOfLifeResourceFreeCallback>(
+    resource: *mut ::std::os::raw::c_void,
+) -> bool {
+    #[cfg(debug_assertions)]
+    if resource.is_null() {
+        unimplemented!("closure should not be null")
+    }
+    #[cfg(feature = "extra-logging")]
+    {
+        log::debug!("calling {}", stringify!(handle_aeron_end_of_life_resource_free));
+    }
+    #[cfg(feature = "log-c-bindings")]
+    log::debug!(
+        "{}({}\n)",
+        stringify!(aeron_end_of_life_resource_free_t_callback),
+        [format!("{} = {:?}", stringify!(resource), resource)].join(", ")
+    );
+    let closure: &mut F = unsafe { &mut *(resource as *mut F) };
+    closure.handle_aeron_end_of_life_resource_free()
+}
+#[allow(dead_code)]
+unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback_for_once_closure<F: FnMut() -> bool>(
+    resource: *mut ::std::os::raw::c_void,
+) -> bool {
+    #[cfg(debug_assertions)]
+    if resource.is_null() {
+        unimplemented!("closure should not be null")
+    }
+    #[cfg(feature = "extra-logging")]
+    {
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_end_of_life_resource_free_t_callback_for_once_closure)
+        );
+    }
+    #[cfg(feature = "log-c-bindings")]
+    log::debug!(
+        "{}({}\n)",
+        stringify!(aeron_end_of_life_resource_free_t_callback_for_once_closure),
+        [format!("{} = {:?}", stringify!(resource), resource)].join(", ")
+    );
+    let closure: &mut F = unsafe { &mut *(resource as *mut F) };
+    closure()
+}
+#[doc = r""]
+#[doc = r""]
+#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
 pub trait AeronSendChannelLossSupplierFuncCallback {
     fn handle_aeron_send_channel_loss_supplier_func(&mut self, endpoint: *mut aeron_send_channel_endpoint_stct) -> ();
 }
@@ -75110,227 +76967,6 @@ unsafe extern "C" fn aeron_receive_channel_loss_supplier_func_t_callback_for_onc
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(endpoint.into())
-}
-#[doc = r""]
-#[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
-pub trait AeronAsyncExecutorTaskExecuteFuncCallback {
-    fn handle_aeron_async_executor_task_on_execute_func(
-        &mut self,
-        executor_clientd: *mut ::std::os::raw::c_void,
-    ) -> ::std::os::raw::c_int;
-}
-pub struct AeronAsyncExecutorTaskExecuteFuncLogger;
-impl AeronAsyncExecutorTaskExecuteFuncCallback for AeronAsyncExecutorTaskExecuteFuncLogger {
-    fn handle_aeron_async_executor_task_on_execute_func(
-        &mut self,
-        executor_clientd: *mut ::std::os::raw::c_void,
-    ) -> ::std::os::raw::c_int {
-        log::info!(
-            "{}({}\n)",
-            stringify!(handle_aeron_async_executor_task_on_execute_func),
-            [format!("{} : {:?}", stringify!(executor_clientd), executor_clientd)].join(", "),
-        );
-        unimplemented!()
-    }
-}
-unsafe impl Send for AeronAsyncExecutorTaskExecuteFuncLogger {}
-unsafe impl Sync for AeronAsyncExecutorTaskExecuteFuncLogger {}
-#[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
-#[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(*mut ::std::os::raw::c_void) -> ::std::os::raw::c_int> AeronAsyncExecutorTaskExecuteFuncCallback for F {
-    #[inline]
-    fn handle_aeron_async_executor_task_on_execute_func(
-        &mut self,
-        executor_clientd: *mut ::std::os::raw::c_void,
-    ) -> ::std::os::raw::c_int {
-        self(executor_clientd)
-    }
-}
-#[doc = r" Pass an existing [`Handler`] clone anywhere a callback value is expected, e.g."]
-#[doc = r" to share one callback instance across several registrations."]
-impl<T: AeronAsyncExecutorTaskExecuteFuncCallback> AeronAsyncExecutorTaskExecuteFuncCallback for Handler<T> {
-    #[inline]
-    fn handle_aeron_async_executor_task_on_execute_func(
-        &mut self,
-        executor_clientd: *mut ::std::os::raw::c_void,
-    ) -> ::std::os::raw::c_int {
-        let inner = unsafe { &mut *self.inner.get() };
-        inner.handle_aeron_async_executor_task_on_execute_func(executor_clientd)
-    }
-}
-impl AeronAsyncExecutorTaskExecuteFuncCallback for NoHandler {
-    fn handle_aeron_async_executor_task_on_execute_func(
-        &mut self,
-        executor_clientd: *mut ::std::os::raw::c_void,
-    ) -> ::std::os::raw::c_int {
-        unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
-    }
-}
-#[allow(dead_code)]
-unsafe extern "C" fn aeron_async_executor_task_on_execute_func_t_callback<
-    F: AeronAsyncExecutorTaskExecuteFuncCallback,
->(
-    task_clientd: *mut ::std::os::raw::c_void,
-    executor_clientd: *mut ::std::os::raw::c_void,
-) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if task_clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
-    #[cfg(feature = "extra-logging")]
-    {
-        log::debug!(
-            "calling {}",
-            stringify!(handle_aeron_async_executor_task_on_execute_func)
-        );
-    }
-    #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
-        stringify!(aeron_async_executor_task_on_execute_func_t_callback),
-        [
-            format!("{} = {:?}", stringify!(task_clientd), task_clientd),
-            format!("{} = {:?}", stringify!(executor_clientd), executor_clientd)
-        ]
-        .join(", ")
-    );
-    let closure: &mut F = unsafe { &mut *(task_clientd as *mut F) };
-    closure.handle_aeron_async_executor_task_on_execute_func(executor_clientd.into())
-}
-#[allow(dead_code)]
-unsafe extern "C" fn aeron_async_executor_task_on_execute_func_t_callback_for_once_closure<
-    F: FnMut(*mut ::std::os::raw::c_void) -> ::std::os::raw::c_int,
->(
-    task_clientd: *mut ::std::os::raw::c_void,
-    executor_clientd: *mut ::std::os::raw::c_void,
-) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if task_clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
-    #[cfg(feature = "extra-logging")]
-    {
-        log::debug!(
-            "calling {}",
-            stringify!(aeron_async_executor_task_on_execute_func_t_callback_for_once_closure)
-        );
-    }
-    #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
-        stringify!(aeron_async_executor_task_on_execute_func_t_callback_for_once_closure),
-        [
-            format!("{} = {:?}", stringify!(task_clientd), task_clientd),
-            format!("{} = {:?}", stringify!(executor_clientd), executor_clientd)
-        ]
-        .join(", ")
-    );
-    let closure: &mut F = unsafe { &mut *(task_clientd as *mut F) };
-    closure(executor_clientd.into())
-}
-#[doc = r""]
-#[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
-pub trait AeronAsyncExecutorTaskCancelFuncCallback {
-    fn handle_aeron_async_executor_task_on_cancel_func(&mut self, executor_clientd: *mut ::std::os::raw::c_void) -> ();
-}
-pub struct AeronAsyncExecutorTaskCancelFuncLogger;
-impl AeronAsyncExecutorTaskCancelFuncCallback for AeronAsyncExecutorTaskCancelFuncLogger {
-    fn handle_aeron_async_executor_task_on_cancel_func(&mut self, executor_clientd: *mut ::std::os::raw::c_void) -> () {
-        log::info!(
-            "{}({}\n)",
-            stringify!(handle_aeron_async_executor_task_on_cancel_func),
-            [format!("{} : {:?}", stringify!(executor_clientd), executor_clientd)].join(", "),
-        );
-        ()
-    }
-}
-unsafe impl Send for AeronAsyncExecutorTaskCancelFuncLogger {}
-unsafe impl Sync for AeronAsyncExecutorTaskCancelFuncLogger {}
-#[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
-#[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(*mut ::std::os::raw::c_void) -> ()> AeronAsyncExecutorTaskCancelFuncCallback for F {
-    #[inline]
-    fn handle_aeron_async_executor_task_on_cancel_func(&mut self, executor_clientd: *mut ::std::os::raw::c_void) -> () {
-        self(executor_clientd)
-    }
-}
-#[doc = r" Pass an existing [`Handler`] clone anywhere a callback value is expected, e.g."]
-#[doc = r" to share one callback instance across several registrations."]
-impl<T: AeronAsyncExecutorTaskCancelFuncCallback> AeronAsyncExecutorTaskCancelFuncCallback for Handler<T> {
-    #[inline]
-    fn handle_aeron_async_executor_task_on_cancel_func(&mut self, executor_clientd: *mut ::std::os::raw::c_void) -> () {
-        let inner = unsafe { &mut *self.inner.get() };
-        inner.handle_aeron_async_executor_task_on_cancel_func(executor_clientd)
-    }
-}
-impl AeronAsyncExecutorTaskCancelFuncCallback for NoHandler {
-    fn handle_aeron_async_executor_task_on_cancel_func(&mut self, executor_clientd: *mut ::std::os::raw::c_void) -> () {
-        unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
-    }
-}
-#[allow(dead_code)]
-unsafe extern "C" fn aeron_async_executor_task_on_cancel_func_t_callback<
-    F: AeronAsyncExecutorTaskCancelFuncCallback,
->(
-    task_clientd: *mut ::std::os::raw::c_void,
-    executor_clientd: *mut ::std::os::raw::c_void,
-) -> () {
-    #[cfg(debug_assertions)]
-    if task_clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
-    #[cfg(feature = "extra-logging")]
-    {
-        log::debug!(
-            "calling {}",
-            stringify!(handle_aeron_async_executor_task_on_cancel_func)
-        );
-    }
-    #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
-        stringify!(aeron_async_executor_task_on_cancel_func_t_callback),
-        [
-            format!("{} = {:?}", stringify!(task_clientd), task_clientd),
-            format!("{} = {:?}", stringify!(executor_clientd), executor_clientd)
-        ]
-        .join(", ")
-    );
-    let closure: &mut F = unsafe { &mut *(task_clientd as *mut F) };
-    closure.handle_aeron_async_executor_task_on_cancel_func(executor_clientd.into())
-}
-#[allow(dead_code)]
-unsafe extern "C" fn aeron_async_executor_task_on_cancel_func_t_callback_for_once_closure<
-    F: FnMut(*mut ::std::os::raw::c_void) -> (),
->(
-    task_clientd: *mut ::std::os::raw::c_void,
-    executor_clientd: *mut ::std::os::raw::c_void,
-) -> () {
-    #[cfg(debug_assertions)]
-    if task_clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
-    #[cfg(feature = "extra-logging")]
-    {
-        log::debug!(
-            "calling {}",
-            stringify!(aeron_async_executor_task_on_cancel_func_t_callback_for_once_closure)
-        );
-    }
-    #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
-        stringify!(aeron_async_executor_task_on_cancel_func_t_callback_for_once_closure),
-        [
-            format!("{} = {:?}", stringify!(task_clientd), task_clientd),
-            format!("{} = {:?}", stringify!(executor_clientd), executor_clientd)
-        ]
-        .join(", ")
-    );
-    let closure: &mut F = unsafe { &mut *(task_clientd as *mut F) };
-    closure(executor_clientd.into())
 }
 #[doc = r""]
 #[doc = r""]
@@ -76945,91 +78581,5 @@ unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback_for_
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(term_id.into(), term_offset.into(), length.into())
-}
-#[doc = r""]
-#[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
-pub trait AeronEndOfLifeResourceFreeCallback {
-    fn handle_aeron_end_of_life_resource_free(&mut self) -> bool;
-}
-pub struct AeronEndOfLifeResourceFreeLogger;
-impl AeronEndOfLifeResourceFreeCallback for AeronEndOfLifeResourceFreeLogger {
-    fn handle_aeron_end_of_life_resource_free(&mut self) -> bool {
-        log::info!(
-            "{}({}\n)",
-            stringify!(handle_aeron_end_of_life_resource_free),
-            [""].join(", "),
-        );
-        unimplemented!()
-    }
-}
-unsafe impl Send for AeronEndOfLifeResourceFreeLogger {}
-unsafe impl Sync for AeronEndOfLifeResourceFreeLogger {}
-#[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
-#[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut() -> bool> AeronEndOfLifeResourceFreeCallback for F {
-    #[inline]
-    fn handle_aeron_end_of_life_resource_free(&mut self) -> bool {
-        self()
-    }
-}
-#[doc = r" Pass an existing [`Handler`] clone anywhere a callback value is expected, e.g."]
-#[doc = r" to share one callback instance across several registrations."]
-impl<T: AeronEndOfLifeResourceFreeCallback> AeronEndOfLifeResourceFreeCallback for Handler<T> {
-    #[inline]
-    fn handle_aeron_end_of_life_resource_free(&mut self) -> bool {
-        let inner = unsafe { &mut *self.inner.get() };
-        inner.handle_aeron_end_of_life_resource_free()
-    }
-}
-impl AeronEndOfLifeResourceFreeCallback for NoHandler {
-    fn handle_aeron_end_of_life_resource_free(&mut self) -> bool {
-        unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
-    }
-}
-#[allow(dead_code)]
-unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback<F: AeronEndOfLifeResourceFreeCallback>(
-    resource: *mut ::std::os::raw::c_void,
-) -> bool {
-    #[cfg(debug_assertions)]
-    if resource.is_null() {
-        unimplemented!("closure should not be null")
-    }
-    #[cfg(feature = "extra-logging")]
-    {
-        log::debug!("calling {}", stringify!(handle_aeron_end_of_life_resource_free));
-    }
-    #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
-        stringify!(aeron_end_of_life_resource_free_t_callback),
-        [format!("{} = {:?}", stringify!(resource), resource)].join(", ")
-    );
-    let closure: &mut F = unsafe { &mut *(resource as *mut F) };
-    closure.handle_aeron_end_of_life_resource_free()
-}
-#[allow(dead_code)]
-unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback_for_once_closure<F: FnMut() -> bool>(
-    resource: *mut ::std::os::raw::c_void,
-) -> bool {
-    #[cfg(debug_assertions)]
-    if resource.is_null() {
-        unimplemented!("closure should not be null")
-    }
-    #[cfg(feature = "extra-logging")]
-    {
-        log::debug!(
-            "calling {}",
-            stringify!(aeron_end_of_life_resource_free_t_callback_for_once_closure)
-        );
-    }
-    #[cfg(feature = "log-c-bindings")]
-    log::debug!(
-        "{}({}\n)",
-        stringify!(aeron_end_of_life_resource_free_t_callback_for_once_closure),
-        [format!("{} = {:?}", stringify!(resource), resource)].join(", ")
-    );
-    let closure: &mut F = unsafe { &mut *(resource as *mut F) };
-    closure()
 }
 

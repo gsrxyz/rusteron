@@ -11420,6 +11420,8 @@ impl AeronImage {
     #[doc = "Set the subscriber position for this image to indicate where it has been consumed to."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `image` to set the position of."]
+    #[deprecated]
+    #[doc = " @deprecated Will be removed in <code>1.53.0</code>."]
     pub fn set_position(&self, position: i64) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -11976,6 +11978,8 @@ impl AeronImage {
     #[doc = " \n - `clientd` to pass to the handler."]
     #[doc = " \n - `limit_position` up to which can be scanned."]
     #[doc = " \n# Return\n the resulting position after the scan terminates which is a complete message or -1 for error."]
+    #[deprecated]
+    #[doc = " @deprecated Will be removed in <code>1.53.0</code>."]
     pub fn controlled_peek<AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback>(
         &self,
         initial_position: i64,
@@ -12025,6 +12029,8 @@ impl AeronImage {
     #[doc = " \n - `clientd` to pass to the handler."]
     #[doc = " \n - `limit_position` up to which can be scanned."]
     #[doc = " \n# Return\n the resulting position after the scan terminates which is a complete message or -1 for error."]
+    #[deprecated]
+    #[doc = " @deprecated Will be removed in <code>1.53.0</code>."]
     #[doc = r""]
     #[doc = r""]
     #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
@@ -14592,29 +14598,6 @@ impl AeronMappedRawLog {
                 .join(", ")
             );
             let result = aeron_raw_log_map_existing(self.get_inner(), path.as_ptr(), pre_touch.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    pub fn aeron_raw_log_close(&self, filename: &std::ffi::CStr) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_raw_log_close),
-                [
-                    concat!("mapped_raw_log", ": ", stringify!(*mut aeron_mapped_raw_log_t)).to_string(),
-                    concat!("filename", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_raw_log_close(self.get_inner(), filename.as_ptr());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -20325,6 +20308,65 @@ impl Aeron {
         Ok(result)
     }
     #[inline]
+    #[doc = "Global file writing method, allows for interposition"]
+    pub fn fprintf(
+        src_: &std::ffi::CStr,
+        line_: u64,
+        stream: *mut ::std::os::raw::c_void,
+        format: &std::ffi::CStr,
+    ) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_fprintf),
+                [
+                    concat!("src_", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    format!("{} = {:?}", "line_", line_),
+                    concat!("stream", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
+                    concat!("format", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()
+                ]
+                .join(", ")
+            );
+            let result = aeron_fprintf(src_.as_ptr(), line_.into(), stream.into(), format.as_ptr());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    #[doc = "update the fprintf_handler, return previously installed handler"]
+    pub fn set_fprintf_handler(fn_: aeron_fprintf_handler_t) -> aeron_fprintf_handler_t {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_set_fprintf_handler),
+                [concat!("fn_", ": ", stringify!(aeron_fprintf_handler_t)).to_string()].join(", ")
+            );
+            let result = aeron_set_fprintf_handler(fn_.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    #[doc = "return the fprintf_handler"]
+    pub fn get_fprintf_handler() -> aeron_fprintf_handler_t {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("{}({})", stringify!(aeron_get_fprintf_handler), [""; 0].join(", "));
+            let result = aeron_get_fprintf_handler();
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
     #[doc = "Start an `Aeron`. This may spawn a thread for the Client Conductor."]
     #[doc = ""]
     #[doc = " \n# Return\n 0 for success and -1 for error."]
@@ -21824,6 +21866,99 @@ impl Aeron {
         }
     }
     #[inline]
+    #[doc = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
+    pub fn realpath(path: &std::ffi::CStr, resolved_path: &mut [u8]) -> &'static str {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_realpath),
+                [
+                    concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    format!("{} = {:?}", "resolved_path", resolved_path)
+                ]
+                .join(", ")
+            );
+            let result = aeron_realpath(path.as_ptr(), resolved_path.as_mut_ptr() as *mut _, resolved_path.len());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(result).to_str().unwrap_or("") }
+            }
+        }
+    }
+    #[inline]
+    #[doc = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
+    pub fn tmpdir(path: &mut [u8]) -> &'static str {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_tmpdir),
+                [format!("{} = {:?}", "path", path)].join(", ")
+            );
+            let result = aeron_tmpdir(path.as_mut_ptr() as *mut _, path.len());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(result).to_str().unwrap_or("") }
+            }
+        }
+    }
+    #[inline]
+    pub fn file_exists(path: &std::ffi::CStr) -> bool {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_file_exists),
+                [concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
+            );
+            let result = aeron_file_exists(path.as_ptr());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn ftell(stream: *mut ::std::os::raw::c_void) -> i64 {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_ftell),
+                [concat!("stream", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string()].join(", ")
+            );
+            let result = aeron_ftell(stream.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    #[doc = "Opens or creates a new file in append mode.  Will use 0644 permissions on Linux/Mac and default on Windows."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `path` to the location on the file system."]
+    #[doc = " \n# Return\n A FILE* pointer as a void* to reduce type dependencies.  Returns null on failure."]
+    pub fn open_file_append(path: &std::ffi::CStr) -> *mut ::std::os::raw::c_void {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_open_file_append),
+                [concat!("path", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
+            );
+            let result = aeron_open_file_append(path.as_ptr());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
     pub fn file_length(path: &std::ffi::CStr) -> i64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -21945,6 +22080,30 @@ impl Aeron {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
+        }
+    }
+    #[inline]
+    #[doc = "Returns a new temporary directory, allocates the string which needs to be freed by the user."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `dir_template` to be used to create the temporary directory."]
+    #[doc = " \n# Return\n the new temporary path."]
+    #[doc = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
+    pub fn temp_dir(dir_template: &std::ffi::CStr) -> &'static str {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_temp_dir),
+                [concat!("dir_template", ": ", stringify!(*const ::std::os::raw::c_char)).to_string()].join(", ")
+            );
+            let result = aeron_temp_dir(dir_template.as_ptr());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(result).to_str().unwrap_or("") }
+            }
         }
     }
     #[inline]
@@ -23855,6 +24014,178 @@ mod aeron_uri_t_allocation_tests {
             }
         });
     }
+}
+#[doc = r""]
+#[doc = r""]
+#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+pub trait AeronFprintfHandlerCallback {
+    fn handle_aeron_fprintf_handler(
+        &mut self,
+        arg1: &str,
+        arg2: u64,
+        arg4: &str,
+        arg5: va_list,
+    ) -> ::std::os::raw::c_int;
+}
+pub struct AeronFprintfHandlerLogger;
+impl AeronFprintfHandlerCallback for AeronFprintfHandlerLogger {
+    fn handle_aeron_fprintf_handler(
+        &mut self,
+        arg1: &str,
+        arg2: u64,
+        arg4: &str,
+        arg5: va_list,
+    ) -> ::std::os::raw::c_int {
+        log::info!(
+            "{}({}\n)",
+            stringify!(handle_aeron_fprintf_handler),
+            [
+                format!("{} : {:?}", stringify!(arg1), arg1),
+                format!("{} : {:?}", stringify!(arg2), arg2),
+                format!("{} : {:?}", stringify!(arg4), arg4),
+                format!("{} : {:?}", stringify!(arg5), arg5)
+            ]
+            .join(", "),
+        );
+        unimplemented!()
+    }
+}
+unsafe impl Send for AeronFprintfHandlerLogger {}
+unsafe impl Sync for AeronFprintfHandlerLogger {}
+#[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
+#[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
+impl<F: FnMut(&str, u64, &str, va_list) -> ::std::os::raw::c_int> AeronFprintfHandlerCallback for F {
+    #[inline]
+    fn handle_aeron_fprintf_handler(
+        &mut self,
+        arg1: &str,
+        arg2: u64,
+        arg4: &str,
+        arg5: va_list,
+    ) -> ::std::os::raw::c_int {
+        self(arg1, arg2, arg4, arg5)
+    }
+}
+#[doc = r" Pass an existing [`Handler`] clone anywhere a callback value is expected, e.g."]
+#[doc = r" to share one callback instance across several registrations."]
+impl<T: AeronFprintfHandlerCallback> AeronFprintfHandlerCallback for Handler<T> {
+    #[inline]
+    fn handle_aeron_fprintf_handler(
+        &mut self,
+        arg1: &str,
+        arg2: u64,
+        arg4: &str,
+        arg5: va_list,
+    ) -> ::std::os::raw::c_int {
+        let inner = unsafe { &mut *self.inner.get() };
+        inner.handle_aeron_fprintf_handler(arg1, arg2, arg4, arg5)
+    }
+}
+impl AeronFprintfHandlerCallback for NoHandler {
+    fn handle_aeron_fprintf_handler(
+        &mut self,
+        arg1: &str,
+        arg2: u64,
+        arg4: &str,
+        arg5: va_list,
+    ) -> ::std::os::raw::c_int {
+        unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
+    }
+}
+#[allow(dead_code)]
+unsafe extern "C" fn aeron_fprintf_handler_t_callback<F: AeronFprintfHandlerCallback>(
+    arg1: *const ::std::os::raw::c_char,
+    arg2: u64,
+    arg3: *mut ::std::os::raw::c_void,
+    arg4: *const ::std::os::raw::c_char,
+    arg5: va_list,
+) -> ::std::os::raw::c_int {
+    #[cfg(debug_assertions)]
+    if arg3.is_null() {
+        unimplemented!("closure should not be null")
+    }
+    #[cfg(feature = "extra-logging")]
+    {
+        log::debug!("calling {}", stringify!(handle_aeron_fprintf_handler));
+    }
+    #[cfg(feature = "log-c-bindings")]
+    log::debug!(
+        "{}({}\n)",
+        stringify!(aeron_fprintf_handler_t_callback),
+        [
+            format!("{} = {:?}", stringify!(arg1), arg1),
+            format!("{} = {:?}", stringify!(arg2), arg2),
+            format!("{} = {:?}", stringify!(arg3), arg3),
+            format!("{} = {:?}", stringify!(arg4), arg4),
+            format!("{} = {:?}", stringify!(arg5), arg5)
+        ]
+        .join(", ")
+    );
+    let closure: &mut F = unsafe { &mut *(arg3 as *mut F) };
+    closure.handle_aeron_fprintf_handler(
+        if arg1.is_null() {
+            ""
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(arg1).to_str().unwrap_or("") }
+        },
+        arg2.into(),
+        if arg4.is_null() {
+            ""
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(arg4).to_str().unwrap_or("") }
+        },
+        arg5.into(),
+    )
+}
+#[allow(dead_code)]
+unsafe extern "C" fn aeron_fprintf_handler_t_callback_for_once_closure<
+    F: FnMut(&str, u64, &str, va_list) -> ::std::os::raw::c_int,
+>(
+    arg1: *const ::std::os::raw::c_char,
+    arg2: u64,
+    arg3: *mut ::std::os::raw::c_void,
+    arg4: *const ::std::os::raw::c_char,
+    arg5: va_list,
+) -> ::std::os::raw::c_int {
+    #[cfg(debug_assertions)]
+    if arg3.is_null() {
+        unimplemented!("closure should not be null")
+    }
+    #[cfg(feature = "extra-logging")]
+    {
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_fprintf_handler_t_callback_for_once_closure)
+        );
+    }
+    #[cfg(feature = "log-c-bindings")]
+    log::debug!(
+        "{}({}\n)",
+        stringify!(aeron_fprintf_handler_t_callback_for_once_closure),
+        [
+            format!("{} = {:?}", stringify!(arg1), arg1),
+            format!("{} = {:?}", stringify!(arg2), arg2),
+            format!("{} = {:?}", stringify!(arg3), arg3),
+            format!("{} = {:?}", stringify!(arg4), arg4),
+            format!("{} = {:?}", stringify!(arg5), arg5)
+        ]
+        .join(", ")
+    );
+    let closure: &mut F = unsafe { &mut *(arg3 as *mut F) };
+    closure(
+        if arg1.is_null() {
+            ""
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(arg1).to_str().unwrap_or("") }
+        },
+        arg2.into(),
+        if arg4.is_null() {
+            ""
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(arg4).to_str().unwrap_or("") }
+        },
+        arg5.into(),
+    )
 }
 #[doc = "The error handler to be called when an error occurs."]
 #[doc = r""]
