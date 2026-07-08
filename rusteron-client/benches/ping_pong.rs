@@ -47,8 +47,8 @@ fn criterion_benchmark(c: &mut Criterion) {
         .async_add_subscription(
             &PING_CHANNEL.into_c_string(),
             PING_STREAM_ID,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::NONE,
+            Handlers::NONE,
         )
         .unwrap()
         .poll_blocking(Duration::from_secs(4))
@@ -59,7 +59,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     let mut buffer = vec![0u8; MESSAGE_LENGTH];
 
-    let mut handler = Handler::leak(PingRoundTripHandler {});
+    let mut handler = Handler::new(PingRoundTripHandler {});
 
     c.bench_function("ping_pong_udp_benchmark", |b| {
         b.iter(|| {
@@ -83,8 +83,8 @@ fn run_pong(stop: Arc<AtomicBool>, dir: &str) -> Result<(), Box<dyn std::error::
         .async_add_subscription(
             &PONG_CHANNEL.into_c_string(),
             PONG_STREAM_ID,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::NONE,
+            Handlers::NONE,
         )?
         .poll_blocking(Duration::from_secs(4))?;
 
@@ -103,14 +103,14 @@ fn run_pong(stop: Arc<AtomicBool>, dir: &str) -> Result<(), Box<dyn std::error::
             let header_values = header.get_values().unwrap();
             let flags = header_values.frame.flags;
 
-            while self.publisher.try_claim(buffer.len(), &self.buffer_claim) < 0 {}
+            while self.publisher.try_claim_raw(buffer.len(), &self.buffer_claim) < 0 {}
             self.buffer_claim.frame_header_mut().flags = flags;
             self.buffer_claim.data_mut().copy_from_slice(buffer);
             self.buffer_claim.commit().unwrap();
         }
     }
 
-    let handler = Handler::leak(PongRoundTripHandler {
+    let handler = Handler::new(PongRoundTripHandler {
         publisher: ping_publication.clone(),
         buffer_claim: Default::default(),
     });
@@ -145,7 +145,7 @@ fn record_rtt(
 ) {
     let now = Aeron::nano_clock();
     write_i64(buffer, &now);
-    while pong_publication.offer(buffer, Handlers::no_reserved_value_supplier_handler()) < 0 {}
+    while pong_publication.offer_raw(buffer, Handlers::NONE) < 0 {}
 
     while ping_subscription
         .poll(Some(handler), FRAGMENT_COUNT_LIMIT)

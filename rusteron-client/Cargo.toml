@@ -58,10 +58,12 @@ rusteron-media-driver = { path = "../rusteron-media-driver" }
 serial_test           = { workspace = true }
 
 [features]
+multi-threaded = [] # Rc -> Arc + unsafe impl Sync for cross-thread sharing
 # using static as different modules have different versions of aeron which don't seem to play nicely
 default        = ["build-from-source"]
 static         = ["build-from-source", "rusteron-media-driver/static"]  # Statically links the Aeron C code
 backtrace      = ["dep:regex"]   # Logs the backtrace on each AeronCError
+strict-lifecycle = ["rusteron-code-gen/strict-lifecycle"]   # Panic on Drop-time lifecycle leaks in tests
 extra-logging  = []   # Logs when resources are created and destroyed
 log-c-bindings = []   # Logs every C binding call with arguments and return values
 precompile        = ["dep:reqwest", "dep:flate2", "dep:tar", "native-tls"]  # Uses precompiled C code instead of requiring cmake and java (defaults to native-tls)
@@ -69,11 +71,22 @@ precompile-rustls = ["dep:reqwest", "dep:flate2", "dep:tar", "rustls-tls"]  # Us
 native-tls        = ["reqwest?/native-tls"]   # Use native-tls for reqwest
 rustls-tls        = ["reqwest?/rustls"]         # Use rustls instead of native-tls for reqwest
 build-from-source = ["dep:bindgen", "dep:cmake", "dep:dunce", "dep:proc-macro2"]  # Builds Aeron C from source (requires cmake and a C++ compiler)
+sanitize-address = ["build-from-source"]  # Compiles the Aeron C sources with -fsanitize=address (use with RUSTFLAGS="-Zsanitizer=address")
 examples          = ["dep:ctrlc", "dep:num-format"]           # Required to build the bundled examples
 
 [[example]]
 name              = "basic_pub_sub"
 path              = "examples/basic_pub_sub.rs"
+
+[[example]]
+name              = "basic_publisher"
+path              = "examples/basic_publisher.rs"
+required-features = ["examples"]
+
+[[example]]
+name              = "basic_subscriber"
+path              = "examples/basic_subscriber.rs"
+required-features = ["examples"]
 
 [[example]]
 name              = "embedded_ping_pong"
@@ -83,6 +96,16 @@ required-features = ["examples"]
 [[example]]
 name              = "embedded_exclusive_ipc_throughput"
 path              = "examples/embedded_exclusive_ipc_throughput.rs"
+required-features = ["examples"]
+
+[[example]]
+name              = "streaming_rate"
+path              = "examples/streaming_rate.rs"
+required-features = ["examples"]
+
+[[example]]
+name              = "non_blocking_publisher"
+path              = "examples/non_blocking_publisher.rs"
 required-features = ["examples"]
 
 [[bench]]

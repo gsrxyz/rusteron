@@ -23,7 +23,9 @@ fd-lock       = { workspace = true }
 trybuild      = "1.0"
 
 [features]
+multi-threaded = [] # Rc -> Arc + unsafe impl Sync for cross-thread sharing
 default        = []
 static         = []
 backtrace      = []     # logs the backtrace on each AeronCError
 extra-logging  = []
+strict-lifecycle = []   # panic (not just warn) when an owned resource is dropped without close — catches the Box::leak-class bug at test time

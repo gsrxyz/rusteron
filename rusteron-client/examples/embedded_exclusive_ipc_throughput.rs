@@ -28,10 +28,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let running_subscriber = Arc::clone(&running);
 
     let ctx = AeronContext::new()?;
-    let mut error_handler = Handler::leak(AeronErrorHandlerLogger);
-    ctx.set_error_handler(Some(&error_handler))?;
+    let error_handler = Handler::new(AeronErrorHandlerLogger);
+    ctx.set_error_handler(Some(error_handler.clone()))?;
     let dir = std::env::var("AERON_DIR").expect("AERON_DIR must be set");
-    ctx.set_dir(&dir.into_c_string())?;
+    ctx.set_dir(&cformat!("{dir}"))?;
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
 
@@ -40,12 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .poll_blocking(Duration::from_secs(5))?;
 
     let subscription = aeron
-        .async_add_subscription(
-            CHANNEL,
-            STREAM_ID,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
-        )?
+        .async_add_subscription(CHANNEL, STREAM_ID, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(5))?;
 
     let subscriber_thread = thread::spawn(move || {
@@ -56,7 +51,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Publisher::new(running_publisher, publication).run();
     subscriber_thread.join().expect("Subscriber thread failed").unwrap();
-    error_handler.release();
 
     Ok(())
 }
@@ -78,20 +72,15 @@ impl Publisher {
 
         while self.running.load(Ordering::Acquire) {
             loop {
-                let result = self
-                    .publication
-                    .offer(&buffer, Handlers::no_reserved_value_supplier_handler());
-                if result > 0 {
-                    break;
-                }
-                // Fatal -> publication gone; stop the benchmark instead of spinning.
-                if result == PUBLICATION_CLOSED
-                    || result == PUBLICATION_MAX_POSITION_EXCEEDED
-                    || result == PUBLICATION_ERROR
-                {
-                    eprintln!("publication closed (result {result}); stopping");
-                    self.running.store(false, Ordering::Release);
-                    break;
+                match self.publication.offer(&buffer) {
+                    Ok(_) => break,
+                    Err(e) if e.is_fatal() => {
+                        // Fatal -> publication gone; stop the benchmark instead of spinning.
+                        eprintln!("publication gone ({e}); stopping");
+                        self.running.store(false, Ordering::Release);
+                        break;
+                    }
+                    Err(_) => {}
                 }
                 back_pressure_count += 1;
                 if !self.running.load(Ordering::Acquire) {
@@ -128,7 +117,7 @@ impl AeronFragmentHandlerCallback for MsgCount {
 
 impl ImageRateSubscriber {
     fn new(running: Arc<AtomicBool>, subscription: AeronSubscription, message_length: usize) -> Self {
-        let poll_handler = Handler::leak(MsgCount { message_count: 0 });
+        let poll_handler = Handler::new(MsgCount { message_count: 0 });
         ImageRateSubscriber {
             running,
             subscription,
@@ -145,10 +134,11 @@ impl ImageRateSubscriber {
                 .poll(Some(&self.poll_handler), MESSAGE_LENGTH)
                 .unwrap();
 
-            if self.poll_handler.message_count >= next_check && self.start_time.elapsed() >= Duration::from_secs(1) {
+            let handler = unsafe { self.poll_handler.get_mut() };
+            if handler.message_count >= next_check && self.start_time.elapsed() >= Duration::from_secs(1) {
                 next_check += BURST_LENGTH;
                 let elapsed = self.start_time.elapsed().as_secs_f64();
-                let rate = self.poll_handler.message_count as f64 / elapsed;
+                let rate = handler.message_count as f64 / elapsed;
                 let throughput = rate * self.message_length as f64;
 
                 use num_format::{Locale, ToFormattedString};
@@ -159,7 +149,7 @@ impl ImageRateSubscriber {
                 );
 
                 self.start_time = Instant::now();
-                self.poll_handler.message_count = 0;
+                handler.message_count = 0;
             }
         }
     }

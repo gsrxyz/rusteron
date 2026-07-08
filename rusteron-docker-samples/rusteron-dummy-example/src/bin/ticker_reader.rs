@@ -26,9 +26,9 @@ fn main() -> Result<()> {
     let mut live_log_time = Instant::now().checked_sub(Duration::from_secs(300)).unwrap();
     let live_log = Duration::from_secs(30);
 
-    let mut record_reader = Handler::leak(RecorderDescriptorReader::default());
-    let mut replay_msg_count_handler = Handler::leak(MessageCountHandler::default());
-    let mut live_msg_count_handler = Handler::leak(MessageCountHandler::default());
+    let record_reader = Handler::new(RecorderDescriptorReader::default());
+    let replay_msg_count_handler = Handler::new(MessageCountHandler::default());
+    let live_msg_count_handler = Handler::new(MessageCountHandler::default());
 
     let channel = TICKER_CHANNEL;
     let stream_id = TICKER_STREAM_ID;
@@ -38,7 +38,9 @@ fn main() -> Result<()> {
     while !shutdown.load(Ordering::Acquire) {
         if archive_log_time.elapsed() > archive_log {
             archive_log_time = Instant::now();
-            record_reader.reset();
+            unsafe {
+                record_reader.get_mut().reset();
+            }
             match archive.list_recordings_for_uri(
                 0,
                 i32::MAX,
@@ -61,8 +63,8 @@ fn main() -> Result<()> {
                         let subscription = aeron.add_subscription(
                             &replay_channel.clone().into_c_string(),
                             TICKER_STREAM_ID,
-                            Handlers::no_available_image_handler(),
-                            Handlers::no_unavailable_image_handler(),
+                            Handlers::NONE,
+                            Handlers::NONE,
                             Duration::from_secs(5),
                         )?;
 
@@ -85,7 +87,7 @@ fn main() -> Result<()> {
                         )?;
 
                         while !merge.is_merged() {
-                            merge.poll_once(
+                            merge.poll_fn(
                                 |buff, _header| {
                                     println!("buffer {buff:?}");
                                 },
@@ -109,8 +111,8 @@ fn main() -> Result<()> {
                             .add_subscription(
                                 &"aeron:udp?endpoint=localhost:0".into_c_string(),
                                 stream_id,
-                                Handlers::no_available_image_handler(),
-                                Handlers::no_unavailable_image_handler(),
+                                Handlers::NONE,
+                                Handlers::NONE,
                                 Duration::from_secs(5),
                             )?
                             .try_resolve_channel_endpoint_port_as_string(4096)?;
@@ -131,15 +133,19 @@ fn main() -> Result<()> {
 
                         let channel_replay = format!("{channel}|session-id={session_id}");
                         info!("replay subscription {channel_replay}");
+                        let available_image_handler = Handler::new(AeronAvailableImageLogger);
+                        let unavailable_image_handler = Handler::new(AeronUnavailableImageLogger);
                         match aeron.add_subscription(
                             &channel_replay.to_string().into_c_string(),
                             stream_id,
-                            Some(&Handler::leak(AeronAvailableImageLogger)),
-                            Some(&Handler::leak(AeronUnavailableImageLogger)),
+                            Some(&available_image_handler),
+                            Some(&unavailable_image_handler),
                             Duration::from_secs(5),
                         ) {
                             Ok(subscription) => {
-                                replay_msg_count_handler.reset();
+                                unsafe {
+                                    replay_msg_count_handler.get_mut().reset();
+                                }
                                 let time = Instant::now();
 
                                 let mut count = 0;
@@ -179,8 +185,8 @@ fn main() -> Result<()> {
                 .add_subscription(
                     &channel.to_string().into_c_string(),
                     stream_id,
-                    Handlers::no_available_image_handler(),
-                    Handlers::no_unavailable_image_handler(),
+                    Handlers::NONE,
+                    Handlers::NONE,
                     Duration::from_millis(100),
                 )
                 .ok();
@@ -193,7 +199,9 @@ fn main() -> Result<()> {
         if live_log_time.elapsed() > live_log {
             live_log_time = Instant::now();
             info!("live channel sent {:?} since previous log", *live_msg_count_handler);
-            live_msg_count_handler.reset();
+            unsafe {
+                live_msg_count_handler.get_mut().reset();
+            }
         }
     }
 

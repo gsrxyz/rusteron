@@ -15,15 +15,10 @@
 //! See the archive README and the upstream sample
 //! <https://github.com/aeron-io/aeron/tree/main/aeron-samples/src/main/java/io/aeron/samples/archive>.
 
-use rusteron_archive::testing::EmbeddedArchiveMediaDriverProcess;
+use rusteron_archive::testing::{find_unused_udp_port, EmbeddedArchiveMediaDriverProcess};
 use rusteron_archive::*;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-
-/// Picks the first UDP port >= `start` that binds on localhost.
-fn find_unused_udp_port(start: u16) -> Option<u16> {
-    (start..65535).find(|p| std::net::UdpSocket::bind(("127.0.0.1", *p)).is_ok())
-}
 
 /// Retry `op` while it fails with a **retryable** (transient) error — back off between attempts.
 /// Abort immediately on an **unrecoverable** error, or when `deadline` passes. This is the
@@ -64,17 +59,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // 2. Connect a client + archive context. The error logger surfaces async client errors.
+    // `cformat!` = format + CString in one named step (the one heap allocation stays visible).
     let aeron_context = AeronContext::new()?;
-    aeron_context.set_dir(&aeron_dir.into_c_string())?;
+    aeron_context.set_dir(&cformat!("{aeron_dir}"))?;
     let aeron = Aeron::new(&aeron_context)?;
     aeron.start()?;
     let archive_context = AeronArchiveContext::new()?;
     archive_context.set_aeron(&aeron)?;
-    archive_context.set_control_request_channel(&format!("aeron:udp?endpoint=localhost:{req_port}").into_c_string())?;
-    archive_context
-        .set_control_response_channel(&format!("aeron:udp?endpoint=localhost:{resp_port}").into_c_string())?;
-    archive_context
-        .set_recording_events_channel(&format!("aeron:udp?endpoint=localhost:{events_port}").into_c_string())?;
+    archive_context.set_control_request_channel(&cformat!("aeron:udp?endpoint=localhost:{req_port}"))?;
+    archive_context.set_control_response_channel(&cformat!("aeron:udp?endpoint=localhost:{resp_port}"))?;
+    archive_context.set_recording_events_channel(&cformat!("aeron:udp?endpoint=localhost:{events_port}"))?;
     let archive = retry_transient(Instant::now() + Duration::from_secs(20), || {
         AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?.poll_blocking(Duration::from_secs(5))
     })?;
@@ -83,10 +77,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. Start recording an IPC stream and publish a small batch.
     let channel = "aeron:ipc";
     let stream_id = 4001;
-    archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)?;
+    archive.start_recording(&cformat!("{channel}"), stream_id, SOURCE_LOCATION_LOCAL, true)?;
     let publication = retry_transient(Instant::now() + Duration::from_secs(10), || {
         aeron
-            .async_add_publication(&channel.into_c_string(), stream_id)?
+            .async_add_publication(&cformat!("{channel}"), stream_id)?
             .poll_blocking(Duration::from_secs(2))
     })?;
 
@@ -94,26 +88,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..MSG_COUNT {
         let msg = format!("message-{i}");
         let deadline = Instant::now() + Duration::from_secs(5);
-        // offer() returns the log position (>0) or a negative code. Retry transient codes
-        // (back-pressure, not-connected, admin action); abort on fatal ones (closed, etc.).
+        // offer() returns Ok(position) or a typed error: retry the retryable ones
+        // (back-pressure, not-connected, admin action); abort on fatal ones.
         loop {
             if Instant::now() > deadline {
                 return Err("timed out offering a message".into());
             }
-            let r = publication.offer(msg.as_bytes(), Handlers::no_reserved_value_supplier_handler());
-            if r > 0 {
-                break;
+            match publication.offer(msg.as_bytes()) {
+                Ok(_) => break,
+                Err(e) if e.is_retryable() => sleep(Duration::from_millis(1)),
+                Err(e) => return Err(format!("publication gone: {e}").into()),
             }
-            if r == PUBLICATION_CLOSED || r == PUBLICATION_MAX_POSITION_EXCEEDED || r == PUBLICATION_ERROR {
-                return Err(format!("publication gone (offer returned {r})").into());
-            }
-            sleep(Duration::from_millis(1));
         }
     }
     println!("recorded {MSG_COUNT} messages");
 
     // 4. Resolve the recording id (wait for the recorder to flush what we published).
-    let session_id = publication.get_constants()?.session_id;
+    let session_id = publication.session_id();
     let counters = aeron.counters_reader();
     let counter_id = RecordingPos::find_counter_id_by_session(&counters, session_id);
     let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
@@ -125,18 +116,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 5. Replay the recording from the start onto a scratch stream and consume it.
     let replay_stream_id = 4002;
-    let replay_params = AeronArchiveReplayParams::new(-1, i32::MAX, 0, i64::MAX, 0, 0)?;
+    let replay_params = AeronArchiveReplayParams::builder().position(0).follow_live().build()?;
     let replay_session_id =
-        archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)?;
-    let replay_channel = format!("{channel}?session-id={}", replay_session_id as i32).into_c_string();
+        archive.start_replay(recording_id, &cformat!("{channel}"), replay_stream_id, &replay_params)?;
+    let replay_channel = ChannelUri::add_session_id(channel, replay_session_id as i32).into_c_string();
     let replay_sub = retry_transient(Instant::now() + Duration::from_secs(10), || {
         aeron
-            .async_add_subscription(
-                &replay_channel,
-                replay_stream_id,
-                Handlers::no_available_image_handler(),
-                Handlers::no_unavailable_image_handler(),
-            )?
+            .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(2))
     })?;
 
@@ -144,7 +130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let deadline = Instant::now() + Duration::from_secs(20);
     while received < MSG_COUNT && Instant::now() < deadline {
         // poll returns the fragment count; 0 means nothing to do this cycle.
-        let n = replay_sub.poll_once(
+        let n = replay_sub.poll_fn(
             |buf, _hdr| {
                 if let Ok(s) = std::str::from_utf8(buf) {
                     println!("replayed: {s}");
@@ -158,7 +144,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             received += n as usize;
         }
     }
-    replay_sub.close(Handlers::no_notification_handler())?;
     println!("replayed {received}/{MSG_COUNT} messages");
 
     if received < MSG_COUNT {

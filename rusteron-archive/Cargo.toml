@@ -52,10 +52,12 @@ rusteron-code-gen = { workspace = true }
 serial_test = { workspace = true }
 
 [features]
+multi-threaded = [] # Rc -> Arc + unsafe impl Sync for cross-thread sharing
 # using static as different modules have different versions of aeron which don't seem to play nicely
 default        = ["build-from-source"]
 static         = ["build-from-source"]   # Statically links the Aeron C code
 backtrace      = []   # Logs the backtrace on each AeronCError
+strict-lifecycle = ["rusteron-code-gen/strict-lifecycle"]   # Panic on Drop-time lifecycle leaks in tests
 extra-logging  = []   # Logs when resources are created and destroyed
 log-c-bindings = []   # Logs every C binding call with arguments and return values
 precompile        = ["dep:reqwest", "dep:flate2", "dep:tar", "native-tls"]  # Uses precompiled C code instead of requiring cmake and java (defaults to native-tls)
@@ -63,6 +65,7 @@ precompile-rustls = ["dep:reqwest", "dep:flate2", "dep:tar", "rustls-tls"]  # Us
 native-tls        = ["reqwest?/native-tls"]   # Use native-tls for reqwest
 rustls-tls        = ["reqwest?/rustls"]         # Use rustls instead of native-tls for reqwest
 build-from-source = ["dep:bindgen", "dep:cmake", "dep:dunce", "dep:proc-macro2"]  # Builds Aeron C from source (requires cmake and a C++ compiler)
+sanitize-address = ["build-from-source"]  # Compiles the Aeron C sources with -fsanitize=address (use with RUSTFLAGS="-Zsanitizer=address")
 
 [package.metadata.docs.rs]
 features        = ["static", "precompile"]

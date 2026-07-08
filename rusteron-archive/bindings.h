@@ -6,3 +6,7 @@
 #include <uri/aeron_uri_string_builder.h>
 #include <aeron_cnc_file_descriptor.h>
 #include <reports/aeron_loss_reporter.h>
+#include <aeron_counters.h>
+#include <aeron_agent.h>
+#include <status/aeron_local_sockaddr.h>
+#include <client/aeron_archive_client_version.h>

@@ -1,12 +1,43 @@
+// ─── Compilation contexts (read before adding code here) ────────────────────────────
+// This file compiles in TWO contexts:
+//   1. as `mod common` inside rusteron-code-gen itself (unit tests, shared types), and
+//   2. verbatim inside every generated crate's `aeron.rs` (via COMMON_CODE include_str).
+// Consequence: nothing here may depend on impls that live in `aeron_custom*.rs` — those
+// exist only in context 2 (e.g. AeronCError's Debug/Display). That is why AeronOfferError
+// hand-rolls its Debug. Crate-specific code belongs in `aeron_custom.rs` (all crates) or
+// `aeron_custom_<crate>.rs` (one crate); build-script-only code goes in `build_common.rs`.
+// ─────────────────────────────────────────────────────────────────────────────────────
+
 use crate::AeronErrorType::Unknown;
 #[cfg(feature = "backtrace")]
 use std::backtrace::Backtrace;
 use std::cell::UnsafeCell;
 use std::fmt::Formatter;
 use std::mem::MaybeUninit;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
+#[allow(unused_imports)]
+use std::ops::DerefMut;
+
+/// Reference-counting smart pointer: `Rc` by default, `Arc` under the
+/// `multi-threaded` feature. Swap is transparent — `RcOrArc::new`, `.clone()`,
+/// `strong_count` all work on both.
+#[cfg(not(feature = "multi-threaded"))]
+pub type RcOrArc<T> = std::rc::Rc<T>;
+#[cfg(feature = "multi-threaded")]
+pub type RcOrArc<T> = std::sync::Arc<T>;
+
+#[cfg(not(feature = "multi-threaded"))]
+pub type RefCellOrMutex<T> = std::cell::RefCell<T>;
+#[cfg(feature = "multi-threaded")]
+pub type RefCellOrMutex<T> = std::sync::Mutex<T>;
+
+#[cfg(not(feature = "multi-threaded"))]
+pub type CleanupBox<T> = Box<dyn FnMut(*mut *mut T) -> i32>;
+#[cfg(feature = "multi-threaded")]
+pub type CleanupBox<T> = Box<dyn FnMut(*mut *mut T) -> i32 + Send>;
+
 pub enum CResource<T> {
-    OwnedOnHeap(std::rc::Rc<ManagedCResource<T>>),
+    OwnedOnHeap(RcOrArc<ManagedCResource<T>>),
     /// Always initialised by construction (zeroed or `new(v)`). Never store
     /// `uninit()` — `Clone` and `get()` assume it's valid.
     OwnedOnStack(std::mem::MaybeUninit<T>),
@@ -58,10 +89,65 @@ impl<T> CResource<T> {
     }
 
     #[inline]
-    pub fn as_owned(&self) -> Option<&std::rc::Rc<ManagedCResource<T>>> {
+    pub fn as_owned(&self) -> Option<&RcOrArc<ManagedCResource<T>>> {
         match self {
             CResource::OwnedOnHeap(r) => Some(r),
             CResource::OwnedOnStack(_) | CResource::Borrowed(_) => None,
+        }
+    }
+
+    /// Run the clean-up / close on the resource via its shared state.
+    ///
+    /// For `OwnedOnHeap` resources this calls `close_shared` on the
+    /// `ManagedCResource` — the FFI close fires exactly once across all
+    /// clones.  Stack and borrowed resources are no-ops (they don't own a
+    /// cleanup closure).
+    #[allow(dead_code)]
+    #[inline]
+    pub(crate) fn close_resource(&self) -> Result<(), AeronCError> {
+        match self {
+            CResource::OwnedOnHeap(r) => r.close_shared(),
+            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => Ok(()),
+        }
+    }
+
+    /// Run a custom close function through the same shared close gate.
+    ///
+    /// This is used for close methods that take extra parameters, such as
+    /// Aeron's close-complete notification callback.  The custom close still
+    /// consumes the wrapper handle and still closes exactly once across clones.
+    #[allow(dead_code)]
+    #[inline]
+    pub(crate) fn close_resource_with(&self, cleanup: impl FnMut(*mut *mut T) -> i32) -> Result<(), AeronCError> {
+        match self {
+            CResource::OwnedOnHeap(r) => r.close_shared_with(cleanup),
+            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => Ok(()),
+        }
+    }
+
+    /// Close an owner resource only when this is the last shared reference.
+    ///
+    /// This is for owner/client handles (e.g. Aeron/AeronArchive) whose C close
+    /// frees child resources.  If child handles still hold dependency clones, we
+    /// must defer to natural Rc teardown to preserve child-before-parent order.
+    #[allow(dead_code)]
+    #[inline]
+    pub(crate) fn close_resource_deferred_if_shared(&self) -> Result<(), AeronCError> {
+        match self {
+            CResource::OwnedOnHeap(r) => {
+                let refs = RcOrArc::strong_count(r);
+                if refs > 1 {
+                    log::info!(
+                        "close deferred for {} because {} references are still alive",
+                        std::any::type_name::<T>(),
+                        refs
+                    );
+                    Ok(())
+                } else {
+                    r.close_shared()
+                }
+            }
+            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => Ok(()),
         }
     }
 }
@@ -87,40 +173,65 @@ impl<T> std::fmt::Debug for CResource<T> {
 /// A custom struct for managing C resources with automatic cleanup.
 ///
 /// It handles initialisation and clean-up of the resource and ensures that resources
-/// are properly released when they go out of scope.
+/// are properly released when they go out of scope. All teardown goes through the
+/// single `cleanup` closure (if set), which is the FFI close function (e.g.
+/// `aeron_close`). The Rc dependency graph ensures parents outlive children
+/// structurally — you cannot race `aeron_close` ahead of a live child handle.
+#[allow(dead_code)]
 #[allow(dead_code)]
 pub struct ManagedCResource<T> {
-    resource: *mut T,
-    cleanup: Option<Box<dyn FnMut(*mut *mut T) -> i32>>,
+    #[cfg(not(feature = "multi-threaded"))]
+    resource: std::cell::Cell<*mut T>,
+    #[cfg(feature = "multi-threaded")]
+    resource: std::sync::atomic::AtomicPtr<T>,
+
+    #[cfg(not(feature = "multi-threaded"))]
+    cleanup: UnsafeCell<Option<CleanupBox<T>>>,
+    #[cfg(feature = "multi-threaded")]
+    cleanup: std::sync::Mutex<Option<CleanupBox<T>>>,
+
     cleanup_struct: bool,
-    /// if someone externally rusteron calls close
+
+    manual_close_required: bool,
+
+    #[cfg(not(feature = "multi-threaded"))]
     close_already_called: std::cell::Cell<bool>,
-    /// if there is a c method to verify it someone has closed it, only few structs have this functionality
-    check_for_is_closed: Option<fn(*mut T) -> bool>,
-    /// this will be called if closed hasn't already happened even if its borrowed
-    auto_close: std::cell::Cell<bool>,
-    /// indicates if the underlying resource has already been handed off and should not be re-polled
+    #[cfg(feature = "multi-threaded")]
+    close_already_called: std::sync::atomic::AtomicBool,
+
+    #[cfg(not(feature = "multi-threaded"))]
     resource_released: std::cell::Cell<bool>,
-    /// Keeps deps alive (e.g. the Aeron client while a pub/sub exists).
-    /// Mutated only at construction from the owning thread — no locking,
-    /// same Send-over-Rc unsoundness stance. Empty vec doesn't allocate.
-    dependencies: UnsafeCell<Vec<std::rc::Rc<dyn std::any::Any>>>,
+    #[cfg(feature = "multi-threaded")]
+    resource_released: std::sync::atomic::AtomicBool,
+
+    #[cfg(not(feature = "multi-threaded"))]
+    dependencies: UnsafeCell<Vec<RcOrArc<dyn std::any::Any>>>,
+    #[cfg(feature = "multi-threaded")]
+    dependencies: std::sync::Mutex<Vec<RcOrArc<dyn std::any::Any>>>,
 }
 
 impl<T> std::fmt::Debug for ManagedCResource<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut debug_struct = f.debug_struct("ManagedCResource");
-
-        if !self.close_already_called.get()
-            && !self.resource.is_null()
-            && !self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource))
-        {
-            debug_struct.field("resource", &self.resource);
+        let mut debug = f.debug_struct("ManagedCResource");
+        if self.get_close_already_called() {
+            debug.field("resource", &"<closed>");
+        } else {
+            debug.field("resource", &self.get());
         }
-
-        debug_struct.field("type", &std::any::type_name::<T>()).finish()
+        debug.field("type", &std::any::type_name::<T>()).finish()
     }
 }
+
+// Under `multi-threaded` the refcount is `Arc` (atomic), so `Send` is sound.
+// `Sync` enables sharing `&Handle` across threads for the C-documented
+// thread-safe operations (offer / try_claim / position). The `UnsafeCell`
+// fields are only mutated during construction and close (single-threaded),
+// never during the shared-read window — same "accepted unsoundness" policy
+// as the unconditional `unsafe impl Send` on the handle types.
+#[cfg(feature = "multi-threaded")]
+unsafe impl<T> Send for ManagedCResource<T> {}
+#[cfg(feature = "multi-threaded")]
+unsafe impl<T> Sync for ManagedCResource<T> {}
 
 impl<T> ManagedCResource<T> {
     /// Creates a new ManagedCResource with a given initializer and cleanup function.
@@ -131,21 +242,42 @@ impl<T> ManagedCResource<T> {
     /// `cleanup_struct` where it should clean up the struct in rust
     pub fn new(
         init: impl FnOnce(*mut *mut T) -> i32,
-        cleanup: Option<Box<dyn FnMut(*mut *mut T) -> i32>>,
+        cleanup: Option<CleanupBox<T>>,
         cleanup_struct: bool,
-        check_for_is_closed: Option<fn(*mut T) -> bool>,
     ) -> Result<Self, AeronCError> {
         let resource = Self::initialise(init)?;
+        // Compute before `cleanup` is moved into the struct literal below.
+        // `is_none()` borrows `cleanup` immutably; the move happens later.
+        let manual_close_required = cleanup.is_none() && !cleanup_struct;
 
         let result = Self {
-            resource,
-            cleanup,
+            #[cfg(not(feature = "multi-threaded"))]
+            resource: std::cell::Cell::new(resource),
+            #[cfg(feature = "multi-threaded")]
+            resource: std::sync::atomic::AtomicPtr::new(resource),
+
+            #[cfg(not(feature = "multi-threaded"))]
+            cleanup: UnsafeCell::new(cleanup),
+            #[cfg(feature = "multi-threaded")]
+            cleanup: std::sync::Mutex::new(cleanup),
+
             cleanup_struct,
+            manual_close_required,
+
+            #[cfg(not(feature = "multi-threaded"))]
             close_already_called: std::cell::Cell::new(false),
-            check_for_is_closed,
-            auto_close: std::cell::Cell::new(false),
+            #[cfg(feature = "multi-threaded")]
+            close_already_called: std::sync::atomic::AtomicBool::new(false),
+
+            #[cfg(not(feature = "multi-threaded"))]
             resource_released: std::cell::Cell::new(false),
+            #[cfg(feature = "multi-threaded")]
+            resource_released: std::sync::atomic::AtomicBool::new(false),
+
+            #[cfg(not(feature = "multi-threaded"))]
             dependencies: UnsafeCell::new(vec![]),
+            #[cfg(feature = "multi-threaded")]
+            dependencies: std::sync::Mutex::new(vec![]),
         };
         #[cfg(feature = "extra-logging")]
         log::info!("created c resource: {:?}", result);
@@ -161,41 +293,128 @@ impl<T> ManagedCResource<T> {
         Ok(resource)
     }
 
-    pub fn is_closed_already_called(&self) -> bool {
-        self.close_already_called.get()
-            || self.resource.is_null()
-            || self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource))
-    }
-
     /// Gets a raw pointer to the resource.
     #[inline(always)]
     pub fn get(&self) -> *mut T {
-        self.resource
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.resource.get()
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.resource.load(std::sync::atomic::Ordering::Acquire)
+        }
     }
 
     #[inline(always)]
-    pub fn get_mut(&self) -> &mut T {
-        unsafe { &mut *self.resource }
+    fn set_resource(&self, val: *mut T) {
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.resource.set(val);
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.resource.store(val, std::sync::atomic::Ordering::Release);
+        }
+    }
+
+    #[inline(always)]
+    fn get_close_already_called(&self) -> bool {
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.close_already_called.get()
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.close_already_called.load(std::sync::atomic::Ordering::Acquire)
+        }
+    }
+
+    #[inline(always)]
+    fn set_close_already_called(&self, val: bool) {
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.close_already_called.set(val);
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.close_already_called
+                .store(val, std::sync::atomic::Ordering::Release);
+        }
+    }
+
+    #[inline(always)]
+    fn get_resource_released(&self) -> bool {
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.resource_released.get()
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.resource_released.load(std::sync::atomic::Ordering::Acquire)
+        }
+    }
+
+    #[inline(always)]
+    fn set_resource_released(&self, val: bool) {
+        #[cfg(not(feature = "multi-threaded"))]
+        {
+            self.resource_released.set(val);
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.resource_released.store(val, std::sync::atomic::Ordering::Release);
+        }
+    }
+
+    /// Mutable access to the underlying C struct, minted from `&self`.
+    ///
+    /// # Safety
+    /// No other reference (`&` or `&mut`) to the underlying struct may be
+    /// alive while the returned `&mut` is in use.
+    #[inline(always)]
+    pub unsafe fn get_mut(&self) -> &mut T {
+        &mut *self.get()
     }
 
     #[inline]
     // to prevent the dependencies from being dropped as you have a copy here
     pub fn add_dependency<D: std::any::Any>(&self, dep: D) {
-        if let Some(dep) = (&dep as &dyn std::any::Any).downcast_ref::<std::rc::Rc<dyn std::any::Any>>() {
+        if let Some(dep) = (&dep as &dyn std::any::Any).downcast_ref::<RcOrArc<dyn std::any::Any>>() {
+            #[cfg(not(feature = "multi-threaded"))]
             unsafe {
                 (*self.dependencies.get()).push(dep.clone());
             }
+            #[cfg(feature = "multi-threaded")]
+            {
+                self.dependencies.lock().unwrap().push(dep.clone());
+            }
         } else {
+            #[cfg(not(feature = "multi-threaded"))]
             unsafe {
-                (*self.dependencies.get()).push(std::rc::Rc::new(dep));
+                (*self.dependencies.get()).push(RcOrArc::new(dep));
+            }
+            #[cfg(feature = "multi-threaded")]
+            {
+                self.dependencies.lock().unwrap().push(RcOrArc::new(dep));
             }
         }
     }
 
     #[inline]
     pub fn get_dependency<V: Clone + 'static>(&self) -> Option<V> {
+        #[cfg(not(feature = "multi-threaded"))]
         unsafe {
             (*self.dependencies.get())
+                .iter()
+                .filter_map(|x| x.as_ref().downcast_ref::<V>().cloned())
+                .next()
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.dependencies
+                .lock()
+                .unwrap()
                 .iter()
                 .filter_map(|x| x.as_ref().downcast_ref::<V>().cloned())
                 .next()
@@ -204,35 +423,111 @@ impl<T> ManagedCResource<T> {
 
     #[inline]
     pub fn is_resource_released(&self) -> bool {
-        self.resource_released.get()
+        self.get_resource_released()
     }
 
     #[inline]
     pub fn mark_resource_released(&self) {
-        self.resource_released.set(true);
+        self.set_resource_released(true);
+        // The C client frees async resources when their poll completes (created,
+        // errored, or cancelled). Null the stale pointer so any later use faults
+        // deterministically on null instead of reading freed memory.
+        self.set_resource(std::ptr::null_mut());
     }
 
-    /// Closes the resource by calling the cleanup function.
+    /// Closes the resource through a shared reference.
     ///
-    /// If cleanup fails, it returns an `AeronError`.
-    pub fn close(&mut self) -> Result<(), AeronCError> {
-        if self.close_already_called.get() {
+    /// Like `close(&mut self)` but works with `&self`, enabling explicit close
+    /// on handles that share the resource via `Rc`.  The cleanup closure is
+    /// accessed through `UnsafeCell` interior mutability; the
+    /// `close_already_called` gate ensures it is only taken once regardless of
+    /// how many clones call `close_shared()`.
+    ///
+    /// This is the method called by the generated `close(self)` method on
+    /// wrapper types.
+    pub(crate) fn close_shared(&self) -> Result<(), AeronCError> {
+        if self.get_close_already_called() {
             return Ok(());
         }
-        self.close_already_called.set(true);
 
-        let already_closed = self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource));
+        // SAFETY: this library deliberately uses Rc/Cell/UnsafeCell for
+        // single-threaded low-latency handles. close_shared() is not Sync; the
+        // first caller takes the cleanup closure and either completes close or
+        // restores the closure on failure so a later call/drop can retry.
+        #[cfg(not(feature = "multi-threaded"))]
+        let cleanup = unsafe { (*self.cleanup.get()).take() };
+        #[cfg(feature = "multi-threaded")]
+        let cleanup = self.cleanup.lock().unwrap().take();
 
-        if let Some(mut cleanup) = self.cleanup.take() {
-            if !self.resource.is_null() {
-                if !already_closed {
-                    let result = cleanup(&mut self.resource);
-                    if result < 0 {
-                        return Err(AeronCError::from_code(result));
+        if let Some(mut cleanup) = cleanup {
+            let mut resource = self.get();
+            if !resource.is_null() {
+                let result = cleanup(&mut resource);
+                if result < 0 {
+                    #[cfg(not(feature = "multi-threaded"))]
+                    unsafe {
+                        *self.cleanup.get() = Some(cleanup);
                     }
+                    #[cfg(feature = "multi-threaded")]
+                    {
+                        *self.cleanup.lock().unwrap() = Some(cleanup);
+                    }
+                    return Err(AeronCError::from_code(result));
                 }
-                self.resource = std::ptr::null_mut();
             }
+
+            self.set_close_already_called(true);
+            if !self.cleanup_struct {
+                // C-owned resources have been freed by the close function.
+                // Null the shared pointer so clones cannot keep using a
+                // dangling pointer after explicit close.
+                self.set_resource(std::ptr::null_mut());
+            }
+        } else {
+            self.set_close_already_called(true);
+        }
+
+        Ok(())
+    }
+
+    /// Closes the resource with a caller-supplied C close function.
+    ///
+    /// The stored default cleanup is taken first so Drop cannot later run it a
+    /// second time.  If the custom close fails, the default cleanup is restored
+    /// and the resource remains retryable.
+    #[allow(dead_code)]
+    pub(crate) fn close_shared_with(
+        &self,
+        mut custom_cleanup: impl FnMut(*mut *mut T) -> i32,
+    ) -> Result<(), AeronCError> {
+        if self.get_close_already_called() {
+            return Ok(());
+        }
+
+        #[cfg(not(feature = "multi-threaded"))]
+        let stored_cleanup = unsafe { (*self.cleanup.get()).take() };
+        #[cfg(feature = "multi-threaded")]
+        let stored_cleanup = self.cleanup.lock().unwrap().take();
+
+        let mut resource = self.get();
+        if !resource.is_null() {
+            let result = custom_cleanup(&mut resource);
+            if result < 0 {
+                #[cfg(not(feature = "multi-threaded"))]
+                unsafe {
+                    *self.cleanup.get() = stored_cleanup;
+                }
+                #[cfg(feature = "multi-threaded")]
+                {
+                    *self.cleanup.lock().unwrap() = stored_cleanup;
+                }
+                return Err(AeronCError::from_code(result));
+            }
+        }
+
+        self.set_close_already_called(true);
+        if !self.cleanup_struct {
+            self.set_resource(std::ptr::null_mut());
         }
 
         Ok(())
@@ -241,30 +536,58 @@ impl<T> ManagedCResource<T> {
 
 impl<T> Drop for ManagedCResource<T> {
     fn drop(&mut self) {
-        if !self.resource.is_null() {
-            let already_closed = self.close_already_called.get()
-                || self.check_for_is_closed.as_ref().map_or(false, |f| f(self.resource));
-
-            let resource = if already_closed {
-                self.resource
-            } else {
-                self.resource.clone()
-            };
-
-            if !already_closed {
-                // Ensure the clean-up function is called when the resource is dropped.
-                #[cfg(feature = "extra-logging")]
-                log::info!("closing c resource: {:?}", self);
-                let _ = self.close(); // Ignore errors during an automatic drop to avoid panics.
+        // Capture whether close ran BEFORE Drop — close_shared() below would set
+        // the flag even when the cleanup closure is None, hiding the leak signal.
+        let close_ran_before_drop = self.get_close_already_called();
+        // Delegate to close_shared() which handles single-execution, error
+        // logging, and pointer-nulling.  close_already_called prevents
+        // double-execution if the resource was already closed through
+        // another clone.
+        if !close_ran_before_drop {
+            if let Err(e) = self.close_shared() {
+                log::warn!(
+                    "cleanup failed for {} during Drop with code {}",
+                    std::any::type_name::<T>(),
+                    e.code,
+                );
             }
-            self.close_already_called.set(true);
+        }
 
-            if self.cleanup_struct {
+        if self.manual_close_required && !close_ran_before_drop {
+            #[cfg(not(feature = "multi-threaded"))]
+            let has_dependency = !unsafe { (*self.dependencies.get()).is_empty() };
+            #[cfg(feature = "multi-threaded")]
+            let has_dependency = !self.dependencies.lock().unwrap().is_empty();
+            if !has_dependency {
+                let resource = self.get();
+                if !resource.is_null() {
+                    #[cfg(feature = "strict-lifecycle")]
+                    panic!(
+                        "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
+                         — resource leaked. Call close()/close_now() before drop, or supply a \
+                         cleanup closure at construction.",
+                        std::any::type_name::<T>()
+                    );
+                    #[cfg(not(feature = "strict-lifecycle"))]
+                    log::warn!(
+                        "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
+                         — resource likely leaked. Call close()/close_now() before drop, or supply a \
+                         cleanup closure at construction.",
+                        std::any::type_name::<T>()
+                    );
+                }
+            }
+        }
+
+        if self.cleanup_struct {
+            let resource = self.get();
+            if !resource.is_null() {
                 #[cfg(feature = "extra-logging")]
                 log::info!("closing rust struct resource: {:?}", resource);
                 unsafe {
                     let _ = Box::from_raw(resource);
                 }
+                self.set_resource(std::ptr::null_mut());
             }
         }
     }
@@ -357,19 +680,32 @@ impl AeronErrorType {
     }
 }
 
-/// Represents an Aeron-specific error with a code and an optional message.
+/// Aeron C API error: code + optional message.
 ///
-/// The error code is derived from Aeron C API calls.
-/// Use `get_last_err_message()` to retrieve the last human-readable message, if available.
-#[derive(Eq, PartialEq, Clone)]
+/// Construction is allocation-free (never reads `aeron_errmsg()`), so retry loops
+/// that discard the error stay cheap. Attach the message via `capture_errmsg()`
+/// (at the error site) or `with_message()`; `Display` / `get_last_err_message()`
+/// otherwise read the live `aeron_errmsg()` buffer.
+#[derive(Clone)]
 pub struct AeronCError {
     pub code: i32,
+    /// Attached via `capture_errmsg()` / `with_message()`; `None` otherwise.
+    msg: Option<String>,
 }
 
+/// Equality is on `code` only — the attached message is advisory.
+impl PartialEq for AeronCError {
+    fn eq(&self, other: &Self) -> bool {
+        self.code == other.code
+    }
+}
+impl Eq for AeronCError {}
+
 impl AeronCError {
-    /// Creates an AeronError from the error code returned by Aeron.
+    /// Construct from an Aeron error code (`< 0` is failure).
     ///
-    /// Error codes below zero are considered failure.
+    /// Allocation-free; does not read `aeron_errmsg()`. Use `capture_errmsg()` to
+    /// attach the message when the error will be stored or logged later.
     pub fn from_code(code: i32) -> Self {
         #[cfg(feature = "backtrace")]
         {
@@ -405,7 +741,19 @@ impl AeronCError {
                 );
             }
         }
-        AeronCError { code }
+        AeronCError { code, msg: None }
+    }
+
+    /// [`Self::from_code`] with an attached message.
+    pub fn with_message(code: i32, msg: impl Into<String>) -> Self {
+        let mut err = Self::from_code(code);
+        err.msg = Some(msg.into());
+        err
+    }
+
+    /// Message attached via `capture_errmsg()` / `with_message()`, if any.
+    pub fn message(&self) -> Option<&str> {
+        self.msg.as_deref()
     }
 
     pub fn kind(&self) -> AeronErrorType {
@@ -425,100 +773,205 @@ impl AeronCError {
     }
 }
 
+/// Typed error for `offer` / `try_claim` on a publication.
+///
+/// Aeron returns a negative *sentinel* instead of a stream position. These are not
+/// errno-style codes — `-1` here means "not connected", not a generic error — hence
+/// this dedicated type. Use [`Self::is_retryable`] to drive retry loops.
+#[derive(Clone, PartialEq, Eq)]
+pub enum AeronOfferError {
+    /// No subscriber is connected (`-1`). Usually transient: a subscriber may
+    /// connect later. Retryable.
+    NotConnected,
+    /// Flow control or a full term buffer is applying back pressure (`-2`).
+    /// Retry after idling. Retryable.
+    BackPressured,
+    /// An administrative action (e.g. term rotation) is in progress (`-3`).
+    /// Retry immediately. Retryable.
+    AdminAction,
+    /// The publication is closed (`-4`). Fatal for this handle.
+    Closed,
+    /// The maximum stream position was reached (`-5`). Fatal: a new publication
+    /// (new session) is required.
+    MaxPositionExceeded,
+    /// More than [`MAX_OFFER_PARTS`] buffers passed to `offer_parts` — a caller
+    /// bug, not an Aeron wire error. Fatal (fix the call site).
+    TooManyParts,
+    /// Any other negative value (`-6` / unexpected). Fatal; inspect the inner
+    /// [`AeronCError`] and `Aeron::errmsg()` for detail.
+    Error(AeronCError),
+}
+impl AeronOfferError {
+    /// Maps a raw offer/try_claim return to `Ok(position)` or a typed error.
+    #[inline]
+    pub fn from_position(position: i64) -> Result<i64, Self> {
+        if position >= 0 {
+            return Ok(position);
+        }
+        Err(match position {
+            -1 => AeronOfferError::NotConnected,
+            -2 => AeronOfferError::BackPressured,
+            -3 => AeronOfferError::AdminAction,
+            -4 => AeronOfferError::Closed,
+            -5 => AeronOfferError::MaxPositionExceeded,
+            _ => AeronOfferError::Error(AeronCError::from_code(position as i32)),
+        })
+    }
+
+    /// A retry (possibly after idling / waiting for a subscriber) can succeed.
+    #[inline]
+    pub fn is_retryable(&self) -> bool {
+        matches!(
+            self,
+            AeronOfferError::NotConnected | AeronOfferError::BackPressured | AeronOfferError::AdminAction
+        )
+    }
+
+    /// The publication will never accept this offer again; recreate or give up.
+    #[inline]
+    pub fn is_fatal(&self) -> bool {
+        !self.is_retryable()
+    }
+}
+
+impl std::fmt::Display for AeronOfferError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AeronOfferError::NotConnected => write!(f, "publication not connected"),
+            AeronOfferError::BackPressured => write!(f, "publication back pressured"),
+            AeronOfferError::AdminAction => write!(f, "publication admin action in progress"),
+            AeronOfferError::Closed => write!(f, "publication closed"),
+            AeronOfferError::MaxPositionExceeded => write!(f, "publication max position exceeded"),
+            AeronOfferError::TooManyParts => write!(f, "too many parts in offer_parts (max 8)"),
+            AeronOfferError::Error(e) => write!(f, "publication error (code {})", e.code),
+        }
+    }
+}
+
+impl std::fmt::Debug for AeronOfferError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, f)
+    }
+}
+
+impl std::error::Error for AeronOfferError {}
+
 /// # Handler
+/// **Heap-allocated, reference-counted** callback holder for callbacks the C
+/// client **retains** (fires later, possibly many times, from the conductor thread).
 ///
-/// `Handler` is a struct that wraps a raw pointer and a drop flag.
+/// `Handler<T>` wraps `Arc<UnsafeCell<T>>`. The callback value lives on the heap
+/// and is freed only when the last clone drops. The raw `clientd` pointer handed
+/// to C is `&T` (via [`Handler::as_raw`]); C keeps firing it for as long as it
+/// holds the callback, so the `Handler` must outlive that — methods that register
+/// a retained callback ([`AeronContext::set_error_handler`], the image lifecycle
+/// handlers on `async_add_subscription`, `set_on_available_image`, …) store a
+/// clone of the `Handler` inside the registering resource (as a dependency), so
+/// the value is guaranteed to outlive the C side's use of it. No manual
+/// `release()` is needed.
 ///
-/// Memory is freed automatically when `Handler` goes out of scope (via `Drop`).
-/// You must ensure the `Handler` outlives the Aeron session that uses it, since Aeron
-/// holds a raw `clientd` pointer to the boxed value and will call callbacks until closed.
+/// # Heap vs stack — when to reach for `Handler` vs a `*_fn` / `*_once` method
 ///
-/// Call `release()` early if you want to free the memory before the `Handler` drops.
+/// | Callback kind | Where the closure lives | API |
+/// |---|---|---|
+/// | **Retained** (C stores it; fires later / repeatedly) | **heap** (`Handler`/`Arc`) | `set_error_handler(Some(Handler::new(...)))`, `async_add_subscription(.., Some(&h), ..)`, `poll(Some(&h), limit)` |
+/// | **Sync / call-only** (C fires it during the call, then is done) | **stack** (borrowed `FnMut`, zero allocation) | `poll_fn(\|msg, hdr\| ..., limit)`, the generated `*_once` variants |
+///
+/// Prefer the stack form (`poll_fn`, `*_once`) on the hot path: it borrows the
+/// closure for the duration of the call only, so there is no `Arc`, no heap
+/// allocation, and the closure may borrow local state. Reach for `Handler`
+/// (heap) when the callback must survive past the registering call — image
+/// lifecycle handlers, error handlers, counters callbacks, anything the
+/// conductor invokes asynchronously.
+///
+/// The reference count is atomic (`Arc`), so a `Handler` may be moved to another
+/// thread; it is deliberately **not `Sync`** — callbacks fire from the conductor
+/// thread and must not be shared concurrently.
 ///
 /// ## Example
 ///
 /// ```no_compile
 /// use rusteron_code_gen::Handler;
-/// let handler = Handler::leak(your_value);
-/// // handler is freed automatically when it goes out of scope
+/// let handler = Handler::new(your_value);
+/// // the value is freed when the last clone of `handler` goes out of scope
 /// ```
 pub struct Handler<T> {
-    raw_ptr: *mut T,
-    should_drop: bool,
+    inner: std::sync::Arc<UnsafeCell<T>>,
 }
 
-unsafe impl<T> Send for Handler<T> {}
-unsafe impl<T> Sync for Handler<T> {}
+// Arc's refcount is atomic, so moving a Handler (or a clone) to another thread is fine
+// as long as T itself is Send. No Sync: the C conductor thread may call into T via the
+// raw clientd pointer, so shared &Handler across threads would race on T.
+unsafe impl<T: Send> Send for Handler<T> {}
+
+/// Under the `multi-threaded` feature, `Handler` is also `Sync` so callbacks can
+/// be registered from one thread and the handle shared across threads. The
+/// underlying `Arc<UnsafeCell<T>>` is `!Sync` by construction; this impl follows
+/// the same "accepted unsoundness" policy as the handle-type impls — callbacks
+/// fire from the conductor thread only, never concurrently.
+#[cfg(feature = "multi-threaded")]
+unsafe impl<T: Send> Sync for Handler<T> {}
+
+impl<T> Clone for Handler<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
 
 /// Utility method for setting empty handlers
 pub struct Handlers;
 
-impl<T> Handler<T> {
-    pub fn leak(handler: T) -> Self {
-        let raw_ptr = Box::into_raw(Box::new(handler)) as *mut _;
-        #[cfg(feature = "extra-logging")]
-        log::info!("creating handler {:?}", raw_ptr);
-        Self {
-            raw_ptr,
-            should_drop: true,
-        }
-    }
+/// Type-level "no callback" sentinel.
+///
+/// Pass [`Handlers::NONE`] (which is `None::<&Handler<NoHandler>>`) to any
+/// callback-accepting method to leave that callback unset. `NoHandler` implements
+/// every generated callback trait, so the method's callback generic is inferred as
+/// `NoHandler` without a per-callback helper or turbofish — including methods with
+/// several callback parameters (e.g. `async_add_subscription`'s image handlers).
+/// Its callback methods are unreachable: the C side is handed a null callback +
+/// null clientd, so they can never fire.
+pub struct NoHandler;
 
-    pub fn is_none(&self) -> bool {
-        self.raw_ptr.is_null()
-    }
-
-    pub fn as_raw(&self) -> *mut std::os::raw::c_void {
-        self.raw_ptr as *mut std::os::raw::c_void
-    }
-
-    pub fn release(&mut self) {
-        if self.should_drop && !self.raw_ptr.is_null() {
-            unsafe {
-                #[cfg(feature = "extra-logging")]
-                log::info!("dropping handler {:?}", self.raw_ptr);
-                let _ = Box::from_raw(self.raw_ptr as *mut T);
-                self.should_drop = false;
-                // Null the pointer so a subsequent `Deref`/`DerefMut`/`is_none()`
-                // cannot reach freed memory. Without this, `release()` left
-                // `raw_ptr` dangling (freed-but-not-nulled) and any later deref
-                // would be use-after-free. `Drop` only acts when `should_drop`,
-                // which we already cleared, so the null is safe.
-                self.raw_ptr = std::ptr::null_mut();
-            }
-        }
-    }
-
-    pub unsafe fn new(raw_ptr: *mut T, should_drop: bool) -> Self {
-        Self { raw_ptr, should_drop }
-    }
+impl Handlers {
+    /// `None` for any callback parameter — pins the callback generic to
+    /// [`NoHandler`] so type inference works without a per-callback helper or
+    /// turbofish. Replaces `Handlers::no_available_image_handler()` /
+    /// `no_unavailable_image_handler()` / `no_reserved_value_supplier_handler()`
+    /// / … with one constant. Parallels `Option::None`.
+    pub const NONE: Option<&'static Handler<NoHandler>> = None;
 }
 
-impl<T> Drop for Handler<T> {
-    fn drop(&mut self) {
-        if self.should_drop && !self.raw_ptr.is_null() {
-            log::error!(
-                "Handler<{}> at {:?} is being dropped but release() was never called — \
-                 memory leak: {} bytes. Call release() explicitly when the C side no longer holds the pointer.",
-                std::any::type_name::<T>(),
-                self.raw_ptr,
-                std::mem::size_of::<T>(),
-            );
-        }
+impl<T> Handler<T> {
+    pub fn new(handler: T) -> Self {
+        let inner = std::sync::Arc::new(UnsafeCell::new(handler));
+        #[cfg(feature = "extra-logging")]
+        log::info!("creating handler {:?}", inner.get());
+        Self { inner }
+    }
+
+    #[inline(always)]
+    pub fn as_raw(&self) -> *mut std::os::raw::c_void {
+        self.inner.get() as *mut std::os::raw::c_void
+    }
+
+    /// Get a mutable reference to the inner value.
+    ///
+    /// # Safety
+    /// Caller must ensure that no other references to the inner value are active.
+    #[inline(always)]
+    pub unsafe fn get_mut(&self) -> &mut T {
+        &mut *self.inner.get()
     }
 }
 
 impl<T> Deref for Handler<T> {
     type Target = T;
 
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
-        unsafe { &*self.raw_ptr as &T }
-    }
-}
-
-impl<T> DerefMut for Handler<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.raw_ptr as &mut T }
+        unsafe { &*self.inner.get() }
     }
 }
 
@@ -545,6 +998,49 @@ impl ChannelUri {
     pub const AERON_SCHEME: &'static str = "aeron";
     pub const SPY_QUALIFIER: &'static str = "aeron-spy";
     pub const MAX_URI_LENGTH: usize = 4095;
+
+    /// Return `channel` with a `session-id` param added (replacing any existing one).
+    ///
+    /// Mirrors Java's `ChannelUri.addSessionId` — the standard way to build a channel
+    /// that joins a specific session, e.g. when subscribing to an archive replay:
+    ///
+    /// ```
+    /// # use rusteron_code_gen::ChannelUri;
+    /// assert_eq!(
+    ///     ChannelUri::add_session_id("aeron:ipc", 42),
+    ///     "aeron:ipc?session-id=42"
+    /// );
+    /// assert_eq!(
+    ///     ChannelUri::add_session_id("aeron:udp?endpoint=localhost:20121", -123),
+    ///     "aeron:udp?endpoint=localhost:20121|session-id=-123"
+    /// );
+    /// ```
+    pub fn add_session_id(channel: &str, session_id: i32) -> String {
+        Self::set_param(channel, "session-id", &session_id.to_string())
+    }
+
+    /// Return `channel` with URI param `key=value` set, replacing an existing `key`
+    /// param if present. Other params keep their relative order; `key` goes last.
+    pub fn set_param(channel: &str, key: &str, value: &str) -> String {
+        let (base, params) = match channel.split_once('?') {
+            None => (channel, ""),
+            Some((base, params)) => (base, params),
+        };
+        let mut out = String::with_capacity(channel.len() + key.len() + value.len() + 2);
+        out.push_str(base);
+        out.push('?');
+        for param in params.split('|') {
+            if param.is_empty() || param.split('=').next() == Some(key) {
+                continue;
+            }
+            out.push_str(param);
+            out.push('|');
+        }
+        out.push_str(key);
+        out.push('=');
+        out.push_str(value);
+        out
+    }
 }
 
 pub const DRIVER_TIMEOUT_MS_DEFAULT: u64 = 10_000;
@@ -670,7 +1166,21 @@ pub(crate) mod test_alloc {
         let mut lock = fd_lock::RwLock::new(file);
         let lock = lock.write().expect("Failed to acquire file lock");
 
-        let before = current_allocs();
+        // Background threads from earlier #[serial] tests (driver/conductor shutdown,
+        // captured log buffers) can allocate or free during our window and produce
+        // spurious deltas. Take the baseline only once the global count is stable.
+        let mut before = current_allocs();
+        let settle_deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            let now = current_allocs();
+            if now == before || std::time::Instant::now() > settle_deadline {
+                before = now;
+                break;
+            }
+            before = now;
+        }
+
         f();
         let after = current_allocs();
         let diff = (after - before).abs();
@@ -684,6 +1194,38 @@ pub(crate) mod test_alloc {
 
         drop(lock)
     }
+}
+
+/// `format!` for C strings: builds the formatted [`String`] and converts it to a
+/// [`CString`](std::ffi::CString) in one visibly-named step.
+///
+/// This is the recommended way to build **dynamic** channel URIs and other C-string
+/// arguments. The `c`-prefix keeps the heap allocation greppable and visible at the
+/// call site — important for latency-sensitive code review — while removing the
+/// `format!(...).into_c_string()` noise:
+///
+/// ```
+/// # use rusteron_code_gen::cformat;
+/// let port = 4040;
+/// let uri = cformat!("aeron:udp?endpoint=localhost:{port}");
+/// assert_eq!(uri.to_bytes(), b"aeron:udp?endpoint=localhost:4040");
+/// ```
+///
+/// The three-tier pattern for C-string arguments (cheapest first):
+/// 1. **`c"aeron:ipc"` literals** — compile-time `&'static CStr`, zero runtime cost.
+///    Use for every constant channel/name.
+/// 2. **`cformat!(...)`** — one heap allocation (the formatted `String`; `CString::new`
+///    reuses its buffer). Use for dynamic URIs built once per stream/reconnect.
+/// 3. **Reuse** — build the `CString` once, store it, pass `&it` on every call
+///    (zero-copy via `&CString → &CStr` deref). Use for anything on a repeated path.
+///
+/// Panics if the formatted string contains an interior nul byte.
+#[macro_export]
+macro_rules! cformat {
+    ($($arg:tt)*) => {
+        ::std::ffi::CString::new(::std::format!($($arg)*))
+            .expect("nul byte in cformat! string")
+    };
 }
 
 pub trait IntoCString {
@@ -719,34 +1261,97 @@ mod handler_tests {
     use super::*;
 
     #[test]
-    fn release_nulls_pointer_so_is_none_is_true() {
-        let mut handler = Handler::leak(42u32);
-        // Boxed value lives on the heap before release.
-        assert!(!handler.is_none(), "freshly leaked handler must be non-null");
-
-        handler.release();
-
-        // After release the inner pointer is nulled, not dangling — so a later
-        // Deref/is_none cannot reach freed memory.
-        assert!(handler.is_none(), "release() must null raw_ptr (was a UAF)");
+    fn clones_share_the_same_clientd_pointer() {
+        let handler = Handler::new(42u32);
+        let clone = handler.clone();
+        // C receives the same clientd pointer regardless of which clone
+        // registered it, so callbacks always see the same value.
+        assert_eq!(handler.as_raw(), clone.as_raw());
+        assert_eq!(*handler, 42);
     }
 
     #[test]
-    fn release_is_idempotent_no_double_free() {
-        let mut handler = Handler::leak(99u64);
-        handler.release();
-        // A second release must be a no-op: the guard `should_drop && !null`
-        // is false, so Box::from_raw is not called again (no double-free).
-        handler.release();
-        assert!(handler.is_none());
-    }
+    fn value_dropped_exactly_once_when_last_clone_drops() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static DROPS: AtomicUsize = AtomicUsize::new(0);
+        struct Counted;
+        impl Drop for Counted {
+            fn drop(&mut self) {
+                DROPS.fetch_add(1, Ordering::SeqCst);
+            }
+        }
 
-    #[test]
-    fn release_then_drop_is_silent() {
-        // After release, should_drop is false and raw_ptr is null, so Drop must
-        // not log the "memory leak" warning nor touch freed memory.
-        let mut handler = Handler::leak(7u16);
-        handler.release();
+        let handler = Handler::new(Counted);
+        let clone = handler.clone();
         drop(handler);
+        assert_eq!(DROPS.load(Ordering::SeqCst), 0, "value must outlive remaining clones");
+        drop(clone);
+        assert_eq!(DROPS.load(Ordering::SeqCst), 1, "value freed exactly once on last drop");
+    }
+}
+
+#[cfg(test)]
+mod managed_c_resource_lifecycle_tests {
+    use super::*;
+
+    // These tests pin down `manual_close_required` — the field that powers the
+    // Drop-time leak warning. The exact `AeronCncMetadata::load_from_file` bug
+    // was a `new(_, None, false)` resource, so the first test asserts that
+    // construction shape trips the flag. The resource pointers are dummies
+    // (never dereferenced); only the field value is checked.
+
+    #[test]
+    #[cfg(not(feature = "strict-lifecycle"))] // would panic on drop under strict-lifecycle
+    fn manual_close_required_true_for_none_cleanup_no_struct() {
+        // The bug shape: owned, no cleanup closure, no Rust struct ownership.
+        let r: ManagedCResource<u8> = ManagedCResource::new(
+            |ctx| {
+                unsafe { *ctx = 0x1 as *mut u8 };
+                1
+            },
+            None,
+            false,
+        )
+        .unwrap_or_else(|e| panic!("init failed: code {}", e.code));
+        assert!(
+            r.manual_close_required,
+            "owned + None cleanup + no struct ownership must require manual close"
+        );
+    }
+
+    #[test]
+    fn manual_close_required_false_when_cleanup_closure_present() {
+        let r: ManagedCResource<u8> = ManagedCResource::new(
+            |ctx| {
+                unsafe { *ctx = 0x1 as *mut u8 };
+                1
+            },
+            Some(Box::new(|_ctx| 0)),
+            false,
+        )
+        .unwrap_or_else(|e| panic!("init failed: code {}", e.code));
+        assert!(
+            !r.manual_close_required,
+            "real cleanup closure means Drop frees the resource — no warning needed"
+        );
+    }
+
+    #[test]
+    fn manual_close_required_false_when_struct_owned() {
+        // Generated `new(_, None, true)` resources: Rust frees the Box itself
+        // via Box::from_raw in the cleanup_struct branch of Drop.
+        let r: ManagedCResource<u8> = ManagedCResource::new(
+            |ctx| {
+                unsafe { *ctx = Box::into_raw(Box::new(0u8)) };
+                1
+            },
+            None,
+            true,
+        )
+        .unwrap_or_else(|e| panic!("init failed: code {}", e.code));
+        assert!(
+            !r.manual_close_required,
+            "cleanup_struct=true means Rust owns and frees the struct — no warning needed"
+        );
     }
 }

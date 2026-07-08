@@ -21,14 +21,14 @@ The **rusteron-archive** module enables Rust developers to leverage Aeron's arch
 For **MacOS users**, the easiest way to get started is by using the static library with precompiled C dependencies. This avoids the need for `cmake` or `Java`:
 
 ```toml
-rusteron-archive = { version = "0.1", features = ["static", "precompile"] }
-````
+rusteron-archive = { version = "0.2", features = ["static", "precompile"] }
+```
 
 If you prefer a rustls-only downloader dependency:
 
 ```toml
-rusteron-archive = { version = "0.1", features = ["static", "precompile-rustls"] }
-````
+rusteron-archive = { version = "0.2", features = ["static", "precompile-rustls"] }
+```
 
 ---
 
@@ -38,16 +38,16 @@ Add **rusteron-archive** to your `Cargo.toml` depending on your setup:
 
 ```toml
 # Dynamic linking (default)
-rusteron-archive = "0.1"
+rusteron-archive = "0.2"
 
 # Static linking
-rusteron-archive = { version = "0.1", features = ["static"] }
+rusteron-archive = { version = "0.2", features = ["static"] }
 
 # Static linking with precompiled C libraries (best for Mac users, no Java/cmake needed)
-rusteron-archive = { version = "0.1", features = ["static", "precompile"] }
+rusteron-archive = { version = "0.2", features = ["static", "precompile"] }
 
 # Static linking with precompiled C libraries using rustls downloader
-rusteron-archive = { version = "0.1", features = ["static", "precompile-rustls"] }
+rusteron-archive = { version = "0.2", features = ["static", "precompile-rustls"] }
 ```
 
 When using the default dynamic configuration, you must ensure Aeron C libraries are available at runtime. The `static` option embeds them automatically into the binary.
@@ -56,11 +56,7 @@ When using the default dynamic configuration, you must ensure Aeron C libraries 
 
 ## Development
 
-To simplify development, we use [`just`](https://github.com/casey/just), a command runner similar to `make`.
-
-To view all available commands, run `just` in the command line.
-
-> If you don’t have `just` installed, install it with: `cargo install just`
+Build tasks use [`just`](https://github.com/casey/just). Run `just` to list commands, or `cargo install just` if needed.
 
 ---
 
@@ -90,88 +86,39 @@ Most methods use `&self`, allowing mutation without full ownership transfer.
 
 Automatic cleanup applies **only** to `new()` constructors. Other methods (e.g. `set_aeron()`) require manual lifetime and validity tracking to prevent resource misuse.
 
-### Manual Handler Management
+### Handlers and errors
 
-Handlers must be passed into C bindings using `Handlers::leak(...)` and explicitly cleaned up using `release()` when no longer needed.
-
-For short-lived operations such as polling, closures can be used directly:
-
-```rust,ignore
-subscription.poll_once(|msg, header| {
-    println!("msg={:?}, header={:?}", msg, header)
-});
-```
-
----
-
-## Handlers and Callbacks
-
-There are two primary patterns for defining callbacks:
-
-### 1. Trait-Based Handlers (Recommended)
-
-The preferred and most efficient approach is to define a trait and implement it for a struct:
-
-```rust,no_ignore
-use rusteron_archive::*;
-
-pub trait AeronErrorHandlerCallback {
-    fn handle_aeron_error_handler(&mut self, errcode: ::std::os::raw::c_int, message: &str);
-}
-
-pub struct AeronErrorHandlerLogger;
-
-impl AeronErrorHandlerCallback for AeronErrorHandlerLogger {
-    fn handle_aeron_error_handler(&mut self, errcode: ::std::os::raw::c_int, message: &str) {
-        eprintln!("Error {}: {}", errcode, message);
-    }
-}
-```
-
-You then wrap the implementation in a handler using `Handlers::leak(...)`.
-
-### 2. Wrapping Callbacks with `Handler`
-
-Regardless of approach, callbacks must be wrapped in a `Handler` to interact with Aeron's C bindings. Use `Handlers::leak(...)` to pass it into the system, and call `release()` once cleanup is needed.
-
----
-
-### Handler Convenience Methods
-
-You can pass `None` if a handler isn't required, but dealing with typed `Option`s can be awkward. **rusteron-archive** offers helpers like:
+Retained-callback setters take the callback by value (a closure or trait impl), keep it
+alive inside the registering resource, and return the `Handler` for optional state access.
+For synchronous polling, pass a stack closure:
 
 ```rust,ignore
-pub fn no_error_handler_handler() -> Option<&'static Handler<AeronErrorHandlerLogger>> {
-    None::<&Handler<AeronErrorHandlerLogger>>
-}
+// retained (e.g. an error handler on the archive context)
+archive_context.set_error_handler(Some(|code: i32, msg: &str| eprintln!("archive error {code}: {msg}")))?;
+
+// synchronous poll — note the fragment-limit argument
+subscription.poll_fn(|buf: &[u8], header: AeronHeader| println!("{} bytes", buf.len()), 10)?;
 ```
 
-These helpers return `None` with the correct generic type to reduce boilerplate.
+`Handlers::NONE` fits any optional callback slot.
+
+For comprehensive details on how handler registration, callbacks, error checking, and idle strategies work in the `rusteron` ecosystem (which are fully applicable here as well), please refer to the corresponding sections in the **rusteron-client** documentation:
+- [rusteron-client: Handlers and Callbacks](../rusteron-client/README.md#handlers-and-callbacks)
+- [rusteron-client: Errors & Offer Results](../rusteron-client/README.md#errors--offer-results)
+- [rusteron-client: Idle Strategies](../rusteron-client/README.md#idle-strategies)
+
+Archive control operations (`begin_replay`, `start_recording`, …) return
+`Result<_, AeronArchiveError>` — a typed code (`AeronArchiveErrorCode`) plus the archive's
+message. Constructors, async-connect, and context setters return `AeronCError`;
+`From<AeronArchiveError> for AeronCError` keeps `?` working across both.
 
 ---
 
-## Error Handling with Aeron C Bindings
+## Documentation & Guides
 
-Operations in **rusteron-archive** return `Result<i32, AeronCError>`, using idiomatic Rust error types.
-
-### AeronErrorType Enum
-
-| Variant                              | Description                   |
-| ------------------------------------ | ----------------------------- |
-| `NullOrNotConnected`                 | Null value or unconnected     |
-| `ClientErrorDriverTimeout`           | Driver timed out              |
-| `ClientErrorClientTimeout`           | Client timed out              |
-| `ClientErrorConductorServiceTimeout` | Conductor service timeout     |
-| `ClientErrorBufferFull`              | Buffer full                   |
-| `PublicationBackPressured`           | Publication is back-pressured |
-| `PublicationAdminAction`             | Admin action in progress      |
-| `PublicationClosed`                  | Publication has closed        |
-| `PublicationMaxPositionExceeded`     | Max position exceeded         |
-| `PublicationError`                   | Generic publication error     |
-| `TimedOut`                           | Timeout occurred              |
-| `Unknown(i32)`                       | Unrecognized error code       |
-
-The `AeronCError` struct exposes these enums alongside descriptive messages.
+For detailed guides and code snippets on Aeron features in Rust, see:
+- [Multi-Destination Subscription (MDC / MDS) Guide](../docs/mdc_mds_guide.md)
+- [Media Driver Configuration & Back-pressure Guide](../docs/media_driver_configuration_and_backpressure_guide.md)
 
 ---
 
@@ -179,7 +126,7 @@ The `AeronCError` struct exposes these enums alongside descriptive messages.
 
 1. **Aeron Lifetime** – The `AeronArchive` depends on an external `Aeron` instance. Ensure `Aeron` outlives all references to the archive.
 2. **Unsafe Bindings** – The module interfaces directly with Aeron’s C API. Improper resource handling can cause undefined behavior.
-3. **Manual Cleanup** – Handlers and other leaked objects must be manually cleaned up using `.release()`.
+3. **Automatic Handler Cleanup** – Handlers are reference-counted; registered callbacks live as long as the resource that registered them and are freed automatically.
 4. **Thread Safety** – Use care when accessing Aeron objects across threads. Synchronize access appropriately.
 
 ---
@@ -235,23 +182,48 @@ let ps = persistent_subscription_builder()?
     .listener(MyListener { live_joined: live_joined.clone() })?
     .build()?;
 
-// Drive it: replay runs, then it joins live. `ps.poll_once()` drives the archive
+// Drive it: replay runs, then it joins live. `ps.poll_fn()` drives the archive
 // client internally, so no `archive.poll_for_recording_signals()` is needed. Check
 // `has_failed()` each iteration (terminal failure) and stop once `is_live()`.
 while !ps.is_live() {
     if ps.has_failed() {
         panic!("persistent subscription failed: {:?}", ps.get_failure_reason());
     }
-    let _ = publication.offer(b"live", Handlers::no_reserved_value_supplier_handler());
-    ps.poll_once(|buf, _hdr| { /* an assembled replayed or live message */ }, 100)?;
+    let _ = publication.offer_with_reserved_value(b"live", Handlers::NONE);
+    ps.poll_fn(|buf, _hdr| { /* an assembled replayed or live message */ }, 100)?;
 }
 ps.close()?;
 ```
 
-**Polling & errors.** `ps.poll_once()` drives the PS state machine *and* the archive async client internally, so — unlike a manual replay loop — you do **not** call `archive.poll_for_recording_signals()` here. Drive the loop on `ps.is_live()` and check `ps.has_failed()` each iteration (read the reason with `ps.get_failure_reason()`); the listener's `on_error` fires for non-terminal errors too, and `on_live_left`/`on_live_joined` can fire repeatedly as it falls back to replay and rejoins. The poll handler receives **assembled** messages — do not wrap it in a fragment assembler.
+**Polling & errors.** `ps.poll_fn()` drives the PS state machine *and* the archive async client, so you do not call `archive.poll_for_recording_signals()` separately. Loop on `ps.is_live()`, checking `ps.has_failed()` each iteration (reason via `get_failure_reason()`). The listener's `on_error` covers non-terminal errors; `on_live_left`/`on_live_joined` may fire repeatedly as it falls back and rejoins.
+
+**Fragment assembly (already done for you).** Unlike `AeronSubscription`, the persistent subscription **reassembles fragments internally** — the C `aeron_archive_persistent_subscription_poll` routes each image through `aeron_image_fragment_assembler_handler`, so your handler receives whole messages directly. Just poll:
+
+```rust,ignore
+loop {
+    // handler receives whole messages; no assembler needed
+    ps.poll_fn(|buf, _hdr| { /* handle reassembled message */ }, 100)?;
+}
+```
+
+If you prefer the shared assembler API (e.g. to reuse a collector across subscription types), `AeronFragmentClosureAssembler` works too — it polls the PS internally, so it advances the state machine and delivers messages in one call. **Do not also call `ps.poll_fn(…)` separately**: that consumes the messages before the assembler sees them.
+
+```rust,ignore
+let mut assembler = AeronFragmentClosureAssembler::new()?;
+let mut ctx = Collector::default();
+loop {
+    assembler.poll(&ps, &mut ctx, Collector::on_msg, 100)?;  // polls the PS internally
+    if ctx.done { break; }
+}
+```
 
 For a fully runnable version, see the example and integration tests:
 - [`examples/persistent_subscription.rs`](./examples/persistent_subscription.rs) — standalone demo (run with `cargo run --release --features "static precompile" --example persistent_subscription`)
+- [`examples/archive_error_handling.rs`](./examples/archive_error_handling.rs) — error handlers on both contexts, recording signals, typed control-session errors via `archive.poll_for_error()` / `AeronArchiveError::parse` (the archive's `errorCode=N` recovered from the message text), and detecting/reconnecting after the archive goes down
+- [`examples/persistent_subscription_failover.rs`](./examples/persistent_subscription_failover.rs) — failure modes: live stream dies → automatic fallback to replay (`on_live_left`), then rejoins live when it returns
+- [`examples/replay_merge.rs`](./examples/replay_merge.rs) — late-joiner catch-up: replay recorded history, then merge seamlessly onto the live MDC stream (`AeronArchiveReplayMerge`)
+- [`examples/recording_throughput.rs`](./examples/recording_throughput.rs) — recording throughput measurement (publish rate vs archiver catch-up) and `list_recordings` descriptor enumeration
+- [`examples/recording_replication.rs`](./examples/recording_replication.rs) — archive-to-archive replication (`archive.replicate`): a destination archive pulls a finished recording from a source archive and the copy is verified (port of `RecordingReplicator`)
 - `persistent_subscription_tests::test_persistent_subscription_listener_live_joined` (callback wiring)
 - `persistent_subscription_integration::test_end_to_end_persistent_subscription` (record → replay → live)
 

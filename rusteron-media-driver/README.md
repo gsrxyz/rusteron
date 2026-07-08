@@ -26,8 +26,8 @@ To use `rusteron-media-driver`, add the appropriate dependency to your `Cargo.to
 
 ```toml
 [dependencies]
-rusteron-media-driver = "0.1"
-````
+rusteron-media-driver = "0.2"
+```
 
 </details>
 
@@ -36,7 +36,7 @@ rusteron-media-driver = "0.1"
 
 ```toml
 [dependencies]
-rusteron-media-driver = { version = "0.1", features = ["static"] }
+rusteron-media-driver = { version = "0.2", features = ["static"] }
 ```
 
 </details>
@@ -46,12 +46,12 @@ rusteron-media-driver = { version = "0.1", features = ["static"] }
 
 ```toml
 [dependencies]
-rusteron-media-driver = { version = "0.1", features = ["static", "precompile"] }
+rusteron-media-driver = { version = "0.2", features = ["static", "precompile"] }
 ```
 
 ```toml
 [dependencies]
-rusteron-media-driver = { version = "0.1", features = ["static", "precompile-rustls"] }
+rusteron-media-driver = { version = "0.2", features = ["static", "precompile-rustls"] }
 ```
 
 </details>
@@ -71,7 +71,7 @@ use rusteron_media_driver::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let aeron_context = AeronDriverContext::new()?;
-    aeron_context.set_dir(&"target/test".into_c_string())?;
+    aeron_context.set_dir(c"target/test")?;
 
     let aeron_driver = AeronDriver::new(&aeron_context)?;
     aeron_driver.start(false)?;
@@ -98,7 +98,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (stop, driver_handle) = AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
     let ctx = AeronContext::new()?;
-    ctx.set_dir(&media_driver_ctx.get_dir().into_c_string())?;
+    ctx.set_dir(&cformat!("{}", media_driver_ctx.get_dir()))?;
 
     thread::sleep(Duration::from_secs(3)); // Simulated workload
 

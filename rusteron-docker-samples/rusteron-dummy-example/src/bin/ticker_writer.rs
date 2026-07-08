@@ -117,43 +117,48 @@ impl AeronRecorder {
 
 impl JsonMesssageHandler for AeronRecorder {
     fn on_msg(&mut self, msg: &str) {
-        let mut result = self
-            .publication
-            .offer(msg.as_bytes(), Handlers::no_reserved_value_supplier_handler());
-        if result <= 0 {
-            // this is poor way to handle back pressure, just for simple example
+        let mut result = self.publication.offer(msg.as_bytes());
+
+        // Handle retryable errors (back pressure)
+        let needs_retry = result.is_err() || result.as_ref().unwrap_or(&0) <= &0;
+        if needs_retry {
             let duration = Duration::from_millis(100);
             let start = Instant::now();
 
-            while start.elapsed() < duration && result <= 0 {
-                result = self
-                    .publication
-                    .offer(msg.as_bytes(), Handlers::no_reserved_value_supplier_handler());
+            while start.elapsed() < duration {
+                result = self.publication.offer(msg.as_bytes());
+                match result {
+                    Ok(n) if n > 0 => break,
+                    Ok(_) => continue,
+                    Err(_) => break,
+                }
             }
 
-            if result <= 0 {
-                warn!(
-                    "failed to publish [error={:?}, payload={}]",
-                    AeronCError::from_code(result as i32),
-                    msg
-                );
-                if result as i32 == AeronErrorType::PublicationClosed.code() {
-                    let channel = TICKER_CHANNEL;
-                    let stream_id = TICKER_STREAM_ID;
-                    self.publication = self
-                        .aeron
-                        .add_publication(&channel.into_c_string(), stream_id, Duration::from_secs(60))
-                        .expect("failed to add exclusive publication");
+            match result {
+                Ok(0) | Err(_) => {
+                    warn!("failed to publish [error={:?}, payload={}]", result, msg);
 
-                    info!(
-                        "created ticker publication [sessionId={}]",
-                        self.publication.get_constants().unwrap().session_id()
-                    );
+                    if let Err(e) = &result {
+                        if matches!(e, AeronOfferError::Closed) {
+                            let channel = TICKER_CHANNEL;
+                            let stream_id = TICKER_STREAM_ID;
+                            self.publication = self
+                                .aeron
+                                .add_publication(&channel.into_c_string(), stream_id, Duration::from_secs(60))
+                                .expect("failed to add exclusive publication");
+
+                            info!(
+                                "created ticker publication [sessionId={}]",
+                                self.publication.get_constants().unwrap().session_id()
+                            );
+                        }
+                    }
                 }
+                _ => {}
             }
         }
 
-        if result > 0 {
+        if result.as_ref().unwrap_or(&0) > &0 {
             self.published_count += 1;
 
             if self.published_count.is_multiple_of(1000) {

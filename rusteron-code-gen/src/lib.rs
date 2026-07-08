@@ -7,11 +7,13 @@
 #![allow(unused_variables)]
 #![doc = include_str!("../README.md")]
 
+mod arg_classifier;
 mod common;
 mod generator;
 mod parser;
 pub mod test_logger;
 
+pub use arg_classifier::*;
 pub use common::*;
 pub use generator::*;
 pub use parser::*;
@@ -23,7 +25,25 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 pub const CUSTOM_AERON_CODE: &str = include_str!("./aeron_custom.rs");
+pub const CUSTOM_ARCHIVE_CODE: &str = include_str!("./aeron_custom_archive.rs");
 pub const COMMON_CODE: &str = include_str!("./common.rs");
+
+/// Minimal `AeronArchiveError` stub for the `archive` trybuild test only — the real
+/// type (with typed codes, parsing, Display) lives in `aeron_custom_archive.rs` and is
+/// pulled into rusteron-archive via its build.rs. The trybuild test compiles generated
+/// code in isolation, so the real CUSTOM_ARCHIVE_CODE can't be used (it references
+/// hand-written rusteron-archive/src/lib.rs types). Generated aeron_archive_t methods
+/// only reference `AeronArchiveError::from_code(i32)`, so a bare struct suffices.
+#[cfg(test)]
+const TRYBUILD_ARCHIVE_ERROR_STUB: &str = r#"
+    #[derive(Debug, Clone)]
+    pub struct AeronArchiveError { pub code: i32, pub message: String }
+    impl AeronArchiveError { pub fn from_code(code: i32) -> Self { Self { code, message: String::new() } } }
+    impl std::fmt::Display for AeronArchiveError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "archive error {}", self.code) }
+    }
+    impl std::error::Error for AeronArchiveError {}
+"#;
 
 pub fn append_to_file(file_path: &str, code: &str) -> std::io::Result<()> {
     let path = Path::new(file_path);
@@ -91,6 +111,7 @@ mod tests {
     use crate::parser::parse_bindings;
     use crate::{
         append_to_file, format_token_stream, format_with_rustfmt, ARCHIVE_BINDINGS, CLIENT_BINDINGS, CUSTOM_AERON_CODE,
+        TRYBUILD_ARCHIVE_ERROR_STUB,
     };
     use proc_macro2::TokenStream;
     use std::fs;
@@ -182,7 +203,7 @@ mod tests {
         for (p, w) in bindings
             .wrappers
             .values()
-            .filter(|w| !w.type_name.contains("_t_") && w.type_name != "in_addr")
+            .filter(|w| !w.type_name.contains("pthread") && !w.type_name.contains("_t_"))
             .enumerate()
         {
             let code = crate::generate_rust_code(w, &bindings.wrappers, p == 0, true, true, &bindings.handlers);
@@ -242,6 +263,13 @@ mod tests {
         append_to_file(&file, ARCHIVE_BINDINGS).unwrap();
         append_to_file(&file, "}").unwrap();
         append_to_file(&file, CUSTOM_AERON_CODE).unwrap();
+        // The generated aeron_archive_t methods reference AeronArchiveError, which in the
+        // real crate is supplied by CUSTOM_ARCHIVE_CODE. That file also references
+        // hand-written rusteron-archive/src/lib.rs types (e.g. AeronArchiveAsyncConnect),
+        // so it can't be compiled standalone here. Inject a minimal stub instead — the
+        // trybuild test only checks generated signatures compile; the real type's
+        // behaviour is covered by rusteron-archive's own tests.
+        append_to_file(&file, TRYBUILD_ARCHIVE_ERROR_STUB).unwrap();
         append_to_file(&file, "\npub fn main() {}\n").unwrap();
         t.pass(file)
     }
@@ -250,7 +278,12 @@ mod tests {
     /// the whole stream, test-modules disabled) and assert it byte-matches the
     /// committed `docs-rs/aeron.rs`. Catches "forgot to rebuild with
     /// `COPY_BINDINGS=true`" drift as a CI failure instead of a stale docs.rs.
-    fn assert_aeron_rs_snapshot_matches(bindings_file: &str, snapshot_rel_path: &str, skip_filter: fn(&str) -> bool) {
+    fn assert_aeron_rs_snapshot_matches(
+        bindings_file: &str,
+        snapshot_rel_path: &str,
+        skip_filter: fn(&str) -> bool,
+        extra_custom_code: &[&str],
+    ) {
         if running_under_valgrind() {
             return;
         }
@@ -260,7 +293,7 @@ mod tests {
             .join(bindings_file);
         let snapshot_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(snapshot_rel_path);
 
-        let mut bindings = parse_bindings(&bindings_path);
+        let mut bindings = crate::parse_bindings_with_custom(&bindings_path, extra_custom_code);
         // First pass: populate FnMut(...) names required by generate_rust_code.
         let bindings_copy = bindings.clone();
         for handler in bindings.handlers.iter_mut() {
@@ -330,24 +363,43 @@ mod tests {
     #[test]
     #[cfg(not(target_os = "windows"))]
     fn client_aeron_rs_matches_committed_snapshot() {
-        assert_aeron_rs_snapshot_matches("client.rs", "../rusteron-client/docs-rs/aeron.rs", |_| true);
+        assert_aeron_rs_snapshot_matches(
+            "client.rs",
+            "../rusteron-client/docs-rs/aeron.rs",
+            |t| t.starts_with("aeron_"),
+            &[],
+        );
     }
 
     #[test]
     #[cfg(not(target_os = "windows"))]
-    #[cfg(target_os = "macos")]
     fn archive_aeron_rs_matches_committed_snapshot() {
-        assert_aeron_rs_snapshot_matches("archive.rs", "../rusteron-archive/docs-rs/aeron.rs", |_| true);
+        // Archive's build.rs merges CUSTOM_ARCHIVE_CODE into the generator skip-list
+        // (so hand-written archive methods like ReplayMerge::poll_fn/poll_once suppress
+        // the generated variant). The snapshot regeneration must mirror that, or the
+        // committed snapshot (built with the merge) drifts from the regeneration.
+        //
+        // Not macOS-gated: the test parses the COMMITTED bindings file
+        // (rusteron-code-gen/bindings/archive.rs), so regeneration is deterministic
+        // regardless of host platform.
+        assert_aeron_rs_snapshot_matches(
+            "archive.rs",
+            "../rusteron-archive/docs-rs/aeron.rs",
+            |t| t.starts_with("aeron_"),
+            &[crate::CUSTOM_ARCHIVE_CODE],
+        );
     }
 
     #[test]
     #[cfg(not(target_os = "windows"))]
-    #[cfg(target_os = "macos")]
     fn media_driver_aeron_rs_matches_committed_snapshot() {
         // Mirrors the media_driver trybuild test's filter.
-        assert_aeron_rs_snapshot_matches("media-driver.rs", "../rusteron-media-driver/docs-rs/aeron.rs", |t| {
-            !t.contains("_t_") && t != "in_addr"
-        });
+        assert_aeron_rs_snapshot_matches(
+            "media-driver.rs",
+            "../rusteron-media-driver/docs-rs/aeron.rs",
+            |t| !t.contains("pthread") && !t.contains("_t_"),
+            &[],
+        );
     }
 
     /// `aeron_custom.rs` is a verbatim copy (not generated) into each crate's
@@ -355,17 +407,28 @@ mod tests {
     /// of truth (`rusteron-code-gen/src/aeron_custom.rs`).
     #[test]
     fn aeron_custom_rs_snapshots_match_source() {
-        let source = CUSTOM_AERON_CODE.trim();
-        for crate_name in ["client", "archive", "media-driver"] {
+        // each crate's committed aeron_custom.rs = the common custom code plus any
+        // per-crate custom code appended by its build config (archive only, today)
+        let no_extra: &[&str] = &[];
+        for (crate_name, extra) in [
+            ("client", no_extra),
+            ("archive", &[crate::CUSTOM_ARCHIVE_CODE][..]),
+            ("media-driver", no_extra),
+        ] {
+            // emulate append_to_file: each chunk is written as "\n{chunk}\n"
+            let mut source = format!("\n{}\n", CUSTOM_AERON_CODE);
+            for code in extra {
+                source.push_str(&format!("\n{}\n", code));
+            }
             let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join(format!("../rusteron-{crate_name}/docs-rs/aeron_custom.rs"));
             let committed = fs::read_to_string(&path)
                 .unwrap_or_else(|_| panic!("missing committed aeron_custom.rs: {}", path.display()));
             assert_eq!(
                 committed.trim(),
-                source,
+                source.trim(),
                 "rusteron-{crate_name}/docs-rs/aeron_custom.rs drifted from \
-                 rusteron-code-gen/src/aeron_custom.rs. Rebuild with `COPY_BINDINGS=true`.",
+                 rusteron-code-gen/src/aeron_custom*.rs. Rebuild with `COPY_BINDINGS=true`.",
             );
         }
     }
@@ -384,10 +447,13 @@ mod tests {
 
 #[cfg(test)]
 mod test {
-    use crate::ManagedCResource;
+    use crate::{CResource, CleanupBox, ManagedCResource};
 
+    use crate::common::RcOrArc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    #[allow(unused_imports)]
+    use RcOrArc as Rc;
 
     fn make_resource(val: i32) -> *mut i32 {
         Box::into_raw(Box::new(val))
@@ -413,7 +479,7 @@ mod test {
                 *res = std::ptr::null_mut();
             }
             0
-        }) as Box<dyn FnMut(*mut *mut i32) -> i32>);
+        }) as CleanupBox<i32>);
 
         {
             let _resource = ManagedCResource::new(
@@ -425,7 +491,6 @@ mod test {
                 },
                 cleanup,
                 false,
-                None,
             );
             assert!(_resource.is_ok())
         }
@@ -444,7 +509,7 @@ mod test {
                 *res = std::ptr::null_mut();
             }
             0
-        }) as Box<dyn FnMut(*mut *mut i32) -> i32>);
+        }) as CleanupBox<i32>);
 
         {
             let _resource = ManagedCResource::new(
@@ -456,7 +521,6 @@ mod test {
                 },
                 cleanup,
                 true,
-                None,
             );
             assert!(_resource.is_ok())
         }
@@ -476,9 +540,9 @@ mod test {
                 *res = std::ptr::null_mut();
             }
             0
-        }) as Box<dyn FnMut(*mut *mut i32) -> i32>);
+        }) as CleanupBox<i32>);
 
-        let mut resource = ManagedCResource::new(
+        let resource = ManagedCResource::new(
             |res: *mut *mut i32| {
                 unsafe {
                     *res = resource_ptr;
@@ -487,12 +551,11 @@ mod test {
             },
             cleanup,
             false,
-            None,
         );
         assert!(resource.is_ok());
 
-        if let Ok(ref mut resource) = &mut resource {
-            assert!(resource.close().is_ok())
+        if let Ok(ref resource) = resource {
+            assert!(resource.close_shared().is_ok());
         }
 
         // Reset the flag to ensure drop does not call cleanup a second time.
@@ -502,73 +565,328 @@ mod test {
     }
 
     #[test]
-    fn test_drop_does_not_call_cleanup_if_check_for_is_closed_returns_true() {
-        let flag = Arc::new(AtomicBool::new(false));
-        let flag_clone = flag.clone();
-        let resource_ptr = make_resource(60);
+    fn close_resource_closes_shared_resource_once_across_clones() {
+        let close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
+        let close_count_for_cleanup = close_count.clone();
+        let resource_ptr = make_resource(40);
 
         let cleanup = Some(Box::new(move |res: *mut *mut i32| -> i32 {
-            flag_clone.store(true, Ordering::SeqCst);
+            close_count_for_cleanup.fetch_add(1, Ordering::SeqCst);
             unsafe {
                 reclaim_resource(*res);
                 *res = std::ptr::null_mut();
             }
             0
-        }) as Box<dyn FnMut(*mut *mut i32) -> i32>);
+        }) as CleanupBox<i32>);
 
-        let check_fn = Some(|_res: *mut i32| -> bool { true } as fn(_) -> bool);
+        let resource = ManagedCResource::new(
+            |res: *mut *mut i32| {
+                unsafe {
+                    *res = resource_ptr;
+                }
+                0
+            },
+            cleanup,
+            false,
+        );
+        assert!(resource.is_ok());
+        let resource = resource.ok().unwrap();
+        let inner = Rc::new(resource);
+        let handle_one = CResource::OwnedOnHeap(inner.clone());
+        let handle_two = CResource::OwnedOnHeap(inner);
 
-        {
-            let _resource = ManagedCResource::new(
-                |res: *mut *mut i32| {
-                    unsafe {
-                        *res = resource_ptr;
-                    }
-                    0
-                },
-                cleanup,
-                false,
-                check_fn,
-            );
-            assert!(_resource.is_ok());
-        }
-        assert!(!flag.load(Ordering::SeqCst));
-        unsafe {
-            reclaim_resource(resource_ptr);
-        }
+        assert!(!handle_one.get().is_null());
+        assert!(!handle_two.get().is_null());
+
+        assert!(handle_one.close_resource().is_ok());
+        assert_eq!(1, close_count.load(Ordering::SeqCst));
+        assert!(handle_one.get().is_null());
+        assert!(handle_two.get().is_null());
+
+        assert!(handle_two.close_resource().is_ok());
+        assert_eq!(1, close_count.load(Ordering::SeqCst));
     }
 
     #[test]
-    fn test_drop_does_call_cleanup_if_check_for_is_closed_returns_false() {
-        let flag = Arc::new(AtomicBool::new(false));
-        let flag_clone = flag.clone();
-        let resource_ptr = make_resource(60);
+    fn close_resource_defers_owner_close_while_dependent_is_alive() {
+        let close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
+        let close_count_for_cleanup = close_count.clone();
+        let owner_ptr = make_resource(60);
+        let child_ptr = make_resource(61);
 
-        let cleanup = Some(Box::new(move |res: *mut *mut i32| -> i32 {
-            flag_clone.store(true, Ordering::SeqCst);
+        let owner_cleanup = Some(Box::new(move |res: *mut *mut i32| -> i32 {
+            close_count_for_cleanup.fetch_add(1, Ordering::SeqCst);
             unsafe {
                 reclaim_resource(*res);
                 *res = std::ptr::null_mut();
             }
             0
-        }) as Box<dyn FnMut(*mut *mut i32) -> i32>);
+        }) as CleanupBox<i32>);
 
-        let check_fn = Some(|_res: *mut i32| -> bool { false } as fn(*mut i32) -> bool);
+        let owner = ManagedCResource::new(
+            |res: *mut *mut i32| {
+                unsafe {
+                    *res = owner_ptr;
+                }
+                0
+            },
+            owner_cleanup,
+            false,
+        );
+        assert!(owner.is_ok());
+        let owner = CResource::OwnedOnHeap(Rc::new(owner.ok().unwrap()));
 
-        {
-            let _resource = ManagedCResource::new(
-                |res: *mut *mut i32| {
-                    unsafe {
-                        *res = resource_ptr;
-                    }
-                    0
-                },
-                cleanup,
-                false,
-                check_fn,
-            );
-            assert!(_resource.is_ok())
-        }
-        assert!(flag.load(Ordering::SeqCst));
+        let child = ManagedCResource::new(
+            |res: *mut *mut i32| {
+                unsafe {
+                    *res = child_ptr;
+                }
+                0
+            },
+            Some(Box::new(move |res| {
+                unsafe {
+                    reclaim_resource(*res);
+                    *res = std::ptr::null_mut();
+                }
+                0
+            })),
+            false,
+        );
+        assert!(child.is_ok());
+        let child = CResource::OwnedOnHeap(Rc::new(child.ok().unwrap()));
+        child.add_dependency(owner.clone());
+
+        assert!(owner.close_resource_deferred_if_shared().is_ok());
+        assert_eq!(0, close_count.load(Ordering::SeqCst));
+        assert!(!owner.get().is_null());
+
+        drop(owner);
+        drop(child);
+        assert_eq!(1, close_count.load(Ordering::SeqCst));
     }
+
+    #[test]
+    fn close_resource_deferral_is_retryable_if_owner_close_fails_after_dependent_drops() {
+        let close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
+        let close_count_for_cleanup = close_count.clone();
+        let owner_ptr = make_resource(70);
+        let child_ptr = make_resource(71);
+
+        let owner_cleanup = Some(Box::new(move |res: *mut *mut i32| -> i32 {
+            let count = close_count_for_cleanup.fetch_add(1, Ordering::SeqCst) + 1;
+            if count == 1 {
+                return -1;
+            }
+            unsafe {
+                reclaim_resource(*res);
+                *res = std::ptr::null_mut();
+            }
+            0
+        }) as CleanupBox<i32>);
+
+        let owner = ManagedCResource::new(
+            |res: *mut *mut i32| {
+                unsafe {
+                    *res = owner_ptr;
+                }
+                0
+            },
+            owner_cleanup,
+            false,
+        );
+        assert!(owner.is_ok());
+        let owner = CResource::OwnedOnHeap(Rc::new(owner.ok().unwrap()));
+        let owner_retry_handle = owner.clone();
+
+        let child = ManagedCResource::new(
+            |res: *mut *mut i32| {
+                unsafe {
+                    *res = child_ptr;
+                }
+                0
+            },
+            Some(Box::new(move |res| {
+                unsafe {
+                    reclaim_resource(*res);
+                    *res = std::ptr::null_mut();
+                }
+                0
+            })),
+            false,
+        );
+        assert!(child.is_ok());
+        let child = CResource::OwnedOnHeap(Rc::new(child.ok().unwrap()));
+        child.add_dependency(owner.clone());
+
+        assert!(owner.close_resource_deferred_if_shared().is_ok());
+        drop(owner);
+        drop(child);
+        assert_eq!(0, close_count.load(Ordering::SeqCst));
+        assert!(!owner_retry_handle.get().is_null());
+
+        assert!(owner_retry_handle.close_resource_deferred_if_shared().is_err());
+        assert_eq!(1, close_count.load(Ordering::SeqCst));
+        assert!(!owner_retry_handle.get().is_null());
+
+        assert!(owner_retry_handle.close_resource_deferred_if_shared().is_ok());
+        assert_eq!(2, close_count.load(Ordering::SeqCst));
+        assert!(owner_retry_handle.get().is_null());
+    }
+
+    #[test]
+    fn close_resource_propagates_failure_and_allows_retry() {
+        let close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
+        let close_count_for_cleanup = close_count.clone();
+        let resource_ptr = make_resource(50);
+
+        let cleanup = Some(Box::new(move |res: *mut *mut i32| -> i32 {
+            let count = close_count_for_cleanup.fetch_add(1, Ordering::SeqCst) + 1;
+            if count == 1 {
+                return -1;
+            }
+            unsafe {
+                reclaim_resource(*res);
+                *res = std::ptr::null_mut();
+            }
+            0
+        }) as CleanupBox<i32>);
+
+        let resource = ManagedCResource::new(
+            |res: *mut *mut i32| {
+                unsafe {
+                    *res = resource_ptr;
+                }
+                0
+            },
+            cleanup,
+            false,
+        );
+        assert!(resource.is_ok());
+        let resource = resource.ok().unwrap();
+        let handle = CResource::OwnedOnHeap(Rc::new(resource));
+
+        assert!(handle.close_resource().is_err());
+        assert_eq!(1, close_count.load(Ordering::SeqCst));
+        assert!(!handle.get().is_null());
+
+        assert!(handle.close_resource().is_ok());
+        assert_eq!(2, close_count.load(Ordering::SeqCst));
+        assert!(handle.get().is_null());
+    }
+
+    #[test]
+    fn close_resource_with_uses_custom_cleanup_once_across_clones() {
+        let default_close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
+        let custom_close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
+        let default_close_count_for_cleanup = default_close_count.clone();
+        let resource_ptr = make_resource(80);
+
+        let cleanup = Some(Box::new(move |res: *mut *mut i32| -> i32 {
+            default_close_count_for_cleanup.fetch_add(1, Ordering::SeqCst);
+            unsafe {
+                reclaim_resource(*res);
+                *res = std::ptr::null_mut();
+            }
+            0
+        }) as CleanupBox<i32>);
+
+        let resource = ManagedCResource::new(
+            |res: *mut *mut i32| {
+                unsafe {
+                    *res = resource_ptr;
+                }
+                0
+            },
+            cleanup,
+            false,
+        );
+        assert!(resource.is_ok());
+        let inner = Rc::new(resource.ok().unwrap());
+        let handle_one = CResource::OwnedOnHeap(inner.clone());
+        let handle_two = CResource::OwnedOnHeap(inner);
+
+        let custom_close_count_for_cleanup = custom_close_count.clone();
+        assert!(handle_one
+            .close_resource_with(move |res| {
+                custom_close_count_for_cleanup.fetch_add(1, Ordering::SeqCst);
+                unsafe {
+                    reclaim_resource(*res);
+                    *res = std::ptr::null_mut();
+                }
+                0
+            })
+            .is_ok());
+
+        assert_eq!(0, default_close_count.load(Ordering::SeqCst));
+        assert_eq!(1, custom_close_count.load(Ordering::SeqCst));
+        assert!(handle_one.get().is_null());
+        assert!(handle_two.get().is_null());
+
+        assert!(handle_two.close_resource().is_ok());
+        assert_eq!(0, default_close_count.load(Ordering::SeqCst));
+        assert_eq!(1, custom_close_count.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn close_resource_with_failure_restores_default_cleanup_for_retry() {
+        let default_close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
+        let custom_close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
+        let default_close_count_for_cleanup = default_close_count.clone();
+        let resource_ptr = make_resource(90);
+
+        let cleanup = Some(Box::new(move |res: *mut *mut i32| -> i32 {
+            default_close_count_for_cleanup.fetch_add(1, Ordering::SeqCst);
+            unsafe {
+                reclaim_resource(*res);
+                *res = std::ptr::null_mut();
+            }
+            0
+        }) as CleanupBox<i32>);
+
+        let resource = ManagedCResource::new(
+            |res: *mut *mut i32| {
+                unsafe {
+                    *res = resource_ptr;
+                }
+                0
+            },
+            cleanup,
+            false,
+        );
+        assert!(resource.is_ok());
+        let handle = CResource::OwnedOnHeap(Rc::new(resource.ok().unwrap()));
+
+        let custom_close_count_for_cleanup = custom_close_count.clone();
+        assert!(handle
+            .close_resource_with(move |_res| {
+                custom_close_count_for_cleanup.fetch_add(1, Ordering::SeqCst);
+                -1
+            })
+            .is_err());
+
+        assert_eq!(0, default_close_count.load(Ordering::SeqCst));
+        assert_eq!(1, custom_close_count.load(Ordering::SeqCst));
+        assert!(!handle.get().is_null());
+
+        assert!(handle.close_resource().is_ok());
+        assert_eq!(1, default_close_count.load(Ordering::SeqCst));
+        assert_eq!(1, custom_close_count.load(Ordering::SeqCst));
+        assert!(handle.get().is_null());
+    }
+
+    #[test]
+    fn close_resource_is_noop_for_stack_and_borrowed_resources() {
+        let mut borrowed_value = 10;
+        let borrowed = CResource::Borrowed(&mut borrowed_value as *mut i32);
+        assert!(borrowed.close_resource().is_ok());
+        assert_eq!(10, borrowed_value);
+
+        let stack = CResource::OwnedOnStack(std::mem::MaybeUninit::new(20));
+        assert!(stack.close_resource().is_ok());
+        assert_eq!(20, unsafe { *stack.get() });
+    }
+
+    // NOTE: test_drop_does_not_call_cleanup_if_check_for_is_closed_* removed
+    // because check_for_is_closed was deleted — the cleanup closure + Rc graph
+    // are now the sole teardown mechanism (see rusteron-code-gen/src/common.rs).
 }

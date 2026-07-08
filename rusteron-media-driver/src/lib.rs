@@ -37,6 +37,80 @@ unsafe impl Send for AeronDriverContext {}
 unsafe impl Sync for AeronDriver {}
 unsafe impl Send for AeronDriver {}
 
+/// RAII guard for an embedded media driver launched via
+/// [`AeronDriver::launch_embedded_guard`]. Signals stop on drop so the driver
+/// thread always joins even on panic / early return.
+pub struct EmbeddedMediaDriver {
+    stop: Option<Arc<AtomicBool>>,
+    handle: Option<JoinHandle<Result<(), AeronCError>>>,
+}
+
+impl EmbeddedMediaDriver {
+    /// Signal the driver thread to stop (idempotent; the thread exits on its next
+    /// idle cycle). Blocks until it joins when consumed by [`Self::join`].
+    pub fn stop(&self) {
+        if let Some(stop) = &self.stop {
+            stop.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// Whether the driver thread has finished.
+    pub fn is_finished(&self) -> bool {
+        self.handle.as_ref().map_or(true, |h| h.is_finished())
+    }
+
+    /// Signal stop and block until the driver thread joins, returning its result.
+    pub fn join(mut self) -> Result<(), AeronCError> {
+        self.stop();
+        if let Some(h) = self.handle.take() {
+            // Flatten JoinHandle<Result<..>>: a panic becomes an AeronCError,
+            // the inner AeronCError is propagated.
+            return h.join().map_err(|_| AeronCError::from_code(-1)).and_then(|r| r);
+        }
+        Ok(())
+    }
+}
+
+impl Drop for EmbeddedMediaDriver {
+    fn drop(&mut self) {
+        if let Some(stop) = &self.stop {
+            stop.store(true, Ordering::SeqCst);
+        }
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+}
+
+pub mod testing;
+
+impl AeronDriverContext {
+    /// Typed variant of [`Self::set_conductor_idle_strategy`].
+    pub fn set_conductor_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {
+        self.set_conductor_idle_strategy(kind.name_c())
+    }
+
+    /// Typed variant of [`Self::set_sender_idle_strategy`].
+    pub fn set_sender_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {
+        self.set_sender_idle_strategy(kind.name_c())
+    }
+
+    /// Typed variant of [`Self::set_receiver_idle_strategy`].
+    pub fn set_receiver_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {
+        self.set_receiver_idle_strategy(kind.name_c())
+    }
+
+    /// Typed variant of [`Self::set_sharednetwork_idle_strategy`].
+    pub fn set_sharednetwork_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {
+        self.set_sharednetwork_idle_strategy(kind.name_c())
+    }
+
+    /// Typed variant of [`Self::set_shared_idle_strategy`].
+    pub fn set_shared_idle_strategy_kind(&self, kind: AeronIdleStrategyKind) -> Result<i32, AeronCError> {
+        self.set_shared_idle_strategy(kind.name_c())
+    }
+}
+
 impl AeronDriver {
     pub fn launch_embedded(
         aeron_context: AeronDriverContext,
@@ -91,6 +165,20 @@ impl AeronDriver {
         (stop_copy, handle)
     }
 
+    /// Launch an embedded media driver, returning a RAII guard that stops the
+    /// driver on drop (so a panic or early return can't leak a driver process).
+    ///
+    /// Prefer this over [`Self::launch_embedded`], which returns a raw
+    /// `(Arc<AtomicBool>, JoinHandle)` tuple the caller must remember to drive.
+    /// `register_sigint` is `true` to mirror the standalone binary.
+    pub fn launch_embedded_guard(aeron_context: AeronDriverContext, register_sigint: bool) -> EmbeddedMediaDriver {
+        let (stop, handle) = Self::launch_embedded(aeron_context, register_sigint);
+        EmbeddedMediaDriver {
+            stop: Some(stop),
+            handle: Some(handle),
+        }
+    }
+
     /// if you have existing shm files and its before the driver timeout it will try to reuse it and fail
     /// this makes sure that if that is the case it will wait else it proceeds
     pub fn wait_for_previous_media_driver_to_timeout(aeron_context: &AeronDriverContext) {
@@ -131,6 +219,25 @@ mod tests {
     use std::os::raw::c_int;
     use std::sync::atomic::Ordering;
     use std::time::Duration;
+
+    #[test]
+    fn driver_idle_strategy_kinds_round_trip() {
+        let ctx = AeronDriverContext::new().unwrap();
+        for (kind, name) in [
+            (AeronIdleStrategyKind::Sleeping, "sleeping"),
+            (AeronIdleStrategyKind::Yielding, "yield"),
+            (AeronIdleStrategyKind::BusySpin, "spin"),
+            (AeronIdleStrategyKind::NoOp, "noop"),
+            (AeronIdleStrategyKind::Backoff, "backoff"),
+        ] {
+            ctx.set_conductor_idle_strategy_kind(kind).unwrap();
+            assert_eq!(name, ctx.get_conductor_idle_strategy(), "conductor {kind:?}");
+            ctx.set_sender_idle_strategy_kind(kind).unwrap();
+            ctx.set_receiver_idle_strategy_kind(kind).unwrap();
+            ctx.set_sharednetwork_idle_strategy_kind(kind).unwrap();
+            ctx.set_shared_idle_strategy_kind(kind).unwrap();
+        }
+    }
 
     #[test]
     fn version_check() {
@@ -180,8 +287,8 @@ mod tests {
             }
         }
 
-        let mut error_handler = Handler::leak(ErrorCount::default());
-        ctx.set_error_handler(Some(&error_handler))?;
+        let error_handler = Handler::new(ErrorCount::default());
+        ctx.set_error_handler(Some(error_handler.clone()))?;
 
         struct Test {}
         impl AeronAvailableCounterCallback for Test {
@@ -206,9 +313,9 @@ mod tests {
                 info!("on new publication {channel} {stream_id} {session_id} {correlation_id}")
             }
         }
-        let mut handler = Handler::leak(Test {});
-        ctx.set_on_available_counter(Some(&handler))?;
-        ctx.set_on_new_publication(Some(&handler))?;
+        let handler = Handler::new(Test {});
+        ctx.set_on_available_counter(Some(handler.clone()))?;
+        ctx.set_on_new_publication(Some(handler.clone()))?;
 
         client.start()?;
         info!("aeron driver started");
@@ -234,8 +341,6 @@ mod tests {
         drop(counter);
         drop(client);
         stop.store(true, Ordering::SeqCst);
-        error_handler.release();
-        handler.release();
 
         Ok(())
     }
@@ -246,27 +351,37 @@ mod tests {
 
         println!("{:#?}", ctx);
 
+        // Capture the raw context pointer, NOT a context clone: the handler is
+        // owned by `ctx` (set_agent_on_start_function stores it as a dependency),
+        // so a clone would form a strong-reference cycle (ctx -> handler -> ctx)
+        // that close_resource_deferred_if_shared can never drain, leaking the C
+        // context. The raw pointer is sound because the handler cannot outlive
+        // the context that owns it.
         struct AgentStartHandler {
-            ctx: AeronDriverContext,
+            ctx_ptr: *mut aeron_driver_context_t,
         }
+        // SAFETY: see comment above — handler is owned by the context and only
+        // dereferenced on the driver agent thread while the context is alive.
+        unsafe impl Send for AgentStartHandler {}
 
         impl AeronAgentStartFuncCallback for AgentStartHandler {
             fn handle_aeron_agent_on_start_func(&mut self, role: &str) -> () {
                 unsafe {
                     aeron_set_thread_affinity_on_start(
-                        self.ctx.get_inner() as *mut _,
+                        self.ctx_ptr as *mut _,
                         std::ffi::CString::new(role).unwrap().into_raw(),
                     );
                 }
             }
         }
 
-        let mut agent_handler = Handler::leak(AgentStartHandler { ctx: ctx.clone() });
-        ctx.set_agent_on_start_function(Some(&agent_handler))?;
+        let agent_handler = Handler::new(AgentStartHandler {
+            ctx_ptr: ctx.get_inner(),
+        });
+        ctx.set_agent_on_start_function(Some(agent_handler.clone()))?;
 
         println!("{:#?}", ctx);
 
-        agent_handler.release();
         Ok(())
     }
 }

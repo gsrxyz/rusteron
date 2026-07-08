@@ -24,6 +24,8 @@ pub mod bindings {
 use bindings::*;
 use std::cell::Cell;
 use std::os::raw::c_int;
+#[cfg(feature = "multi-threaded")]
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 /// Result codes returned by `AeronPublication::offer` / `try_claim` (Aeron `aeronc.h`). A positive
@@ -48,46 +50,6 @@ pub mod persistent_subscription_tests;
 
 include!(concat!(env!("OUT_DIR"), "/aeron.rs"));
 include!(concat!(env!("OUT_DIR"), "/aeron_custom.rs"));
-
-// Retryable / unrecoverable classification for Aeron errors. Lives in hand-written code rather
-// than the codegen `common.rs` because the generator drops methods that carry multi-line doc
-// comments. GenericError(-1) and Unknown(_) are intentionally neither — `-1` is Aeron's catch-all
-// and could mean anything, so the caller must decide (treat as fatal if unsure).
-impl AeronErrorType {
-    /// Transient — retry the operation (back off first): back-pressure, admin action, a full
-    /// client buffer, or a polling timeout.
-    pub fn is_retryable(&self) -> bool {
-        self == &AeronErrorType::PublicationBackPressured
-            || self == &AeronErrorType::PublicationAdminAction
-            || self == &AeronErrorType::ClientErrorBufferFull
-            || self == &AeronErrorType::TimedOut
-    }
-
-    /// Definitively terminal — retrying will not help: the publication is closed / exhausted /
-    /// errored, or the driver or client has timed out (effectively dead). Not exhaustive: an
-    /// ambiguous code (`GenericError` / `Unknown`) is neither retryable nor unrecoverable.
-    pub fn is_unrecoverable(&self) -> bool {
-        self == &AeronErrorType::PublicationClosed
-            || self == &AeronErrorType::PublicationMaxPositionExceeded
-            || self == &AeronErrorType::PublicationError
-            || self == &AeronErrorType::ClientErrorDriverTimeout
-            || self == &AeronErrorType::ClientErrorClientTimeout
-            || self == &AeronErrorType::ClientErrorConductorServiceTimeout
-    }
-}
-
-impl AeronCError {
-    /// Transient failure — retry the operation (back off first). See [`AeronErrorType::is_retryable`].
-    pub fn is_retryable(&self) -> bool {
-        self.kind().is_retryable()
-    }
-
-    /// Definitively terminal — abort the operation. See [`AeronErrorType::is_unrecoverable`].
-    /// Not exhaustive: ambiguous codes are neither retryable nor unrecoverable.
-    pub fn is_unrecoverable(&self) -> bool {
-        self.kind().is_unrecoverable()
-    }
-}
 
 pub type SourceLocation = bindings::aeron_archive_source_location_t;
 pub const SOURCE_LOCATION_LOCAL: aeron_archive_source_location_en = SourceLocation::AERON_ARCHIVE_SOURCE_LOCATION_LOCAL;
@@ -155,7 +117,7 @@ impl RecordingPos {
         //    etc...
         // only need the first 8 bytes to get the recordingId.
         let recording_id = Cell::new(-1);
-        counters_reader.foreach_counter_once(|value, id, type_id, key, label| {
+        counters_reader.foreach_counter_fn(|value, id, type_id, key, label| {
             if id == counter_id && type_id == RECORDING_POSITION_TYPE_ID {
                 let mut val = [0u8; 8];
                 val.copy_from_slice(&key[0..8]);
@@ -187,7 +149,7 @@ impl AeronArchive {
         // Uses record_count=i32::MAX to fetch all available recordings.
         let mut result = None;
         let mut count = 0;
-        self.list_recordings_once(&mut count, 0, i32::MAX, |desc| {
+        self.list_recordings_fn(&mut count, 0, i32::MAX, |desc| {
             let descriptor = self.descriptor_to_owned(&desc);
             if predicate(&descriptor) {
                 if result.is_none()
@@ -218,7 +180,7 @@ impl AeronArchive {
         // Uses record_count=i32::MAX to fetch all available recordings.
         let mut recordings = Vec::new();
         let mut count = 0;
-        self.list_recordings_once(&mut count, 0, i32::MAX, |desc| {
+        self.list_recordings_fn(&mut count, 0, i32::MAX, |desc| {
             let descriptor = self.descriptor_to_owned(&desc);
             if predicate(&descriptor) {
                 recordings.push(descriptor);
@@ -414,6 +376,9 @@ impl AeronArchivePersistentSubscription {
         // The C subscription now owns the context. Mark it already-closed so dropping
         // `ctx` frees the Rust bookkeeping without re-running the C context close.
         if let Some(inner) = ctx.inner.as_owned() {
+            #[cfg(feature = "multi-threaded")]
+            inner.close_already_called.store(true, Ordering::SeqCst);
+            #[cfg(not(feature = "multi-threaded"))]
             inner.close_already_called.set(true);
         }
 
@@ -427,7 +392,6 @@ impl AeronArchivePersistentSubscription {
                 aeron_archive_persistent_subscription_close(*ctx_field)
             })),
             true,
-            None,
         ) {
             Ok(r) => r,
             Err(e) => {
@@ -445,7 +409,7 @@ impl AeronArchivePersistentSubscription {
         }
 
         Ok(Self {
-            inner: CResource::OwnedOnHeap(std::rc::Rc::new(resource)),
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
         })
     }
 
@@ -630,7 +594,80 @@ mod tests {
     use super::*;
     use log::{error, info};
 
-    use crate::testing::EmbeddedArchiveMediaDriverProcess;
+    use crate::testing::{valgrind_timeout, EmbeddedArchiveMediaDriverProcess};
+
+    #[test]
+    fn archive_error_parse_extracts_error_code() {
+        // exact shape emitted by aeron_archive_client.c
+        let msg = "(-11) generic error, see message\n[aeron_archive_poll_for_response, aeron_archive_client.c:2105] response for correlationId=32, errorCode=5, error: unknown recording id: 424242\n";
+        let err = AeronArchiveError::parse(msg);
+        assert_eq!(err.code, AeronArchiveErrorCode::UnknownRecording);
+        assert!(err.message.contains("unknown recording id"));
+
+        assert_eq!(
+            AeronArchiveError::parse("errorCode=11, error: no space").code,
+            AeronArchiveErrorCode::StorageSpace
+        );
+        assert!(AeronArchiveError::parse("errorCode=11, x").code.is_resource_exhausted());
+        assert_eq!(
+            AeronArchiveError::parse("errorCode=99, ?").code,
+            AeronArchiveErrorCode::Unknown(99)
+        );
+        // no code present -> Generic
+        assert_eq!(
+            AeronArchiveError::parse("subscription to archive is not connected").code,
+            AeronArchiveErrorCode::Generic
+        );
+    }
+
+    #[test]
+    fn archive_error_codes_round_trip() {
+        for code in 0..=16 {
+            let parsed = AeronArchiveErrorCode::from_code(code);
+            assert_ne!(
+                parsed,
+                AeronArchiveErrorCode::Unknown(code),
+                "code {code} must map to a named variant"
+            );
+        }
+    }
+
+    /// Pins the enum to the aeron C header: every `ARCHIVE_ERROR_CODE_*` constant the
+    /// submodule defines must map to a named variant. When `just update-aeron-version`
+    /// pulls a release that adds or renumbers codes, this fails and points at the gap.
+    #[test]
+    fn archive_error_codes_match_the_c_header() {
+        let header = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/aeron/aeron-archive/src/main/c/client/aeron_archive.h"
+        ))
+        .expect("aeron submodule header missing");
+        let mut found = 0;
+        for line in header.lines() {
+            let Some(rest) = line.trim().strip_prefix("#define ARCHIVE_ERROR_CODE_") else {
+                continue;
+            };
+            let mut parts = rest.split_whitespace();
+            let name = parts.next().unwrap_or_default();
+            let value: i32 = parts
+                .next()
+                .unwrap_or_default()
+                .trim_matches(|c| c == '(' || c == ')')
+                .parse()
+                .unwrap_or_else(|_| panic!("unparseable value for ARCHIVE_ERROR_CODE_{name}"));
+            let parsed = AeronArchiveErrorCode::from_code(value);
+            assert_ne!(
+                parsed,
+                AeronArchiveErrorCode::Unknown(value),
+                "C header defines ARCHIVE_ERROR_CODE_{name} = {value} but AeronArchiveErrorCode has no variant for it"
+            );
+            found += 1;
+        }
+        assert!(
+            found >= 14,
+            "expected at least 14 ARCHIVE_ERROR_CODE_* defines, found {found}"
+        );
+    }
     use serial_test::serial;
     use std::cell::Cell;
     use std::error;
@@ -753,11 +790,11 @@ mod tests {
         {
             let context = AeronContext::new()?;
             context.set_dir(&media_driver.aeron_dir)?;
-            let mut error_handler = Handler::leak(ErrorCount::default());
-            context.set_error_handler(Some(&error_handler))?;
+            let error_handler = Handler::new(ErrorCount::default());
+            context.set_error_handler(Some(error_handler.clone()))?;
             context.set_driver_timeout_ms(60_000)?;
 
-            // Wrap fallible code so release() is always called even on error/panic
+            // Wrap fallible code so teardown ordering holds even on error/panic
             let inner: Result<(), AeronCError> = (|| {
                 let aeron = Aeron::new(&context)?;
                 aeron.start()?;
@@ -774,21 +811,18 @@ mod tests {
                     &source_archive_context.get_recording_events_channel().into_c_string(),
                 )?;
                 aeron_archive_context.set_message_timeout_ns(60_000_000_000)?;
-                aeron_archive_context.set_error_handler(Some(&error_handler))?;
+                aeron_archive_context.set_error_handler(Some(error_handler.clone()))?;
                 let merge_archive = AeronArchiveAsyncConnect::new_with_aeron(&aeron_archive_context, &aeron)?
                     .poll_blocking(Duration::from_secs(60))?;
                 replay_merge_subscription(&merge_archive, aeron.clone(), session_id)?;
                 Ok(())
             })();
 
-            error_handler.release();
             inner?;
         }
 
         running.store(false, Ordering::Release);
         publisher_thread.join().unwrap();
-        drop(archive);
-        drop(aeron);
         drop(media_driver);
 
         Ok(())
@@ -838,7 +872,7 @@ mod tests {
 
             while running.load(Ordering::Acquire) {
                 let message = format!("{}{}", MESSAGE_PREFIX, message_count);
-                while publication.offer(message.as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+                while publication.offer_raw(message.as_bytes(), Handlers::NONE) <= 0 {
                     thread::sleep(Duration::from_millis(10));
                 }
                 message_count += 1;
@@ -859,7 +893,7 @@ mod tests {
                 }
             }
             assert!(caught_up_count > 0);
-            if let Err(err) = publication.close(Handlers::no_notification_handler()) {
+            if let Err(err) = publication.close() {
                 info!("publisher close returned error: {err:?}");
             }
             info!("Publisher thread terminated");
@@ -900,7 +934,7 @@ mod tests {
 
         // let mut count = 0;
         // assert!(
-        //     archive.list_recordings_once(&mut count, 0, 1000, |descriptor| {
+        //     archive.list_recordings_fn(&mut count, 0, 1000, |descriptor| {
         //         info!("Recording descriptor: {:?}", descriptor);
         //         recording_id.set(descriptor.recording_id);
         //         start_position.set(descriptor.start_position);
@@ -925,8 +959,8 @@ mod tests {
         let subscription = aeron.add_subscription(
             &subscribe_channel,
             STREAM_ID,
-            Handlers::no_available_image_handler(),
-            Handlers::no_unavailable_image_handler(),
+            Handlers::NONE,
+            Handlers::NONE,
             Duration::from_secs(5),
         )?;
 
@@ -970,7 +1004,7 @@ mod tests {
         let mut reply_count = 0;
         while !replay_merge.is_merged() {
             assert!(!replay_merge.has_failed());
-            if replay_merge.poll_once(
+            if replay_merge.poll_fn(
                 |buffer, _header| {
                     reply_count += 1;
                     if reply_count % 10_000 == 0 {
@@ -998,12 +1032,6 @@ mod tests {
         assert!(!replay_merge.has_failed());
         assert!(replay_merge.is_live_added());
         assert!(reply_count > 10_000, "no replay-merge fragments received");
-        if let Err(err) = replay_merge.close() {
-            info!("replay merge close returned error: {err:?}");
-        }
-        if let Err(err) = subscription.close(Handlers::no_notification_handler()) {
-            info!("replay subscription close returned error: {err:?}");
-        }
         Ok(())
     }
 
@@ -1054,13 +1082,13 @@ mod tests {
 
         let aeron_context = AeronContext::new()?;
         aeron_context.set_dir(&aeron_dir.into_c_string())?;
-        aeron_context.set_client_name(&"test".into_c_string())?;
-        let mut pub_error_frame_handler = Handler::leak(AeronPublicationErrorFrameHandlerLogger);
-        aeron_context.set_publication_error_frame_handler(Some(&pub_error_frame_handler))?;
-        let mut error_handler = Handler::leak(ErrorCount::default());
-        aeron_context.set_error_handler(Some(&error_handler))?;
+        aeron_context.set_client_name(c"test")?;
+        let pub_error_frame_handler = Handler::new(AeronPublicationErrorFrameHandlerLogger);
+        aeron_context.set_publication_error_frame_handler(Some(pub_error_frame_handler.clone()))?;
+        let error_handler = Handler::new(ErrorCount::default());
+        aeron_context.set_error_handler(Some(error_handler.clone()))?;
 
-        // Use inner closure so we can call release() on any error path after handlers are created
+        // Use inner closure so teardown ordering holds on any error path after handlers are created
         let inner: Result<(Aeron, AeronArchiveContext), Box<dyn Error>> = (|| {
             let aeron = Aeron::new(&aeron_context)?;
             aeron.start()?;
@@ -1069,7 +1097,7 @@ mod tests {
             archive_context.set_control_request_channel(&request_control_channel.as_str().into_c_string())?;
             archive_context.set_control_response_channel(&response_control_channel.as_str().into_c_string())?;
             archive_context.set_recording_events_channel(&recording_events_channel.as_str().into_c_string())?;
-            archive_context.set_error_handler(Some(&error_handler))?;
+            archive_context.set_error_handler(Some(error_handler.clone()))?;
             Ok((aeron, archive_context))
         })();
 
@@ -1081,12 +1109,46 @@ mod tests {
                 pub_error_frame_handler,
                 error_handler,
             )),
-            Err(e) => {
-                pub_error_frame_handler.release();
-                error_handler.release();
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
+    }
+
+    /// Deep-graph close: closing a *clone* of the archive client defers the C close —
+    /// the original stays fully usable (control session intact, error polling clean).
+    #[test]
+    #[serial]
+    pub fn archive_clone_close_defers_and_original_remains_usable() -> Result<(), Box<dyn error::Error>> {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+        EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().expect("failed to kill all java processes");
+
+        let (aeron, archive_context, media_driver, pub_error_frame_handler, error_handler) = start_aeron_archive()?;
+
+        let test_result: Result<(), Box<dyn error::Error>> = (|| {
+            let archive = AeronArchiveAsyncConnect::new_with_aeron(&archive_context.clone(), &aeron)?
+                .poll_blocking(Duration::from_secs(30))
+                .expect("failed to connect to aeron archive media driver");
+
+            let session_id = archive.control_session_id();
+            let clone = archive.clone();
+            assert!(clone.close().is_ok());
+
+            // original remains fully usable after the clone's close
+            assert_eq!(session_id, archive.control_session_id());
+            assert!(archive.poll_for_error()?.is_none());
+            let subscription_id = archive.start_recording(AERON_IPC_STREAM, 42, SOURCE_LOCATION_LOCAL, true)?;
+            assert!(subscription_id >= 0);
+            archive.stop_recording_subscription(subscription_id)?;
+
+            assert!(archive.close().is_ok());
+            Ok(())
+        })();
+
+        drop(aeron);
+        drop(archive_context);
+        drop(media_driver);
+        drop(pub_error_frame_handler);
+        drop(error_handler);
+        test_result
     }
 
     #[test]
@@ -1095,8 +1157,7 @@ mod tests {
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().expect("failed to kill all java processes");
 
-        let (aeron, archive_context, media_driver, mut pub_error_frame_handler, mut error_handler) =
-            start_aeron_archive()?;
+        let (aeron, archive_context, media_driver, pub_error_frame_handler, error_handler) = start_aeron_archive()?;
 
         let test_result: Result<(), Box<dyn error::Error>> = (|| {
             assert!(!aeron.is_closed());
@@ -1123,7 +1184,7 @@ mod tests {
                 .poll_blocking(Duration::from_secs(5))?;
 
             for i in 0..11 {
-                while publication.offer("123456".as_bytes(), Handlers::no_reserved_value_supplier_handler()) <= 0 {
+                while publication.offer_raw("123456".as_bytes(), Handlers::NONE) <= 0 {
                     sleep(Duration::from_millis(50));
                     let err = archive.poll_for_error_response_as_string(4096)?;
                     if !err.is_empty() {
@@ -1180,7 +1241,7 @@ mod tests {
             let start = Instant::now();
             while start.elapsed() < Duration::from_secs(5) && found_recording_id.get() == -1 {
                 let mut count = 0;
-                archive.list_recordings_for_uri_once(
+                archive.list_recordings_for_uri_fn(
                     &mut count,
                     0,
                     i32::MAX,
@@ -1230,8 +1291,8 @@ mod tests {
             info!("archive id: {}", archive.get_archive_id());
 
             info!("add subscription {:?}", channel_replay);
-            let mut avail_image_handler = Handler::leak(AeronAvailableImageLogger);
-            let mut unavail_image_handler = Handler::leak(AeronUnavailableImageLogger);
+            let avail_image_handler = Handler::new(AeronAvailableImageLogger);
+            let unavail_image_handler = Handler::new(AeronUnavailableImageLogger);
             let replay_result: Result<(), Box<dyn error::Error>> = (|| {
                 let subscription = aeron
                     .async_add_subscription(
@@ -1256,7 +1317,7 @@ mod tests {
                     }
                 }
 
-                let mut poll = Handler::leak(FragmentHandler::default());
+                let poll = Handler::new(FragmentHandler::default());
                 let poll_result: Result<(), Box<dyn error::Error>> = (|| {
                     let wait_timeout = Duration::from_secs(30);
                     let start = Instant::now();
@@ -1284,77 +1345,60 @@ mod tests {
                 })();
 
                 drop(subscription);
-                poll.release();
                 poll_result
             })();
 
-            avail_image_handler.release();
-            unavail_image_handler.release();
             replay_result?;
-            drop(archive);
             Ok(())
         })();
 
         drop(aeron);
         drop(media_driver);
-        pub_error_frame_handler.release();
-        error_handler.release();
         test_result
     }
 
     #[test]
     #[serial]
     fn test_invalid_recording_channel() -> Result<(), Box<dyn Error>> {
-        let (aeron, archive_context, media_driver, mut pub_error_frame_handler, mut error_handler) =
-            start_aeron_archive()?;
+        let (aeron, archive_context, media_driver, pub_error_frame_handler, error_handler) = start_aeron_archive()?;
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context.clone(), &aeron)?;
         let archive = archive_connector
             .poll_blocking(Duration::from_secs(30))
             .expect("failed to connect to archive");
 
-        let invalid_channel = "invalid:channel".into_c_string();
+        let invalid_channel = c"invalid:channel";
         let result = archive.start_recording(&invalid_channel, STREAM_ID, SOURCE_LOCATION_LOCAL, true);
         assert!(
             result.is_err(),
             "Expected error when starting recording with an invalid channel"
         );
-        drop(archive);
-        drop(aeron);
         drop(media_driver);
-        pub_error_frame_handler.release();
-        error_handler.release();
         Ok(())
     }
 
     #[test]
     #[serial]
     fn test_stop_recording_on_nonexistent_channel() -> Result<(), Box<dyn Error>> {
-        let (aeron, archive_context, media_driver, mut pub_error_frame_handler, mut error_handler) =
-            start_aeron_archive()?;
+        let (aeron, archive_context, media_driver, pub_error_frame_handler, error_handler) = start_aeron_archive()?;
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context.clone(), &aeron)?;
         let archive = archive_connector
             .poll_blocking(Duration::from_secs(30))
             .expect("failed to connect to archive");
 
-        let nonexistent_channel = &"aeron:udp?endpoint=localhost:9999".into_c_string();
+        let nonexistent_channel = c"aeron:udp?endpoint=localhost:9999";
         let result = archive.stop_recording_channel_and_stream(nonexistent_channel, STREAM_ID);
         assert!(
             result.is_err(),
             "Expected error when stopping recording on a non-existent channel"
         );
-        drop(archive);
-        drop(aeron);
         drop(media_driver);
-        pub_error_frame_handler.release();
-        error_handler.release();
         Ok(())
     }
 
     #[test]
     #[serial]
     fn test_replay_with_invalid_recording_id() -> Result<(), Box<dyn Error>> {
-        let (aeron, archive_context, media_driver, mut pub_error_frame_handler, mut error_handler) =
-            start_aeron_archive()?;
+        let (aeron, archive_context, media_driver, pub_error_frame_handler, error_handler) = start_aeron_archive()?;
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context.clone(), &aeron)?;
         let archive = archive_connector
             .poll_blocking(Duration::from_secs(30))
@@ -1364,7 +1408,7 @@ mod tests {
         let params = AeronArchiveReplayParams::new(0, i32::MAX, 0, 100, 0, 0)?;
         let result = archive.start_replay(
             invalid_recording_id,
-            &"aeron:udp?endpoint=localhost:8888".into_c_string(),
+            c"aeron:udp?endpoint=localhost:8888",
             STREAM_ID,
             &params,
         );
@@ -1372,40 +1416,171 @@ mod tests {
             result.is_err(),
             "Expected error when starting replay with an invalid recording id"
         );
-        drop(archive);
-        drop(aeron);
         drop(media_driver);
-        pub_error_frame_handler.release();
-        error_handler.release();
         Ok(())
     }
 
     #[test]
     #[serial]
     fn test_archive_reconnect_after_close() -> Result<(), Box<dyn std::error::Error>> {
-        let (aeron, archive_context, media_driver, mut pub_error_frame_handler, mut error_handler) =
-            start_aeron_archive()?;
+        let (aeron, archive_context, media_driver, pub_error_frame_handler, error_handler) = start_aeron_archive()?;
         let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context.clone(), &aeron)?;
         let archive = archive_connector
             .poll_blocking(Duration::from_secs(30))
             .expect("failed to connect to archive");
 
-        drop(archive);
+        archive.close()?;
 
-        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?;
-        let new_archive = archive_connector
-            .poll_blocking(Duration::from_secs(30))
-            .expect("failed to reconnect to archive");
+        // Retry reconnection with exponential backoff to handle race condition
+        // where close() is async and the endpoint may still be CLOSING
+        let mut retry_delay = Duration::from_millis(100);
+        let max_retries = 10;
+        let mut new_archive = None;
+
+        for attempt in 0..max_retries {
+            let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?;
+            match archive_connector.poll_blocking(valgrind_timeout(5)) {
+                Ok(archive) => {
+                    new_archive = Some(archive);
+                    break;
+                }
+                Err(e) if attempt < max_retries - 1 => {
+                    // Check if error is about CLOSING state - retry with backoff
+                    let error_msg = e.to_string();
+                    if error_msg.contains("CLOSING") || error_msg.contains("temporarily unavailable") {
+                        std::thread::sleep(retry_delay);
+                        retry_delay = retry_delay.saturating_mul(2);
+                        continue;
+                    }
+                    // Other errors should fail immediately
+                    return Err(format!("Failed to reconnect to archive: {}", e).into());
+                }
+                Err(e) => {
+                    return Err(format!("Failed to reconnect to archive after {} retries: {}", max_retries, e).into());
+                }
+            }
+        }
+
+        let new_archive = new_archive.expect("failed to reconnect to archive after retries");
         assert!(
             new_archive.get_archive_id() > 0,
             "Reconnected archive should have a valid archive id"
         );
 
-        drop(new_archive);
-        drop(aeron);
         drop(media_driver);
-        pub_error_frame_handler.release();
-        error_handler.release();
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_archive_close_defers_with_live_clone() -> Result<(), Box<dyn std::error::Error>> {
+        let (aeron, archive_context, media_driver, pub_error_frame_handler, error_handler) = start_aeron_archive()?;
+        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?;
+        let archive = archive_connector
+            .poll_blocking(Duration::from_secs(30))
+            .expect("failed to connect to archive");
+        let archive_id = archive.get_archive_id();
+        assert!(archive_id > 0);
+
+        // Ordering 1: close clone first, original stays alive
+        let clone = archive.clone();
+        clone.close()?;
+        assert_eq!(
+            archive_id,
+            archive.get_archive_id(),
+            "clone close defers while original alive"
+        );
+
+        // Ordering 2: close original first, clone stays alive
+        let clone2 = archive.clone();
+        archive.close()?;
+        assert_eq!(
+            archive_id,
+            clone2.get_archive_id(),
+            "original close defers while clone alive"
+        );
+
+        drop(media_driver);
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn test_archive_close_does_not_close_aeron_client() -> Result<(), Box<dyn std::error::Error>> {
+        let (aeron, archive_context, media_driver, pub_error_frame_handler, error_handler) = start_aeron_archive()?;
+        let archive_connector = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?;
+        let archive = archive_connector
+            .poll_blocking(Duration::from_secs(30))
+            .expect("failed to connect to archive");
+
+        archive.close()?;
+
+        let publication = aeron
+            .add_publication(AERON_IPC_STREAM, 30, Duration::from_secs(5))
+            .expect("Aeron client should remain usable after archive close");
+        assert!(!publication.get_inner().is_null());
+        publication.close()?;
+
+        drop(media_driver);
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn close_now_after_all_archive_children_dropped_is_safe() -> Result<(), Box<dyn std::error::Error>> {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+        let (aeron, archive_context, media_driver, _pub_error_frame_handler, error_handler) = start_aeron_archive()?;
+
+        // Build a complex object graph: Aeron subscriptions, archive recording
+        let publication = aeron
+            .add_publication(AERON_IPC_STREAM, 30, Duration::from_secs(5))
+            .expect("add publication");
+
+        let subscription = aeron
+            .add_subscription(
+                AERON_IPC_STREAM,
+                30,
+                Handlers::NONE,
+                Handlers::NONE,
+                Duration::from_secs(5),
+            )
+            .expect("add subscription");
+
+        let archive = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?
+            .poll_blocking(Duration::from_secs(30))
+            .expect("failed to connect to archive");
+
+        let recording_id = archive
+            .start_recording(AERON_IPC_STREAM, 30, SOURCE_LOCATION_LOCAL, true)
+            .expect("start recording");
+
+        // Publish a few messages so the recording has content
+        for _ in 0..5 {
+            let _ = publication.offer(b"test data");
+        }
+
+        // Drop all Aeron and archive children before close_now
+        drop(subscription);
+        drop(publication);
+        // recording_id is just a u64, not a resource handle
+
+        // Call close_now on the archive — must not segfault or double-free
+        unsafe {
+            assert!(
+                archive.close_now().is_ok(),
+                "close_now should succeed after all children dropped"
+            );
+        }
+
+        // Aeron client should still be usable (archive close doesn't close aeron)
+        let pub2 = aeron
+            .add_publication(AERON_IPC_STREAM, 31, Duration::from_secs(5))
+            .expect("aeron still usable after archive close_now");
+        drop(pub2);
+        aeron.close()?;
+
+        drop(media_driver);
+        drop(error_handler);
         Ok(())
     }
 }
