@@ -24024,7 +24024,7 @@ pub trait AeronFprintfHandlerCallback {
         arg1: &str,
         arg2: u64,
         arg4: &str,
-        arg5: va_list,
+        arg5: *mut ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
 }
 pub struct AeronFprintfHandlerLogger;
@@ -24034,7 +24034,7 @@ impl AeronFprintfHandlerCallback for AeronFprintfHandlerLogger {
         arg1: &str,
         arg2: u64,
         arg4: &str,
-        arg5: va_list,
+        arg5: *mut ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int {
         log::info!(
             "{}({}\n)",
@@ -24054,14 +24054,16 @@ unsafe impl Send for AeronFprintfHandlerLogger {}
 unsafe impl Sync for AeronFprintfHandlerLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(&str, u64, &str, va_list) -> ::std::os::raw::c_int> AeronFprintfHandlerCallback for F {
+impl<F: FnMut(&str, u64, &str, *mut ::std::os::raw::c_char) -> ::std::os::raw::c_int> AeronFprintfHandlerCallback
+    for F
+{
     #[inline]
     fn handle_aeron_fprintf_handler(
         &mut self,
         arg1: &str,
         arg2: u64,
         arg4: &str,
-        arg5: va_list,
+        arg5: *mut ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int {
         self(arg1, arg2, arg4, arg5)
     }
@@ -24075,7 +24077,7 @@ impl<T: AeronFprintfHandlerCallback> AeronFprintfHandlerCallback for Handler<T> 
         arg1: &str,
         arg2: u64,
         arg4: &str,
-        arg5: va_list,
+        arg5: *mut ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_fprintf_handler(arg1, arg2, arg4, arg5)
@@ -24087,7 +24089,7 @@ impl AeronFprintfHandlerCallback for NoHandler {
         arg1: &str,
         arg2: u64,
         arg4: &str,
-        arg5: va_list,
+        arg5: *mut ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
     }
@@ -24139,7 +24141,7 @@ unsafe extern "C" fn aeron_fprintf_handler_t_callback<F: AeronFprintfHandlerCall
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_fprintf_handler_t_callback_for_once_closure<
-    F: FnMut(&str, u64, &str, va_list) -> ::std::os::raw::c_int,
+    F: FnMut(&str, u64, &str, *mut ::std::os::raw::c_char) -> ::std::os::raw::c_int,
 >(
     arg1: *const ::std::os::raw::c_char,
     arg2: u64,
