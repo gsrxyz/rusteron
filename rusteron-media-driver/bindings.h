@@ -5,4 +5,3 @@
 
 // Ensure callback typedefs are included
 #include "aeron_driver_context.h"
-#include "aeron_async_executor.h"// Force rebuild

@@ -1,6 +1,6 @@
 // Thin build script: all shared logic lives in rusteron-code-gen/src/build_common.rs,
 // include!d here so cfg!(feature) / env!(CARGO_MANIFEST_DIR) resolve against this crate.
-include!("../rusteron-code-gen/src/build_common.rs");
+include!("build_common.rs");
 
 // Unlike client/archive, the driver's aeron wrappers reference socket types
 // (sockaddr_storage, iovec, timespec, ...), so only pthread noise is dropped.
