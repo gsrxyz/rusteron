@@ -25,11 +25,7 @@ fn main() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let ws_root = manifest_dir.parent().expect("workspace root");
 
-    for crate_name in &[
-        "rusteron-client",
-        "rusteron-archive",
-        "rusteron-media-driver",
-    ] {
+    for crate_name in &["rusteron-client", "rusteron-archive", "rusteron-media-driver"] {
         let dst = ws_root.join(crate_name).join(dst_name);
         // Silently skip if the dir doesn't exist (e.g. crate not checked out).
         if dst.parent().map(|p| p.exists()).unwrap_or(false) {
