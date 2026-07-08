@@ -154,7 +154,7 @@ pub const AERON_SYSTEM_COUNTER_ID_PUBLICATION_IMAGES_REVOKED: u32 = 41;
 pub const AERON_SYSTEM_COUNTER_ID_IMAGES_REJECTED: u32 = 42;
 pub const AERON_SYSTEM_COUNTER_ID_CONTROL_PROTOCOL_VERSION: u32 = 43;
 pub const AERON_SYSTEM_COUNTER_ID_STATUS_MESSAGES_REJECTED: u32 = 44;
-pub const AERON_SYSTEM_COUNTER_ID_ASYNC_EXECUTOR_PROXY_FAILS: u32 = 45;
+pub const AERON_SYSTEM_COUNTER_ID_NATIVE_RESOURCE_AGENT_PROXY_FAILS: u32 = 45;
 pub const AERON_COUNTER_SYSTEM_COUNTER_TYPE_ID: u32 = 0;
 pub const AERON_COUNTER_PUBLISHER_LIMIT_NAME: &[u8; 8] = b"pub-lmt\0";
 pub const AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID: u32 = 1;
@@ -315,6 +315,10 @@ pub const AERON_COUNTER_SEQUENCER_REPLAY_INDEX_MAX_SEQUENCE_INDEX_COUNTER_TYPE_I
 pub const AERON_COUNTER_SEQUENCER_REPLAY_INDEX_MAX_SEQUENCE_LOG_POSITION_COUNTER_TYPE_ID: u32 = 523;
 pub const AERON_COUNTER_SEQUENCER_REPLAY_INDEX_INITIAL_SEQUENCE_INDEX_COUNTER_TYPE_ID: u32 = 524;
 pub const AERON_COUNTER_SEQUENCER_REPLAY_INDEX_INITIAL_SEQUENCE_LOG_POSITION_COUNTER_TYPE_ID: u32 = 525;
+pub const AERON_COUNTER_SEQUENCER_REPLAY_SERVICE_MAX_CYCLE_TIME_COUNTER_TYPE_ID: u32 = 545;
+pub const AERON_COUNTER_SEQUENCER_REPLAY_SERVICE_CYCLE_TIME_THRESHOLD_EXCEEDED_TYPE_ID: u32 = 546;
+pub const AERON_COUNTER_SEQUENCER_SNAPSHOT_SERVICE_MAX_CYCLE_TIME_COUNTER_TYPE_ID: u32 = 547;
+pub const AERON_COUNTER_SEQUENCER_SNAPSHOT_SERVICE_CYCLE_TIME_THRESHOLD_EXCEEDED_TYPE_ID: u32 = 548;
 pub const AERON_AGENT_STATE_UNUSED: u32 = 0;
 pub const AERON_AGENT_STATE_INITED: u32 = 1;
 pub const AERON_AGENT_STATE_STARTED: u32 = 2;
@@ -452,6 +456,7 @@ pub type __darwin_pthread_cond_t = _opaque_pthread_cond_t;
 pub type __darwin_pthread_mutex_t = _opaque_pthread_mutex_t;
 pub type __darwin_pthread_t = *mut _opaque_pthread_t;
 pub type pthread_attr_t = __darwin_pthread_attr_t;
+pub type va_list = __builtin_va_list;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct aeron_context_stct {
@@ -654,6 +659,33 @@ pub struct aeron_controlled_fragment_assembler_stct {
     _unused: [u8; 0],
 }
 pub type aeron_controlled_fragment_assembler_t = aeron_controlled_fragment_assembler_stct;
+unsafe extern "C" {
+    #[doc = " Global file writing method, allows for interposition"]
+    pub fn aeron_fprintf(
+        src_: *const ::std::os::raw::c_char,
+        line_: u64,
+        stream: *mut ::std::os::raw::c_void,
+        format: *const ::std::os::raw::c_char,
+        ...
+    ) -> ::std::os::raw::c_int;
+}
+pub type aeron_fprintf_handler_t = ::std::option::Option<
+    unsafe extern "C" fn(
+        arg1: *const ::std::os::raw::c_char,
+        arg2: u64,
+        arg3: *mut ::std::os::raw::c_void,
+        arg4: *const ::std::os::raw::c_char,
+        arg5: va_list,
+    ) -> ::std::os::raw::c_int,
+>;
+unsafe extern "C" {
+    #[doc = " update the fprintf_handler, return previously installed handler"]
+    pub fn aeron_set_fprintf_handler(fn_: aeron_fprintf_handler_t) -> aeron_fprintf_handler_t;
+}
+unsafe extern "C" {
+    #[doc = " return the fprintf_handler"]
+    pub fn aeron_get_fprintf_handler() -> aeron_fprintf_handler_t;
+}
 unsafe extern "C" {
     pub fn aeron_context_set_dir(
         context: *mut aeron_context_t,
@@ -2211,7 +2243,7 @@ unsafe extern "C" {
     pub fn aeron_image_position(image: *mut aeron_image_t) -> i64;
 }
 unsafe extern "C" {
-    #[doc = " Set the subscriber position for this image to indicate where it has been consumed to.\n\n @param image to set the position of.\n @param new_position for the consumption point."]
+    #[doc = " Set the subscriber position for this image to indicate where it has been consumed to.\n\n @param image to set the position of.\n @param new_position for the consumption point.\n @deprecated Will be removed in <code>1.53.0</code>."]
     pub fn aeron_image_set_position(image: *mut aeron_image_t, position: i64) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
@@ -2269,7 +2301,7 @@ unsafe extern "C" {
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    #[doc = " Peek for new messages in a stream by scanning forward from an initial position. If new messages are found then\n they will be delivered to the handler up to a limited position.\n <p>\n Use a controlled fragment assembler to assemble messages which span multiple fragments. Scans must also\n start at the beginning of a message so that the assembler is reset.\n\n @param image to peek.\n @param initial_position from which to peek forward.\n @param handler to which message fragments are delivered.\n @param clientd to pass to the handler.\n @param limit_position up to which can be scanned.\n @return the resulting position after the scan terminates which is a complete message or -1 for error."]
+    #[doc = " Peek for new messages in a stream by scanning forward from an initial position. If new messages are found then\n they will be delivered to the handler up to a limited position.\n <p>\n Use a controlled fragment assembler to assemble messages which span multiple fragments. Scans must also\n start at the beginning of a message so that the assembler is reset.\n\n @param image to peek.\n @param initial_position from which to peek forward.\n @param handler to which message fragments are delivered.\n @param clientd to pass to the handler.\n @param limit_position up to which can be scanned.\n @return the resulting position after the scan terminates which is a complete message or -1 for error.\n @deprecated Will be removed in <code>1.53.0</code>."]
     pub fn aeron_image_controlled_peek(
         image: *mut aeron_image_t,
         initial_position: i64,
@@ -2512,12 +2544,6 @@ unsafe extern "C" {
 unsafe extern "C" {
     #[doc = " Gets the registration id for addition of the publication. Note that using this after a call to poll the succeeds or\n errors is undefined behaviour. As the async_add_publication_t may have been freed.\n\n @param add_publication used to check for completion.\n @return registration id for the publication."]
     pub fn aeron_async_add_publication_get_registration_id(add_publication: *mut aeron_async_add_publication_t) -> i64;
-}
-unsafe extern "C" {
-    #[doc = " Gets the registration id for addition of the exclusive_publication. Note that using this after a call to poll the\n succeeds or errors is undefined behaviour. As the async_add_exclusive_publication_t may have been freed.\n\n @param add_exclusive_publication used to check for completion.\n @return registration id for the exclusive_publication.\n @deprecated Use aeron_async_add_exclusive_publication_get_registration_id instead."]
-    pub fn aeron_async_add_exclusive_exclusive_publication_get_registration_id(
-        add_exclusive_publication: *mut aeron_async_add_exclusive_publication_t,
-    ) -> i64;
 }
 unsafe extern "C" {
     #[doc = " Gets the registration id for addition of the exclusive_publication. Note that using this after a call to poll the\n succeeds or errors is undefined behaviour. As the async_add_exclusive_publication_t may have been freed.\n\n @param add_exclusive_publication used to check for completion.\n @return registration id for the exclusive_publication."]
@@ -3787,6 +3813,26 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn aeron_delete_file(path: *const ::std::os::raw::c_char) -> ::std::os::raw::c_int;
 }
+unsafe extern "C" {
+    pub fn aeron_realpath(
+        path: *const ::std::os::raw::c_char,
+        resolved_path: *mut ::std::os::raw::c_char,
+        resolved_path_len: usize,
+    ) -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn aeron_tmpdir(path: *mut ::std::os::raw::c_char, path_len: usize) -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn aeron_file_exists(path: *const ::std::os::raw::c_char) -> bool;
+}
+unsafe extern "C" {
+    pub fn aeron_ftell(stream: *mut ::std::os::raw::c_void) -> i64;
+}
+unsafe extern "C" {
+    #[doc = " Opens or creates a new file in append mode.  Will use 0644 permissions on Linux/Mac and default on Windows.\n\n @param path to the location on the file system.\n @return A FILE* pointer as a void* to reduce type dependencies.  Returns null on failure."]
+    pub fn aeron_open_file_append(path: *const ::std::os::raw::c_char) -> *mut ::std::os::raw::c_void;
+}
 pub type aeron_usable_fs_space_func_t =
     ::std::option::Option<unsafe extern "C" fn(path: *const ::std::os::raw::c_char) -> u64>;
 unsafe extern "C" {
@@ -3856,6 +3902,10 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn aeron_temp_filename(filename: *mut ::std::os::raw::c_char, length: usize) -> usize;
 }
+unsafe extern "C" {
+    #[doc = " Returns a new temporary directory, allocates the string which needs to be freed by the user.\n\n @param dir_template to be used to create the temporary directory.\n @return the new temporary path."]
+    pub fn aeron_temp_dir(dir_template: *const ::std::os::raw::c_char) -> *const ::std::os::raw::c_char;
+}
 pub type aeron_raw_log_map_func_t = ::std::option::Option<
     unsafe extern "C" fn(
         arg1: *mut aeron_mapped_raw_log_t,
@@ -3863,12 +3913,6 @@ pub type aeron_raw_log_map_func_t = ::std::option::Option<
         arg3: bool,
         arg4: u64,
         arg5: u64,
-    ) -> ::std::os::raw::c_int,
->;
-pub type aeron_raw_log_close_func_t = ::std::option::Option<
-    unsafe extern "C" fn(
-        arg1: *mut aeron_mapped_raw_log_t,
-        filename: *const ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int,
 >;
 pub type aeron_raw_log_free_func_t = ::std::option::Option<
@@ -3888,12 +3932,6 @@ unsafe extern "C" {
         mapped_raw_log: *mut aeron_mapped_raw_log_t,
         path: *const ::std::os::raw::c_char,
         pre_touch: bool,
-    ) -> ::std::os::raw::c_int;
-}
-unsafe extern "C" {
-    pub fn aeron_raw_log_close(
-        mapped_raw_log: *mut aeron_mapped_raw_log_t,
-        filename: *const ::std::os::raw::c_char,
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
@@ -4255,3 +4293,4 @@ unsafe extern "C" {
         address_vec_len: usize,
     ) -> ::std::os::raw::c_int;
 }
+pub type __builtin_va_list = *mut ::std::os::raw::c_char;

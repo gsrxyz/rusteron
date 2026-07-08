@@ -1,6 +1,6 @@
 // Thin build script: all shared logic lives in rusteron-code-gen/src/build_common.rs,
 // include!d here so cfg!(feature) / env!(CARGO_MANIFEST_DIR) resolve against this crate.
-include!("../rusteron-code-gen/src/build_common.rs");
+include!("build_common.rs");
 
 /// The archive C client needs the aeron jars (built via gradle) for its cmake build.
 fn run_gradle_build_if_missing(aeron_path: &Path) {
