@@ -24098,7 +24098,7 @@ unsafe extern "C" fn aeron_fprintf_handler_t_callback<F: AeronFprintfHandlerCall
     arg2: u64,
     arg3: *mut ::std::os::raw::c_void,
     arg4: *const ::std::os::raw::c_char,
-    arg5: va_list,
+    arg5: *mut ::std::os::raw::c_char,
 ) -> ::std::os::raw::c_int {
     #[cfg(debug_assertions)]
     if arg3.is_null() {
@@ -24145,7 +24145,7 @@ unsafe extern "C" fn aeron_fprintf_handler_t_callback_for_once_closure<
     arg2: u64,
     arg3: *mut ::std::os::raw::c_void,
     arg4: *const ::std::os::raw::c_char,
-    arg5: va_list,
+    arg5: *mut ::std::os::raw::c_char,
 ) -> ::std::os::raw::c_int {
     #[cfg(debug_assertions)]
     if arg3.is_null() {

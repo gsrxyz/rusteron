@@ -155,6 +155,16 @@ impl Arg {
     }
 
     pub fn as_type(&self) -> Type {
+        // bindgen maps C `va_list` to platform-specific opaque types (e.g.
+        // `__va_list_tag` on Linux, `VaListTag` on some platforms).  These
+        // are untouchable structs that never need a Rust repr — treat every
+        // occurrence as `*mut c_void` so the generated handler wrappers
+        // compile everywhere.
+        for needle in &["va_list", "__va_list_tag", "VaListTag", "__builtin_va_list"] {
+            if self.c_type.contains(needle) {
+                return parse_str("*mut ::std::os::raw::c_char").unwrap();
+            }
+        }
         parse_str(&self.c_type).expect("Invalid argument type")
     }
 }
