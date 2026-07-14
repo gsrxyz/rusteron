@@ -819,3 +819,40 @@
    fun:*AeronCncMetadata*load_from_file*
    fun:*rusteron_client*simple_large_send*
 }
+
+# Aeron 1.52.2: driver conductor leaks a publication allocation when resolving a
+# network publication with an invalid endpoint (error path in
+# aeron_driver_conductor_execute_add_network_publication_resolve_publication).
+# Pure Aeron C bug, not a rusteron leak.
+{
+   aeron_driver_conductor_network_publication_resolve_definite
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   fun:aeron_alloc
+   fun:aeron_driver_conductor_execute_add_network_publication_resolve_publication
+   fun:aeron_driver_conductor_execute_add_network_publication
+   ...
+   fun:aeron_driver_main_do_work
+   ...
+   fun:start_thread
+   fun:clone
+}
+
+# Aeron 1.52.2: new native-resource agent thread leaks a log-buffer mapping
+# allocation on shutdown (aeron_driver_native_resource_agent_on_map_log_buffer).
+# Pure Aeron C bug, not a rusteron leak.
+{
+   aeron_driver_native_resource_agent_map_log_buffer_definite
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   fun:aeron_alloc
+   fun:aeron_driver_native_resource_agent_on_map_log_buffer
+   fun:aeron_driver_native_resource_agent_on_command
+   fun:aeron_spsc_rb_read
+   fun:aeron_driver_native_resource_agent_do_work
+   fun:agent_main
+   fun:start_thread
+   fun:clone
+}
