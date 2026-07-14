@@ -77,13 +77,7 @@ impl LinkType {
     fn link_lib(&self) -> &'static str {
         match self {
             LinkType::Dynamic => "dylib=",
-            LinkType::Static => {
-                if cfg!(target_os = "linux") {
-                    "" // TODO not sure why I need to do this static= should work on linux based on documentation
-                } else {
-                    "static="
-                }
-            }
+            LinkType::Static => "static=",
         }
     }
 
@@ -218,8 +212,6 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     use proc_macro2::TokenStream;
     use rusteron_code_gen::{append_to_file, format_with_rustfmt};
 
-    let publish_binaries = std::env::var("PUBLISH_ARTIFACTS").is_ok();
-
     if pkg_config::probe_library("uuid").is_err() {
         eprintln!("uuid lib not found in path");
     }
@@ -254,11 +246,9 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     let mut cmake_config = Config::new(&aeron_path);
     if std::env::var("PROFILE").unwrap() == "release" {
         cmake_config.profile("Release");
-        let release_flags = if publish_binaries {
-            "-O3 -DNDEBUG -march=native -funroll-loops"
-        } else {
-            "-O3 -DNDEBUG -march=native -funroll-loops -flto"
-        };
+        // No -flto: cmake uses GCC which produces GCC LTO archives; rust-lld (LLVM)
+        // cannot link GCC LTO bitcode, causing undefined symbols at link time.
+        let release_flags = "-O3 -DNDEBUG -march=native -funroll-loops";
         cmake_config.define("CMAKE_CXX_FLAGS_RELEASE", release_flags);
         cmake_config.define("CMAKE_C_FLAGS_RELEASE", release_flags);
     } else {
