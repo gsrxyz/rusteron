@@ -212,7 +212,8 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     use proc_macro2::TokenStream;
     use rusteron_code_gen::{append_to_file, format_with_rustfmt};
 
-    let _publish_binaries = std::env::var("PUBLISH_ARTIFACTS").is_ok();
+    #[cfg(feature = "static")]
+    let publish_binaries = std::env::var("PUBLISH_ARTIFACTS").is_ok();
 
     if pkg_config::probe_library("uuid").is_err() {
         eprintln!("uuid lib not found in path");
