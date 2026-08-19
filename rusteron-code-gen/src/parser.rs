@@ -321,6 +321,10 @@ fn is_struct_typedef(ty: &syn::Type) -> bool {
 }
 
 fn process_struct(wrappers: &mut BTreeMap<String, CWrapper>, s: &ItemStruct, handler_names: &BTreeSet<String>) {
+    if !matches!(s.fields, syn::Fields::Named(_)) {
+        return;
+    }
+
     // Print the struct name and its doc comments
     let docs = get_doc_comments(&s.attrs);
     let type_name = s.ident.to_string().replace("_stct", "_t");
