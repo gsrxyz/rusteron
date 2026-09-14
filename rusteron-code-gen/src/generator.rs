@@ -2573,19 +2573,12 @@ pub fn generate_rust_code(
             // once `poll()` has ever returned `Ok(Some(_))` or `Err(_)`, this cleanup can no
             // longer fire — cancel() is never called on an already-resolved/consumed pointer,
             // whether that happens via `Drop` or an explicit `.cancel()` call afterwards.
-            // The cancel function's first argument is the *client* (`aeron_t *` /
-            // `aeron_archive_t *`), not the async struct, so the parser attaches it to the
-            // client's wrapper (`client_class`), not to this async wrapper — look it up there.
             let cancel_method_name = format!("{}_cancel", new_method.fn_name);
             let async_cancel_cleanup = if let (Some(cancel_method), Some(client_var)) = (
                 client_class.methods.iter().find(|m| m.fn_name == cancel_method_name),
                 async_client_var.clone(),
             ) {
                 let cancel_fn = format_ident!("{}", cancel_method.fn_name);
-                // `client_var` is a `&Aeron` borrow scoped to `new(...)`; the cleanup closure
-                // must be `'static` (it's held by the resource for as long as it lives), so
-                // clone the (Rc-backed) client handle into the closure instead of capturing the
-                // borrow.
                 let client_owned = format_ident!("{}_for_cancel", client_var);
                 Some(quote! {
                     {
