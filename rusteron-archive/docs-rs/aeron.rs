@@ -419,6 +419,10 @@ pub enum CResource<T> {
     OwnedOnStack(std::mem::MaybeUninit<T>),
     Borrowed(*mut T),
 }
+#[cfg(feature = "multi-threaded")]
+unsafe impl<T> Send for CResource<T> {}
+#[cfg(feature = "multi-threaded")]
+unsafe impl<T> Sync for CResource<T> {}
 impl<T: Clone> Clone for CResource<T> {
     fn clone(&self) -> Self {
         unsafe {

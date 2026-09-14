@@ -44,6 +44,17 @@ pub enum CResource<T> {
     Borrowed(*mut T),
 }
 
+// `CResource<T>` can't auto-derive `Send`/`Sync` because the `Borrowed(*mut T)`
+// and `OwnedOnStack(MaybeUninit<T>)` variants make that depend on `T: Send`/
+// `Sync`, which raw bindgen structs (e.g. `aeron_stct`, containing pointers)
+// never satisfy. Under `multi-threaded`, `OwnedOnHeap`'s refcount is `Arc`
+// (atomic) — same "accepted unsoundness" policy as the unconditional
+// `unsafe impl Send` on `ManagedCResource<T>` and the handle types below.
+#[cfg(feature = "multi-threaded")]
+unsafe impl<T> Send for CResource<T> {}
+#[cfg(feature = "multi-threaded")]
+unsafe impl<T> Sync for CResource<T> {}
+
 impl<T: Clone> Clone for CResource<T> {
     fn clone(&self) -> Self {
         // SAFETY: each branch only dereferences pointers/references that are

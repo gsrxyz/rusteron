@@ -644,11 +644,16 @@ impl AeronSubscription {
             .ok_or_else(|| AeronCError::with_message(-1, "subscription has no owning Aeron client"))?;
         let result = self.async_add_destination(&client, destination)?;
         if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
+            // Resolved: there's no C free for this resource once the driver acknowledges
+            // it, so mark it closed to satisfy the "must be explicitly closed" invariant
+            // instead of letting `Drop` log/panic (under `strict-lifecycle`) about a leak.
+            let _ = result.inner.close_resource();
             return Ok(());
         }
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
             if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
+                let _ = result.inner.close_resource();
                 return Ok(());
             }
             #[cfg(debug_assertions)]
@@ -685,11 +690,15 @@ impl AeronSubscription {
             .ok_or_else(|| AeronCError::with_message(-1, "subscription has no owning Aeron client"))?;
         let result = self.async_remove_destination(&client, destination)?;
         if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
+            // Resolved: see the comment in `add_destination` above — mark closed rather
+            // than letting `Drop` treat this as a leak.
+            let _ = result.inner.close_resource();
             return Ok(());
         }
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
             if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
+                let _ = result.inner.close_resource();
                 return Ok(());
             }
             #[cfg(debug_assertions)]
@@ -723,11 +732,16 @@ impl AeronExclusivePublication {
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_add_destination(&client, destination)?;
         if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
+            // Resolved: there's no C free for this resource once the driver acknowledges
+            // it, so mark it closed to satisfy the "must be explicitly closed" invariant
+            // instead of letting `Drop` log/panic (under `strict-lifecycle`) about a leak.
+            let _ = result.inner.close_resource();
             return Ok(());
         }
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
             if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
+                let _ = result.inner.close_resource();
                 return Ok(());
             }
             #[cfg(debug_assertions)]
@@ -764,11 +778,16 @@ impl AeronExclusivePublication {
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_remove_destination(&client, destination)?;
         if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
+            // Resolved: there's no C free for this resource once the driver acknowledges
+            // it, so mark it closed to satisfy the "must be explicitly closed" invariant
+            // instead of letting `Drop` log/panic (under `strict-lifecycle`) about a leak.
+            let _ = result.inner.close_resource();
             return Ok(());
         }
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
             if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
+                let _ = result.inner.close_resource();
                 return Ok(());
             }
             #[cfg(debug_assertions)]
@@ -795,7 +814,7 @@ impl AeronExclusivePublication {
     }
 
     /// Remove the destination identified by `destination_registration_id` (as returned by
-    /// [`AeronAsyncDestination::destination_registration_id`] after adding it), polling
+    /// [`AeronAsyncDestination::get_registration_id`] after adding it), polling
     /// until the driver acknowledges or `timeout` elapses. The owning [`Aeron`] client is
     /// retrieved automatically from the publication's dependency graph — pass it
     /// explicitly via [`Self::async_remove_destination_by_id`] only when you hold it
@@ -811,11 +830,16 @@ impl AeronExclusivePublication {
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_remove_destination_by_id(&client, destination_registration_id)?;
         if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
+            // Resolved: there's no C free for this resource once the driver acknowledges
+            // it, so mark it closed to satisfy the "must be explicitly closed" invariant
+            // instead of letting `Drop` log/panic (under `strict-lifecycle`) about a leak.
+            let _ = result.inner.close_resource();
             return Ok(());
         }
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
             if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
+                let _ = result.inner.close_resource();
                 return Ok(());
             }
             #[cfg(debug_assertions)]
@@ -851,11 +875,16 @@ impl AeronPublication {
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_add_destination(&client, destination)?;
         if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
+            // Resolved: there's no C free for this resource once the driver acknowledges
+            // it, so mark it closed to satisfy the "must be explicitly closed" invariant
+            // instead of letting `Drop` log/panic (under `strict-lifecycle`) about a leak.
+            let _ = result.inner.close_resource();
             return Ok(());
         }
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
             if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
+                let _ = result.inner.close_resource();
                 return Ok(());
             }
             #[cfg(debug_assertions)]
@@ -892,11 +921,16 @@ impl AeronPublication {
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_remove_destination(&client, destination)?;
         if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
+            // Resolved: there's no C free for this resource once the driver acknowledges
+            // it, so mark it closed to satisfy the "must be explicitly closed" invariant
+            // instead of letting `Drop` log/panic (under `strict-lifecycle`) about a leak.
+            let _ = result.inner.close_resource();
             return Ok(());
         }
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
             if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
+                let _ = result.inner.close_resource();
                 return Ok(());
             }
             #[cfg(debug_assertions)]
@@ -919,7 +953,7 @@ impl AeronPublication {
     }
 
     /// Remove the destination identified by `destination_registration_id` (as returned by
-    /// [`AeronAsyncDestination::destination_registration_id`] after adding it), polling
+    /// [`AeronAsyncDestination::get_registration_id`] after adding it), polling
     /// until the driver acknowledges or `timeout` elapses. The owning [`Aeron`] client is
     /// retrieved automatically from the publication's dependency graph — pass it
     /// explicitly via [`Self::async_remove_destination_by_id`] only when you hold it
@@ -935,11 +969,16 @@ impl AeronPublication {
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_remove_destination_by_id(&client, destination_registration_id)?;
         if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
+            // Resolved: there's no C free for this resource once the driver acknowledges
+            // it, so mark it closed to satisfy the "must be explicitly closed" invariant
+            // instead of letting `Drop` log/panic (under `strict-lifecycle`) about a leak.
+            let _ = result.inner.close_resource();
             return Ok(());
         }
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
             if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
+                let _ = result.inner.close_resource();
                 return Ok(());
             }
             #[cfg(debug_assertions)]

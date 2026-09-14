@@ -3712,6 +3712,258 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
+    /// Same drop-before-poll leak proof as
+    /// `dropping_unpolled_async_subscription_does_not_leak_driver_counter`, but for
+    /// `AeronAsyncAddPublication` — the publisher limit counter must never appear for a
+    /// registration id whose async add was dropped unpolled.
+    #[test]
+    #[serial]
+    fn dropping_unpolled_async_publication_does_not_leak_driver_counter() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let stream_id = 1910;
+        let registration_id = {
+            let poller = aeron.async_add_publication(AERON_IPC_STREAM, stream_id).unwrap();
+            let registration_id = poller.get_registration_id();
+            drop(poller); // never polled
+            registration_id
+        };
+
+        // Freeing an already-materialised publication's counter goes through the same
+        // driver-side unlink+linger machinery as a normal close, so (unlike the
+        // subscription-position counter, which never appears at all here because nothing
+        // ever connects) give it a few seconds to actually disappear rather than expecting
+        // it to be instantaneous.
+        let counters = aeron.counters_reader();
+        let start = Instant::now();
+        let mut leaked_counter = None;
+        while start.elapsed() < Duration::from_secs(5) {
+            leaked_counter = counters
+                .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, registration_id);
+            if leaked_counter.is_none() {
+                break;
+            }
+            sleep(Duration::from_millis(50));
+        }
+        assert!(
+            leaked_counter.is_none(),
+            "publication for registration_id={registration_id} is still registered with the \
+             driver even though the async poller was dropped before poll() ever resolved it"
+        );
+
+        // client stays fully usable afterwards
+        let publisher = aeron
+            .add_publication(AERON_IPC_STREAM, stream_id, Duration::from_secs(5))
+            .unwrap();
+        assert!(!publisher.get_inner().is_null());
+        drop(publisher);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// Same drop-before-poll leak proof, but for `AeronAsyncAddExclusivePublication`.
+    #[test]
+    #[serial]
+    fn dropping_unpolled_async_exclusive_publication_does_not_leak_driver_counter() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let stream_id = 1911;
+        let registration_id = {
+            let poller = aeron
+                .async_add_exclusive_publication(AERON_IPC_STREAM, stream_id)
+                .unwrap();
+            let registration_id = poller.get_registration_id();
+            drop(poller); // never polled
+            registration_id
+        };
+
+        // Same rationale as the publication test above: give the driver-side unlink a
+        // few seconds instead of expecting it to be instantaneous.
+        let counters = aeron.counters_reader();
+        let start = Instant::now();
+        let mut leaked_counter = None;
+        while start.elapsed() < Duration::from_secs(5) {
+            leaked_counter = counters
+                .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, registration_id);
+            if leaked_counter.is_none() {
+                break;
+            }
+            sleep(Duration::from_millis(50));
+        }
+        assert!(
+            leaked_counter.is_none(),
+            "exclusive publication for registration_id={registration_id} is still registered \
+             with the driver even though the async poller was dropped before poll() ever \
+             resolved it"
+        );
+
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// Same drop-before-poll leak proof, but for `AeronAsyncAddCounter` — a user counter's
+    /// key buffer (not the registration id) is the only thing we control, so match on the
+    /// exact key bytes instead of `find_by_type_and_registration_id`.
+    #[test]
+    #[serial]
+    fn dropping_unpolled_async_counter_does_not_leak_driver_counter() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let type_id = 987_654;
+        let key_buffer = [0xABu8, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89];
+        {
+            let poller = aeron
+                .async_add_counter(type_id, &key_buffer, "leak-test-counter")
+                .unwrap();
+            drop(poller); // never polled
+        }
+
+        let counters = aeron.counters_reader();
+        let start = Instant::now();
+        let mut leaked_counter = None;
+        while start.elapsed() < Duration::from_secs(2) {
+            if let Some(counter) = counters.find_by_type_id(type_id, |key| key == key_buffer) {
+                leaked_counter = Some(counter);
+                break;
+            }
+            sleep(Duration::from_millis(20));
+        }
+        assert!(
+            leaked_counter.is_none(),
+            "user counter is still registered with the driver even though the async poller \
+             was dropped before poll() ever resolved it"
+        );
+
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// Explicit `.cancel()` for `AeronAsyncAddPublication`, `AeronAsyncAddExclusivePublication`
+    /// and `AeronAsyncAddCounter` must behave like the subscription case: idempotent, and a
+    /// no-op once `poll()` has already resolved.
+    #[test]
+    #[serial]
+    fn async_add_publication_exclusive_publication_and_counter_cancel_is_explicit_idempotent_and_inert_after_resolve() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        // publication: explicit cancel before resolve is idempotent and releases the counter
+        {
+            let stream_id = 1912;
+            let poller = aeron.async_add_publication(AERON_IPC_STREAM, stream_id).unwrap();
+            let registration_id = poller.get_registration_id();
+            poller.cancel().expect("explicit cancel should succeed");
+            poller.cancel().expect("second cancel must be a harmless no-op");
+
+            let counters = aeron.counters_reader();
+            let start = Instant::now();
+            let mut still_present = counters
+                .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, registration_id);
+            while still_present.is_some() && start.elapsed() < Duration::from_secs(5) {
+                sleep(Duration::from_millis(50));
+                still_present = counters
+                    .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, registration_id);
+            }
+            assert!(
+                still_present.is_none(),
+                "explicit .cancel() should release the pending publication registration"
+            );
+            drop(poller); // must not re-cancel / panic after two explicit cancels
+        }
+
+        // exclusive publication: cancel after a resolved poll() must be inert
+        {
+            let stream_id = 1913;
+            let poller = aeron
+                .async_add_exclusive_publication(AERON_IPC_STREAM, stream_id)
+                .unwrap();
+            let publication = {
+                let start = Instant::now();
+                loop {
+                    if let Some(publication) = poller.poll().unwrap() {
+                        break publication;
+                    }
+                    assert!(start.elapsed() < Duration::from_secs(5), "poll() never resolved");
+                    sleep(Duration::from_millis(10));
+                }
+            };
+            poller
+                .cancel()
+                .expect(".cancel() after a resolved poll() must be a harmless no-op");
+            drop(poller);
+            assert!(
+                !publication.get_inner().is_null(),
+                "cancel()/drop after poll() resolved must not tear down the live publication"
+            );
+            drop(publication);
+        }
+
+        // counter: explicit cancel before resolve is idempotent
+        {
+            let type_id = 987_655;
+            let key_buffer = [1u8, 2, 3, 4, 5, 6, 7, 8];
+            let poller = aeron
+                .async_add_counter(type_id, &key_buffer, "explicit-cancel-counter")
+                .unwrap();
+            poller.cancel().expect("explicit cancel should succeed");
+            poller.cancel().expect("second cancel must be a harmless no-op");
+            drop(poller);
+
+            let counters = aeron.counters_reader();
+            assert!(
+                counters.find_by_type_id(type_id, |key| key == key_buffer).is_none(),
+                "explicit .cancel() should release the pending counter registration"
+            );
+        }
+
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// A failed async add (invalid URI) must fail cleanly for publications too: the error
+    /// surfaces from `poll()`, later polls are inert (no use-after-free), the auto-cancel
+    /// cleanup path must not double-free the C struct the errored poll already released,
+    /// and the client stays fully usable afterwards. Mirrors
+    /// `async_add_subscription_invalid_uri_fails_cleanly` for the publication side.
+    #[test]
+    #[serial]
+    fn async_add_publication_invalid_uri_fails_cleanly() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let bad_uri = c"aeron:udp?endpoint=not-a-real-host:0|interface=500.500.500.500";
+        match aeron.async_add_publication(bad_uri, 1622) {
+            Err(_) => {} // rejected synchronously — fine
+            Ok(poller) => {
+                let mut saw_error = false;
+                let start = Instant::now();
+                while start.elapsed() < Duration::from_secs(5) {
+                    match poller.poll() {
+                        Err(_) => {
+                            saw_error = true;
+                            break;
+                        }
+                        Ok(Some(_)) => panic!("publication must not be created for an invalid uri"),
+                        Ok(None) => sleep(Duration::from_millis(10)),
+                    }
+                }
+                assert!(saw_error, "poll should surface the async add error");
+                // the C client freed the async struct on the errored poll; further polls
+                // must be inert, and the eventual drop must not re-cancel a freed pointer
+                assert!(matches!(poller.poll(), Ok(None)));
+                assert!(matches!(poller.poll(), Ok(None)));
+                drop(poller);
+            }
+        }
+
+        // client unaffected: normal roundtrip still works
+        let publisher = aeron
+            .add_publication(AERON_IPC_STREAM, 1623, Duration::from_secs(5))
+            .unwrap();
+        assert!(!publisher.get_inner().is_null());
+        drop(publisher);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
     /// Round-trips issue #59's `remove_destination` helper: adding then removing a
     /// destination on a manual-control-mode (MDS) subscription must both succeed, and
     /// calling it for a destination that was never added must resolve cleanly (not panic
