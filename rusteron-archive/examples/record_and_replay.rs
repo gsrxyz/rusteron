@@ -15,7 +15,7 @@
 //! See the archive README and the upstream sample
 //! <https://github.com/aeron-io/aeron/tree/main/aeron-samples/src/main/java/io/aeron/samples/archive>.
 
-use rusteron_archive::testing::{find_unused_udp_port, EmbeddedArchiveMediaDriverProcess};
+use rusteron_archive::testing::{EmbeddedArchiveMediaDriverProcess, find_unused_udp_port};
 use rusteron_archive::*;
 use std::thread::sleep;
 use std::time::{Duration, Instant};

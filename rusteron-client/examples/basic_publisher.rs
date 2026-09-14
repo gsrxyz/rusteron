@@ -12,8 +12,8 @@
 
 use rusteron_client::*;
 use rusteron_media_driver::testing::EmbeddedDriver;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 const CHANNEL: &std::ffi::CStr = c"aeron:udp?endpoint=localhost:40123";

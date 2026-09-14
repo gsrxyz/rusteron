@@ -54,7 +54,7 @@ jobs:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     name: Memory Check (Valgrind)
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -169,7 +169,7 @@ jobs:
       fail-fast: false  # one flaky job (e.g. archive integration tests on macOS) must not cancel the matrix and hide results from other platforms/features
       matrix:
 #        os: [ubuntu-latest, macos-latest, windows-latest]
-        os: [ubuntu-22.04, macos-latest]
+        os: [ubuntu-22.04, ubuntu-22.04-arm, macos-latest]
         features: [default, static, multi-threaded]
         rust-version: ["stable"]
 
@@ -226,7 +226,7 @@ jobs:
         # manual_close_required Drop gate). Catches the Box::leak-class bug at
         # test time on Linux CI. Only on ubuntu+default to avoid multiplying the
         # matrix — the panic path is platform-independent.
-        if: matrix.os == 'ubuntu-22.04' && matrix.features == 'default'
+        if: (matrix.os == 'ubuntu-22.04' || matrix.os == 'ubuntu-22.04-arm') && matrix.features == 'default'
         run: |
           cargo test -p rusteron-client --features strict-lifecycle --lib -- --nocapture
 

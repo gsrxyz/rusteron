@@ -44,6 +44,9 @@ pub enum CResource<T> {
     Borrowed(*mut T),
 }
 
+// `CResource<T>` deliberately does NOT implement `Send`/`Sync` here — not even
+// bounded on `T: Send`/`Sync`
+
 impl<T: Clone> Clone for CResource<T> {
     fn clone(&self) -> Self {
         // SAFETY: each branch only dereferences pointers/references that are
@@ -80,6 +83,17 @@ impl<T> CResource<T> {
             }
         }
     }
+
+    /// Test-only: see [`ManagedCResource::dependency_len`].
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn dependency_len(&self) -> usize {
+        match self {
+            CResource::OwnedOnHeap(r) => r.dependency_len(),
+            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => 0,
+        }
+    }
+
     #[inline]
     pub fn get_dependency<V: Clone + 'static>(&self) -> Option<V> {
         match self {
@@ -222,17 +236,6 @@ impl<T> std::fmt::Debug for ManagedCResource<T> {
     }
 }
 
-// Under `multi-threaded` the refcount is `Arc` (atomic), so `Send` is sound.
-// `Sync` enables sharing `&Handle` across threads for the C-documented
-// thread-safe operations (offer / try_claim / position). The `UnsafeCell`
-// fields are only mutated during construction and close (single-threaded),
-// never during the shared-read window — same "accepted unsoundness" policy
-// as the unconditional `unsafe impl Send` on the handle types.
-#[cfg(feature = "multi-threaded")]
-unsafe impl<T> Send for ManagedCResource<T> {}
-#[cfg(feature = "multi-threaded")]
-unsafe impl<T> Sync for ManagedCResource<T> {}
-
 impl<T> ManagedCResource<T> {
     /// Creates a new ManagedCResource with a given initializer and cleanup function.
     ///
@@ -374,7 +377,7 @@ impl<T> ManagedCResource<T> {
     /// alive while the returned `&mut` is in use.
     #[inline(always)]
     pub unsafe fn get_mut(&self) -> &mut T {
-        &mut *self.get()
+        unsafe { &mut *self.get() }
     }
 
     #[inline]
@@ -424,6 +427,22 @@ impl<T> ManagedCResource<T> {
     #[inline]
     pub fn is_resource_released(&self) -> bool {
         self.get_resource_released()
+    }
+
+    /// Test-only: number of dependencies currently anchored on this resource (e.g. via
+    /// [`Self::add_dependency`]). Used to document/measure dependency-list growth — see
+    /// `handler_dependencies_on_client_grow_with_subscriptions_and_reset_on_client_drop`.
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn dependency_len(&self) -> usize {
+        #[cfg(not(feature = "multi-threaded"))]
+        unsafe {
+            (*self.dependencies.get()).len()
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.dependencies.lock().unwrap().len()
+        }
     }
 
     #[inline]
@@ -870,6 +889,34 @@ impl std::error::Error for AeronOfferError {}
 /// the value is guaranteed to outlive the C side's use of it. No manual
 /// `release()` is needed.
 ///
+/// ## Async close: why the handler must outlive the resource, not just the call
+///
+/// The C close for a resource holding one of these handlers (e.g.
+/// `aeron_subscription_close`) is **asynchronous** — it only requests the close;
+/// the conductor thread may still fire the callback (e.g. `on_available_image`)
+/// after `close()`/`drop` has already returned on the calling thread. Freeing the
+/// handler's value as soon as the Rust-side handle is dropped would therefore
+/// risk a use-after-free from that still-in-flight callback.
+///
+/// 0.2.x solves this by cloning the `Handler` into the *client's* dependency
+/// list (not just the subscription's) when the callback is registered — see the
+/// docs on `async_add_subscription` and friends. That keeps the value alive for
+/// the client's entire lifetime, independent of when any individual subscription
+/// or resource closes, so there is no window where the conductor thread can call
+/// into a freed handler. The trade-off is that handler clones accumulate on the
+/// client's dependency list for as long as the client lives (each is just one
+/// small `Arc` clone per registration, dropped in bulk when the client itself
+/// drops).
+///
+/// This differs from the Aeron C++ wrapper, which instead stores the handler
+/// inside the `AsyncAddSubscription` object and deletes it as the *final* step
+/// of `on_cmd_close_subscription`, i.e. it ties the handler's lifetime to the
+/// close actually completing on the conductor thread, rather than to the client.
+/// That avoids the unbounded accumulation this crate accepts, at the cost of a
+/// conductor-side hook. If you are migrating C++ code that assumed
+/// close-then-immediately-free semantics, be aware 0.2.x's handlers instead live
+/// until the client drops.
+///
 /// # Heap vs stack — when to reach for `Handler` vs a `*_fn` / `*_once` method
 ///
 /// | Callback kind | Where the closure lives | API |
@@ -962,7 +1009,7 @@ impl<T> Handler<T> {
     /// Caller must ensure that no other references to the inner value are active.
     #[inline(always)]
     pub unsafe fn get_mut(&self) -> &mut T {
-        &mut *self.inner.get()
+        unsafe { &mut *self.inner.get() }
     }
 }
 
@@ -1115,18 +1162,18 @@ pub(crate) mod test_alloc {
     unsafe impl GlobalAlloc for TrackingAllocator {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
             self.allocs.fetch_add(1, Ordering::SeqCst);
-            System.alloc(layout)
+            unsafe { System.alloc(layout) }
         }
         unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
             self.allocs.fetch_sub(1, Ordering::SeqCst);
-            System.dealloc(ptr, layout)
+            unsafe { System.dealloc(ptr, layout) }
         }
         unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
             self.allocs.fetch_add(1, Ordering::SeqCst);
-            System.alloc_zeroed(layout)
+            unsafe { System.alloc_zeroed(layout) }
         }
         unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-            System.realloc(ptr, layout, new_size)
+            unsafe { System.realloc(ptr, layout, new_size) }
         }
     }
 

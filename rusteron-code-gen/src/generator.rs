@@ -3,11 +3,11 @@ use crate::get_possible_wrappers;
 use crate::snake_to_pascal_case;
 use itertools::Itertools;
 use proc_macro2::{Ident, TokenStream};
-use quote::{format_ident, quote, ToTokens};
+use quote::{ToTokens, format_ident, quote};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ops::Deref;
 use std::str::FromStr;
-use syn::{parse_str, ImplItem, Item, Type};
+use syn::{ImplItem, Item, Type, parse_str};
 
 pub const COMMON_CODE: &str = include_str!("common.rs");
 pub const CLIENT_BINDINGS: &str = include_str!("../bindings/client.rs");
@@ -1103,16 +1103,33 @@ impl CWrapper {
             .filter(|m| m.arguments.iter().any(|arg| arg.is_double_mut_pointer()))
             .map(|method| {
                 let init_fn = format_ident!("{}", method.fn_name);
-                let close_method = self.find_close_method(method);
-                let found_close = close_method.is_some()
-                    && close_method.unwrap().return_type.is_c_raw_int()
-                    && close_method.unwrap() != method
-                    && close_method
-                        .unwrap()
-                        .arguments
-                        .iter()
-                        .skip(1)
-                        .all(|a| method.arguments.iter().any(|a2| a.name == a2.name));
+
+                // `_add_destination`/`_remove_destination[_by_id]` are constructor-style
+                // methods (double-mut-pointer output) that don't have a real C "close"/
+                // "destroy" counterpart to pair with — each is a standalone async op polled
+                // to completion via `..._destination_poll`, and (per the doc comment on
+                // `cleanup_tokens` below) must NOT auto-invoke its sibling on drop. Treat
+                // them as trivially "having a close method" (of themselves, unused — see
+                // `cleanup_tokens` forcing `None` for any `_destination` method) so they are
+                // still eligible for constructor generation without requiring a matching
+                // pair to exist
+                let is_destination_add_or_remove = method.fn_name.contains("_async_add_destination")
+                    || method.fn_name.contains("_async_remove_destination");
+                let close_method = self.find_close_method(method).or(if is_destination_add_or_remove {
+                    Some(method)
+                } else {
+                    None
+                });
+                let found_close = is_destination_add_or_remove
+                    || (close_method.is_some()
+                        && close_method.unwrap().return_type.is_c_raw_int()
+                        && close_method.unwrap() != method
+                        && close_method
+                            .unwrap()
+                            .arguments
+                            .iter()
+                            .skip(1)
+                            .all(|a| method.arguments.iter().any(|a2| a.name == a2.name)));
                 if found_close {
                     let close_fn = format_ident!("{}", close_method.unwrap().fn_name);
                     let init_args: Vec<TokenStream> = method
@@ -1544,8 +1561,9 @@ impl CWrapper {
     fn find_close_method(&self, method: &Method) -> Option<&Method> {
         let mut close_method = None;
 
-        // must have init, create or add method name
-        if ["_init", "_create", "_add"]
+        // must have init, create, add or remove method name. `_remove` is needed so
+        // that e.g. `aeron_publication_async_remove_destination`
+        if ["_init", "_create", "_add", "_remove"]
             .iter()
             .all(|find| !method.fn_name.contains(find))
         {
@@ -1553,14 +1571,22 @@ impl CWrapper {
         }
 
         for name in ["_destroy", "_delete"] {
-            let close_fn = format_ident!(
-                "{}",
-                method
-                    .fn_name
-                    .replace("_init", "_close")
-                    .replace("_create", name)
-                    .replace("_add_", "_remove_")
-            );
+            let mut candidate = method.fn_name.replace("_init", "_close").replace("_create", name);
+            if method.fn_name.contains("_remove_") {
+                // symmetric case: a `_remove_` method (e.g. `..._async_remove_destination`,
+                // or its `..._remove_destination_by_id` sibling — which has no `_add_..._by_id`
+                // counterpart, so drop the `_by_id` suffix before pairing) looks for its
+                // paired `_add_` method (e.g. `..._async_add_destination`) so `found_close`
+                // can be satisfied for it too. This is purely a "does a plausible pair
+                // exist" heuristic gate — it does NOT wire remove_destination as
+                // add_destination's cleanup closure or vice versa; `cleanup_tokens` below
+                // always forces `None` for any `_destination` method regardless of what
+                // this resolves to.
+                candidate = candidate.trim_end_matches("_by_id").replace("_remove_", "_add_");
+            } else {
+                candidate = candidate.replace("_add_", "_remove_");
+            }
+            let close_fn = format_ident!("{}", candidate);
             let method = self.methods.iter().find(|m| close_fn.to_string().contains(&m.fn_name));
             if method.is_some() {
                 close_method = method;
@@ -2454,6 +2480,13 @@ pub fn generate_rust_code(
                 })
                 .collect_vec();
 
+            // The `Aeron` client argument, if any — needed both to keep retained handlers
+            // alive (above) and to call `..._cancel(client, async)` on drop/`.cancel()` below.
+            let async_client_var: Option<Ident> = async_new_args
+                .iter()
+                .find(|a| a.to_string().contains(" : Aeron") || a.to_string().contains(" : & Aeron"))
+                .map(|a| format_ident!("{}", a.to_string().split_whitespace().next().unwrap()));
+
             let mut async_handler_deps: Vec<TokenStream> =
                 CWrapper::handler_dependency_registrations(&new_method.arguments);
 
@@ -2534,6 +2567,62 @@ pub fn generate_rust_code(
                 quote! { None }
             };
 
+            // Safety: `ManagedCResource::mark_resource_released()` (called by `poll()` on every
+            // terminal outcome — success or a real error) already nulls the stored pointer, and
+            // `close_shared()` only invokes the cleanup closure when the pointer is non-null. So
+            // once `poll()` has ever returned `Ok(Some(_))` or `Err(_)`, this cleanup can no
+            // longer fire — cancel() is never called on an already-resolved/consumed pointer,
+            // whether that happens via `Drop` or an explicit `.cancel()` call afterwards.
+            let cancel_method_name = format!("{}_cancel", new_method.fn_name);
+            let async_cancel_cleanup = if let (Some(cancel_method), Some(client_var)) = (
+                client_class.methods.iter().find(|m| m.fn_name == cancel_method_name),
+                async_client_var.clone(),
+            ) {
+                let cancel_fn = format_ident!("{}", cancel_method.fn_name);
+                let client_owned = format_ident!("{}_for_cancel", client_var);
+                Some(quote! {
+                    {
+                        let #client_owned = #client_var.clone();
+                        Some(Box::new(move |ptr| unsafe {
+                            log::warn!(
+                                "auto-cancelling {} (poll() never resolved it before drop/cancel) to avoid leaking the pending Aeron registration",
+                                stringify!(#async_class_name)
+                            );
+                            #cancel_fn(#client_owned.get_inner(), *ptr)
+                        }))
+                    }
+                })
+            } else {
+                None
+            };
+            let async_new_cleanup_tokens = async_cancel_cleanup.clone().unwrap_or(quote! { None });
+            let has_cancel_method = async_cancel_cleanup.is_some();
+
+            let cancel_method_impl = if has_cancel_method {
+                quote! {
+                    #[doc = r"Cancels this in-progress operation, releasing the pending Aeron"]
+                    #[doc = r"registration instead of waiting for `poll()`/`poll_blocking()` to"]
+                    #[doc = r"resolve it or for this value to be dropped (dropping an unresolved"]
+                    #[doc = r"poller does this automatically — this is only needed to give up"]
+                    #[doc = r"earlier than the drop would happen naturally)."]
+                    #[doc = r""]
+                    #[doc = r"A no-op if `poll()` has already returned a terminal result (`Some`"]
+                    #[doc = r"or an `Err`) — cancelling after that point would either be invalid"]
+                    #[doc = r"(the C struct is no longer valid) or unnecessary (nothing pending"]
+                    #[doc = r"left to cancel)."]
+                    #[inline]
+                    pub fn cancel(&self) -> Result<(), AeronCError> {
+                        if let Some(inner) = self.inner.as_owned() {
+                            inner.close_shared()
+                        } else {
+                            Ok(())
+                        }
+                    }
+                }
+            } else {
+                quote! {}
+            };
+
             quote! {
                     impl #main_class_name {
                         #[inline]
@@ -2557,6 +2646,29 @@ pub fn generate_rust_code(
                     }
 
                     impl #client_type {
+                        #[doc = r"# Handler lifetime and async close"]
+                        #[doc = r""]
+                        #[doc = r"If this call takes a [`Handler`], the C close for the resulting resource"]
+                        #[doc = r"(e.g. `aeron_subscription_close`) is **asynchronous** — the conductor thread"]
+                        #[doc = r"may still invoke the handler's callback (e.g. `on_available_image`) after"]
+                        #[doc = r"`close()`/`drop` has already returned on the calling thread. Releasing the"]
+                        #[doc = r"handler's value immediately on close would risk a use-after-free from that"]
+                        #[doc = r"still-in-flight callback."]
+                        #[doc = r""]
+                        #[doc = r"To make this safe without requiring the caller to track it, this method"]
+                        #[doc = r"stores a clone of the owning [`Aeron`] client as a *dependency* on the"]
+                        #[doc = r"resource being created — which transitively keeps every [`Handler`] clone"]
+                        #[doc = r"already registered as a dependency of that resource alive for as long as"]
+                        #[doc = r"the client itself lives, regardless of when the resource closes. No manual"]
+                        #[doc = r"`release()` call is needed."]
+                        #[doc = r""]
+                        #[doc = r"This differs from the Aeron C++ wrapper, which instead frees the handler"]
+                        #[doc = r"as the final step of `on_cmd_close_subscription` on the conductor thread —"]
+                        #[doc = r"i.e. it ties the handler's lifetime to the close completing, not to the"]
+                        #[doc = r"client. Rusteron's approach is simpler and avoids needing a conductor-side"]
+                        #[doc = r"hook, but it means handler dependencies accumulate on the client's"]
+                        #[doc = r"dependency list for the client's lifetime (they are small `Arc` clones, one"]
+                        #[doc = r"per call, and are only dropped when the client itself drops)."]
                         #[inline]
                         pub fn #client_type_method_name #where_clause_async(&self, #(#async_new_args_for_client),*) -> Result<#async_class_name, AeronCError> {
                             let mut result =  #async_class_name::new(self, #(#async_new_args_name_only),*);
@@ -2625,7 +2737,7 @@ pub fn generate_rust_code(
                                     }
                                     #new_method_name(#(#async_init_args),*)
                                 },
-                                None,
+                                #async_new_cleanup_tokens,
                                 false,
                             )?;
                             let result = Self {
@@ -2681,6 +2793,8 @@ pub fn generate_rust_code(
                                 }
                             }
                         }
+
+                        #cancel_method_impl
 
                         #[doc = r"Polls synchronously until the async operation completes or `timeout` elapses."]
                         #[doc = r""]

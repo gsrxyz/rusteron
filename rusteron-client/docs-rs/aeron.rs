@@ -448,6 +448,15 @@ impl<T> CResource<T> {
             }
         }
     }
+    #[doc = " Test-only: see [`ManagedCResource::dependency_len`]."]
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn dependency_len(&self) -> usize {
+        match self {
+            CResource::OwnedOnHeap(r) => r.dependency_len(),
+            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => 0,
+        }
+    }
     #[inline]
     pub fn get_dependency<V: Clone + 'static>(&self) -> Option<V> {
         match self {
@@ -575,10 +584,6 @@ impl<T> std::fmt::Debug for ManagedCResource<T> {
         debug.field("type", &std::any::type_name::<T>()).finish()
     }
 }
-#[cfg(feature = "multi-threaded")]
-unsafe impl<T> Send for ManagedCResource<T> {}
-#[cfg(feature = "multi-threaded")]
-unsafe impl<T> Sync for ManagedCResource<T> {}
 impl<T> ManagedCResource<T> {
     #[doc = " Creates a new ManagedCResource with a given initializer and cleanup function."]
     #[doc = ""]
@@ -704,7 +709,7 @@ impl<T> ManagedCResource<T> {
     #[doc = " alive while the returned `&mut` is in use."]
     #[inline(always)]
     pub unsafe fn get_mut(&self) -> &mut T {
-        &mut *self.get()
+        unsafe { &mut *self.get() }
     }
     #[inline]
     pub fn add_dependency<D: std::any::Any>(&self, dep: D) {
@@ -750,6 +755,21 @@ impl<T> ManagedCResource<T> {
     #[inline]
     pub fn is_resource_released(&self) -> bool {
         self.get_resource_released()
+    }
+    #[doc = " Test-only: number of dependencies currently anchored on this resource (e.g. via"]
+    #[doc = " [`Self::add_dependency`]). Used to document/measure dependency-list growth — see"]
+    #[doc = " `handler_dependencies_on_client_grow_with_subscriptions_and_reset_on_client_drop`."]
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn dependency_len(&self) -> usize {
+        #[cfg(not(feature = "multi-threaded"))]
+        unsafe {
+            (*self.dependencies.get()).len()
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.dependencies.lock().unwrap().len()
+        }
     }
     #[inline]
     pub fn mark_resource_released(&self) {
@@ -1136,6 +1156,34 @@ impl std::error::Error for AeronOfferError {}
 #[doc = " the value is guaranteed to outlive the C side's use of it. No manual"]
 #[doc = " `release()` is needed."]
 #[doc = ""]
+#[doc = " ## Async close: why the handler must outlive the resource, not just the call"]
+#[doc = ""]
+#[doc = " The C close for a resource holding one of these handlers (e.g."]
+#[doc = " `aeron_subscription_close`) is **asynchronous** — it only requests the close;"]
+#[doc = " the conductor thread may still fire the callback (e.g. `on_available_image`)"]
+#[doc = " after `close()`/`drop` has already returned on the calling thread. Freeing the"]
+#[doc = " handler's value as soon as the Rust-side handle is dropped would therefore"]
+#[doc = " risk a use-after-free from that still-in-flight callback."]
+#[doc = ""]
+#[doc = " 0.2.x solves this by cloning the `Handler` into the *client's* dependency"]
+#[doc = " list (not just the subscription's) when the callback is registered — see the"]
+#[doc = " docs on `async_add_subscription` and friends. That keeps the value alive for"]
+#[doc = " the client's entire lifetime, independent of when any individual subscription"]
+#[doc = " or resource closes, so there is no window where the conductor thread can call"]
+#[doc = " into a freed handler. The trade-off is that handler clones accumulate on the"]
+#[doc = " client's dependency list for as long as the client lives (each is just one"]
+#[doc = " small `Arc` clone per registration, dropped in bulk when the client itself"]
+#[doc = " drops)."]
+#[doc = ""]
+#[doc = " This differs from the Aeron C++ wrapper, which instead stores the handler"]
+#[doc = " inside the `AsyncAddSubscription` object and deletes it as the *final* step"]
+#[doc = " of `on_cmd_close_subscription`, i.e. it ties the handler's lifetime to the"]
+#[doc = " close actually completing on the conductor thread, rather than to the client."]
+#[doc = " That avoids the unbounded accumulation this crate accepts, at the cost of a"]
+#[doc = " conductor-side hook. If you are migrating C++ code that assumed"]
+#[doc = " close-then-immediately-free semantics, be aware 0.2.x's handlers instead live"]
+#[doc = " until the client drops."]
+#[doc = ""]
 #[doc = " # Heap vs stack — when to reach for `Handler` vs a `*_fn` / `*_once` method"]
 #[doc = ""]
 #[doc = " | Callback kind | Where the closure lives | API |"]
@@ -1216,7 +1264,7 @@ impl<T> Handler<T> {
     #[doc = " Caller must ensure that no other references to the inner value are active."]
     #[inline(always)]
     pub unsafe fn get_mut(&self) -> &mut T {
-        &mut *self.inner.get()
+        unsafe { &mut *self.inner.get() }
     }
 }
 impl<T> Deref for Handler<T> {
@@ -1350,18 +1398,18 @@ pub(crate) mod test_alloc {
     unsafe impl GlobalAlloc for TrackingAllocator {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
             self.allocs.fetch_add(1, Ordering::SeqCst);
-            System.alloc(layout)
+            unsafe { System.alloc(layout) }
         }
         unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
             self.allocs.fetch_sub(1, Ordering::SeqCst);
-            System.dealloc(ptr, layout)
+            unsafe { System.dealloc(ptr, layout) }
         }
         unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
             self.allocs.fetch_add(1, Ordering::SeqCst);
-            System.alloc_zeroed(layout)
+            unsafe { System.alloc_zeroed(layout) }
         }
         unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-            System.realloc(ptr, layout, new_size)
+            unsafe { System.realloc(ptr, layout, new_size) }
         }
     }
     #[global_allocator]
@@ -1716,6 +1764,29 @@ impl AeronCounter {
     }
 }
 impl Aeron {
+    #[doc = r"# Handler lifetime and async close"]
+    #[doc = r""]
+    #[doc = r"If this call takes a [`Handler`], the C close for the resulting resource"]
+    #[doc = r"(e.g. `aeron_subscription_close`) is **asynchronous** — the conductor thread"]
+    #[doc = r"may still invoke the handler's callback (e.g. `on_available_image`) after"]
+    #[doc = r"`close()`/`drop` has already returned on the calling thread. Releasing the"]
+    #[doc = r"handler's value immediately on close would risk a use-after-free from that"]
+    #[doc = r"still-in-flight callback."]
+    #[doc = r""]
+    #[doc = r"To make this safe without requiring the caller to track it, this method"]
+    #[doc = r"stores a clone of the owning [`Aeron`] client as a *dependency* on the"]
+    #[doc = r"resource being created — which transitively keeps every [`Handler`] clone"]
+    #[doc = r"already registered as a dependency of that resource alive for as long as"]
+    #[doc = r"the client itself lives, regardless of when the resource closes. No manual"]
+    #[doc = r"`release()` call is needed."]
+    #[doc = r""]
+    #[doc = r"This differs from the Aeron C++ wrapper, which instead frees the handler"]
+    #[doc = r"as the final step of `on_cmd_close_subscription` on the conductor thread —"]
+    #[doc = r"i.e. it ties the handler's lifetime to the close completing, not to the"]
+    #[doc = r"client. Rusteron's approach is simpler and avoids needing a conductor-side"]
+    #[doc = r"hook, but it means handler dependencies accumulate on the client's"]
+    #[doc = r"dependency list for the client's lifetime (they are small `Arc` clones, one"]
+    #[doc = r"per call, and are only dropped when the client itself drops)."]
     #[inline]
     pub fn async_add_counter(
         &self,
@@ -1805,7 +1876,16 @@ impl AeronAsyncAddCounter {
                     label_buffer.len(),
                 )
             },
-            None,
+            {
+                let client_for_cancel = client.clone();
+                Some(Box::new(move |ptr| unsafe {
+                    log::warn!(
+                        "auto-cancelling {} (poll() never resolved it before drop/cancel) to avoid leaking the pending Aeron registration",
+                        stringify!(AeronAsyncAddCounter)
+                    );
+                    aeron_async_add_counter_cancel(client_for_cancel.get_inner(), *ptr)
+                }))
+            },
             false,
         )?;
         let result = Self {
@@ -1848,6 +1928,24 @@ impl AeronAsyncAddCounter {
                 }
                 Err(e)
             }
+        }
+    }
+    #[doc = r"Cancels this in-progress operation, releasing the pending Aeron"]
+    #[doc = r"registration instead of waiting for `poll()`/`poll_blocking()` to"]
+    #[doc = r"resolve it or for this value to be dropped (dropping an unresolved"]
+    #[doc = r"poller does this automatically — this is only needed to give up"]
+    #[doc = r"earlier than the drop would happen naturally)."]
+    #[doc = r""]
+    #[doc = r"A no-op if `poll()` has already returned a terminal result (`Some`"]
+    #[doc = r"or an `Err`) — cancelling after that point would either be invalid"]
+    #[doc = r"(the C struct is no longer valid) or unnecessary (nothing pending"]
+    #[doc = r"left to cancel)."]
+    #[inline]
+    pub fn cancel(&self) -> Result<(), AeronCError> {
+        if let Some(inner) = self.inner.as_owned() {
+            inner.close_shared()
+        } else {
+            Ok(())
         }
     }
     #[doc = r"Polls synchronously until the async operation completes or `timeout` elapses."]
@@ -2064,6 +2162,29 @@ impl AeronExclusivePublication {
     }
 }
 impl Aeron {
+    #[doc = r"# Handler lifetime and async close"]
+    #[doc = r""]
+    #[doc = r"If this call takes a [`Handler`], the C close for the resulting resource"]
+    #[doc = r"(e.g. `aeron_subscription_close`) is **asynchronous** — the conductor thread"]
+    #[doc = r"may still invoke the handler's callback (e.g. `on_available_image`) after"]
+    #[doc = r"`close()`/`drop` has already returned on the calling thread. Releasing the"]
+    #[doc = r"handler's value immediately on close would risk a use-after-free from that"]
+    #[doc = r"still-in-flight callback."]
+    #[doc = r""]
+    #[doc = r"To make this safe without requiring the caller to track it, this method"]
+    #[doc = r"stores a clone of the owning [`Aeron`] client as a *dependency* on the"]
+    #[doc = r"resource being created — which transitively keeps every [`Handler`] clone"]
+    #[doc = r"already registered as a dependency of that resource alive for as long as"]
+    #[doc = r"the client itself lives, regardless of when the resource closes. No manual"]
+    #[doc = r"`release()` call is needed."]
+    #[doc = r""]
+    #[doc = r"This differs from the Aeron C++ wrapper, which instead frees the handler"]
+    #[doc = r"as the final step of `on_cmd_close_subscription` on the conductor thread —"]
+    #[doc = r"i.e. it ties the handler's lifetime to the close completing, not to the"]
+    #[doc = r"client. Rusteron's approach is simpler and avoids needing a conductor-side"]
+    #[doc = r"hook, but it means handler dependencies accumulate on the client's"]
+    #[doc = r"dependency list for the client's lifetime (they are small `Arc` clones, one"]
+    #[doc = r"per call, and are only dropped when the client itself drops)."]
     #[inline]
     pub fn async_add_exclusive_publication(
         &self,
@@ -2148,7 +2269,16 @@ impl AeronAsyncAddExclusivePublication {
                 }
                 aeron_async_add_exclusive_publication(ctx_field, client.into(), uri.as_ptr(), stream_id.into())
             },
-            None,
+            {
+                let client_for_cancel = client.clone();
+                Some(Box::new(move |ptr| unsafe {
+                    log::warn!(
+                        "auto-cancelling {} (poll() never resolved it before drop/cancel) to avoid leaking the pending Aeron registration",
+                        stringify!(AeronAsyncAddExclusivePublication)
+                    );
+                    aeron_async_add_exclusive_publication_cancel(client_for_cancel.get_inner(), *ptr)
+                }))
+            },
             false,
         )?;
         let result = Self {
@@ -2191,6 +2321,24 @@ impl AeronAsyncAddExclusivePublication {
                 }
                 Err(e)
             }
+        }
+    }
+    #[doc = r"Cancels this in-progress operation, releasing the pending Aeron"]
+    #[doc = r"registration instead of waiting for `poll()`/`poll_blocking()` to"]
+    #[doc = r"resolve it or for this value to be dropped (dropping an unresolved"]
+    #[doc = r"poller does this automatically — this is only needed to give up"]
+    #[doc = r"earlier than the drop would happen naturally)."]
+    #[doc = r""]
+    #[doc = r"A no-op if `poll()` has already returned a terminal result (`Some`"]
+    #[doc = r"or an `Err`) — cancelling after that point would either be invalid"]
+    #[doc = r"(the C struct is no longer valid) or unnecessary (nothing pending"]
+    #[doc = r"left to cancel)."]
+    #[inline]
+    pub fn cancel(&self) -> Result<(), AeronCError> {
+        if let Some(inner) = self.inner.as_owned() {
+            inner.close_shared()
+        } else {
+            Ok(())
         }
     }
     #[doc = r"Polls synchronously until the async operation completes or `timeout` elapses."]
@@ -2398,6 +2546,29 @@ impl AeronPublication {
     }
 }
 impl Aeron {
+    #[doc = r"# Handler lifetime and async close"]
+    #[doc = r""]
+    #[doc = r"If this call takes a [`Handler`], the C close for the resulting resource"]
+    #[doc = r"(e.g. `aeron_subscription_close`) is **asynchronous** — the conductor thread"]
+    #[doc = r"may still invoke the handler's callback (e.g. `on_available_image`) after"]
+    #[doc = r"`close()`/`drop` has already returned on the calling thread. Releasing the"]
+    #[doc = r"handler's value immediately on close would risk a use-after-free from that"]
+    #[doc = r"still-in-flight callback."]
+    #[doc = r""]
+    #[doc = r"To make this safe without requiring the caller to track it, this method"]
+    #[doc = r"stores a clone of the owning [`Aeron`] client as a *dependency* on the"]
+    #[doc = r"resource being created — which transitively keeps every [`Handler`] clone"]
+    #[doc = r"already registered as a dependency of that resource alive for as long as"]
+    #[doc = r"the client itself lives, regardless of when the resource closes. No manual"]
+    #[doc = r"`release()` call is needed."]
+    #[doc = r""]
+    #[doc = r"This differs from the Aeron C++ wrapper, which instead frees the handler"]
+    #[doc = r"as the final step of `on_cmd_close_subscription` on the conductor thread —"]
+    #[doc = r"i.e. it ties the handler's lifetime to the close completing, not to the"]
+    #[doc = r"client. Rusteron's approach is simpler and avoids needing a conductor-side"]
+    #[doc = r"hook, but it means handler dependencies accumulate on the client's"]
+    #[doc = r"dependency list for the client's lifetime (they are small `Arc` clones, one"]
+    #[doc = r"per call, and are only dropped when the client itself drops)."]
     #[inline]
     pub fn async_add_publication(
         &self,
@@ -2477,7 +2648,16 @@ impl AeronAsyncAddPublication {
                 }
                 aeron_async_add_publication(ctx_field, client.into(), uri.as_ptr(), stream_id.into())
             },
-            None,
+            {
+                let client_for_cancel = client.clone();
+                Some(Box::new(move |ptr| unsafe {
+                    log::warn!(
+                        "auto-cancelling {} (poll() never resolved it before drop/cancel) to avoid leaking the pending Aeron registration",
+                        stringify!(AeronAsyncAddPublication)
+                    );
+                    aeron_async_add_publication_cancel(client_for_cancel.get_inner(), *ptr)
+                }))
+            },
             false,
         )?;
         let result = Self {
@@ -2520,6 +2700,24 @@ impl AeronAsyncAddPublication {
                 }
                 Err(e)
             }
+        }
+    }
+    #[doc = r"Cancels this in-progress operation, releasing the pending Aeron"]
+    #[doc = r"registration instead of waiting for `poll()`/`poll_blocking()` to"]
+    #[doc = r"resolve it or for this value to be dropped (dropping an unresolved"]
+    #[doc = r"poller does this automatically — this is only needed to give up"]
+    #[doc = r"earlier than the drop would happen naturally)."]
+    #[doc = r""]
+    #[doc = r"A no-op if `poll()` has already returned a terminal result (`Some`"]
+    #[doc = r"or an `Err`) — cancelling after that point would either be invalid"]
+    #[doc = r"(the C struct is no longer valid) or unnecessary (nothing pending"]
+    #[doc = r"left to cancel)."]
+    #[inline]
+    pub fn cancel(&self) -> Result<(), AeronCError> {
+        if let Some(inner) = self.inner.as_owned() {
+            inner.close_shared()
+        } else {
+            Ok(())
         }
     }
     #[doc = r"Polls synchronously until the async operation completes or `timeout` elapses."]
@@ -2732,6 +2930,29 @@ impl AeronSubscription {
     }
 }
 impl Aeron {
+    #[doc = r"# Handler lifetime and async close"]
+    #[doc = r""]
+    #[doc = r"If this call takes a [`Handler`], the C close for the resulting resource"]
+    #[doc = r"(e.g. `aeron_subscription_close`) is **asynchronous** — the conductor thread"]
+    #[doc = r"may still invoke the handler's callback (e.g. `on_available_image`) after"]
+    #[doc = r"`close()`/`drop` has already returned on the calling thread. Releasing the"]
+    #[doc = r"handler's value immediately on close would risk a use-after-free from that"]
+    #[doc = r"still-in-flight callback."]
+    #[doc = r""]
+    #[doc = r"To make this safe without requiring the caller to track it, this method"]
+    #[doc = r"stores a clone of the owning [`Aeron`] client as a *dependency* on the"]
+    #[doc = r"resource being created — which transitively keeps every [`Handler`] clone"]
+    #[doc = r"already registered as a dependency of that resource alive for as long as"]
+    #[doc = r"the client itself lives, regardless of when the resource closes. No manual"]
+    #[doc = r"`release()` call is needed."]
+    #[doc = r""]
+    #[doc = r"This differs from the Aeron C++ wrapper, which instead frees the handler"]
+    #[doc = r"as the final step of `on_cmd_close_subscription` on the conductor thread —"]
+    #[doc = r"i.e. it ties the handler's lifetime to the close completing, not to the"]
+    #[doc = r"client. Rusteron's approach is simpler and avoids needing a conductor-side"]
+    #[doc = r"hook, but it means handler dependencies accumulate on the client's"]
+    #[doc = r"dependency list for the client's lifetime (they are small `Arc` clones, one"]
+    #[doc = r"per call, and are only dropped when the client itself drops)."]
     #[inline]
     pub fn async_add_subscription<
         AeronAvailableImageHandlerImpl: AeronAvailableImageCallback + 'static,
@@ -2875,7 +3096,16 @@ impl AeronAsyncAddSubscription {
                         .unwrap_or_else(|| std::ptr::null_mut()),
                 )
             },
-            None,
+            {
+                let client_for_cancel = client.clone();
+                Some(Box::new(move |ptr| unsafe {
+                    log::warn!(
+                        "auto-cancelling {} (poll() never resolved it before drop/cancel) to avoid leaking the pending Aeron registration",
+                        stringify!(AeronAsyncAddSubscription)
+                    );
+                    aeron_async_add_subscription_cancel(client_for_cancel.get_inner(), *ptr)
+                }))
+            },
             false,
         )?;
         let result = Self {
@@ -2938,6 +3168,24 @@ impl AeronAsyncAddSubscription {
                 }
                 Err(e)
             }
+        }
+    }
+    #[doc = r"Cancels this in-progress operation, releasing the pending Aeron"]
+    #[doc = r"registration instead of waiting for `poll()`/`poll_blocking()` to"]
+    #[doc = r"resolve it or for this value to be dropped (dropping an unresolved"]
+    #[doc = r"poller does this automatically — this is only needed to give up"]
+    #[doc = r"earlier than the drop would happen naturally)."]
+    #[doc = r""]
+    #[doc = r"A no-op if `poll()` has already returned a terminal result (`Some`"]
+    #[doc = r"or an `Err`) — cancelling after that point would either be invalid"]
+    #[doc = r"(the C struct is no longer valid) or unnecessary (nothing pending"]
+    #[doc = r"left to cancel)."]
+    #[inline]
+    pub fn cancel(&self) -> Result<(), AeronCError> {
+        if let Some(inner) = self.inner.as_owned() {
+            inner.close_shared()
+        } else {
+            Ok(())
         }
     }
     #[doc = r"Polls synchronously until the async operation completes or `timeout` elapses."]
@@ -3170,6 +3418,97 @@ impl AeronAsyncDestination {
         Ok(result)
     }
     #[inline]
+    #[doc = "Remove a destination manually from a multi-destination-cast publication."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `publication` to remove destination from."]
+    #[doc = " \n - `uri` for the destination to remove."]
+    #[doc = " \n# Return\n 0 for success and -1 for error."]
+    pub fn aeron_publication_async_remove_destination(
+        client: &Aeron,
+        publication: &AeronPublication,
+        uri: &std::ffi::CStr,
+    ) -> Result<Self, AeronCError> {
+        let client_copy = client.clone();
+        let client: *mut aeron_t = client.into();
+        let publication_copy = publication.clone();
+        let publication: *mut aeron_publication_t = publication.into();
+        let uri: *const ::std::os::raw::c_char = uri.as_ptr();
+        let resource_constructor = ManagedCResource::new(
+            move |ctx_field| unsafe {
+                #[cfg(feature = "log-c-bindings")]
+                {
+                    let log_args = [
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_destination_t)).to_string(),
+                        concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                        concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string(),
+                        concat!("uri", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    ]
+                    .join(", ");
+                    log::info!(
+                        "{}({})",
+                        stringify!(aeron_publication_async_remove_destination),
+                        log_args
+                    );
+                }
+                aeron_publication_async_remove_destination(ctx_field, client, publication, uri)
+            },
+            None,
+            false,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = "Remove a destination manually from a multi-destination-cast publication."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `publication` to remove destination from."]
+    #[doc = " \n - `destination_registration_id` for the destination to remove."]
+    #[doc = " \n# Return\n 0 for success and -1 for error."]
+    pub fn aeron_publication_async_remove_destination_by_id(
+        client: &Aeron,
+        publication: &AeronPublication,
+        destination_registration_id: i64,
+    ) -> Result<Self, AeronCError> {
+        let client_copy = client.clone();
+        let client: *mut aeron_t = client.into();
+        let publication_copy = publication.clone();
+        let publication: *mut aeron_publication_t = publication.into();
+        let destination_registration_id: i64 = destination_registration_id.into();
+        let resource_constructor = ManagedCResource::new(
+            move |ctx_field| unsafe {
+                #[cfg(feature = "log-c-bindings")]
+                {
+                    let log_args = [
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_destination_t)).to_string(),
+                        concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                        concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string(),
+                        format!("{} = {:?}", "destination_registration_id", destination_registration_id),
+                    ]
+                    .join(", ");
+                    log::info!(
+                        "{}({})",
+                        stringify!(aeron_publication_async_remove_destination_by_id),
+                        log_args
+                    );
+                }
+                aeron_publication_async_remove_destination_by_id(
+                    ctx_field,
+                    client,
+                    publication,
+                    destination_registration_id,
+                )
+            },
+            None,
+            false,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
     #[doc = "Add a destination manually to a multi-destination-cast exclusive publication."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `publication` to add destination to."]
@@ -3213,6 +3552,97 @@ impl AeronAsyncDestination {
         Ok(result)
     }
     #[inline]
+    #[doc = "Remove a destination manually from a multi-destination-cast exclusive publication."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `publication` to remove destination from."]
+    #[doc = " \n - `uri` for the destination to remove."]
+    #[doc = " \n# Return\n 0 for success and -1 for error."]
+    pub fn aeron_exclusive_publication_async_remove_destination(
+        client: &Aeron,
+        publication: &AeronExclusivePublication,
+        uri: &std::ffi::CStr,
+    ) -> Result<Self, AeronCError> {
+        let client_copy = client.clone();
+        let client: *mut aeron_t = client.into();
+        let publication_copy = publication.clone();
+        let publication: *mut aeron_exclusive_publication_t = publication.into();
+        let uri: *const ::std::os::raw::c_char = uri.as_ptr();
+        let resource_constructor = ManagedCResource::new(
+            move |ctx_field| unsafe {
+                #[cfg(feature = "log-c-bindings")]
+                {
+                    let log_args = [
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_destination_t)).to_string(),
+                        concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                        concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
+                        concat!("uri", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    ]
+                    .join(", ");
+                    log::info!(
+                        "{}({})",
+                        stringify!(aeron_exclusive_publication_async_remove_destination),
+                        log_args
+                    );
+                }
+                aeron_exclusive_publication_async_remove_destination(ctx_field, client, publication, uri)
+            },
+            None,
+            false,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = "Remove a destination manually from a multi-destination-cast publication."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `publication` to remove destination from."]
+    #[doc = " \n - `destination_registration_id` for the destination to remove."]
+    #[doc = " \n# Return\n 0 for success and -1 for error."]
+    pub fn aeron_exclusive_publication_async_remove_destination_by_id(
+        client: &Aeron,
+        publication: &AeronExclusivePublication,
+        destination_registration_id: i64,
+    ) -> Result<Self, AeronCError> {
+        let client_copy = client.clone();
+        let client: *mut aeron_t = client.into();
+        let publication_copy = publication.clone();
+        let publication: *mut aeron_exclusive_publication_t = publication.into();
+        let destination_registration_id: i64 = destination_registration_id.into();
+        let resource_constructor = ManagedCResource::new(
+            move |ctx_field| unsafe {
+                #[cfg(feature = "log-c-bindings")]
+                {
+                    let log_args = [
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_destination_t)).to_string(),
+                        concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                        concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
+                        format!("{} = {:?}", "destination_registration_id", destination_registration_id),
+                    ]
+                    .join(", ");
+                    log::info!(
+                        "{}({})",
+                        stringify!(aeron_exclusive_publication_async_remove_destination_by_id),
+                        log_args
+                    );
+                }
+                aeron_exclusive_publication_async_remove_destination_by_id(
+                    ctx_field,
+                    client,
+                    publication,
+                    destination_registration_id,
+                )
+            },
+            None,
+            false,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
     #[doc = "Add a destination manually to a multi-destination-subscription."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `subscription` to add destination to."]
@@ -3242,6 +3672,49 @@ impl AeronAsyncDestination {
                     log::info!("{}({})", stringify!(aeron_subscription_async_add_destination), log_args);
                 }
                 aeron_subscription_async_add_destination(ctx_field, client, subscription, uri)
+            },
+            None,
+            false,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = "Remove a destination manually from a multi-destination-subscription."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `subscription` to remove destination from."]
+    #[doc = " \n - `uri` for the destination to remove."]
+    #[doc = " \n# Return\n 0 for success and -1 for error."]
+    pub fn aeron_subscription_async_remove_destination(
+        client: &Aeron,
+        subscription: &AeronSubscription,
+        uri: &std::ffi::CStr,
+    ) -> Result<Self, AeronCError> {
+        let client_copy = client.clone();
+        let client: *mut aeron_t = client.into();
+        let subscription_copy = subscription.clone();
+        let subscription: *mut aeron_subscription_t = subscription.into();
+        let uri: *const ::std::os::raw::c_char = uri.as_ptr();
+        let resource_constructor = ManagedCResource::new(
+            move |ctx_field| unsafe {
+                #[cfg(feature = "log-c-bindings")]
+                {
+                    let log_args = [
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_destination_t)).to_string(),
+                        concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                        concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
+                        concat!("uri", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    ]
+                    .join(", ");
+                    log::info!(
+                        "{}({})",
+                        stringify!(aeron_subscription_async_remove_destination),
+                        log_args
+                    );
+                }
+                aeron_subscription_async_remove_destination(ctx_field, client, subscription, uri)
             },
             None,
             false,

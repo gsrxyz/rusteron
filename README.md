@@ -102,10 +102,14 @@ let t2 = { let p = publication.clone(); thread::spawn(move || { p.offer(b"world"
 
 > **The flag only lifts the Rust-side barrier — it does not make the underlying Aeron
 > object thread-safe.** Sharing is correct only for objects Aeron C documents as
-> thread-safe (`AeronPublication`, `AeronSubscription`, …). `AeronExclusivePublication`
-> is single-producer by design and must not be shared across threads even under
-> `multi-threaded`. It is the caller's responsibility to check the thread-safety of
-> each object before sharing `&Handle`.
+> thread-safe for concurrent use, e.g. `AeronPublication` (`ConcurrentPublication`),
+> `AeronCounter`, and `Aeron` itself. `AeronSubscription` is documented by Aeron as
+> **not** threadsafe and must not be shared between subscribers — it stays `Send`-only
+> (never `Sync`) even under `multi-threaded`, so it can be moved to one other thread but
+> never accessed concurrently from several. `AeronExclusivePublication` is
+> single-producer by design and must not be shared across threads either (it only gains
+> `Send` under `multi-threaded`, never `Sync`). It is the caller's responsibility to
+> check the thread-safety of each object before sharing `&Handle`.
 
 ---
 
@@ -237,7 +241,7 @@ Old → new for every renamed/changed API
 | `ctx.set_error_handler(Some(&handler))` (borrowed) | `ctx.set_error_handler(Some(handler_or_closure))` | Retained setters take the value; closures work directly; returns the `Handler`. |
 | `aeron.close()` — freed children immediately | deferred close | Frees when the last reference drops; `unsafe close_now()` forces immediate. |
 | `Handler` was `Sync` | `Send` only | The conductor thread invokes callbacks; sharing `&Handler` across threads raced. |
-| `AeronPublication` / `AeronSubscription` / … were `Sync` | `Send` only by default (use `multi-threaded` feature flag if you need Sync) | Handles use `Rc` (single-thread ownership). Enable the `multi-threaded` feature (`Rc` → `Arc` + `unsafe impl Sync`) to share `&Handle` across threads for the ops Aeron C documents as thread-safe (`offer` / `try_claim` / `position` / `is_connected`). |
+| `AeronPublication` / `AeronSubscription` / … were `Sync` | `Send` only by default; `Sync` only under `multi-threaded`, and only for types Aeron C documents as thread-safe | Handles use `Rc` (single-thread ownership). Enable the `multi-threaded` feature (`Rc` → `Arc`) to get `unsafe impl Sync` for `AeronPublication`/`AeronCounter`/`Aeron` (share `&Handle` across threads for `offer` / `try_claim` / `position` / `is_connected`). `AeronSubscription` and `AeronExclusivePublication` are documented by Aeron as not safe to share and remain `Send`-only (never `Sync`), even with `multi-threaded`. |
 | `publication.offer(buf, supplier)` → raw `i64` | `publication.offer_raw(buf, supplier)` | Same branch-free sentinel return, renamed to make "raw" explicit. |
 | `publication.offer_result(buf, supplier)` → `Result<_, AeronCError>` | `publication.offer_with_reserved_value(buf, supplier)` → `Result<_, AeronOfferError>` | Typed offer errors with `is_retryable()`. |
 | `publication.offer_result_simple(buf)` | `publication.offer(buf)` | The common no-supplier case is now the flagship name. |

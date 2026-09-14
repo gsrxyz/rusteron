@@ -7,36 +7,42 @@ pub static AERON_IPC_STREAM: &std::ffi::CStr = c"aeron:ipc";
 /// your own iovec array for larger gathers.
 pub const MAX_OFFER_PARTS: usize = 8;
 
-// SAFETY: these handles wrap `Rc` (via `CResource::OwnedOnHeap`), so they are
-// `!Send + !Sync` in principle. `Rc` (non-atomic refcount) is kept for latency.
-// The supported usage pattern is to MOVE a handle to a single owning thread and
-// use it exclusively there; `Send` is retained to allow that move.
+// SAFETY: these handles wrap `Rc` (via `CResource::OwnedOnHeap`) by default, so they
+// are `!Send + !Sync` in principle. `Rc` (non-atomic refcount) is kept for latency.
+// The supported usage pattern is to MOVE a handle to a single owning thread (e.g. a
+// dedicated publisher/subscriber thread) and use it exclusively there; `Send` is
+// retained unconditionally to allow that one-time hand-off even without the
+// `multi-threaded` feature.
+//
+// `Send` over a plain `Rc` is technically unsound in the general case (cloning the
+// handle and using clones from two different threads concurrently races the
+// non-atomic refcount) — this is a deliberate, documented "accepted unsoundness"
+// trade-off for latency: callers must not clone these handles across threads or use
+// one handle from multiple threads concurrently unless `multi-threaded` (below,
+// atomic `Arc`) is enabled.
 //
 // `Sync` is intentionally NOT implemented by default: sharing `&Handle` across
 // threads would let two threads `Rc::clone` concurrently and race the refcount.
-//
-// `Send` over `Rc` is technically unsound (a non-atomic refcount touched from
-// more than one thread races). Callers must not clone these handles across
-// threads and must not use one handle from multiple threads concurrently. The
-// `multi-threaded` feature (below) switches to `Arc` and removes this caveat.
 unsafe impl Send for AeronCountersReader {}
 unsafe impl Send for AeronSubscription {}
 unsafe impl Send for AeronPublication {}
 unsafe impl Send for AeronCounter {}
 
 // SAFETY: under `multi-threaded` the refcount is atomic (`Arc`), so `Send` is sound,
-// and `Sync` is implemented so `&Handle` can be shared across threads. The `UnsafeCell`
-// fields inside `ManagedCResource` are mutated only during construction and close,
-// never during the shared-read window.
+// and `Sync` is implemented (where the underlying Aeron object is documented
+// threadsafe for concurrent access) so `&Handle` can be shared across threads. The
+// `UnsafeCell` fields inside `ManagedCResource` are mutated only during construction
+// and close, never during the shared-read window.
 //
-// This only lifts the Rust-side barrier; the caller must still confirm the underlying
-// Aeron object is thread-safe (e.g. `AeronPublication` is, `AeronExclusivePublication`
-// is not). See the README "Multi-threaded handles" section.
+// `AeronSubscription` deliberately has no `Sync` impl, with or without
+// `multi-threaded`: Aeron's own docs (`Subscription.java` — "Subscriptions are not
+// threadsafe and should not be shared between subscribers.") explicitly forbid
+// sharing a subscription across threads, so `&AeronSubscription` must never be
+// usable concurrently from multiple threads regardless of the refcount type — it's
+// `Send`-only, matching "hand off to one other thread, don't share concurrently".
 // Enable with `features = ["multi-threaded"]` in Cargo.toml.
 #[cfg(feature = "multi-threaded")]
 unsafe impl Sync for AeronCountersReader {}
-#[cfg(feature = "multi-threaded")]
-unsafe impl Sync for AeronSubscription {}
 #[cfg(feature = "multi-threaded")]
 unsafe impl Sync for AeronPublication {}
 #[cfg(feature = "multi-threaded")]
@@ -143,6 +149,27 @@ impl AeronIdleStrategyKind {
         }
     }
 }
+
+// ─── Per-type `Send`/`Sync` under `multi-threaded` (additions beyond the block at the
+// top of this file) ────────────────────────────────────────────────────────────────
+// `Aeron` (client): `Aeron.java` — "Add a Publication ... is threadsafe."/"... is
+// threadsafe." for `addPublication`/`addSubscription` and friends; the client
+// conductor is explicitly designed to be driven from multiple registering threads.
+// Send + Sync.
+#[cfg(feature = "multi-threaded")]
+unsafe impl Send for Aeron {}
+#[cfg(feature = "multi-threaded")]
+unsafe impl Sync for Aeron {}
+
+// `AeronExclusivePublication`: `Publication.java` — "All methods are threadsafe except
+// offer and tryClaim for the subclass ExclusivePublication" — i.e. NOT safe to call
+// `offer`/`try_claim` concurrently from multiple threads. Send only (may be handed off
+// to and then used exclusively from a single other thread), deliberately NOT Sync —
+// unlike `AeronPublication` (the "concurrent" publication, for which all methods,
+// including offer/try_claim, are documented threadsafe — see the Send+Sync block at
+// the top of this file).
+#[cfg(feature = "multi-threaded")]
+unsafe impl Send for AeronExclusivePublication {}
 
 impl Aeron {
     /// Connect to a media driver in one call: context, client, and conductor start.
@@ -562,6 +589,43 @@ unsafe extern "C" fn rusteron_image_visitor<F: FnMut(&AeronImage)>(
     f(&image);
 }
 
+/// Shared polling loop for the `add_destination`/`remove_destination[_by_id]` blocking
+/// convenience wrappers on `AeronSubscription`/`AeronPublication`/`AeronExclusivePublication`.
+///
+/// Unlike a naive `poll().unwrap_or_default() > 0` check, this propagates a real C-side
+/// error (e.g. an invalid destination URI) immediately as `Err`, instead of silently
+/// treating it as "still pending" and only surfacing it later as a misleading
+/// [`AeronErrorType::TimedOut`] once `timeout` elapses.
+fn poll_destination_op_to_completion<C: std::fmt::Debug>(
+    result: &AeronAsyncDestination,
+    timeout: std::time::Duration,
+    context: C,
+) -> Result<(), AeronCError> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match result.aeron_subscription_async_destination_poll() {
+            Ok(v) if v > 0 => {
+                let _ = result.inner.close_resource();
+                return Ok(());
+            }
+            Ok(_) => {
+                // still pending, keep polling until deadline
+            }
+            Err(e) => {
+                let _ = result.inner.close_resource();
+                log::error!("async destination op failed for {context:?} {result:?}: {e:?}");
+                return Err(e);
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            log::error!("failed async poll for {context:?} {result:?}");
+            return Err(AeronErrorType::TimedOut.into());
+        }
+        #[cfg(debug_assertions)]
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 impl AeronSubscription {
     /// A retained image handle for `index`, or `None` when no such image exists.
     ///
@@ -643,19 +707,36 @@ impl AeronSubscription {
             .get_dependency::<Aeron>()
             .ok_or_else(|| AeronCError::with_message(-1, "subscription has no owning Aeron client"))?;
         let result = self.async_add_destination(&client, destination)?;
-        if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-            return Ok(());
-        }
-        let time = std::time::Instant::now();
-        while time.elapsed() < timeout {
-            if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-                return Ok(());
-            }
-            #[cfg(debug_assertions)]
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        log::error!("failed async poll for {:?} {:?}", destination, self);
-        Err(AeronErrorType::TimedOut.into())
+        poll_destination_op_to_completion(&result, timeout, (destination, self))
+    }
+
+    /// Note: unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
+    /// for this in-flight operation, so (as with `add_destination`) dropping the returned
+    /// [`AeronAsyncDestination`] before it resolves only logs the generic
+    /// "resource likely leaked" warning — it does not stop the removal.
+    pub fn async_remove_destination(
+        &self,
+        client: &Aeron,
+        destination: &std::ffi::CStr,
+    ) -> Result<AeronAsyncDestination, AeronCError> {
+        AeronAsyncDestination::aeron_subscription_async_remove_destination(client, self, destination)
+    }
+
+    /// Remove `destination` (previously added via [`Self::add_destination`]), polling
+    /// until the driver acknowledges or `timeout` elapses. The owning [`Aeron`] client is
+    /// retrieved automatically from the subscription's dependency graph — pass it
+    /// explicitly via [`Self::async_remove_destination`] only when you hold it already.
+    pub fn remove_destination(
+        &self,
+        destination: &std::ffi::CStr,
+        timeout: std::time::Duration,
+    ) -> Result<(), AeronCError> {
+        let client = self
+            .inner
+            .get_dependency::<Aeron>()
+            .ok_or_else(|| AeronCError::with_message(-1, "subscription has no owning Aeron client"))?;
+        let result = self.async_remove_destination(&client, destination)?;
+        poll_destination_op_to_completion(&result, timeout, (destination, self))
     }
 
 }
@@ -681,19 +762,95 @@ impl AeronExclusivePublication {
             .get_dependency::<Aeron>()
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_add_destination(&client, destination)?;
-        if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-            return Ok(());
-        }
-        let time = std::time::Instant::now();
-        while time.elapsed() < timeout {
-            if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-                return Ok(());
-            }
-            #[cfg(debug_assertions)]
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        log::error!("failed async poll for {:?} {:?}", destination, self);
-        Err(AeronErrorType::TimedOut.into())
+        poll_destination_op_to_completion(&result, timeout, (destination, self))
+    }
+
+    /// Note: unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
+    /// for this in-flight operation, so (as with `add_destination`) dropping the returned
+    /// [`AeronAsyncDestination`] before it resolves only logs the generic
+    /// "resource likely leaked" warning — it does not stop the removal.
+    pub fn async_remove_destination(
+        &self,
+        client: &Aeron,
+        destination: &std::ffi::CStr,
+    ) -> Result<AeronAsyncDestination, AeronCError> {
+        AeronAsyncDestination::aeron_exclusive_publication_async_remove_destination(client, self, destination)
+    }
+
+    /// Remove `destination` (previously added via [`Self::add_destination`]), polling
+    /// until the driver acknowledges or `timeout` elapses. The owning [`Aeron`] client is
+    /// retrieved automatically from the publication's dependency graph — pass it
+    /// explicitly via [`Self::async_remove_destination`] only when you hold it already.
+    pub fn remove_destination(
+        &self,
+        destination: &std::ffi::CStr,
+        timeout: std::time::Duration,
+    ) -> Result<(), AeronCError> {
+        let client = self
+            .inner
+            .get_dependency::<Aeron>()
+            .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
+        let result = self.async_remove_destination(&client, destination)?;
+        poll_destination_op_to_completion(&result, timeout, (destination, self))
+    }
+
+    /// Note: unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
+    /// for this in-flight operation, so dropping the returned [`AeronAsyncDestination`]
+    /// before it resolves only logs the generic "resource likely leaked" warning — it
+    /// does not stop the removal.
+    pub fn async_remove_destination_by_id(
+        &self,
+        client: &Aeron,
+        destination_registration_id: i64,
+    ) -> Result<AeronAsyncDestination, AeronCError> {
+        AeronAsyncDestination::aeron_exclusive_publication_async_remove_destination_by_id(
+            client,
+            self,
+            destination_registration_id,
+        )
+    }
+
+    /// Remove the destination identified by `destination_registration_id` (as returned by
+    /// [`AeronAsyncDestination::get_registration_id`] after adding it), polling
+    /// until the driver acknowledges or `timeout` elapses. The owning [`Aeron`] client is
+    /// retrieved automatically from the publication's dependency graph — pass it
+    /// explicitly via [`Self::async_remove_destination_by_id`] only when you hold it
+    /// already.
+    ///
+    /// # Known upstream bug: currently a driver-level no-op see https://github.com/aeron-io/aeron/issues/2138
+    ///
+    /// Until this is fixed upstream, prefer [`Self::remove_destination`] (by URI) — it does
+    /// not go through this by-id code path and has been verified end-to-end (real data stops
+    /// flowing to a removed destination) in this crate's test suite.
+    ///
+    /// Because of the bug above, this method deliberately returns `Err` even when the driver
+    /// acknowledges the command (`Ok(())` would misleadingly imply the destination was
+    /// actually removed). Use [`Self::async_remove_destination_by_id`] if you need the raw,
+    /// 1:1 C-API-faithful async handle instead (e.g. to track upstream's own fix once
+    /// available).
+    pub fn remove_destination_by_id(
+        &self,
+        destination_registration_id: i64,
+        timeout: std::time::Duration,
+    ) -> Result<(), AeronCError> {
+        let client = self
+            .inner
+            .get_dependency::<Aeron>()
+            .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
+        let result = self.async_remove_destination_by_id(&client, destination_registration_id)?;
+        poll_destination_op_to_completion(&result, timeout, (destination_registration_id, self))?;
+        // The driver acknowledged the command, but per the confirmed upstream bug documented
+        // above, that acknowledgement does NOT mean the destination was actually removed —
+        // report this honestly as an error rather than a misleading `Ok(())`, so callers
+        // can't mistake "command accepted" for "destination gone". Use `remove_destination`
+        // (by URI) instead, which has been verified end-to-end to actually stop data flow.
+        Err(AeronCError::with_message(
+            -1,
+            "remove_destination_by_id: driver acknowledged the command, but a confirmed \
+             upstream Aeron C bug (aeron_client_conductor_on_cmd_destination_by_id sends the \
+             wrong registration id) means the destination was almost certainly NOT actually \
+             removed; use remove_destination (by URI) instead",
+        ))
     }
 }
 
@@ -718,19 +875,89 @@ impl AeronPublication {
             .get_dependency::<Aeron>()
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_add_destination(&client, destination)?;
-        if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-            return Ok(());
-        }
-        let time = std::time::Instant::now();
-        while time.elapsed() < timeout {
-            if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-                return Ok(());
-            }
-            #[cfg(debug_assertions)]
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        log::error!("failed async poll for {:?} {:?}", destination, self);
-        Err(AeronErrorType::TimedOut.into())
+        poll_destination_op_to_completion(&result, timeout, (destination, self))
+    }
+
+    /// Note: unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
+    /// for this in-flight operation, so (as with `add_destination`) dropping the returned
+    /// [`AeronAsyncDestination`] before it resolves only logs the generic
+    /// "resource likely leaked" warning — it does not stop the removal.
+    pub fn async_remove_destination(
+        &self,
+        client: &Aeron,
+        destination: &std::ffi::CStr,
+    ) -> Result<AeronAsyncDestination, AeronCError> {
+        AeronAsyncDestination::aeron_publication_async_remove_destination(client, self, destination)
+    }
+
+    /// Remove `destination` (previously added via [`Self::add_destination`]), polling
+    /// until the driver acknowledges or `timeout` elapses. The owning [`Aeron`] client is
+    /// retrieved automatically from the publication's dependency graph — pass it
+    /// explicitly via [`Self::async_remove_destination`] only when you hold it already.
+    pub fn remove_destination(
+        &self,
+        destination: &std::ffi::CStr,
+        timeout: std::time::Duration,
+    ) -> Result<(), AeronCError> {
+        let client = self
+            .inner
+            .get_dependency::<Aeron>()
+            .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
+        let result = self.async_remove_destination(&client, destination)?;
+        poll_destination_op_to_completion(&result, timeout, (destination, self))
+    }
+
+    /// Note: unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
+    /// for this in-flight operation, so dropping the returned [`AeronAsyncDestination`]
+    /// before it resolves only logs the generic "resource likely leaked" warning — it
+    /// does not stop the removal.
+    pub fn async_remove_destination_by_id(
+        &self,
+        client: &Aeron,
+        destination_registration_id: i64,
+    ) -> Result<AeronAsyncDestination, AeronCError> {
+        AeronAsyncDestination::aeron_publication_async_remove_destination_by_id(client, self, destination_registration_id)
+    }
+
+    /// Remove the destination identified by `destination_registration_id` (as returned by
+    /// [`AeronAsyncDestination::get_registration_id`] after adding it), polling
+    /// until the driver acknowledges or `timeout` elapses. The owning [`Aeron`] client is
+    /// retrieved automatically from the publication's dependency graph — pass it
+    /// explicitly via [`Self::async_remove_destination_by_id`] only when you hold it
+    /// already.
+    ///
+    /// Until this is fixed upstream, prefer [`Self::remove_destination`] (by URI) — it does
+    /// not go through this by-id code path and has been verified end-to-end (real data stops
+    /// flowing to a removed destination) in this crate's test suite.
+    ///
+    /// Because of the bug above, this method deliberately returns `Err` even when the driver
+    /// acknowledges the command (`Ok(())` would misleadingly imply the destination was
+    /// actually removed). Use [`Self::async_remove_destination_by_id`] if you need the raw,
+    /// 1:1 C-API-faithful async handle instead (e.g. to track upstream's own fix once
+    /// available).
+    pub fn remove_destination_by_id(
+        &self,
+        destination_registration_id: i64,
+        timeout: std::time::Duration,
+    ) -> Result<(), AeronCError> {
+        let client = self
+            .inner
+            .get_dependency::<Aeron>()
+            .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
+        let result = self.async_remove_destination_by_id(&client, destination_registration_id)?;
+        poll_destination_op_to_completion(&result, timeout, (destination_registration_id, self))?;
+        // The driver acknowledged the command, but per the confirmed upstream bug documented
+        // above, that acknowledgement does NOT mean the destination was actually removed —
+        // report this honestly as an error rather than a misleading `Ok(())`, so callers
+        // can't mistake "command accepted" for "destination gone". Use `remove_destination`
+        // (by URI) instead, which has been verified end-to-end to actually stop data flow.
+        Err(AeronCError::with_message(
+            -1,
+            "remove_destination_by_id: driver acknowledged the command, but a confirmed \
+             upstream Aeron C bug (aeron_client_conductor_on_cmd_destination_by_id sends the \
+             wrong registration id) means the destination was almost certainly NOT actually \
+             removed; use remove_destination (by URI) instead",
+        ))
     }
 }
 

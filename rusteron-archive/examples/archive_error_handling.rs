@@ -16,10 +16,10 @@
 //! cargo run --release --features "static precompile" --example archive_error_handling
 //! ```
 
-use rusteron_archive::testing::{find_unused_udp_port, EmbeddedArchiveMediaDriverProcess};
+use rusteron_archive::testing::{EmbeddedArchiveMediaDriverProcess, find_unused_udp_port};
 use rusteron_archive::*;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 

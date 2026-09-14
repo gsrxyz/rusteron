@@ -5,6 +5,7 @@
 #![allow(clippy::all)]
 #![allow(unused_unsafe)]
 #![allow(unused_variables)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 //! # Features
 //!
@@ -24,9 +25,9 @@ pub mod bindings {
 use bindings::*;
 use log::info;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::thread::{sleep, JoinHandle};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::{JoinHandle, sleep};
 use std::time::Duration;
 
 include!(concat!(env!("OUT_DIR"), "/aeron.rs"));
@@ -298,7 +299,9 @@ mod tests {
                 registration_id: i64,
                 counter_id: i32,
             ) -> () {
-                info!("new counter counters_reader={counters_reader:?} registration_id={registration_id} counter_id={counter_id}");
+                info!(
+                    "new counter counters_reader={counters_reader:?} registration_id={registration_id} counter_id={counter_id}"
+                );
             }
         }
 

@@ -13,7 +13,7 @@
 //! See the archive README's "Persistent Subscriptions" section and the upstream docs:
 //! <https://github.com/aeron-io/aeron/wiki/Persistent-Subscriptions>
 
-use rusteron_archive::testing::{find_unused_udp_port, EmbeddedArchiveMediaDriverProcess};
+use rusteron_archive::testing::{EmbeddedArchiveMediaDriverProcess, find_unused_udp_port};
 use rusteron_archive::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};

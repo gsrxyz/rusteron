@@ -110,8 +110,8 @@ mod tests {
     use crate::generator::MEDIA_DRIVER_BINDINGS;
     use crate::parser::parse_bindings;
     use crate::{
-        append_to_file, format_token_stream, format_with_rustfmt, ARCHIVE_BINDINGS, CLIENT_BINDINGS, CUSTOM_AERON_CODE,
-        TRYBUILD_ARCHIVE_ERROR_STUB,
+        ARCHIVE_BINDINGS, CLIENT_BINDINGS, CUSTOM_AERON_CODE, TRYBUILD_ARCHIVE_ERROR_STUB, append_to_file,
+        format_token_stream, format_with_rustfmt,
     };
     use proc_macro2::TokenStream;
     use std::fs;
@@ -450,10 +450,10 @@ mod test {
     use crate::{CResource, CleanupBox, ManagedCResource};
 
     use crate::common::RcOrArc;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
     #[allow(unused_imports)]
     use RcOrArc as Rc;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     fn make_resource(val: i32) -> *mut i32 {
         Box::into_raw(Box::new(val))
@@ -461,7 +461,7 @@ mod test {
 
     unsafe fn reclaim_resource(ptr: *mut i32) {
         if !ptr.is_null() {
-            let _ = Box::from_raw(ptr);
+            let _ = unsafe { Box::from_raw(ptr) };
         }
     }
 
@@ -806,16 +806,18 @@ mod test {
         let handle_two = CResource::OwnedOnHeap(inner);
 
         let custom_close_count_for_cleanup = custom_close_count.clone();
-        assert!(handle_one
-            .close_resource_with(move |res| {
-                custom_close_count_for_cleanup.fetch_add(1, Ordering::SeqCst);
-                unsafe {
-                    reclaim_resource(*res);
-                    *res = std::ptr::null_mut();
-                }
-                0
-            })
-            .is_ok());
+        assert!(
+            handle_one
+                .close_resource_with(move |res| {
+                    custom_close_count_for_cleanup.fetch_add(1, Ordering::SeqCst);
+                    unsafe {
+                        reclaim_resource(*res);
+                        *res = std::ptr::null_mut();
+                    }
+                    0
+                })
+                .is_ok()
+        );
 
         assert_eq!(0, default_close_count.load(Ordering::SeqCst));
         assert_eq!(1, custom_close_count.load(Ordering::SeqCst));
@@ -857,12 +859,14 @@ mod test {
         let handle = CResource::OwnedOnHeap(Rc::new(resource.ok().unwrap()));
 
         let custom_close_count_for_cleanup = custom_close_count.clone();
-        assert!(handle
-            .close_resource_with(move |_res| {
-                custom_close_count_for_cleanup.fetch_add(1, Ordering::SeqCst);
-                -1
-            })
-            .is_err());
+        assert!(
+            handle
+                .close_resource_with(move |_res| {
+                    custom_close_count_for_cleanup.fetch_add(1, Ordering::SeqCst);
+                    -1
+                })
+                .is_err()
+        );
 
         assert_eq!(0, default_close_count.load(Ordering::SeqCst));
         assert_eq!(1, custom_close_count.load(Ordering::SeqCst));

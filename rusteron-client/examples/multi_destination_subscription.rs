@@ -10,7 +10,7 @@
 //! ```
 
 use rusteron_client::*;
-use rusteron_media_driver::testing::{find_unused_udp_port, EmbeddedDriver};
+use rusteron_media_driver::testing::{EmbeddedDriver, find_unused_udp_port};
 use std::collections::HashSet;
 use std::thread::sleep;
 use std::time::{Duration, Instant};

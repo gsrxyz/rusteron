@@ -5,6 +5,7 @@
 #![allow(clippy::all)]
 #![allow(unused_unsafe)]
 #![allow(unused_variables)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 //! # Features
 //!
@@ -357,9 +358,9 @@ mod tests {
     use std::error::Error;
     use std::io::Write;
     use std::os::raw::c_int;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
-    use std::thread::{sleep, JoinHandle};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::thread::{JoinHandle, sleep};
     use std::time::{Duration, Instant};
 
     #[derive(Default, Debug)]
@@ -1714,11 +1715,11 @@ mod tests {
                 counter_id: i32,
             ) -> () {
                 info!(
-            "on counter key={:?}, label={:?} registration_id={registration_id}, counter_id={counter_id}, value={}, {counters_reader:?}",
-            String::from_utf8(counters_reader.get_counter_key(counter_id).unwrap()),
-            counters_reader.get_counter_label(counter_id, 1000),
-            counters_reader.addr(counter_id)
-        );
+                    "on counter key={:?}, label={:?} registration_id={registration_id}, counter_id={counter_id}, value={}, {counters_reader:?}",
+                    String::from_utf8(counters_reader.get_counter_key(counter_id).unwrap()),
+                    counters_reader.get_counter_label(counter_id, 1000),
+                    counters_reader.addr(counter_id)
+                );
 
                 assert_eq!(
                     counters_reader.counter_registration_id(counter_id).unwrap(),
@@ -2584,8 +2585,8 @@ mod tests {
     /// deterministic — they fuzz the invariants the unit tests only sample.
     mod property_tests {
         use crate::{
-            validate_endpoint_for_aeron_udp, AeronCError, AeronErrorType, AeronOfferError, AeronStatus,
-            AeronStatusTracker,
+            AeronCError, AeronErrorType, AeronOfferError, AeronStatus, AeronStatusTracker,
+            validate_endpoint_for_aeron_udp,
         };
         use proptest::prelude::*;
 
@@ -3267,10 +3268,12 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// Dropping an async poller *without polling it* must not free its retained
-    /// callbacks: the C conductor completes the add in the background and will
-    /// invoke the image handler when a publication connects. The handler is
-    /// anchored to the client, whose lifetime matches the conductor's.
+    /// Dropping an async poller *without polling it* auto-cancels the pending add (see
+    /// `dropping_unpolled_async_subscription_does_not_leak_driver_counter`), so the
+    /// subscription never completes and a later publication must NOT fire the image
+    /// handler. That must hold *without* freeing the handler early: it stays anchored to
+    /// the client (whose lifetime matches the conductor's) until the client itself is
+    /// dropped, so a callback racing with cancellation can never observe a freed handler.
     #[test]
     #[serial]
     fn unpolled_async_subscription_drop_keeps_image_handler_alive() {
@@ -3287,27 +3290,29 @@ mod tests {
             let poller = aeron
                 .async_add_subscription(AERON_IPC_STREAM, 1611, Some(&handler), Handlers::NONE)
                 .unwrap();
-            // both the caller's handler and the never-polled poller go away here
+            // both the caller's handler and the never-polled poller go away here, which
+            // auto-cancels the pending add (see the `auto-cancelling ...` warn log)
         }
         assert_eq!(
             0,
             drops.load(Ordering::SeqCst),
-            "handler freed while the conductor can still invoke it (UAF)"
+            "handler freed while the conductor could still (transiently) reference it (UAF)"
         );
 
-        // the conductor completed the add internally; connecting a publication
-        // fires the image-available callback into the (still alive) handler
+        // the add was cancelled before it ever completed, so connecting a publication on
+        // the same stream must never fire the image-available callback
         let publisher = aeron
             .add_publication(AERON_IPC_STREAM, 1611, Duration::from_secs(5))
             .unwrap();
         let start = Instant::now();
-        while available.load(Ordering::SeqCst) == 0 && start.elapsed() < Duration::from_secs(5) {
+        while start.elapsed() < Duration::from_secs(2) {
             let _ = publisher.offer_raw(b"wake", Handlers::NONE);
             sleep(Duration::from_millis(10));
         }
-        assert!(
-            available.load(Ordering::SeqCst) > 0,
-            "conductor should have invoked the image handler after the unpolled poller dropped"
+        assert_eq!(
+            0,
+            available.load(Ordering::SeqCst),
+            "cancelled subscription must never complete/connect after being dropped unpolled"
         );
         assert_eq!(0, drops.load(Ordering::SeqCst));
 
@@ -3545,12 +3550,902 @@ mod tests {
             .expect("subscriber position counter");
         assert!(counters.get_counter_value(position_counter) >= 0);
 
-        assert!(counters
-            .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, -12345)
-            .is_none());
+        assert!(
+            counters
+                .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, -12345)
+                .is_none()
+        );
 
         drop(publisher);
         drop(subscription);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    #[test]
+    #[serial]
+    fn dropping_unpolled_async_subscription_does_not_leak_driver_counter() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let stream_id = 1901;
+        let registration_id = {
+            let poller = aeron
+                .async_add_subscription(AERON_IPC_STREAM, stream_id, Handlers::NONE, Handlers::NONE)
+                .unwrap();
+            let registration_id = poller.get_registration_id();
+            drop(poller); // never polled
+            registration_id
+        };
+
+        // A subscription's position counter is only materialised once it has an image
+        // (i.e. a connected publication) — so connect one to force the conductor to fully
+        // complete whatever it did with the abandoned add. If the add wasn't cancelled,
+        // the leaked subscription will connect just like a normal one and get a counter.
+        let publisher = aeron
+            .add_publication(AERON_IPC_STREAM, stream_id, Duration::from_secs(5))
+            .unwrap();
+        let counters = aeron.counters_reader();
+        let start = Instant::now();
+        let mut leaked_counter = None;
+        while start.elapsed() < Duration::from_secs(5) {
+            let _ = publisher.offer_raw(b"probe", Handlers::NONE);
+            if let Some(counter) = counters
+                .find_by_type_and_registration_id(AERON_COUNTER_SUBSCRIPTION_POSITION_TYPE_ID as i32, registration_id)
+            {
+                leaked_counter = Some(counter);
+                break;
+            }
+            sleep(Duration::from_millis(20));
+        }
+
+        assert!(
+            leaked_counter.is_none(),
+            "subscription for registration_id={registration_id} is still registered with the \
+             driver (visible in its counters, as `aeron-stats` would show) even though the \
+             async poller was dropped before poll() ever resolved it — this is the issue #60 leak"
+        );
+
+        // client stays fully usable afterwards
+        assert!(!publisher.get_inner().is_null());
+        drop(publisher);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    #[test]
+    #[serial]
+    fn async_add_subscription_cancel_is_explicit_and_idempotent() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let stream_id = 1902;
+        let poller = aeron
+            .async_add_subscription(AERON_IPC_STREAM, stream_id, Handlers::NONE, Handlers::NONE)
+            .unwrap();
+        let registration_id = poller.get_registration_id();
+
+        poller.cancel().expect("explicit cancel should succeed");
+        // idempotent: cancelling again (and the eventual drop) must be a no-op, not a
+        // double-free / double-cancel error
+        poller.cancel().expect("second cancel must be a harmless no-op");
+
+        let publisher = aeron
+            .add_publication(AERON_IPC_STREAM, stream_id, Duration::from_secs(5))
+            .unwrap();
+        let counters = aeron.counters_reader();
+        let start = Instant::now();
+        let mut leaked_counter = None;
+        while start.elapsed() < Duration::from_secs(5) {
+            let _ = publisher.offer_raw(b"probe", Handlers::NONE);
+            if let Some(counter) = counters
+                .find_by_type_and_registration_id(AERON_COUNTER_SUBSCRIPTION_POSITION_TYPE_ID as i32, registration_id)
+            {
+                leaked_counter = Some(counter);
+                break;
+            }
+            sleep(Duration::from_millis(20));
+        }
+        assert!(
+            leaked_counter.is_none(),
+            "explicit .cancel() should release the pending registration just like drop does"
+        );
+
+        drop(poller); // must not re-cancel / panic after two explicit cancels
+        drop(publisher);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// A poller that *did* resolve via `poll()` must never be cancelled afterwards —
+    /// calling `.cancel()` (or dropping) post-resolution must be inert and must not tear
+    /// down the now-live subscription it produced.
+    #[test]
+    #[serial]
+    fn async_add_subscription_cancel_after_resolved_poll_is_inert() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let stream_id = 1903;
+        let poller = aeron
+            .async_add_subscription(AERON_IPC_STREAM, stream_id, Handlers::NONE, Handlers::NONE)
+            .unwrap();
+
+        let subscription = {
+            let start = Instant::now();
+            loop {
+                if let Some(subscription) = poller.poll().unwrap() {
+                    break subscription;
+                }
+                assert!(start.elapsed() < Duration::from_secs(5), "poll() never resolved");
+                sleep(Duration::from_millis(10));
+            }
+        };
+
+        // resolved: cancel must now be a no-op and must not close the live subscription
+        poller
+            .cancel()
+            .expect(".cancel() after a resolved poll() must be a harmless no-op");
+        drop(poller);
+
+        assert!(
+            !subscription.get_inner().is_null(),
+            "cancel()/drop after poll() resolved must not tear down the live subscription"
+        );
+        drop(subscription);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// Same drop-before-poll leak proof as
+    /// `dropping_unpolled_async_subscription_does_not_leak_driver_counter`, but for
+    /// `AeronAsyncAddPublication` — the publisher limit counter must never appear for a
+    /// registration id whose async add was dropped unpolled.
+    #[test]
+    #[serial]
+    fn dropping_unpolled_async_publication_does_not_leak_driver_counter() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let stream_id = 1910;
+        let registration_id = {
+            let poller = aeron.async_add_publication(AERON_IPC_STREAM, stream_id).unwrap();
+            let registration_id = poller.get_registration_id();
+            drop(poller); // never polled
+            registration_id
+        };
+
+        // Freeing an already-materialised publication's counter goes through the same
+        // driver-side unlink+linger machinery as a normal close, so (unlike the
+        // subscription-position counter, which never appears at all here because nothing
+        // ever connects) give it a few seconds to actually disappear rather than expecting
+        // it to be instantaneous.
+        let counters = aeron.counters_reader();
+        let start = Instant::now();
+        let mut leaked_counter = None;
+        while start.elapsed() < Duration::from_secs(5) {
+            leaked_counter = counters
+                .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, registration_id);
+            if leaked_counter.is_none() {
+                break;
+            }
+            sleep(Duration::from_millis(50));
+        }
+        assert!(
+            leaked_counter.is_none(),
+            "publication for registration_id={registration_id} is still registered with the \
+             driver even though the async poller was dropped before poll() ever resolved it"
+        );
+
+        // client stays fully usable afterwards
+        let publisher = aeron
+            .add_publication(AERON_IPC_STREAM, stream_id, Duration::from_secs(5))
+            .unwrap();
+        assert!(!publisher.get_inner().is_null());
+        drop(publisher);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// Same drop-before-poll leak proof, but for `AeronAsyncAddExclusivePublication`.
+    #[test]
+    #[serial]
+    fn dropping_unpolled_async_exclusive_publication_does_not_leak_driver_counter() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let stream_id = 1911;
+        let registration_id = {
+            let poller = aeron
+                .async_add_exclusive_publication(AERON_IPC_STREAM, stream_id)
+                .unwrap();
+            let registration_id = poller.get_registration_id();
+            drop(poller); // never polled
+            registration_id
+        };
+
+        // Same rationale as the publication test above: give the driver-side unlink a
+        // few seconds instead of expecting it to be instantaneous.
+        let counters = aeron.counters_reader();
+        let start = Instant::now();
+        let mut leaked_counter = None;
+        while start.elapsed() < Duration::from_secs(5) {
+            leaked_counter = counters
+                .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, registration_id);
+            if leaked_counter.is_none() {
+                break;
+            }
+            sleep(Duration::from_millis(50));
+        }
+        assert!(
+            leaked_counter.is_none(),
+            "exclusive publication for registration_id={registration_id} is still registered \
+             with the driver even though the async poller was dropped before poll() ever \
+             resolved it"
+        );
+
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// Same drop-before-poll leak proof, but for `AeronAsyncAddCounter` — a user counter's
+    /// key buffer (not the registration id) is the only thing we control, so match on the
+    /// exact key bytes instead of `find_by_type_and_registration_id`.
+    #[test]
+    #[serial]
+    fn dropping_unpolled_async_counter_does_not_leak_driver_counter() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let type_id = 987_654;
+        let key_buffer = [0xABu8, 0xCD, 0xEF, 0x01, 0x23, 0x45, 0x67, 0x89];
+        {
+            let poller = aeron
+                .async_add_counter(type_id, &key_buffer, "leak-test-counter")
+                .unwrap();
+            drop(poller); // never polled
+        }
+
+        let counters = aeron.counters_reader();
+        let start = Instant::now();
+        let mut leaked_counter = None;
+        while start.elapsed() < Duration::from_secs(2) {
+            if let Some(counter) = counters.find_by_type_id(type_id, |key| key == key_buffer) {
+                leaked_counter = Some(counter);
+                break;
+            }
+            sleep(Duration::from_millis(20));
+        }
+        assert!(
+            leaked_counter.is_none(),
+            "user counter is still registered with the driver even though the async poller \
+             was dropped before poll() ever resolved it"
+        );
+
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// Explicit `.cancel()` for `AeronAsyncAddPublication`, `AeronAsyncAddExclusivePublication`
+    /// and `AeronAsyncAddCounter` must behave like the subscription case: idempotent, and a
+    /// no-op once `poll()` has already resolved.
+    #[test]
+    #[serial]
+    fn async_add_publication_exclusive_publication_and_counter_cancel_is_explicit_idempotent_and_inert_after_resolve() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        // publication: explicit cancel before resolve is idempotent and releases the counter
+        {
+            let stream_id = 1912;
+            let poller = aeron.async_add_publication(AERON_IPC_STREAM, stream_id).unwrap();
+            let registration_id = poller.get_registration_id();
+            poller.cancel().expect("explicit cancel should succeed");
+            poller.cancel().expect("second cancel must be a harmless no-op");
+
+            let counters = aeron.counters_reader();
+            let start = Instant::now();
+            let mut still_present = counters
+                .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, registration_id);
+            while still_present.is_some() && start.elapsed() < Duration::from_secs(5) {
+                sleep(Duration::from_millis(50));
+                still_present = counters
+                    .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, registration_id);
+            }
+            assert!(
+                still_present.is_none(),
+                "explicit .cancel() should release the pending publication registration"
+            );
+            drop(poller); // must not re-cancel / panic after two explicit cancels
+        }
+
+        // exclusive publication: cancel after a resolved poll() must be inert
+        {
+            let stream_id = 1913;
+            let poller = aeron
+                .async_add_exclusive_publication(AERON_IPC_STREAM, stream_id)
+                .unwrap();
+            let publication = {
+                let start = Instant::now();
+                loop {
+                    if let Some(publication) = poller.poll().unwrap() {
+                        break publication;
+                    }
+                    assert!(start.elapsed() < Duration::from_secs(5), "poll() never resolved");
+                    sleep(Duration::from_millis(10));
+                }
+            };
+            poller
+                .cancel()
+                .expect(".cancel() after a resolved poll() must be a harmless no-op");
+            drop(poller);
+            assert!(
+                !publication.get_inner().is_null(),
+                "cancel()/drop after poll() resolved must not tear down the live publication"
+            );
+            drop(publication);
+        }
+
+        // counter: explicit cancel before resolve is idempotent
+        {
+            let type_id = 987_655;
+            let key_buffer = [1u8, 2, 3, 4, 5, 6, 7, 8];
+            let poller = aeron
+                .async_add_counter(type_id, &key_buffer, "explicit-cancel-counter")
+                .unwrap();
+            poller.cancel().expect("explicit cancel should succeed");
+            poller.cancel().expect("second cancel must be a harmless no-op");
+            drop(poller);
+
+            let counters = aeron.counters_reader();
+            assert!(
+                counters.find_by_type_id(type_id, |key| key == key_buffer).is_none(),
+                "explicit .cancel() should release the pending counter registration"
+            );
+        }
+
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// A failed async add (invalid URI) must fail cleanly for publications too: the error
+    /// surfaces from `poll()`, later polls are inert (no use-after-free), the auto-cancel
+    /// cleanup path must not double-free the C struct the errored poll already released,
+    /// and the client stays fully usable afterwards. Mirrors
+    /// `async_add_subscription_invalid_uri_fails_cleanly` for the publication side.
+    #[test]
+    #[serial]
+    fn async_add_publication_invalid_uri_fails_cleanly() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let bad_uri = c"aeron:udp?endpoint=not-a-real-host:0|interface=500.500.500.500";
+        match aeron.async_add_publication(bad_uri, 1622) {
+            Err(_) => {} // rejected synchronously — fine
+            Ok(poller) => {
+                let mut saw_error = false;
+                let start = Instant::now();
+                while start.elapsed() < Duration::from_secs(5) {
+                    match poller.poll() {
+                        Err(_) => {
+                            saw_error = true;
+                            break;
+                        }
+                        Ok(Some(_)) => panic!("publication must not be created for an invalid uri"),
+                        Ok(None) => sleep(Duration::from_millis(10)),
+                    }
+                }
+                assert!(saw_error, "poll should surface the async add error");
+                // the C client freed the async struct on the errored poll; further polls
+                // must be inert, and the eventual drop must not re-cancel a freed pointer
+                assert!(matches!(poller.poll(), Ok(None)));
+                assert!(matches!(poller.poll(), Ok(None)));
+                drop(poller);
+            }
+        }
+
+        // client unaffected: normal roundtrip still works
+        let publisher = aeron
+            .add_publication(AERON_IPC_STREAM, 1623, Duration::from_secs(5))
+            .unwrap();
+        assert!(!publisher.get_inner().is_null());
+        drop(publisher);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// Builds a `control-mode=manual` (MDS/MDC) UDP channel string.
+    fn manual_control_mode_channel() -> std::ffi::CString {
+        let builder = AeronUriStringBuilder::new_zeroed_on_heap();
+        builder.init_new().unwrap();
+        builder
+            .media(Media::Udp)
+            .unwrap()
+            .control_mode(ControlMode::Manual)
+            .unwrap();
+        cformat!("{}", builder.build(256).unwrap())
+    }
+
+    /// Builds a plain `aeron:udp?endpoint=127.0.0.1:PORT` destination/channel string.
+    fn udp_endpoint_channel(port: u16) -> std::ffi::CString {
+        cformat!(
+            "{}",
+            AeronUriStringBuilder::udp(&format!("127.0.0.1:{port}"))
+                .unwrap()
+                .build(256)
+                .unwrap()
+        )
+    }
+
+    /// Repeatedly offers `msg` (ignoring transient/retryable send failures) while polling
+    /// every subscription in `subs`, until every one of them has observed it (or `timeout`
+    /// elapses). Re-offering — rather than a single blind send — absorbs the real-world
+    /// race between "the destination/image is nominally connected" and "the driver has
+    /// actually finished wiring up delivery to it", which a single fixed-count send can hit
+    /// even after `is_connected()` reports true.
+    fn assert_all_subs_eventually_receive(
+        offer: impl Fn(&[u8]) -> Result<i64, AeronOfferError>,
+        msg: &str,
+        subs: &[&AeronSubscription],
+        timeout: Duration,
+    ) {
+        let mut seen: Vec<std::collections::HashSet<String>> = subs.iter().map(|_| Default::default()).collect();
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline && !seen.iter().all(|s| s.contains(msg)) {
+            let _ = offer(msg.as_bytes());
+            for (i, sub) in subs.iter().enumerate() {
+                let _ = sub.poll_fn(
+                    |buf, _hdr| {
+                        seen[i].insert(String::from_utf8_lossy(buf).to_string());
+                    },
+                    16,
+                );
+            }
+            sleep(Duration::from_millis(20));
+        }
+        for (i, s) in seen.iter().enumerate() {
+            assert!(s.contains(msg), "subs[{i}] never received {msg:?}, saw {s:?}");
+        }
+    }
+
+    /// Repeatedly offers freshly-tagged probe messages while polling both `removed_sub`
+    /// (expected to stop receiving) and every `alive_subs` entry (expected to keep
+    /// receiving), until one probe is confirmed delivered to all `alive_subs` but absent
+    /// from `removed_sub`. This proves the destination removal has genuinely taken effect
+    /// driver-side — not merely that `remove_destination(...)` returned `Ok(())` — while
+    /// tolerating the small, real round-trip delay between that call succeeding and the
+    /// driver actually tearing down delivery to the removed destination (the same kind of
+    /// delay already observed for publication/counter cancellation elsewhere in this suite).
+    /// Panics if no such probe is confirmed within `timeout`.
+    fn assert_destination_removal_takes_effect(
+        offer: impl Fn(&[u8]) -> Result<i64, AeronOfferError>,
+        removed_sub: &AeronSubscription,
+        alive_subs: &[&AeronSubscription],
+        timeout: Duration,
+    ) {
+        let deadline = Instant::now() + timeout;
+        let mut attempt = 0usize;
+        loop {
+            attempt += 1;
+            let msg = format!("removal-probe-{attempt}");
+            let mut alive_seen: Vec<std::collections::HashSet<String>> =
+                alive_subs.iter().map(|_| Default::default()).collect();
+            let mut removed_seen = std::collections::HashSet::new();
+            let probe_deadline = Instant::now() + Duration::from_millis(300).min(timeout);
+            while Instant::now() < probe_deadline
+                && (!alive_seen.iter().all(|s| s.contains(&msg)) || removed_seen.is_empty())
+            {
+                let _ = offer(msg.as_bytes());
+                for (i, sub) in alive_subs.iter().enumerate() {
+                    let _ = sub.poll_fn(
+                        |buf, _hdr| {
+                            alive_seen[i].insert(String::from_utf8_lossy(buf).to_string());
+                        },
+                        16,
+                    );
+                }
+                let _ = removed_sub.poll_fn(
+                    |buf, _hdr| {
+                        removed_seen.insert(String::from_utf8_lossy(buf).to_string());
+                    },
+                    16,
+                );
+                sleep(Duration::from_millis(10));
+            }
+            if alive_seen.iter().all(|s| s.contains(&msg)) && !removed_seen.contains(&msg) {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "destination removal never took effect after {attempt} probes: alive_seen={alive_seen:?} removed_seen={removed_seen:?}"
+            );
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn subscription_mds_add_and_remove_destination_gates_real_data_flow() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+        let stream_id = 1904;
+
+        let subscription = aeron
+            .async_add_subscription(
+                &manual_control_mode_channel(),
+                stream_id,
+                Handlers::NONE,
+                Handlers::NONE,
+            )
+            .unwrap()
+            .poll_blocking(Duration::from_secs(5))
+            .unwrap();
+
+        let port_a = rusteron_media_driver::testing::find_unused_udp_port(20300).expect("no free port");
+        let port_b = rusteron_media_driver::testing::find_unused_udp_port(port_a + 1).expect("no free port");
+        let dest_a = udp_endpoint_channel(port_a);
+        let dest_b = udp_endpoint_channel(port_b);
+
+        // Removing a destination that was never added must not panic/hang — Aeron's C API
+        // doesn't track membership up front for this call.
+        let result = subscription.remove_destination(&dest_a, Duration::from_secs(2));
+        assert!(
+            result.is_ok() || result.is_err(),
+            "removing an unknown destination must resolve cleanly, got {result:?}"
+        );
+
+        subscription
+            .add_destination(&dest_a, Duration::from_secs(5))
+            .expect("adding destination A should succeed");
+        subscription
+            .add_destination(&dest_b, Duration::from_secs(5))
+            .expect("adding destination B should succeed");
+
+        let publisher_a = aeron
+            .async_add_publication(&dest_a, stream_id)
+            .unwrap()
+            .poll_blocking(Duration::from_secs(5))
+            .unwrap();
+        let publisher_b = aeron
+            .async_add_publication(&dest_b, stream_id)
+            .unwrap()
+            .poll_blocking(Duration::from_secs(5))
+            .unwrap();
+
+        let start = Instant::now();
+        while (!publisher_a.is_connected() || !publisher_b.is_connected()) && start.elapsed() < Duration::from_secs(10)
+        {
+            sleep(Duration::from_millis(10));
+        }
+        assert!(
+            publisher_a.is_connected() && publisher_b.is_connected(),
+            "publishers did not connect through the MDS destinations"
+        );
+
+        // Both feeds must arrive through the single aggregating subscription. Retrying the
+        // offer (rather than a single blind send) absorbs the race between "is_connected()
+        // reports true" and the driver actually finishing delivery wiring.
+        let mut seen = std::collections::HashSet::new();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline && !(seen.contains("feed-A-1") && seen.contains("feed-B-1")) {
+            let _ = publisher_a.offer(b"feed-A-1");
+            let _ = publisher_b.offer(b"feed-B-1");
+            let _ = subscription.poll_fn(
+                |buf, _hdr| {
+                    seen.insert(String::from_utf8_lossy(buf).to_string());
+                },
+                16,
+            );
+            sleep(Duration::from_millis(20));
+        }
+        assert!(
+            seen.contains("feed-A-1") && seen.contains("feed-B-1"),
+            "expected both destinations to deliver before any removal, got {seen:?}"
+        );
+
+        // Remove destination A; its messages must genuinely stop arriving while B keeps
+        // flowing. Probe repeatedly (rather than a single send) to tolerate the small
+        // real round trip between `remove_destination()` returning and the driver
+        // actually tearing down delivery for that destination.
+        subscription
+            .remove_destination(&dest_a, Duration::from_secs(5))
+            .expect("removing destination A should succeed");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut attempt = 0usize;
+        loop {
+            attempt += 1;
+            let tag_a = format!("removal-probe-A-{attempt}");
+            let tag_b = format!("removal-probe-B-{attempt}");
+            let mut probe_seen = std::collections::HashSet::new();
+            let probe_deadline = Instant::now() + Duration::from_millis(300);
+            while Instant::now() < probe_deadline && !probe_seen.contains(&tag_b) {
+                let _ = publisher_a.offer(tag_a.as_bytes());
+                let _ = publisher_b.offer(tag_b.as_bytes());
+                let _ = subscription.poll_fn(
+                    |buf, _hdr| {
+                        probe_seen.insert(String::from_utf8_lossy(buf).to_string());
+                    },
+                    16,
+                );
+                sleep(Duration::from_millis(10));
+            }
+            if probe_seen.contains(&tag_b) && !probe_seen.contains(&tag_a) {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "destination A removal never took effect after {attempt} probes: {probe_seen:?}"
+            );
+        }
+
+        // Removing it again (already gone) must still resolve cleanly.
+        let result = subscription.remove_destination(&dest_a, Duration::from_secs(2));
+        assert!(
+            result.is_ok() || result.is_err(),
+            "removing an already-removed destination must resolve cleanly, got {result:?}"
+        );
+
+        drop(publisher_a);
+        drop(publisher_b);
+        drop(subscription);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    #[test]
+    #[serial]
+    fn publication_mdc_add_and_remove_destination_gates_real_data_flow() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+        let stream_id = 1905;
+
+        let publication = aeron
+            .async_add_publication(&manual_control_mode_channel(), stream_id)
+            .unwrap()
+            .poll_blocking(Duration::from_secs(5))
+            .unwrap();
+
+        let port_a = rusteron_media_driver::testing::find_unused_udp_port(20320).expect("no free port");
+        let port_b = rusteron_media_driver::testing::find_unused_udp_port(port_a + 1).expect("no free port");
+        let port_c = rusteron_media_driver::testing::find_unused_udp_port(port_b + 1).expect("no free port");
+        let dest_a = udp_endpoint_channel(port_a); // removed via remove_destination(uri)
+        let dest_b = udp_endpoint_channel(port_b); // removed via remove_destination_by_id
+        let dest_c = udp_endpoint_channel(port_c); // control: never removed
+
+        // Removing a destination that was never added must not panic/hang.
+        let result = publication.remove_destination(&dest_a, Duration::from_secs(2));
+        assert!(result.is_ok() || result.is_err());
+
+        let sub_a = aeron
+            .add_subscription(
+                &dest_a,
+                stream_id,
+                Handlers::NONE,
+                Handlers::NONE,
+                Duration::from_secs(5),
+            )
+            .unwrap();
+        let sub_c = aeron
+            .add_subscription(
+                &dest_c,
+                stream_id,
+                Handlers::NONE,
+                Handlers::NONE,
+                Duration::from_secs(5),
+            )
+            .unwrap();
+
+        publication
+            .add_destination(&dest_a, Duration::from_secs(5))
+            .expect("adding destination A should succeed");
+        publication
+            .add_destination(&dest_c, Duration::from_secs(5))
+            .expect("adding destination C should succeed");
+
+        // Capture destination B's registration id via the low-level async API (not
+        // exposed by the `add_destination` convenience wrapper) so we can remove it by id
+        // later — mirrors how a caller would drive this from their own event loop.
+        let add_b = publication.async_add_destination(&aeron, &dest_b).unwrap();
+        let dest_b_registration_id = add_b.get_registration_id();
+        let start = Instant::now();
+        loop {
+            let poll_result = add_b.aeron_publication_async_destination_poll();
+            if matches!(poll_result, Ok(n) if n > 0) {
+                break;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "add_destination(B) never resolved"
+            );
+            sleep(Duration::from_millis(5));
+        }
+        // Resolved: there's no C free for this resource once the driver acknowledges it
+        // (mirrors the wrapper functions in `aeron_custom.rs`) — mark it closed so `Drop`
+        // doesn't treat this as a leak under `strict-lifecycle`.
+        let _ = add_b.inner.close_resource();
+        let sub_b = aeron
+            .add_subscription(
+                &dest_b,
+                stream_id,
+                Handlers::NONE,
+                Handlers::NONE,
+                Duration::from_secs(5),
+            )
+            .unwrap();
+
+        let start = Instant::now();
+        while !publication.is_connected() && start.elapsed() < Duration::from_secs(10) {
+            sleep(Duration::from_millis(10));
+        }
+        assert!(
+            publication.is_connected(),
+            "publication never connected to any MDC destination"
+        );
+
+        // Everything is wired: a message sent (retried) now must reach all three
+        // subscribers — retrying absorbs the race between the destination nominally
+        // connecting and the driver actually finishing delivery wiring for it.
+        assert_all_subs_eventually_receive(
+            |b| publication.offer(b),
+            "to-ABC",
+            &[&sub_a, &sub_b, &sub_c],
+            Duration::from_secs(5),
+        );
+
+        // Remove A by URI: subsequent messages must stop reaching sub A while B and C
+        // keep receiving.
+        publication
+            .remove_destination(&dest_a, Duration::from_secs(5))
+            .expect("remove_destination(A) should succeed");
+        assert_destination_removal_takes_effect(
+            |b| publication.offer(b),
+            &sub_a,
+            &[&sub_b, &sub_c],
+            Duration::from_secs(5),
+        );
+
+        // Remove B by registration id: the C API call itself must succeed (it's correctly
+        // wired end-to-end to `aeron_publication_async_remove_destination_by_id`), but data
+        // flow to sub B is **not** expected to stop here.
+        //
+        // Confirmed upstream bug (still present in aeron-io/aeron `master` as of this
+        // writing, and in the vendored 1.52.2 submodule): `aeron_client_conductor_
+        // on_cmd_destination_by_id()` in `aeron-client/src/main/c/aeron_client_conductor.c`
+        // populates `command->destination_registration_id` with the *parent publication's*
+        // own `resource_registration_id` instead of the destination's actual
+        // `destination_registration_id` (the value this function received as a parameter
+        // and had already stored correctly on the async command struct) —
+        // `command->destination_registration_id = resource_registration_id;` should read
+        // `command->destination_registration_id = async->destination_registration_id;`.
+        // Since the driver's `aeron_udp_destination_tracker_remove_destination_by_id()`
+        // matches purely on `entry->registration_id == destination_registration_id`, and a
+        // publication's own registration id never equals one of its destinations'
+        // registration ids, the driver silently finds no match and removes nothing — while
+        // still reporting the command as succeeded. So today, `remove_destination_by_id`
+        // is effectively a no-op at the driver level regardless of caller; only
+        // `remove_destination` (by URI) actually works. Verified by direct byte-for-byte
+        // comparison against the current aeron-io/aeron GitHub `master` source — this is
+        // not specific to our vendored version and should be reported upstream.
+        // `remove_destination_by_id` now deliberately surfaces this as an `Err` (rather
+        // than a misleading `Ok(())`) precisely because of the bug above — assert that
+        // honest failure instead of a successful data-flow stop.
+        let err = publication
+            .remove_destination_by_id(dest_b_registration_id, Duration::from_secs(5))
+            .expect_err("remove_destination_by_id(B) must report the known upstream no-op as an error, not Ok(())");
+        assert!(
+            format!("{err:?}").contains("upstream Aeron C bug"),
+            "unexpected error from remove_destination_by_id: {err:?}"
+        );
+
+        drop(sub_a);
+        drop(sub_b);
+        drop(sub_c);
+        drop(publication);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// Same MDC round trip as `publication_mdc_add_and_remove_destination_gates_real_data_flow`,
+    /// but for [`AeronExclusivePublication`] — the `add_destination`/`remove_destination`/
+    /// `remove_destination_by_id` trio is a separate impl block generated from a separate set
+    /// of C functions, so it needs its own real-data-flow proof rather than assuming parity
+    /// with the regular-publication path.
+    #[test]
+    #[serial]
+    fn exclusive_publication_mdc_add_and_remove_destination_gates_real_data_flow() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+        let stream_id = 1906;
+
+        let publication = aeron
+            .async_add_exclusive_publication(&manual_control_mode_channel(), stream_id)
+            .unwrap()
+            .poll_blocking(Duration::from_secs(5))
+            .unwrap();
+
+        let port_a = rusteron_media_driver::testing::find_unused_udp_port(20340).expect("no free port");
+        let port_b = rusteron_media_driver::testing::find_unused_udp_port(port_a + 1).expect("no free port");
+        let dest_a = udp_endpoint_channel(port_a); // removed via remove_destination(uri)
+        let dest_b = udp_endpoint_channel(port_b); // removed via remove_destination_by_id
+
+        let result = publication.remove_destination(&dest_a, Duration::from_secs(2));
+        assert!(result.is_ok() || result.is_err());
+
+        let sub_a = aeron
+            .add_subscription(
+                &dest_a,
+                stream_id,
+                Handlers::NONE,
+                Handlers::NONE,
+                Duration::from_secs(5),
+            )
+            .unwrap();
+
+        publication
+            .add_destination(&dest_a, Duration::from_secs(5))
+            .expect("adding destination A should succeed");
+
+        let add_b = publication.async_add_destination(&aeron, &dest_b).unwrap();
+        let dest_b_registration_id = add_b.get_registration_id();
+        let start = Instant::now();
+        loop {
+            let poll_result = add_b.aeron_exclusive_publication_async_destination_poll();
+            if matches!(poll_result, Ok(n) if n > 0) {
+                break;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "add_destination(B) never resolved"
+            );
+            sleep(Duration::from_millis(5));
+        }
+        // Resolved: there's no C free for this resource once the driver acknowledges it
+        // (mirrors the wrapper functions in `aeron_custom.rs`) — mark it closed so `Drop`
+        // doesn't treat this as a leak under `strict-lifecycle`.
+        let _ = add_b.inner.close_resource();
+        let sub_b = aeron
+            .add_subscription(
+                &dest_b,
+                stream_id,
+                Handlers::NONE,
+                Handlers::NONE,
+                Duration::from_secs(5),
+            )
+            .unwrap();
+
+        let start = Instant::now();
+        while !publication.is_connected() && start.elapsed() < Duration::from_secs(10) {
+            sleep(Duration::from_millis(10));
+        }
+        assert!(
+            publication.is_connected(),
+            "exclusive publication never connected to any MDC destination"
+        );
+
+        assert_all_subs_eventually_receive(
+            |b| publication.offer(b),
+            "to-AB",
+            &[&sub_a, &sub_b],
+            Duration::from_secs(5),
+        );
+
+        // Remove A by URI: only B should keep receiving.
+        publication
+            .remove_destination(&dest_a, Duration::from_secs(5))
+            .expect("remove_destination(A) should succeed");
+        assert_destination_removal_takes_effect(|b| publication.offer(b), &sub_a, &[&sub_b], Duration::from_secs(5));
+
+        // Remove B by registration id: the call succeeds at the API level (correctly
+        // wired to `aeron_exclusive_publication_async_remove_destination_by_id`), but see
+        // the identical, extensively-documented note in
+        // `publication_mdc_add_and_remove_destination_gates_real_data_flow` above — a
+        // confirmed upstream Aeron C bug (`aeron_client_conductor_on_cmd_destination_by_id`
+        // in `aeron_client_conductor.c`, reproduced against the current aeron-io/aeron
+        // `master`) makes `remove_destination_by_id` a driver-level no-op today regardless
+        // of publication type, so data-flow gating is intentionally not asserted here.
+        // `remove_destination_by_id` now deliberately surfaces this as an `Err` (rather
+        // than a misleading `Ok(())`) precisely because of the bug above — assert that
+        // honest failure instead of a successful data-flow stop.
+        let err = publication
+            .remove_destination_by_id(dest_b_registration_id, Duration::from_secs(5))
+            .expect_err("remove_destination_by_id(B) must report the known upstream no-op as an error, not Ok(())");
+        assert!(
+            format!("{err:?}").contains("upstream Aeron C bug"),
+            "unexpected error from remove_destination_by_id: {err:?}"
+        );
+
+        drop(sub_a);
+        drop(sub_b);
+        drop(publication);
         drop(aeron);
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
@@ -3987,6 +4882,161 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, _error_handler);
     }
 
+    #[test]
+    #[serial]
+    fn handler_dependencies_on_client_grow_linearly_and_never_shrink_until_client_drops() {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let baseline = aeron.inner.dependency_len();
+
+        const CYCLES: i32 = 5;
+        for i in 0..CYCLES {
+            let handler = Handler::new(move |_subscription: AeronSubscription, _image: AeronImage| {});
+            let sub = aeron
+                .add_subscription(
+                    AERON_IPC_STREAM,
+                    2300 + i,
+                    Some(&handler),
+                    None::<&Handler<AeronUnavailableImageLogger>>,
+                    Duration::from_secs(5),
+                )
+                .unwrap();
+            // both the subscription and our local handle go away; only the client's
+            // anchored clone (added inside async_add_subscription) should remain.
+            drop(sub);
+            drop(handler);
+
+            let expected = baseline + (i as usize + 1);
+            assert_eq!(
+                aeron.inner.dependency_len(),
+                expected,
+                "cycle {i}: expected exactly one new handler dependency on the client \
+                 per subscribe/unsubscribe cycle"
+            );
+        }
+
+        assert_eq!(
+            aeron.inner.dependency_len(),
+            baseline + CYCLES as usize,
+            "{CYCLES} subscribe/unsubscribe cycles must leave exactly {CYCLES} handler \
+             dependencies anchored on the client (none reclaimed until client drop)"
+        );
+
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    #[test]
+    #[serial]
+    fn invoker_mode_on_available_image_fires_safely_around_close() {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+        let driver = rusteron_media_driver::testing::EmbeddedDriver::launch().unwrap();
+
+        let ctx = AeronContext::new().unwrap();
+        ctx.set_dir(&driver.dir().into_c_string()).unwrap();
+        ctx.set_use_conductor_agent_invoker(true).unwrap();
+        let error_handler = Handler::new(TestErrorCount::default());
+        ctx.set_error_handler(Some(error_handler.clone())).unwrap();
+
+        let aeron = Aeron::new(&ctx).unwrap();
+        aeron.start().unwrap();
+
+        let available = Arc::new(AtomicUsize::new(0));
+        let drops = Arc::new(AtomicUsize::new(0));
+        let handler = Handler::new(CountingAvailableImageHandler {
+            available: available.clone(),
+            drops: drops.clone(),
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(15);
+        macro_rules! drive_until {
+            ($cond:expr, $msg:expr) => {{
+                loop {
+                    aeron.main_do_work().unwrap();
+                    if $cond {
+                        break;
+                    }
+                    assert!(Instant::now() < deadline, $msg);
+                    sleep(Duration::from_millis(1));
+                }
+            }};
+        }
+
+        let sub_poller = aeron
+            .async_add_subscription(AERON_IPC_STREAM, 2101, Some(&handler), Handlers::NONE)
+            .unwrap();
+        #[allow(unused_assignments)]
+        let mut subscription_result = None;
+        drive_until!(
+            {
+                subscription_result = sub_poller.poll().unwrap();
+                subscription_result.is_some()
+            },
+            "invoker never resolved the async add_subscription"
+        );
+        let subscription = subscription_result.unwrap();
+        drop(sub_poller); // done polling — don't hold its client-Rc clone any longer
+
+        let pub_poller = aeron.async_add_publication(AERON_IPC_STREAM, 2101).unwrap();
+        #[allow(unused_assignments)]
+        let mut publisher_result = None;
+        drive_until!(
+            {
+                publisher_result = pub_poller.poll().unwrap();
+                publisher_result.is_some()
+            },
+            "invoker never resolved the async add_publication"
+        );
+        let publisher = publisher_result.unwrap();
+        drop(pub_poller);
+
+        drive_until!(
+            {
+                let _ = publisher.offer_raw(b"wake", Handlers::NONE);
+                available.load(Ordering::SeqCst) > 0
+            },
+            "on_available_image never fired before subscription close"
+        );
+
+        // Only requests the close; the conductor (which we alone drive here) hasn't
+        // necessarily processed it yet.
+        drop(subscription);
+
+        // Pump the invoker a bit more so the close (and any in-flight callback racing
+        // with it) is fully processed under our control, proving it's safe either way.
+        for _ in 0..200 {
+            aeron.main_do_work().unwrap();
+            sleep(Duration::from_millis(1));
+        }
+
+        assert_eq!(
+            unsafe { error_handler.get_mut().error_count },
+            0,
+            "no errors should be observed while driving close via the invoker"
+        );
+        assert_eq!(
+            drops.load(Ordering::SeqCst),
+            0,
+            "handler must still be anchored to the client after the subscription's async \
+             close, not freed early"
+        );
+
+        drop(publisher);
+        // Drop our own local clone of the handler: the client's dependency list holds
+        // the other clone, which is the one that must keep it alive until the client
+        // itself drops.
+        drop(handler);
+        drop(aeron);
+        assert_eq!(
+            drops.load(Ordering::SeqCst),
+            1,
+            "handler must be freed exactly once, when the client itself drops"
+        );
+
+        drop(driver);
+    }
+
     // ── Structural teardown verification via memory protection ────────
     //
     // Under the new design, the Rc dependency graph ensures correct
@@ -4017,7 +5067,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     const SYS_PAGESIZE: i32 = 30;
 
-    extern "C" {
+    unsafe extern "C" {
         fn mprotect(addr: *mut core::ffi::c_void, len: usize, prot: i32) -> i32;
         fn sysconf(name: i32) -> isize;
         fn write(fd: i32, buf: *const core::ffi::c_void, count: usize) -> isize;
@@ -4061,7 +5111,7 @@ mod tests {
     #[test]
     #[serial]
     fn prove_rc_teardown_frees_via_mprotect() {
-        extern "C" {
+        unsafe extern "C" {
             fn signal(sig: i32, handler: unsafe extern "C" fn(i32)) -> usize;
             fn fork() -> i32;
             fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;

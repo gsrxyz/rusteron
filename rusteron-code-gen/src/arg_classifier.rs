@@ -4,12 +4,12 @@
 //! fragments the emitters need (signature, FFI call, generics, retained-handler registration,
 //! and the `_fn` stack-closure variant). `generate_methods` then emits purely from the classification.
 
-use crate::generator::{is_sync_handler_type, Arg, ArgProcessing, CHandler, CWrapper, Method, ReturnType};
+use crate::generator::{Arg, ArgProcessing, CHandler, CWrapper, Method, ReturnType, is_sync_handler_type};
 use crate::snake_to_pascal_case;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use std::collections::BTreeMap;
-use syn::{parse_str, Type};
+use syn::{Type, parse_str};
 
 /// Role of a C argument in the generated Rust wrapper method.
 ///

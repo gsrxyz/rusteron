@@ -138,12 +138,10 @@ pub fn rusteron_build_main(config: &RusteronBuildConfig) {
             .map(|s| s.next().is_none())
             .unwrap_or_default()
             && std::env::var_os("RUSTERON_BUILD_FROM_SOURCE").is_none()
-        {
-            if let Err(e) = download_precompiled_binaries(&artifacts_dir) {
+            && let Err(e) = download_precompiled_binaries(&artifacts_dir) {
                 eprintln!("Error downloading precompiled binaries: {e:?}");
                 println!("Error downloading precompiled binaries: {e:?}");
             }
-        }
         if artifacts_dir.exists()
             && fs::read_dir(&artifacts_dir)
                 .as_mut()
@@ -176,11 +174,10 @@ pub fn rusteron_build_main(config: &RusteronBuildConfig) {
                     println!("cargo:rustc-link-lib=bsd");
                 }
             }
-            if cfg!(target_os = "linux") {
-                if let Some(lib) = config.precompile_linux_extra_lib {
+            if cfg!(target_os = "linux")
+                && let Some(lib) = config.precompile_linux_extra_lib {
                     println!("cargo:rustc-link-lib={lib}");
                 }
-            }
 
             // Copy generated Rust files (*.rs) from the artifacts folder into OUT_DIR.
             copy_rs_files(&docs_rs, &out_path);
@@ -367,6 +364,20 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     println!("cargo:include={}", header_path.display());
     let mut builder = bindgen::Builder::default()
         .clang_arg(format!("-I{}", header_path.display()))
+        // Match the CMAKE_C_STANDARD 11 used to actually compile the Aeron C sources.
+        .clang_arg("-std=gnu11");
+    // On Linux, libclang can end up resolving `<stdatomic.h>` to GCC's own
+    // copy (found via the default system include path) instead of the one
+    // bundled with the libclang/clang version actually doing the parsing.
+    if cfg!(target_os = "linux")
+        && let Ok(output) = std::process::Command::new("clang").arg("-print-resource-dir").output()
+    {
+        let resource_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !resource_dir.is_empty() {
+            builder = builder.clang_arg(format!("-resource-dir={resource_dir}"));
+        }
+    }
+    let mut builder = builder
         .header("bindings.h")
         .allowlist_function("aeron_.*")
         .allowlist_type("aeron_.*")
@@ -546,15 +557,14 @@ fn publish_artifacts(cmake_build_path: &Path) -> std::io::Result<()> {
             continue;
         }
         let entry = entry.unwrap();
-        if entry.file_type().is_file() {
-            if let Some(ext) = entry.path().extension() {
-                if lib_extensions.iter().any(|&e| ext == e) {
-                    // Copy file preserving its file name.
-                    let file_name = entry.path().file_name().unwrap();
-                    fs::copy(entry.path(), publish_dir.join(file_name))?;
-                    libs_copied += 1;
-                }
-            }
+        if entry.file_type().is_file()
+            && let Some(ext) = entry.path().extension()
+            && lib_extensions.iter().any(|&e| ext == e)
+        {
+            // Copy file preserving its file name.
+            let file_name = entry.path().file_name().unwrap();
+            fs::copy(entry.path(), publish_dir.join(file_name))?;
+            libs_copied += 1;
         }
     }
 

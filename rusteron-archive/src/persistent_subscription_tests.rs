@@ -27,7 +27,7 @@
 #[cfg(test)]
 mod tests {
     use super::super::*;
-    use crate::testing::{valgrind_timeout, EmbeddedArchiveMediaDriverProcess};
+    use crate::testing::{EmbeddedArchiveMediaDriverProcess, valgrind_timeout};
     use log::{error, info};
     use serial_test::serial;
     use std::cell::Cell;
