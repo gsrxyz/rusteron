@@ -138,12 +138,10 @@ pub fn rusteron_build_main(config: &RusteronBuildConfig) {
             .map(|s| s.next().is_none())
             .unwrap_or_default()
             && std::env::var_os("RUSTERON_BUILD_FROM_SOURCE").is_none()
-        {
-            if let Err(e) = download_precompiled_binaries(&artifacts_dir) {
+            && let Err(e) = download_precompiled_binaries(&artifacts_dir) {
                 eprintln!("Error downloading precompiled binaries: {e:?}");
                 println!("Error downloading precompiled binaries: {e:?}");
             }
-        }
         if artifacts_dir.exists()
             && fs::read_dir(&artifacts_dir)
                 .as_mut()
@@ -176,11 +174,10 @@ pub fn rusteron_build_main(config: &RusteronBuildConfig) {
                     println!("cargo:rustc-link-lib=bsd");
                 }
             }
-            if cfg!(target_os = "linux") {
-                if let Some(lib) = config.precompile_linux_extra_lib {
+            if cfg!(target_os = "linux")
+                && let Some(lib) = config.precompile_linux_extra_lib {
                     println!("cargo:rustc-link-lib={lib}");
                 }
-            }
 
             // Copy generated Rust files (*.rs) from the artifacts folder into OUT_DIR.
             copy_rs_files(&docs_rs, &out_path);

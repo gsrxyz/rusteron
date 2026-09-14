@@ -44,16 +44,8 @@ pub enum CResource<T> {
     Borrowed(*mut T),
 }
 
-// `CResource<T>` can't auto-derive `Send`/`Sync` because the `Borrowed(*mut T)`
-// and `OwnedOnStack(MaybeUninit<T>)` variants make that depend on `T: Send`/
-// `Sync`, which raw bindgen structs (e.g. `aeron_stct`, containing pointers)
-// never satisfy. Under `multi-threaded`, `OwnedOnHeap`'s refcount is `Arc`
-// (atomic) — same "accepted unsoundness" policy as the unconditional
-// `unsafe impl Send` on `ManagedCResource<T>` and the handle types below.
-#[cfg(feature = "multi-threaded")]
-unsafe impl<T: Send> Send for CResource<T> {}
-#[cfg(feature = "multi-threaded")]
-unsafe impl<T: Sync> Sync for CResource<T> {}
+// `CResource<T>` deliberately does NOT implement `Send`/`Sync` here — not even
+// bounded on `T: Send`/`Sync`
 
 impl<T: Clone> Clone for CResource<T> {
     fn clone(&self) -> Self {
@@ -243,17 +235,6 @@ impl<T> std::fmt::Debug for ManagedCResource<T> {
         debug.field("type", &std::any::type_name::<T>()).finish()
     }
 }
-
-// Under `multi-threaded` the refcount is `Arc` (atomic), so `Send` is sound.
-// `Sync` enables sharing `&Handle` across threads for the C-documented
-// thread-safe operations (offer / try_claim / position). The `UnsafeCell`
-// fields are only mutated during construction and close (single-threaded),
-// never during the shared-read window — same "accepted unsoundness" policy
-// as the unconditional `unsafe impl Send` on the handle types.
-#[cfg(feature = "multi-threaded")]
-unsafe impl<T> Send for ManagedCResource<T> {}
-#[cfg(feature = "multi-threaded")]
-unsafe impl<T> Sync for ManagedCResource<T> {}
 
 impl<T> ManagedCResource<T> {
     /// Creates a new ManagedCResource with a given initializer and cleanup function.

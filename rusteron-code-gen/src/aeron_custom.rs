@@ -7,36 +7,42 @@ pub static AERON_IPC_STREAM: &std::ffi::CStr = c"aeron:ipc";
 /// your own iovec array for larger gathers.
 pub const MAX_OFFER_PARTS: usize = 8;
 
-// SAFETY: these handles wrap `Rc` (via `CResource::OwnedOnHeap`), so they are
-// `!Send + !Sync` in principle. `Rc` (non-atomic refcount) is kept for latency.
-// The supported usage pattern is to MOVE a handle to a single owning thread and
-// use it exclusively there; `Send` is retained to allow that move.
+// SAFETY: these handles wrap `Rc` (via `CResource::OwnedOnHeap`) by default, so they
+// are `!Send + !Sync` in principle. `Rc` (non-atomic refcount) is kept for latency.
+// The supported usage pattern is to MOVE a handle to a single owning thread (e.g. a
+// dedicated publisher/subscriber thread) and use it exclusively there; `Send` is
+// retained unconditionally to allow that one-time hand-off even without the
+// `multi-threaded` feature.
+//
+// `Send` over a plain `Rc` is technically unsound in the general case (cloning the
+// handle and using clones from two different threads concurrently races the
+// non-atomic refcount) — this is a deliberate, documented "accepted unsoundness"
+// trade-off for latency: callers must not clone these handles across threads or use
+// one handle from multiple threads concurrently unless `multi-threaded` (below,
+// atomic `Arc`) is enabled.
 //
 // `Sync` is intentionally NOT implemented by default: sharing `&Handle` across
 // threads would let two threads `Rc::clone` concurrently and race the refcount.
-//
-// `Send` over `Rc` is technically unsound (a non-atomic refcount touched from
-// more than one thread races). Callers must not clone these handles across
-// threads and must not use one handle from multiple threads concurrently. The
-// `multi-threaded` feature (below) switches to `Arc` and removes this caveat.
 unsafe impl Send for AeronCountersReader {}
 unsafe impl Send for AeronSubscription {}
 unsafe impl Send for AeronPublication {}
 unsafe impl Send for AeronCounter {}
 
 // SAFETY: under `multi-threaded` the refcount is atomic (`Arc`), so `Send` is sound,
-// and `Sync` is implemented so `&Handle` can be shared across threads. The `UnsafeCell`
-// fields inside `ManagedCResource` are mutated only during construction and close,
-// never during the shared-read window.
+// and `Sync` is implemented (where the underlying Aeron object is documented
+// threadsafe for concurrent access) so `&Handle` can be shared across threads. The
+// `UnsafeCell` fields inside `ManagedCResource` are mutated only during construction
+// and close, never during the shared-read window.
 //
-// This only lifts the Rust-side barrier; the caller must still confirm the underlying
-// Aeron object is thread-safe (e.g. `AeronPublication` is, `AeronExclusivePublication`
-// is not). See the README "Multi-threaded handles" section.
+// `AeronSubscription` deliberately has no `Sync` impl, with or without
+// `multi-threaded`: Aeron's own docs (`Subscription.java` — "Subscriptions are not
+// threadsafe and should not be shared between subscribers.") explicitly forbid
+// sharing a subscription across threads, so `&AeronSubscription` must never be
+// usable concurrently from multiple threads regardless of the refcount type — it's
+// `Send`-only, matching "hand off to one other thread, don't share concurrently".
 // Enable with `features = ["multi-threaded"]` in Cargo.toml.
 #[cfg(feature = "multi-threaded")]
 unsafe impl Sync for AeronCountersReader {}
-#[cfg(feature = "multi-threaded")]
-unsafe impl Sync for AeronSubscription {}
 #[cfg(feature = "multi-threaded")]
 unsafe impl Sync for AeronPublication {}
 #[cfg(feature = "multi-threaded")]
@@ -143,6 +149,27 @@ impl AeronIdleStrategyKind {
         }
     }
 }
+
+// ─── Per-type `Send`/`Sync` under `multi-threaded` (additions beyond the block at the
+// top of this file) ────────────────────────────────────────────────────────────────
+// `Aeron` (client): `Aeron.java` — "Add a Publication ... is threadsafe."/"... is
+// threadsafe." for `addPublication`/`addSubscription` and friends; the client
+// conductor is explicitly designed to be driven from multiple registering threads.
+// Send + Sync.
+#[cfg(feature = "multi-threaded")]
+unsafe impl Send for Aeron {}
+#[cfg(feature = "multi-threaded")]
+unsafe impl Sync for Aeron {}
+
+// `AeronExclusivePublication`: `Publication.java` — "All methods are threadsafe except
+// offer and tryClaim for the subclass ExclusivePublication" — i.e. NOT safe to call
+// `offer`/`try_claim` concurrently from multiple threads. Send only (may be handed off
+// to and then used exclusively from a single other thread), deliberately NOT Sync —
+// unlike `AeronPublication` (the "concurrent" publication, for which all methods,
+// including offer/try_claim, are documented threadsafe — see the Send+Sync block at
+// the top of this file).
+#[cfg(feature = "multi-threaded")]
+unsafe impl Send for AeronExclusivePublication {}
 
 impl Aeron {
     /// Connect to a media driver in one call: context, client, and conductor start.
