@@ -367,19 +367,11 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     println!("cargo:include={}", header_path.display());
     let mut builder = bindgen::Builder::default()
         .clang_arg(format!("-I{}", header_path.display()))
-        // Match the CMAKE_C_STANDARD 11 used to actually compile the Aeron C
-        // sources.
+        // Match the CMAKE_C_STANDARD 11 used to actually compile the Aeron C sources.
         .clang_arg("-std=gnu11");
     // On Linux, libclang can end up resolving `<stdatomic.h>` to GCC's own
     // copy (found via the default system include path) instead of the one
     // bundled with the libclang/clang version actually doing the parsing.
-    // GCC's stdatomic.h guards its `memory_order` enum behind GCC-specific
-    // feature-test macros that Clang's frontend doesn't satisfy the same way,
-    // so the enum (and `memory_order_acquire`/`memory_order_release`) silently
-    // disappears — breaking parsing of `aeron_atomic64_c11.h` (the header
-    // used for non-x86_64 CPUs, e.g. arm64 CI runners) with "use of
-    // undeclared identifier 'memory_order_acquire'". Forcing `-resource-dir`
-    // to Clang's own resource directory makes it use its own `stdatomic.h`.
     if cfg!(target_os = "linux")
         && let Ok(output) = std::process::Command::new("clang").arg("-print-resource-dir").output()
     {

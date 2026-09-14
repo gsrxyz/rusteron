@@ -3562,19 +3562,6 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// Proves (and then proves fixed) the leak from issue #60 using the driver's own
-    /// counters — i.e. `aeron-stats`-visible state, not just Rust-side bookkeeping.
-    ///
-    /// Dropping an `AeronAsyncAddSubscription` *before* `poll()` ever resolves it must not
-    /// leave a subscription registered with the media driver. Before the fix, the C
-    /// conductor completes the pending add in the background regardless of the drop (there
-    /// is no cleanup closure at all), so the subscription is created and its
-    /// `AERON_COUNTER_SUBSCRIPTION_POSITION_TYPE_ID` counter shows up in the driver's CnC
-    /// counters — permanently, since nothing ever closes it. After the fix, dropping the
-    /// unpolled poller calls `aeron_async_add_subscription_cancel`, which — per its C doc
-    /// comment — removes the subscription if it had already been created by the time the
-    /// cancel runs, so the counter must never appear (or must disappear quickly if the
-    /// add/cancel race the "wrong" way).
     #[test]
     #[serial]
     fn dropping_unpolled_async_subscription_does_not_leak_driver_counter() {
@@ -3625,11 +3612,6 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// Explicit `.cancel()` gives up on a pending async add without waiting for drop; it
-    /// must behave exactly like the auto-cancel-on-drop path (same underlying C call), be
-    /// idempotent (a second `.cancel()` / the subsequent drop must not double-cancel or
-    /// error), and must never touch the C struct once `poll()` has already produced a
-    /// terminal result.
     #[test]
     #[serial]
     fn async_add_subscription_cancel_is_explicit_and_idempotent() {
@@ -4072,12 +4054,6 @@ mod tests {
         }
     }
 
-    /// Full round trip for issue #59's MDS (multi-destination *subscription*)
-    /// `add_destination`/`remove_destination`: not just "the API call returns Ok", but real
-    /// data verification — messages from a source genuinely stop arriving once its
-    /// destination is removed, while a sibling destination that was never touched keeps
-    /// working. Also covers the leniency case (removing an unknown/never-added/
-    /// already-removed destination resolves cleanly rather than panicking).
     #[test]
     #[serial]
     fn subscription_mds_add_and_remove_destination_gates_real_data_flow() {
@@ -4207,11 +4183,6 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// Full round trip for issue #59's MDC (multi-destination-cast *publication*)
-    /// `add_destination`/`remove_destination`/`remove_destination_by_id` on
-    /// [`AeronPublication`] — real data verification via independent unicast subscribers on
-    /// each destination, covering both the by-URI and by-registration-id removal paths in
-    /// one pass.
     #[test]
     #[serial]
     fn publication_mdc_add_and_remove_destination_gates_real_data_flow() {
@@ -4278,6 +4249,10 @@ mod tests {
             );
             sleep(Duration::from_millis(5));
         }
+        // Resolved: there's no C free for this resource once the driver acknowledges it
+        // (mirrors the wrapper functions in `aeron_custom.rs`) — mark it closed so `Drop`
+        // doesn't treat this as a leak under `strict-lifecycle`.
+        let _ = add_b.inner.close_resource();
         let sub_b = aeron
             .add_subscription(
                 &dest_b,
@@ -4406,6 +4381,10 @@ mod tests {
             );
             sleep(Duration::from_millis(5));
         }
+        // Resolved: there's no C free for this resource once the driver acknowledges it
+        // (mirrors the wrapper functions in `aeron_custom.rs`) — mark it closed so `Drop`
+        // doesn't treat this as a leak under `strict-lifecycle`.
+        let _ = add_b.inner.close_resource();
         let sub_b = aeron
             .add_subscription(
                 &dest_b,
@@ -4887,6 +4866,161 @@ mod tests {
         drop(aeron);
 
         teardown_aeron_after_uaf_test(driver, _error_handler);
+    }
+
+    #[test]
+    #[serial]
+    fn handler_dependencies_on_client_grow_linearly_and_never_shrink_until_client_drops() {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let baseline = aeron.inner.dependency_len();
+
+        const CYCLES: i32 = 5;
+        for i in 0..CYCLES {
+            let handler = Handler::new(move |_subscription: AeronSubscription, _image: AeronImage| {});
+            let sub = aeron
+                .add_subscription(
+                    AERON_IPC_STREAM,
+                    2300 + i,
+                    Some(&handler),
+                    None::<&Handler<AeronUnavailableImageLogger>>,
+                    Duration::from_secs(5),
+                )
+                .unwrap();
+            // both the subscription and our local handle go away; only the client's
+            // anchored clone (added inside async_add_subscription) should remain.
+            drop(sub);
+            drop(handler);
+
+            let expected = baseline + (i as usize + 1);
+            assert_eq!(
+                aeron.inner.dependency_len(),
+                expected,
+                "cycle {i}: expected exactly one new handler dependency on the client \
+                 per subscribe/unsubscribe cycle"
+            );
+        }
+
+        assert_eq!(
+            aeron.inner.dependency_len(),
+            baseline + CYCLES as usize,
+            "{CYCLES} subscribe/unsubscribe cycles must leave exactly {CYCLES} handler \
+             dependencies anchored on the client (none reclaimed until client drop)"
+        );
+
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    #[test]
+    #[serial]
+    fn invoker_mode_on_available_image_fires_safely_around_close() {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+        let driver = rusteron_media_driver::testing::EmbeddedDriver::launch().unwrap();
+
+        let ctx = AeronContext::new().unwrap();
+        ctx.set_dir(&driver.dir().into_c_string()).unwrap();
+        ctx.set_use_conductor_agent_invoker(true).unwrap();
+        let error_handler = Handler::new(TestErrorCount::default());
+        ctx.set_error_handler(Some(error_handler.clone())).unwrap();
+
+        let aeron = Aeron::new(&ctx).unwrap();
+        aeron.start().unwrap();
+
+        let available = Arc::new(AtomicUsize::new(0));
+        let drops = Arc::new(AtomicUsize::new(0));
+        let handler = Handler::new(CountingAvailableImageHandler {
+            available: available.clone(),
+            drops: drops.clone(),
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(15);
+        macro_rules! drive_until {
+            ($cond:expr, $msg:expr) => {{
+                loop {
+                    aeron.main_do_work().unwrap();
+                    if $cond {
+                        break;
+                    }
+                    assert!(Instant::now() < deadline, $msg);
+                    sleep(Duration::from_millis(1));
+                }
+            }};
+        }
+
+        let sub_poller = aeron
+            .async_add_subscription(AERON_IPC_STREAM, 2101, Some(&handler), Handlers::NONE)
+            .unwrap();
+        #[allow(unused_assignments)]
+        let mut subscription_result = None;
+        drive_until!(
+            {
+                subscription_result = sub_poller.poll().unwrap();
+                subscription_result.is_some()
+            },
+            "invoker never resolved the async add_subscription"
+        );
+        let subscription = subscription_result.unwrap();
+        drop(sub_poller); // done polling — don't hold its client-Rc clone any longer
+
+        let pub_poller = aeron.async_add_publication(AERON_IPC_STREAM, 2101).unwrap();
+        #[allow(unused_assignments)]
+        let mut publisher_result = None;
+        drive_until!(
+            {
+                publisher_result = pub_poller.poll().unwrap();
+                publisher_result.is_some()
+            },
+            "invoker never resolved the async add_publication"
+        );
+        let publisher = publisher_result.unwrap();
+        drop(pub_poller);
+
+        drive_until!(
+            {
+                let _ = publisher.offer_raw(b"wake", Handlers::NONE);
+                available.load(Ordering::SeqCst) > 0
+            },
+            "on_available_image never fired before subscription close"
+        );
+
+        // Only requests the close; the conductor (which we alone drive here) hasn't
+        // necessarily processed it yet.
+        drop(subscription);
+
+        // Pump the invoker a bit more so the close (and any in-flight callback racing
+        // with it) is fully processed under our control, proving it's safe either way.
+        for _ in 0..200 {
+            aeron.main_do_work().unwrap();
+            sleep(Duration::from_millis(1));
+        }
+
+        assert_eq!(
+            unsafe { error_handler.get_mut().error_count },
+            0,
+            "no errors should be observed while driving close via the invoker"
+        );
+        assert_eq!(
+            drops.load(Ordering::SeqCst),
+            0,
+            "handler must still be anchored to the client after the subscription's async \
+             close, not freed early"
+        );
+
+        drop(publisher);
+        // Drop our own local clone of the handler: the client's dependency list holds
+        // the other clone, which is the one that must keep it alive until the client
+        // itself drops.
+        drop(handler);
+        drop(aeron);
+        assert_eq!(
+            drops.load(Ordering::SeqCst),
+            1,
+            "handler must be freed exactly once, when the client itself drops"
+        );
+
+        drop(driver);
     }
 
     // ── Structural teardown verification via memory protection ────────

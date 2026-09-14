@@ -1103,6 +1103,7 @@ impl CWrapper {
             .filter(|m| m.arguments.iter().any(|arg| arg.is_double_mut_pointer()))
             .map(|method| {
                 let init_fn = format_ident!("{}", method.fn_name);
+
                 // `_add_destination`/`_remove_destination[_by_id]` are constructor-style
                 // methods (double-mut-pointer output) that don't have a real C "close"/
                 // "destroy" counterpart to pair with — each is a standalone async op polled
@@ -1111,8 +1112,7 @@ impl CWrapper {
                 // them as trivially "having a close method" (of themselves, unused — see
                 // `cleanup_tokens` forcing `None` for any `_destination` method) so they are
                 // still eligible for constructor generation without requiring a matching
-                // pair to exist (issue #59: this previously caused
-                // `..._remove_destination[_by_id]` to be silently dropped entirely).
+                // pair to exist
                 let is_destination_add_or_remove = method.fn_name.contains("_async_add_destination")
                     || method.fn_name.contains("_async_remove_destination");
                 let close_method = self.find_close_method(method).or(if is_destination_add_or_remove {
@@ -1562,10 +1562,7 @@ impl CWrapper {
         let mut close_method = None;
 
         // must have init, create, add or remove method name. `_remove` is needed so
-        // that e.g. `aeron_publication_async_remove_destination` (issue #59) is eligible
-        // for constructor generation at all — without it, this guard bails out before
-        // ever considering the method, and it's silently dropped from the generated API
-        // even though the raw bindgen binding exists.
+        // that e.g. `aeron_publication_async_remove_destination`
         if ["_init", "_create", "_add", "_remove"]
             .iter()
             .all(|find| !method.fn_name.contains(find))
@@ -2570,16 +2567,6 @@ pub fn generate_rust_code(
                 quote! { None }
             };
 
-            // Issue #60: dropping the async poller before `poll()` ever resolves it must not
-            // leak the pending registration with the media driver. Aeron's C API has a
-            // dedicated `..._cancel(client, async)` for exactly this ("Will eventually free
-            // the given async instance. If a [resource] gets created by the time cancellation
-            // happens, it will get removed." — aeronc.h). Wire it as the resource's cleanup
-            // closure when one exists (it does for add_publication/add_exclusive_publication/
-            // add_subscription/add_counter; it does not for e.g. `AeronAsyncDestination` or
-            // `aeron_archive_async_connect`, which fall back to the existing `None`/generic
-            // leak-warning behaviour — there is no C-level cancel to call for those).
-            //
             // Safety: `ManagedCResource::mark_resource_released()` (called by `poll()` on every
             // terminal outcome — success or a real error) already nulls the stored pointer, and
             // `close_shared()` only invokes the cleanup closure when the pointer is non-null. So

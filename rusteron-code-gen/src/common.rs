@@ -91,6 +91,17 @@ impl<T> CResource<T> {
             }
         }
     }
+
+    /// Test-only: see [`ManagedCResource::dependency_len`].
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn dependency_len(&self) -> usize {
+        match self {
+            CResource::OwnedOnHeap(r) => r.dependency_len(),
+            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => 0,
+        }
+    }
+
     #[inline]
     pub fn get_dependency<V: Clone + 'static>(&self) -> Option<V> {
         match self {
@@ -435,6 +446,22 @@ impl<T> ManagedCResource<T> {
     #[inline]
     pub fn is_resource_released(&self) -> bool {
         self.get_resource_released()
+    }
+
+    /// Test-only: number of dependencies currently anchored on this resource (e.g. via
+    /// [`Self::add_dependency`]). Used to document/measure dependency-list growth — see
+    /// `handler_dependencies_on_client_grow_with_subscriptions_and_reset_on_client_drop`.
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub(crate) fn dependency_len(&self) -> usize {
+        #[cfg(not(feature = "multi-threaded"))]
+        unsafe {
+            (*self.dependencies.get()).len()
+        }
+        #[cfg(feature = "multi-threaded")]
+        {
+            self.dependencies.lock().unwrap().len()
+        }
     }
 
     #[inline]
