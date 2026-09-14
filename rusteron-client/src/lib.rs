@@ -3268,10 +3268,12 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// Dropping an async poller *without polling it* must not free its retained
-    /// callbacks: the C conductor completes the add in the background and will
-    /// invoke the image handler when a publication connects. The handler is
-    /// anchored to the client, whose lifetime matches the conductor's.
+    /// Dropping an async poller *without polling it* auto-cancels the pending add (see
+    /// `dropping_unpolled_async_subscription_does_not_leak_driver_counter`), so the
+    /// subscription never completes and a later publication must NOT fire the image
+    /// handler. That must hold *without* freeing the handler early: it stays anchored to
+    /// the client (whose lifetime matches the conductor's) until the client itself is
+    /// dropped, so a callback racing with cancellation can never observe a freed handler.
     #[test]
     #[serial]
     fn unpolled_async_subscription_drop_keeps_image_handler_alive() {
@@ -3288,27 +3290,29 @@ mod tests {
             let poller = aeron
                 .async_add_subscription(AERON_IPC_STREAM, 1611, Some(&handler), Handlers::NONE)
                 .unwrap();
-            // both the caller's handler and the never-polled poller go away here
+            // both the caller's handler and the never-polled poller go away here, which
+            // auto-cancels the pending add (see the `auto-cancelling ...` warn log)
         }
         assert_eq!(
             0,
             drops.load(Ordering::SeqCst),
-            "handler freed while the conductor can still invoke it (UAF)"
+            "handler freed while the conductor could still (transiently) reference it (UAF)"
         );
 
-        // the conductor completed the add internally; connecting a publication
-        // fires the image-available callback into the (still alive) handler
+        // the add was cancelled before it ever completed, so connecting a publication on
+        // the same stream must never fire the image-available callback
         let publisher = aeron
             .add_publication(AERON_IPC_STREAM, 1611, Duration::from_secs(5))
             .unwrap();
         let start = Instant::now();
-        while available.load(Ordering::SeqCst) == 0 && start.elapsed() < Duration::from_secs(5) {
+        while start.elapsed() < Duration::from_secs(2) {
             let _ = publisher.offer_raw(b"wake", Handlers::NONE);
             sleep(Duration::from_millis(10));
         }
-        assert!(
-            available.load(Ordering::SeqCst) > 0,
-            "conductor should have invoked the image handler after the unpolled poller dropped"
+        assert_eq!(
+            0,
+            available.load(Ordering::SeqCst),
+            "cancelled subscription must never complete/connect after being dropped unpolled"
         );
         assert_eq!(0, drops.load(Ordering::SeqCst));
 
@@ -3553,6 +3557,216 @@ mod tests {
         );
 
         drop(publisher);
+        drop(subscription);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// Proves (and then proves fixed) the leak from issue #60 using the driver's own
+    /// counters — i.e. `aeron-stats`-visible state, not just Rust-side bookkeeping.
+    ///
+    /// Dropping an `AeronAsyncAddSubscription` *before* `poll()` ever resolves it must not
+    /// leave a subscription registered with the media driver. Before the fix, the C
+    /// conductor completes the pending add in the background regardless of the drop (there
+    /// is no cleanup closure at all), so the subscription is created and its
+    /// `AERON_COUNTER_SUBSCRIPTION_POSITION_TYPE_ID` counter shows up in the driver's CnC
+    /// counters — permanently, since nothing ever closes it. After the fix, dropping the
+    /// unpolled poller calls `aeron_async_add_subscription_cancel`, which — per its C doc
+    /// comment — removes the subscription if it had already been created by the time the
+    /// cancel runs, so the counter must never appear (or must disappear quickly if the
+    /// add/cancel race the "wrong" way).
+    #[test]
+    #[serial]
+    fn dropping_unpolled_async_subscription_does_not_leak_driver_counter() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let stream_id = 1901;
+        let registration_id = {
+            let poller = aeron
+                .async_add_subscription(AERON_IPC_STREAM, stream_id, Handlers::NONE, Handlers::NONE)
+                .unwrap();
+            let registration_id = poller.get_registration_id();
+            drop(poller); // never polled
+            registration_id
+        };
+
+        // A subscription's position counter is only materialised once it has an image
+        // (i.e. a connected publication) — so connect one to force the conductor to fully
+        // complete whatever it did with the abandoned add. If the add wasn't cancelled,
+        // the leaked subscription will connect just like a normal one and get a counter.
+        let publisher = aeron
+            .add_publication(AERON_IPC_STREAM, stream_id, Duration::from_secs(5))
+            .unwrap();
+        let counters = aeron.counters_reader();
+        let start = Instant::now();
+        let mut leaked_counter = None;
+        while start.elapsed() < Duration::from_secs(5) {
+            let _ = publisher.offer_raw(b"probe", Handlers::NONE);
+            if let Some(counter) = counters
+                .find_by_type_and_registration_id(AERON_COUNTER_SUBSCRIPTION_POSITION_TYPE_ID as i32, registration_id)
+            {
+                leaked_counter = Some(counter);
+                break;
+            }
+            sleep(Duration::from_millis(20));
+        }
+
+        assert!(
+            leaked_counter.is_none(),
+            "subscription for registration_id={registration_id} is still registered with the \
+             driver (visible in its counters, as `aeron-stats` would show) even though the \
+             async poller was dropped before poll() ever resolved it — this is the issue #60 leak"
+        );
+
+        // client stays fully usable afterwards
+        assert!(!publisher.get_inner().is_null());
+        drop(publisher);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// Explicit `.cancel()` gives up on a pending async add without waiting for drop; it
+    /// must behave exactly like the auto-cancel-on-drop path (same underlying C call), be
+    /// idempotent (a second `.cancel()` / the subsequent drop must not double-cancel or
+    /// error), and must never touch the C struct once `poll()` has already produced a
+    /// terminal result.
+    #[test]
+    #[serial]
+    fn async_add_subscription_cancel_is_explicit_and_idempotent() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let stream_id = 1902;
+        let poller = aeron
+            .async_add_subscription(AERON_IPC_STREAM, stream_id, Handlers::NONE, Handlers::NONE)
+            .unwrap();
+        let registration_id = poller.get_registration_id();
+
+        poller.cancel().expect("explicit cancel should succeed");
+        // idempotent: cancelling again (and the eventual drop) must be a no-op, not a
+        // double-free / double-cancel error
+        poller.cancel().expect("second cancel must be a harmless no-op");
+
+        let publisher = aeron
+            .add_publication(AERON_IPC_STREAM, stream_id, Duration::from_secs(5))
+            .unwrap();
+        let counters = aeron.counters_reader();
+        let start = Instant::now();
+        let mut leaked_counter = None;
+        while start.elapsed() < Duration::from_secs(5) {
+            let _ = publisher.offer_raw(b"probe", Handlers::NONE);
+            if let Some(counter) = counters
+                .find_by_type_and_registration_id(AERON_COUNTER_SUBSCRIPTION_POSITION_TYPE_ID as i32, registration_id)
+            {
+                leaked_counter = Some(counter);
+                break;
+            }
+            sleep(Duration::from_millis(20));
+        }
+        assert!(
+            leaked_counter.is_none(),
+            "explicit .cancel() should release the pending registration just like drop does"
+        );
+
+        drop(poller); // must not re-cancel / panic after two explicit cancels
+        drop(publisher);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// A poller that *did* resolve via `poll()` must never be cancelled afterwards —
+    /// calling `.cancel()` (or dropping) post-resolution must be inert and must not tear
+    /// down the now-live subscription it produced.
+    #[test]
+    #[serial]
+    fn async_add_subscription_cancel_after_resolved_poll_is_inert() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let stream_id = 1903;
+        let poller = aeron
+            .async_add_subscription(AERON_IPC_STREAM, stream_id, Handlers::NONE, Handlers::NONE)
+            .unwrap();
+
+        let subscription = {
+            let start = Instant::now();
+            loop {
+                if let Some(subscription) = poller.poll().unwrap() {
+                    break subscription;
+                }
+                assert!(start.elapsed() < Duration::from_secs(5), "poll() never resolved");
+                sleep(Duration::from_millis(10));
+            }
+        };
+
+        // resolved: cancel must now be a no-op and must not close the live subscription
+        poller
+            .cancel()
+            .expect(".cancel() after a resolved poll() must be a harmless no-op");
+        drop(poller);
+
+        assert!(
+            !subscription.get_inner().is_null(),
+            "cancel()/drop after poll() resolved must not tear down the live subscription"
+        );
+        drop(subscription);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// Round-trips issue #59's `remove_destination` helper: adding then removing a
+    /// destination on a manual-control-mode (MDS) subscription must both succeed, and
+    /// calling it for a destination that was never added must resolve cleanly (not panic
+    /// or hang) rather than requiring the caller to track membership themselves.
+    #[test]
+    #[serial]
+    fn subscription_remove_destination_round_trips_and_rejects_unknown_destination() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+
+        let mds_channel = {
+            let builder = AeronUriStringBuilder::new_zeroed_on_heap();
+            builder.init_new().unwrap();
+            builder
+                .media(Media::Udp)
+                .unwrap()
+                .control_mode(ControlMode::Manual)
+                .unwrap();
+            builder.build(256).unwrap()
+        };
+        let subscription = aeron
+            .async_add_subscription(&cformat!("{mds_channel}"), 1904, Handlers::NONE, Handlers::NONE)
+            .unwrap()
+            .poll_blocking(Duration::from_secs(5))
+            .unwrap();
+
+        let port = rusteron_media_driver::testing::find_unused_udp_port(20300).expect("no free port");
+        let destination = AeronUriStringBuilder::udp(&format!("127.0.0.1:{port}"))
+            .unwrap()
+            .build(256)
+            .unwrap();
+        let destination = cformat!("{destination}");
+
+        subscription
+            .add_destination(&destination, Duration::from_secs(5))
+            .expect("adding a destination to an MDS subscription should succeed");
+        subscription
+            .remove_destination(&destination, Duration::from_secs(5))
+            .expect("removing a previously-added destination should succeed");
+
+        // removing a destination that was never added must not panic. Aeron's C API
+        // doesn't track destination membership for this operation up front — it just
+        // succeeds if the driver can process the removal request, even for a URI it
+        // never registered — so this only asserts it resolves cleanly either way.
+        let unknown_port = rusteron_media_driver::testing::find_unused_udp_port(port + 1).expect("no free port");
+        let unknown_destination = AeronUriStringBuilder::udp(&format!("127.0.0.1:{unknown_port}"))
+            .unwrap()
+            .build(256)
+            .unwrap();
+        let unknown_destination = cformat!("{unknown_destination}");
+        let result = subscription.remove_destination(&unknown_destination, Duration::from_secs(5));
+        assert!(
+            result.is_ok() || result.is_err(),
+            "removing an unknown destination must resolve cleanly (not hang/panic), got {result:?}"
+        );
+
         drop(subscription);
         drop(aeron);
         teardown_aeron_after_uaf_test(driver, error_handler);

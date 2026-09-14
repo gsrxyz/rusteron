@@ -2041,7 +2041,16 @@ impl AeronAsyncAddCounter {
                     label_buffer.len(),
                 )
             },
-            None,
+            {
+                let client_for_cancel = client.clone();
+                Some(Box::new(move |ptr| unsafe {
+                    log::warn!(
+                        "auto-cancelling {} (poll() never resolved it before drop/cancel) to avoid leaking the pending Aeron registration",
+                        stringify!(AeronAsyncAddCounter)
+                    );
+                    aeron_async_add_counter_cancel(client_for_cancel.get_inner(), *ptr)
+                }))
+            },
             false,
         )?;
         let result = Self {
@@ -2084,6 +2093,24 @@ impl AeronAsyncAddCounter {
                 }
                 Err(e)
             }
+        }
+    }
+    #[doc = r"Cancels this in-progress operation, releasing the pending Aeron"]
+    #[doc = r"registration instead of waiting for `poll()`/`poll_blocking()` to"]
+    #[doc = r"resolve it or for this value to be dropped (dropping an unresolved"]
+    #[doc = r"poller does this automatically — this is only needed to give up"]
+    #[doc = r"earlier than the drop would happen naturally)."]
+    #[doc = r""]
+    #[doc = r"A no-op if `poll()` has already returned a terminal result (`Some`"]
+    #[doc = r"or an `Err`) — cancelling after that point would either be invalid"]
+    #[doc = r"(the C struct is no longer valid) or unnecessary (nothing pending"]
+    #[doc = r"left to cancel)."]
+    #[inline]
+    pub fn cancel(&self) -> Result<(), AeronCError> {
+        if let Some(inner) = self.inner.as_owned() {
+            inner.close_shared()
+        } else {
+            Ok(())
         }
     }
     #[doc = r"Polls synchronously until the async operation completes or `timeout` elapses."]
@@ -2384,7 +2411,16 @@ impl AeronAsyncAddExclusivePublication {
                 }
                 aeron_async_add_exclusive_publication(ctx_field, client.into(), uri.as_ptr(), stream_id.into())
             },
-            None,
+            {
+                let client_for_cancel = client.clone();
+                Some(Box::new(move |ptr| unsafe {
+                    log::warn!(
+                        "auto-cancelling {} (poll() never resolved it before drop/cancel) to avoid leaking the pending Aeron registration",
+                        stringify!(AeronAsyncAddExclusivePublication)
+                    );
+                    aeron_async_add_exclusive_publication_cancel(client_for_cancel.get_inner(), *ptr)
+                }))
+            },
             false,
         )?;
         let result = Self {
@@ -2427,6 +2463,24 @@ impl AeronAsyncAddExclusivePublication {
                 }
                 Err(e)
             }
+        }
+    }
+    #[doc = r"Cancels this in-progress operation, releasing the pending Aeron"]
+    #[doc = r"registration instead of waiting for `poll()`/`poll_blocking()` to"]
+    #[doc = r"resolve it or for this value to be dropped (dropping an unresolved"]
+    #[doc = r"poller does this automatically — this is only needed to give up"]
+    #[doc = r"earlier than the drop would happen naturally)."]
+    #[doc = r""]
+    #[doc = r"A no-op if `poll()` has already returned a terminal result (`Some`"]
+    #[doc = r"or an `Err`) — cancelling after that point would either be invalid"]
+    #[doc = r"(the C struct is no longer valid) or unnecessary (nothing pending"]
+    #[doc = r"left to cancel)."]
+    #[inline]
+    pub fn cancel(&self) -> Result<(), AeronCError> {
+        if let Some(inner) = self.inner.as_owned() {
+            inner.close_shared()
+        } else {
+            Ok(())
         }
     }
     #[doc = r"Polls synchronously until the async operation completes or `timeout` elapses."]
@@ -2713,7 +2767,16 @@ impl AeronAsyncAddPublication {
                 }
                 aeron_async_add_publication(ctx_field, client.into(), uri.as_ptr(), stream_id.into())
             },
-            None,
+            {
+                let client_for_cancel = client.clone();
+                Some(Box::new(move |ptr| unsafe {
+                    log::warn!(
+                        "auto-cancelling {} (poll() never resolved it before drop/cancel) to avoid leaking the pending Aeron registration",
+                        stringify!(AeronAsyncAddPublication)
+                    );
+                    aeron_async_add_publication_cancel(client_for_cancel.get_inner(), *ptr)
+                }))
+            },
             false,
         )?;
         let result = Self {
@@ -2756,6 +2819,24 @@ impl AeronAsyncAddPublication {
                 }
                 Err(e)
             }
+        }
+    }
+    #[doc = r"Cancels this in-progress operation, releasing the pending Aeron"]
+    #[doc = r"registration instead of waiting for `poll()`/`poll_blocking()` to"]
+    #[doc = r"resolve it or for this value to be dropped (dropping an unresolved"]
+    #[doc = r"poller does this automatically — this is only needed to give up"]
+    #[doc = r"earlier than the drop would happen naturally)."]
+    #[doc = r""]
+    #[doc = r"A no-op if `poll()` has already returned a terminal result (`Some`"]
+    #[doc = r"or an `Err`) — cancelling after that point would either be invalid"]
+    #[doc = r"(the C struct is no longer valid) or unnecessary (nothing pending"]
+    #[doc = r"left to cancel)."]
+    #[inline]
+    pub fn cancel(&self) -> Result<(), AeronCError> {
+        if let Some(inner) = self.inner.as_owned() {
+            inner.close_shared()
+        } else {
+            Ok(())
         }
     }
     #[doc = r"Polls synchronously until the async operation completes or `timeout` elapses."]
@@ -3111,7 +3192,16 @@ impl AeronAsyncAddSubscription {
                         .unwrap_or_else(|| std::ptr::null_mut()),
                 )
             },
-            None,
+            {
+                let client_for_cancel = client.clone();
+                Some(Box::new(move |ptr| unsafe {
+                    log::warn!(
+                        "auto-cancelling {} (poll() never resolved it before drop/cancel) to avoid leaking the pending Aeron registration",
+                        stringify!(AeronAsyncAddSubscription)
+                    );
+                    aeron_async_add_subscription_cancel(client_for_cancel.get_inner(), *ptr)
+                }))
+            },
             false,
         )?;
         let result = Self {
@@ -3174,6 +3264,24 @@ impl AeronAsyncAddSubscription {
                 }
                 Err(e)
             }
+        }
+    }
+    #[doc = r"Cancels this in-progress operation, releasing the pending Aeron"]
+    #[doc = r"registration instead of waiting for `poll()`/`poll_blocking()` to"]
+    #[doc = r"resolve it or for this value to be dropped (dropping an unresolved"]
+    #[doc = r"poller does this automatically — this is only needed to give up"]
+    #[doc = r"earlier than the drop would happen naturally)."]
+    #[doc = r""]
+    #[doc = r"A no-op if `poll()` has already returned a terminal result (`Some`"]
+    #[doc = r"or an `Err`) — cancelling after that point would either be invalid"]
+    #[doc = r"(the C struct is no longer valid) or unnecessary (nothing pending"]
+    #[doc = r"left to cancel)."]
+    #[inline]
+    pub fn cancel(&self) -> Result<(), AeronCError> {
+        if let Some(inner) = self.inner.as_owned() {
+            inner.close_shared()
+        } else {
+            Ok(())
         }
     }
     #[doc = r"Polls synchronously until the async operation completes or `timeout` elapses."]
@@ -3406,6 +3514,97 @@ impl AeronAsyncDestination {
         Ok(result)
     }
     #[inline]
+    #[doc = "Remove a destination manually from a multi-destination-cast publication."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `publication` to remove destination from."]
+    #[doc = " \n - `uri` for the destination to remove."]
+    #[doc = " \n# Return\n 0 for success and -1 for error."]
+    pub fn aeron_publication_async_remove_destination(
+        client: &Aeron,
+        publication: &AeronPublication,
+        uri: &std::ffi::CStr,
+    ) -> Result<Self, AeronCError> {
+        let client_copy = client.clone();
+        let client: *mut aeron_t = client.into();
+        let publication_copy = publication.clone();
+        let publication: *mut aeron_publication_t = publication.into();
+        let uri: *const ::std::os::raw::c_char = uri.as_ptr();
+        let resource_constructor = ManagedCResource::new(
+            move |ctx_field| unsafe {
+                #[cfg(feature = "log-c-bindings")]
+                {
+                    let log_args = [
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_destination_t)).to_string(),
+                        concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                        concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string(),
+                        concat!("uri", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    ]
+                    .join(", ");
+                    log::info!(
+                        "{}({})",
+                        stringify!(aeron_publication_async_remove_destination),
+                        log_args
+                    );
+                }
+                aeron_publication_async_remove_destination(ctx_field, client, publication, uri)
+            },
+            None,
+            false,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = "Remove a destination manually from a multi-destination-cast publication."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `publication` to remove destination from."]
+    #[doc = " \n - `destination_registration_id` for the destination to remove."]
+    #[doc = " \n# Return\n 0 for success and -1 for error."]
+    pub fn aeron_publication_async_remove_destination_by_id(
+        client: &Aeron,
+        publication: &AeronPublication,
+        destination_registration_id: i64,
+    ) -> Result<Self, AeronCError> {
+        let client_copy = client.clone();
+        let client: *mut aeron_t = client.into();
+        let publication_copy = publication.clone();
+        let publication: *mut aeron_publication_t = publication.into();
+        let destination_registration_id: i64 = destination_registration_id.into();
+        let resource_constructor = ManagedCResource::new(
+            move |ctx_field| unsafe {
+                #[cfg(feature = "log-c-bindings")]
+                {
+                    let log_args = [
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_destination_t)).to_string(),
+                        concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                        concat!("publication", ": ", stringify!(*mut aeron_publication_t)).to_string(),
+                        format!("{} = {:?}", "destination_registration_id", destination_registration_id),
+                    ]
+                    .join(", ");
+                    log::info!(
+                        "{}({})",
+                        stringify!(aeron_publication_async_remove_destination_by_id),
+                        log_args
+                    );
+                }
+                aeron_publication_async_remove_destination_by_id(
+                    ctx_field,
+                    client,
+                    publication,
+                    destination_registration_id,
+                )
+            },
+            None,
+            false,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
     #[doc = "Add a destination manually to a multi-destination-cast exclusive publication."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `publication` to add destination to."]
@@ -3449,6 +3648,97 @@ impl AeronAsyncDestination {
         Ok(result)
     }
     #[inline]
+    #[doc = "Remove a destination manually from a multi-destination-cast exclusive publication."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `publication` to remove destination from."]
+    #[doc = " \n - `uri` for the destination to remove."]
+    #[doc = " \n# Return\n 0 for success and -1 for error."]
+    pub fn aeron_exclusive_publication_async_remove_destination(
+        client: &Aeron,
+        publication: &AeronExclusivePublication,
+        uri: &std::ffi::CStr,
+    ) -> Result<Self, AeronCError> {
+        let client_copy = client.clone();
+        let client: *mut aeron_t = client.into();
+        let publication_copy = publication.clone();
+        let publication: *mut aeron_exclusive_publication_t = publication.into();
+        let uri: *const ::std::os::raw::c_char = uri.as_ptr();
+        let resource_constructor = ManagedCResource::new(
+            move |ctx_field| unsafe {
+                #[cfg(feature = "log-c-bindings")]
+                {
+                    let log_args = [
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_destination_t)).to_string(),
+                        concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                        concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
+                        concat!("uri", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    ]
+                    .join(", ");
+                    log::info!(
+                        "{}({})",
+                        stringify!(aeron_exclusive_publication_async_remove_destination),
+                        log_args
+                    );
+                }
+                aeron_exclusive_publication_async_remove_destination(ctx_field, client, publication, uri)
+            },
+            None,
+            false,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = "Remove a destination manually from a multi-destination-cast publication."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `publication` to remove destination from."]
+    #[doc = " \n - `destination_registration_id` for the destination to remove."]
+    #[doc = " \n# Return\n 0 for success and -1 for error."]
+    pub fn aeron_exclusive_publication_async_remove_destination_by_id(
+        client: &Aeron,
+        publication: &AeronExclusivePublication,
+        destination_registration_id: i64,
+    ) -> Result<Self, AeronCError> {
+        let client_copy = client.clone();
+        let client: *mut aeron_t = client.into();
+        let publication_copy = publication.clone();
+        let publication: *mut aeron_exclusive_publication_t = publication.into();
+        let destination_registration_id: i64 = destination_registration_id.into();
+        let resource_constructor = ManagedCResource::new(
+            move |ctx_field| unsafe {
+                #[cfg(feature = "log-c-bindings")]
+                {
+                    let log_args = [
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_destination_t)).to_string(),
+                        concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                        concat!("publication", ": ", stringify!(*mut aeron_exclusive_publication_t)).to_string(),
+                        format!("{} = {:?}", "destination_registration_id", destination_registration_id),
+                    ]
+                    .join(", ");
+                    log::info!(
+                        "{}({})",
+                        stringify!(aeron_exclusive_publication_async_remove_destination_by_id),
+                        log_args
+                    );
+                }
+                aeron_exclusive_publication_async_remove_destination_by_id(
+                    ctx_field,
+                    client,
+                    publication,
+                    destination_registration_id,
+                )
+            },
+            None,
+            false,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
     #[doc = "Add a destination manually to a multi-destination-subscription."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `subscription` to add destination to."]
@@ -3478,6 +3768,49 @@ impl AeronAsyncDestination {
                     log::info!("{}({})", stringify!(aeron_subscription_async_add_destination), log_args);
                 }
                 aeron_subscription_async_add_destination(ctx_field, client, subscription, uri)
+            },
+            None,
+            false,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = "Remove a destination manually from a multi-destination-subscription."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `subscription` to remove destination from."]
+    #[doc = " \n - `uri` for the destination to remove."]
+    #[doc = " \n# Return\n 0 for success and -1 for error."]
+    pub fn aeron_subscription_async_remove_destination(
+        client: &Aeron,
+        subscription: &AeronSubscription,
+        uri: &std::ffi::CStr,
+    ) -> Result<Self, AeronCError> {
+        let client_copy = client.clone();
+        let client: *mut aeron_t = client.into();
+        let subscription_copy = subscription.clone();
+        let subscription: *mut aeron_subscription_t = subscription.into();
+        let uri: *const ::std::os::raw::c_char = uri.as_ptr();
+        let resource_constructor = ManagedCResource::new(
+            move |ctx_field| unsafe {
+                #[cfg(feature = "log-c-bindings")]
+                {
+                    let log_args = [
+                        concat!("async_", ": ", stringify!(*mut *mut aeron_async_destination_t)).to_string(),
+                        concat!("client", ": ", stringify!(*mut aeron_t)).to_string(),
+                        concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
+                        concat!("uri", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
+                    ]
+                    .join(", ");
+                    log::info!(
+                        "{}({})",
+                        stringify!(aeron_subscription_async_remove_destination),
+                        log_args
+                    );
+                }
+                aeron_subscription_async_remove_destination(ctx_field, client, subscription, uri)
             },
             None,
             false,
