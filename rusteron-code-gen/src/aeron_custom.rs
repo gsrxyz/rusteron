@@ -562,6 +562,43 @@ unsafe extern "C" fn rusteron_image_visitor<F: FnMut(&AeronImage)>(
     f(&image);
 }
 
+/// Shared polling loop for the `add_destination`/`remove_destination[_by_id]` blocking
+/// convenience wrappers on `AeronSubscription`/`AeronPublication`/`AeronExclusivePublication`.
+///
+/// Unlike a naive `poll().unwrap_or_default() > 0` check, this propagates a real C-side
+/// error (e.g. an invalid destination URI) immediately as `Err`, instead of silently
+/// treating it as "still pending" and only surfacing it later as a misleading
+/// [`AeronErrorType::TimedOut`] once `timeout` elapses.
+fn poll_destination_op_to_completion<C: std::fmt::Debug>(
+    result: &AeronAsyncDestination,
+    timeout: std::time::Duration,
+    context: C,
+) -> Result<(), AeronCError> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match result.aeron_subscription_async_destination_poll() {
+            Ok(v) if v > 0 => {
+                let _ = result.inner.close_resource();
+                return Ok(());
+            }
+            Ok(_) => {
+                // still pending, keep polling until deadline
+            }
+            Err(e) => {
+                let _ = result.inner.close_resource();
+                log::error!("async destination op failed for {context:?} {result:?}: {e:?}");
+                return Err(e);
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            log::error!("failed async poll for {context:?} {result:?}");
+            return Err(AeronErrorType::TimedOut.into());
+        }
+        #[cfg(debug_assertions)]
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 impl AeronSubscription {
     /// A retained image handle for `index`, or `None` when no such image exists.
     ///
@@ -643,21 +680,7 @@ impl AeronSubscription {
             .get_dependency::<Aeron>()
             .ok_or_else(|| AeronCError::with_message(-1, "subscription has no owning Aeron client"))?;
         let result = self.async_add_destination(&client, destination)?;
-        if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-            let _ = result.inner.close_resource();
-            return Ok(());
-        }
-        let time = std::time::Instant::now();
-        while time.elapsed() < timeout {
-            if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-                let _ = result.inner.close_resource();
-                return Ok(());
-            }
-            #[cfg(debug_assertions)]
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        log::error!("failed async poll for {:?} {:?}", destination, self);
-        Err(AeronErrorType::TimedOut.into())
+        poll_destination_op_to_completion(&result, timeout, (destination, self))
     }
 
     /// Note: unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
@@ -686,21 +709,7 @@ impl AeronSubscription {
             .get_dependency::<Aeron>()
             .ok_or_else(|| AeronCError::with_message(-1, "subscription has no owning Aeron client"))?;
         let result = self.async_remove_destination(&client, destination)?;
-        if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-            let _ = result.inner.close_resource();
-            return Ok(());
-        }
-        let time = std::time::Instant::now();
-        while time.elapsed() < timeout {
-            if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-                let _ = result.inner.close_resource();
-                return Ok(());
-            }
-            #[cfg(debug_assertions)]
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        log::error!("failed async poll for {:?} {:?}", destination, self);
-        Err(AeronErrorType::TimedOut.into())
+        poll_destination_op_to_completion(&result, timeout, (destination, self))
     }
 
 }
@@ -726,21 +735,7 @@ impl AeronExclusivePublication {
             .get_dependency::<Aeron>()
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_add_destination(&client, destination)?;
-        if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-            let _ = result.inner.close_resource();
-            return Ok(());
-        }
-        let time = std::time::Instant::now();
-        while time.elapsed() < timeout {
-            if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-                let _ = result.inner.close_resource();
-                return Ok(());
-            }
-            #[cfg(debug_assertions)]
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        log::error!("failed async poll for {:?} {:?}", destination, self);
-        Err(AeronErrorType::TimedOut.into())
+        poll_destination_op_to_completion(&result, timeout, (destination, self))
     }
 
     /// Note: unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
@@ -769,21 +764,7 @@ impl AeronExclusivePublication {
             .get_dependency::<Aeron>()
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_remove_destination(&client, destination)?;
-        if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-            let _ = result.inner.close_resource();
-            return Ok(());
-        }
-        let time = std::time::Instant::now();
-        while time.elapsed() < timeout {
-            if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-                let _ = result.inner.close_resource();
-                return Ok(());
-            }
-            #[cfg(debug_assertions)]
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        log::error!("failed async poll for {:?} {:?}", destination, self);
-        Err(AeronErrorType::TimedOut.into())
+        poll_destination_op_to_completion(&result, timeout, (destination, self))
     }
 
     /// Note: unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
@@ -814,6 +795,12 @@ impl AeronExclusivePublication {
     /// Until this is fixed upstream, prefer [`Self::remove_destination`] (by URI) — it does
     /// not go through this by-id code path and has been verified end-to-end (real data stops
     /// flowing to a removed destination) in this crate's test suite.
+    ///
+    /// Because of the bug above, this method deliberately returns `Err` even when the driver
+    /// acknowledges the command (`Ok(())` would misleadingly imply the destination was
+    /// actually removed). Use [`Self::async_remove_destination_by_id`] if you need the raw,
+    /// 1:1 C-API-faithful async handle instead (e.g. to track upstream's own fix once
+    /// available).
     pub fn remove_destination_by_id(
         &self,
         destination_registration_id: i64,
@@ -824,24 +811,19 @@ impl AeronExclusivePublication {
             .get_dependency::<Aeron>()
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_remove_destination_by_id(&client, destination_registration_id)?;
-        if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-            let _ = result.inner.close_resource();
-            return Ok(());
-        }
-        let time = std::time::Instant::now();
-        while time.elapsed() < timeout {
-            if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-                let _ = result.inner.close_resource();
-                return Ok(());
-            }
-            #[cfg(debug_assertions)]
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        log::error!(
-            "failed async poll for destination_registration_id={destination_registration_id} {:?}",
-            self
-        );
-        Err(AeronErrorType::TimedOut.into())
+        poll_destination_op_to_completion(&result, timeout, (destination_registration_id, self))?;
+        // The driver acknowledged the command, but per the confirmed upstream bug documented
+        // above, that acknowledgement does NOT mean the destination was actually removed —
+        // report this honestly as an error rather than a misleading `Ok(())`, so callers
+        // can't mistake "command accepted" for "destination gone". Use `remove_destination`
+        // (by URI) instead, which has been verified end-to-end to actually stop data flow.
+        Err(AeronCError::with_message(
+            -1,
+            "remove_destination_by_id: driver acknowledged the command, but a confirmed \
+             upstream Aeron C bug (aeron_client_conductor_on_cmd_destination_by_id sends the \
+             wrong registration id) means the destination was almost certainly NOT actually \
+             removed; use remove_destination (by URI) instead",
+        ))
     }
 }
 
@@ -866,21 +848,7 @@ impl AeronPublication {
             .get_dependency::<Aeron>()
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_add_destination(&client, destination)?;
-        if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-            let _ = result.inner.close_resource();
-            return Ok(());
-        }
-        let time = std::time::Instant::now();
-        while time.elapsed() < timeout {
-            if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-                let _ = result.inner.close_resource();
-                return Ok(());
-            }
-            #[cfg(debug_assertions)]
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        log::error!("failed async poll for {:?} {:?}", destination, self);
-        Err(AeronErrorType::TimedOut.into())
+        poll_destination_op_to_completion(&result, timeout, (destination, self))
     }
 
     /// Note: unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
@@ -909,21 +877,7 @@ impl AeronPublication {
             .get_dependency::<Aeron>()
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_remove_destination(&client, destination)?;
-        if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-            let _ = result.inner.close_resource();
-            return Ok(());
-        }
-        let time = std::time::Instant::now();
-        while time.elapsed() < timeout {
-            if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-                let _ = result.inner.close_resource();
-                return Ok(());
-            }
-            #[cfg(debug_assertions)]
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        log::error!("failed async poll for {:?} {:?}", destination, self);
-        Err(AeronErrorType::TimedOut.into())
+        poll_destination_op_to_completion(&result, timeout, (destination, self))
     }
 
     /// Note: unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
@@ -948,6 +902,12 @@ impl AeronPublication {
     /// Until this is fixed upstream, prefer [`Self::remove_destination`] (by URI) — it does
     /// not go through this by-id code path and has been verified end-to-end (real data stops
     /// flowing to a removed destination) in this crate's test suite.
+    ///
+    /// Because of the bug above, this method deliberately returns `Err` even when the driver
+    /// acknowledges the command (`Ok(())` would misleadingly imply the destination was
+    /// actually removed). Use [`Self::async_remove_destination_by_id`] if you need the raw,
+    /// 1:1 C-API-faithful async handle instead (e.g. to track upstream's own fix once
+    /// available).
     pub fn remove_destination_by_id(
         &self,
         destination_registration_id: i64,
@@ -958,24 +918,19 @@ impl AeronPublication {
             .get_dependency::<Aeron>()
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_remove_destination_by_id(&client, destination_registration_id)?;
-        if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-            let _ = result.inner.close_resource();
-            return Ok(());
-        }
-        let time = std::time::Instant::now();
-        while time.elapsed() < timeout {
-            if result.aeron_subscription_async_destination_poll().unwrap_or_default() > 0 {
-                let _ = result.inner.close_resource();
-                return Ok(());
-            }
-            #[cfg(debug_assertions)]
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        log::error!(
-            "failed async poll for destination_registration_id={destination_registration_id} {:?}",
-            self
-        );
-        Err(AeronErrorType::TimedOut.into())
+        poll_destination_op_to_completion(&result, timeout, (destination_registration_id, self))?;
+        // The driver acknowledged the command, but per the confirmed upstream bug documented
+        // above, that acknowledgement does NOT mean the destination was actually removed —
+        // report this honestly as an error rather than a misleading `Ok(())`, so callers
+        // can't mistake "command accepted" for "destination gone". Use `remove_destination`
+        // (by URI) instead, which has been verified end-to-end to actually stop data flow.
+        Err(AeronCError::with_message(
+            -1,
+            "remove_destination_by_id: driver acknowledged the command, but a confirmed \
+             upstream Aeron C bug (aeron_client_conductor_on_cmd_destination_by_id sends the \
+             wrong registration id) means the destination was almost certainly NOT actually \
+             removed; use remove_destination (by URI) instead",
+        ))
     }
 }
 

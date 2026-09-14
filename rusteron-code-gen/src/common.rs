@@ -51,9 +51,9 @@ pub enum CResource<T> {
 // (atomic) — same "accepted unsoundness" policy as the unconditional
 // `unsafe impl Send` on `ManagedCResource<T>` and the handle types below.
 #[cfg(feature = "multi-threaded")]
-unsafe impl<T> Send for CResource<T> {}
+unsafe impl<T: Send> Send for CResource<T> {}
 #[cfg(feature = "multi-threaded")]
-unsafe impl<T> Sync for CResource<T> {}
+unsafe impl<T: Sync> Sync for CResource<T> {}
 
 impl<T: Clone> Clone for CResource<T> {
     fn clone(&self) -> Self {

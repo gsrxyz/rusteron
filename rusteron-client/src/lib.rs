@@ -4316,9 +4316,16 @@ mod tests {
         // `remove_destination` (by URI) actually works. Verified by direct byte-for-byte
         // comparison against the current aeron-io/aeron GitHub `master` source — this is
         // not specific to our vendored version and should be reported upstream.
-        publication
+        // `remove_destination_by_id` now deliberately surfaces this as an `Err` (rather
+        // than a misleading `Ok(())`) precisely because of the bug above — assert that
+        // honest failure instead of a successful data-flow stop.
+        let err = publication
             .remove_destination_by_id(dest_b_registration_id, Duration::from_secs(5))
-            .expect("remove_destination_by_id(B) should succeed at the API/command level");
+            .expect_err("remove_destination_by_id(B) must report the known upstream no-op as an error, not Ok(())");
+        assert!(
+            format!("{err:?}").contains("upstream Aeron C bug"),
+            "unexpected error from remove_destination_by_id: {err:?}"
+        );
 
         drop(sub_a);
         drop(sub_b);
@@ -4425,9 +4432,16 @@ mod tests {
         // in `aeron_client_conductor.c`, reproduced against the current aeron-io/aeron
         // `master`) makes `remove_destination_by_id` a driver-level no-op today regardless
         // of publication type, so data-flow gating is intentionally not asserted here.
-        publication
+        // `remove_destination_by_id` now deliberately surfaces this as an `Err` (rather
+        // than a misleading `Ok(())`) precisely because of the bug above — assert that
+        // honest failure instead of a successful data-flow stop.
+        let err = publication
             .remove_destination_by_id(dest_b_registration_id, Duration::from_secs(5))
-            .expect("remove_destination_by_id(B) should succeed at the API/command level");
+            .expect_err("remove_destination_by_id(B) must report the known upstream no-op as an error, not Ok(())");
+        assert!(
+            format!("{err:?}").contains("upstream Aeron C bug"),
+            "unexpected error from remove_destination_by_id: {err:?}"
+        );
 
         drop(sub_a);
         drop(sub_b);
