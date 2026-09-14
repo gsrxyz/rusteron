@@ -2666,6 +2666,29 @@ pub fn generate_rust_code(
                     }
 
                     impl #client_type {
+                        #[doc = r"# Handler lifetime and async close"]
+                        #[doc = r""]
+                        #[doc = r"If this call takes a [`Handler`], the C close for the resulting resource"]
+                        #[doc = r"(e.g. `aeron_subscription_close`) is **asynchronous** — the conductor thread"]
+                        #[doc = r"may still invoke the handler's callback (e.g. `on_available_image`) after"]
+                        #[doc = r"`close()`/`drop` has already returned on the calling thread. Releasing the"]
+                        #[doc = r"handler's value immediately on close would risk a use-after-free from that"]
+                        #[doc = r"still-in-flight callback."]
+                        #[doc = r""]
+                        #[doc = r"To make this safe without requiring the caller to track it, this method"]
+                        #[doc = r"stores a clone of the owning [`Aeron`] client as a *dependency* on the"]
+                        #[doc = r"resource being created — which transitively keeps every [`Handler`] clone"]
+                        #[doc = r"already registered as a dependency of that resource alive for as long as"]
+                        #[doc = r"the client itself lives, regardless of when the resource closes. No manual"]
+                        #[doc = r"`release()` call is needed."]
+                        #[doc = r""]
+                        #[doc = r"This differs from the Aeron C++ wrapper, which instead frees the handler"]
+                        #[doc = r"as the final step of `on_cmd_close_subscription` on the conductor thread —"]
+                        #[doc = r"i.e. it ties the handler's lifetime to the close completing, not to the"]
+                        #[doc = r"client. Rusteron's approach is simpler and avoids needing a conductor-side"]
+                        #[doc = r"hook, but it means handler dependencies accumulate on the client's"]
+                        #[doc = r"dependency list for the client's lifetime (they are small `Arc` clones, one"]
+                        #[doc = r"per call, and are only dropped when the client itself drops)."]
                         #[inline]
                         pub fn #client_type_method_name #where_clause_async(&self, #(#async_new_args_for_client),*) -> Result<#async_class_name, AeronCError> {
                             let mut result =  #async_class_name::new(self, #(#async_new_args_name_only),*);

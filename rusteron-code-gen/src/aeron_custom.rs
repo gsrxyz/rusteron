@@ -819,6 +819,32 @@ impl AeronExclusivePublication {
     /// retrieved automatically from the publication's dependency graph — pass it
     /// explicitly via [`Self::async_remove_destination_by_id`] only when you hold it
     /// already.
+    ///
+    /// # Known upstream bug: currently a driver-level no-op
+    ///
+    /// As of this writing, Aeron's C client has a bug that makes this call always resolve
+    /// `Ok(())` **without actually removing the destination** — the send keeps flowing to
+    /// it. In `aeron_client_conductor_on_cmd_destination_by_id()`
+    /// (`aeron-client/src/main/c/aeron_client_conductor.c`), the command sent to the driver
+    /// does:
+    /// ```c
+    /// command->resource_registration_id = resource_registration_id;
+    /// command->destination_registration_id = resource_registration_id; // bug: should be
+    ///                                                                   // async->destination_registration_id
+    /// ```
+    /// overwriting the destination's own id (which was captured correctly earlier, from the
+    /// caller-supplied `destination_registration_id`) with the *parent publication's* own
+    /// registration id instead. The driver's
+    /// `aeron_udp_destination_tracker_remove_destination_by_id()` matches purely on
+    /// `entry->registration_id == destination_registration_id`, and a publication's own id
+    /// never equals one of its destinations' ids, so nothing is ever found/removed — yet
+    /// the command still reports success. Verified against both the vendored submodule and
+    /// the current `aeron-io/aeron` `master` (same bug present in both), so this isn't
+    /// specific to the pinned version here.
+    ///
+    /// Until this is fixed upstream, prefer [`Self::remove_destination`] (by URI) — it does
+    /// not go through this by-id code path and has been verified end-to-end (real data stops
+    /// flowing to a removed destination) in this crate's test suite.
     pub fn remove_destination_by_id(
         &self,
         destination_registration_id: i64,
@@ -958,6 +984,32 @@ impl AeronPublication {
     /// retrieved automatically from the publication's dependency graph — pass it
     /// explicitly via [`Self::async_remove_destination_by_id`] only when you hold it
     /// already.
+    ///
+    /// # Known upstream bug: currently a driver-level no-op
+    ///
+    /// As of this writing, Aeron's C client has a bug that makes this call always resolve
+    /// `Ok(())` **without actually removing the destination** — the send keeps flowing to
+    /// it. In `aeron_client_conductor_on_cmd_destination_by_id()`
+    /// (`aeron-client/src/main/c/aeron_client_conductor.c`), the command sent to the driver
+    /// does:
+    /// ```c
+    /// command->resource_registration_id = resource_registration_id;
+    /// command->destination_registration_id = resource_registration_id; // bug: should be
+    ///                                                                   // async->destination_registration_id
+    /// ```
+    /// overwriting the destination's own id (which was captured correctly earlier, from the
+    /// caller-supplied `destination_registration_id`) with the *parent publication's* own
+    /// registration id instead. The driver's
+    /// `aeron_udp_destination_tracker_remove_destination_by_id()` matches purely on
+    /// `entry->registration_id == destination_registration_id`, and a publication's own id
+    /// never equals one of its destinations' ids, so nothing is ever found/removed — yet
+    /// the command still reports success. Verified against both the vendored submodule and
+    /// the current `aeron-io/aeron` `master` (same bug present in both), so this isn't
+    /// specific to the pinned version here.
+    ///
+    /// Until this is fixed upstream, prefer [`Self::remove_destination`] (by URI) — it does
+    /// not go through this by-id code path and has been verified end-to-end (real data stops
+    /// flowing to a removed destination) in this crate's test suite.
     pub fn remove_destination_by_id(
         &self,
         destination_registration_id: i64,

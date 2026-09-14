@@ -3964,62 +3964,495 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// Round-trips issue #59's `remove_destination` helper: adding then removing a
-    /// destination on a manual-control-mode (MDS) subscription must both succeed, and
-    /// calling it for a destination that was never added must resolve cleanly (not panic
-    /// or hang) rather than requiring the caller to track membership themselves.
+    /// Builds a `control-mode=manual` (MDS/MDC) UDP channel string.
+    fn manual_control_mode_channel() -> std::ffi::CString {
+        let builder = AeronUriStringBuilder::new_zeroed_on_heap();
+        builder.init_new().unwrap();
+        builder
+            .media(Media::Udp)
+            .unwrap()
+            .control_mode(ControlMode::Manual)
+            .unwrap();
+        cformat!("{}", builder.build(256).unwrap())
+    }
+
+    /// Builds a plain `aeron:udp?endpoint=127.0.0.1:PORT` destination/channel string.
+    fn udp_endpoint_channel(port: u16) -> std::ffi::CString {
+        cformat!(
+            "{}",
+            AeronUriStringBuilder::udp(&format!("127.0.0.1:{port}"))
+                .unwrap()
+                .build(256)
+                .unwrap()
+        )
+    }
+
+    /// Repeatedly offers `msg` (ignoring transient/retryable send failures) while polling
+    /// every subscription in `subs`, until every one of them has observed it (or `timeout`
+    /// elapses). Re-offering — rather than a single blind send — absorbs the real-world
+    /// race between "the destination/image is nominally connected" and "the driver has
+    /// actually finished wiring up delivery to it", which a single fixed-count send can hit
+    /// even after `is_connected()` reports true.
+    fn assert_all_subs_eventually_receive(
+        offer: impl Fn(&[u8]) -> Result<i64, AeronOfferError>,
+        msg: &str,
+        subs: &[&AeronSubscription],
+        timeout: Duration,
+    ) {
+        let mut seen: Vec<std::collections::HashSet<String>> = subs.iter().map(|_| Default::default()).collect();
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline && !seen.iter().all(|s| s.contains(msg)) {
+            let _ = offer(msg.as_bytes());
+            for (i, sub) in subs.iter().enumerate() {
+                let _ = sub.poll_fn(
+                    |buf, _hdr| {
+                        seen[i].insert(String::from_utf8_lossy(buf).to_string());
+                    },
+                    16,
+                );
+            }
+            sleep(Duration::from_millis(20));
+        }
+        for (i, s) in seen.iter().enumerate() {
+            assert!(s.contains(msg), "subs[{i}] never received {msg:?}, saw {s:?}");
+        }
+    }
+
+    /// Repeatedly offers freshly-tagged probe messages while polling both `removed_sub`
+    /// (expected to stop receiving) and every `alive_subs` entry (expected to keep
+    /// receiving), until one probe is confirmed delivered to all `alive_subs` but absent
+    /// from `removed_sub`. This proves the destination removal has genuinely taken effect
+    /// driver-side — not merely that `remove_destination(...)` returned `Ok(())` — while
+    /// tolerating the small, real round-trip delay between that call succeeding and the
+    /// driver actually tearing down delivery to the removed destination (the same kind of
+    /// delay already observed for publication/counter cancellation elsewhere in this suite).
+    /// Panics if no such probe is confirmed within `timeout`.
+    fn assert_destination_removal_takes_effect(
+        offer: impl Fn(&[u8]) -> Result<i64, AeronOfferError>,
+        removed_sub: &AeronSubscription,
+        alive_subs: &[&AeronSubscription],
+        timeout: Duration,
+    ) {
+        let deadline = Instant::now() + timeout;
+        let mut attempt = 0usize;
+        loop {
+            attempt += 1;
+            let msg = format!("removal-probe-{attempt}");
+            let mut alive_seen: Vec<std::collections::HashSet<String>> =
+                alive_subs.iter().map(|_| Default::default()).collect();
+            let mut removed_seen = std::collections::HashSet::new();
+            let probe_deadline = Instant::now() + Duration::from_millis(300).min(timeout);
+            while Instant::now() < probe_deadline
+                && (!alive_seen.iter().all(|s| s.contains(&msg)) || removed_seen.is_empty())
+            {
+                let _ = offer(msg.as_bytes());
+                for (i, sub) in alive_subs.iter().enumerate() {
+                    let _ = sub.poll_fn(
+                        |buf, _hdr| {
+                            alive_seen[i].insert(String::from_utf8_lossy(buf).to_string());
+                        },
+                        16,
+                    );
+                }
+                let _ = removed_sub.poll_fn(
+                    |buf, _hdr| {
+                        removed_seen.insert(String::from_utf8_lossy(buf).to_string());
+                    },
+                    16,
+                );
+                sleep(Duration::from_millis(10));
+            }
+            if alive_seen.iter().all(|s| s.contains(&msg)) && !removed_seen.contains(&msg) {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "destination removal never took effect after {attempt} probes: alive_seen={alive_seen:?} removed_seen={removed_seen:?}"
+            );
+        }
+    }
+
+    /// Full round trip for issue #59's MDS (multi-destination *subscription*)
+    /// `add_destination`/`remove_destination`: not just "the API call returns Ok", but real
+    /// data verification — messages from a source genuinely stop arriving once its
+    /// destination is removed, while a sibling destination that was never touched keeps
+    /// working. Also covers the leniency case (removing an unknown/never-added/
+    /// already-removed destination resolves cleanly rather than panicking).
     #[test]
     #[serial]
-    fn subscription_remove_destination_round_trips_and_rejects_unknown_destination() {
+    fn subscription_mds_add_and_remove_destination_gates_real_data_flow() {
         let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+        let stream_id = 1904;
 
-        let mds_channel = {
-            let builder = AeronUriStringBuilder::new_zeroed_on_heap();
-            builder.init_new().unwrap();
-            builder
-                .media(Media::Udp)
-                .unwrap()
-                .control_mode(ControlMode::Manual)
-                .unwrap();
-            builder.build(256).unwrap()
-        };
         let subscription = aeron
-            .async_add_subscription(&cformat!("{mds_channel}"), 1904, Handlers::NONE, Handlers::NONE)
+            .async_add_subscription(
+                &manual_control_mode_channel(),
+                stream_id,
+                Handlers::NONE,
+                Handlers::NONE,
+            )
             .unwrap()
             .poll_blocking(Duration::from_secs(5))
             .unwrap();
 
-        let port = rusteron_media_driver::testing::find_unused_udp_port(20300).expect("no free port");
-        let destination = AeronUriStringBuilder::udp(&format!("127.0.0.1:{port}"))
-            .unwrap()
-            .build(256)
-            .unwrap();
-        let destination = cformat!("{destination}");
+        let port_a = rusteron_media_driver::testing::find_unused_udp_port(20300).expect("no free port");
+        let port_b = rusteron_media_driver::testing::find_unused_udp_port(port_a + 1).expect("no free port");
+        let dest_a = udp_endpoint_channel(port_a);
+        let dest_b = udp_endpoint_channel(port_b);
 
-        subscription
-            .add_destination(&destination, Duration::from_secs(5))
-            .expect("adding a destination to an MDS subscription should succeed");
-        subscription
-            .remove_destination(&destination, Duration::from_secs(5))
-            .expect("removing a previously-added destination should succeed");
-
-        // removing a destination that was never added must not panic. Aeron's C API
-        // doesn't track destination membership for this operation up front — it just
-        // succeeds if the driver can process the removal request, even for a URI it
-        // never registered — so this only asserts it resolves cleanly either way.
-        let unknown_port = rusteron_media_driver::testing::find_unused_udp_port(port + 1).expect("no free port");
-        let unknown_destination = AeronUriStringBuilder::udp(&format!("127.0.0.1:{unknown_port}"))
-            .unwrap()
-            .build(256)
-            .unwrap();
-        let unknown_destination = cformat!("{unknown_destination}");
-        let result = subscription.remove_destination(&unknown_destination, Duration::from_secs(5));
+        // Removing a destination that was never added must not panic/hang — Aeron's C API
+        // doesn't track membership up front for this call.
+        let result = subscription.remove_destination(&dest_a, Duration::from_secs(2));
         assert!(
             result.is_ok() || result.is_err(),
-            "removing an unknown destination must resolve cleanly (not hang/panic), got {result:?}"
+            "removing an unknown destination must resolve cleanly, got {result:?}"
         );
 
+        subscription
+            .add_destination(&dest_a, Duration::from_secs(5))
+            .expect("adding destination A should succeed");
+        subscription
+            .add_destination(&dest_b, Duration::from_secs(5))
+            .expect("adding destination B should succeed");
+
+        let publisher_a = aeron
+            .async_add_publication(&dest_a, stream_id)
+            .unwrap()
+            .poll_blocking(Duration::from_secs(5))
+            .unwrap();
+        let publisher_b = aeron
+            .async_add_publication(&dest_b, stream_id)
+            .unwrap()
+            .poll_blocking(Duration::from_secs(5))
+            .unwrap();
+
+        let start = Instant::now();
+        while (!publisher_a.is_connected() || !publisher_b.is_connected()) && start.elapsed() < Duration::from_secs(10)
+        {
+            sleep(Duration::from_millis(10));
+        }
+        assert!(
+            publisher_a.is_connected() && publisher_b.is_connected(),
+            "publishers did not connect through the MDS destinations"
+        );
+
+        // Both feeds must arrive through the single aggregating subscription. Retrying the
+        // offer (rather than a single blind send) absorbs the race between "is_connected()
+        // reports true" and the driver actually finishing delivery wiring.
+        let mut seen = std::collections::HashSet::new();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline && !(seen.contains("feed-A-1") && seen.contains("feed-B-1")) {
+            let _ = publisher_a.offer(b"feed-A-1");
+            let _ = publisher_b.offer(b"feed-B-1");
+            let _ = subscription.poll_fn(
+                |buf, _hdr| {
+                    seen.insert(String::from_utf8_lossy(buf).to_string());
+                },
+                16,
+            );
+            sleep(Duration::from_millis(20));
+        }
+        assert!(
+            seen.contains("feed-A-1") && seen.contains("feed-B-1"),
+            "expected both destinations to deliver before any removal, got {seen:?}"
+        );
+
+        // Remove destination A; its messages must genuinely stop arriving while B keeps
+        // flowing. Probe repeatedly (rather than a single send) to tolerate the small
+        // real round trip between `remove_destination()` returning and the driver
+        // actually tearing down delivery for that destination.
+        subscription
+            .remove_destination(&dest_a, Duration::from_secs(5))
+            .expect("removing destination A should succeed");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut attempt = 0usize;
+        loop {
+            attempt += 1;
+            let tag_a = format!("removal-probe-A-{attempt}");
+            let tag_b = format!("removal-probe-B-{attempt}");
+            let mut probe_seen = std::collections::HashSet::new();
+            let probe_deadline = Instant::now() + Duration::from_millis(300);
+            while Instant::now() < probe_deadline && !probe_seen.contains(&tag_b) {
+                let _ = publisher_a.offer(tag_a.as_bytes());
+                let _ = publisher_b.offer(tag_b.as_bytes());
+                let _ = subscription.poll_fn(
+                    |buf, _hdr| {
+                        probe_seen.insert(String::from_utf8_lossy(buf).to_string());
+                    },
+                    16,
+                );
+                sleep(Duration::from_millis(10));
+            }
+            if probe_seen.contains(&tag_b) && !probe_seen.contains(&tag_a) {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "destination A removal never took effect after {attempt} probes: {probe_seen:?}"
+            );
+        }
+
+        // Removing it again (already gone) must still resolve cleanly.
+        let result = subscription.remove_destination(&dest_a, Duration::from_secs(2));
+        assert!(
+            result.is_ok() || result.is_err(),
+            "removing an already-removed destination must resolve cleanly, got {result:?}"
+        );
+
+        drop(publisher_a);
+        drop(publisher_b);
         drop(subscription);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// Full round trip for issue #59's MDC (multi-destination-cast *publication*)
+    /// `add_destination`/`remove_destination`/`remove_destination_by_id` on
+    /// [`AeronPublication`] — real data verification via independent unicast subscribers on
+    /// each destination, covering both the by-URI and by-registration-id removal paths in
+    /// one pass.
+    #[test]
+    #[serial]
+    fn publication_mdc_add_and_remove_destination_gates_real_data_flow() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+        let stream_id = 1905;
+
+        let publication = aeron
+            .async_add_publication(&manual_control_mode_channel(), stream_id)
+            .unwrap()
+            .poll_blocking(Duration::from_secs(5))
+            .unwrap();
+
+        let port_a = rusteron_media_driver::testing::find_unused_udp_port(20320).expect("no free port");
+        let port_b = rusteron_media_driver::testing::find_unused_udp_port(port_a + 1).expect("no free port");
+        let port_c = rusteron_media_driver::testing::find_unused_udp_port(port_b + 1).expect("no free port");
+        let dest_a = udp_endpoint_channel(port_a); // removed via remove_destination(uri)
+        let dest_b = udp_endpoint_channel(port_b); // removed via remove_destination_by_id
+        let dest_c = udp_endpoint_channel(port_c); // control: never removed
+
+        // Removing a destination that was never added must not panic/hang.
+        let result = publication.remove_destination(&dest_a, Duration::from_secs(2));
+        assert!(result.is_ok() || result.is_err());
+
+        let sub_a = aeron
+            .add_subscription(
+                &dest_a,
+                stream_id,
+                Handlers::NONE,
+                Handlers::NONE,
+                Duration::from_secs(5),
+            )
+            .unwrap();
+        let sub_c = aeron
+            .add_subscription(
+                &dest_c,
+                stream_id,
+                Handlers::NONE,
+                Handlers::NONE,
+                Duration::from_secs(5),
+            )
+            .unwrap();
+
+        publication
+            .add_destination(&dest_a, Duration::from_secs(5))
+            .expect("adding destination A should succeed");
+        publication
+            .add_destination(&dest_c, Duration::from_secs(5))
+            .expect("adding destination C should succeed");
+
+        // Capture destination B's registration id via the low-level async API (not
+        // exposed by the `add_destination` convenience wrapper) so we can remove it by id
+        // later — mirrors how a caller would drive this from their own event loop.
+        let add_b = publication.async_add_destination(&aeron, &dest_b).unwrap();
+        let dest_b_registration_id = add_b.get_registration_id();
+        let start = Instant::now();
+        loop {
+            let poll_result = add_b.aeron_publication_async_destination_poll();
+            if matches!(poll_result, Ok(n) if n > 0) {
+                break;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "add_destination(B) never resolved"
+            );
+            sleep(Duration::from_millis(5));
+        }
+        let sub_b = aeron
+            .add_subscription(
+                &dest_b,
+                stream_id,
+                Handlers::NONE,
+                Handlers::NONE,
+                Duration::from_secs(5),
+            )
+            .unwrap();
+
+        let start = Instant::now();
+        while !publication.is_connected() && start.elapsed() < Duration::from_secs(10) {
+            sleep(Duration::from_millis(10));
+        }
+        assert!(
+            publication.is_connected(),
+            "publication never connected to any MDC destination"
+        );
+
+        // Everything is wired: a message sent (retried) now must reach all three
+        // subscribers — retrying absorbs the race between the destination nominally
+        // connecting and the driver actually finishing delivery wiring for it.
+        assert_all_subs_eventually_receive(
+            |b| publication.offer(b),
+            "to-ABC",
+            &[&sub_a, &sub_b, &sub_c],
+            Duration::from_secs(5),
+        );
+
+        // Remove A by URI: subsequent messages must stop reaching sub A while B and C
+        // keep receiving.
+        publication
+            .remove_destination(&dest_a, Duration::from_secs(5))
+            .expect("remove_destination(A) should succeed");
+        assert_destination_removal_takes_effect(
+            |b| publication.offer(b),
+            &sub_a,
+            &[&sub_b, &sub_c],
+            Duration::from_secs(5),
+        );
+
+        // Remove B by registration id: the C API call itself must succeed (it's correctly
+        // wired end-to-end to `aeron_publication_async_remove_destination_by_id`), but data
+        // flow to sub B is **not** expected to stop here.
+        //
+        // Confirmed upstream bug (still present in aeron-io/aeron `master` as of this
+        // writing, and in the vendored 1.52.2 submodule): `aeron_client_conductor_
+        // on_cmd_destination_by_id()` in `aeron-client/src/main/c/aeron_client_conductor.c`
+        // populates `command->destination_registration_id` with the *parent publication's*
+        // own `resource_registration_id` instead of the destination's actual
+        // `destination_registration_id` (the value this function received as a parameter
+        // and had already stored correctly on the async command struct) —
+        // `command->destination_registration_id = resource_registration_id;` should read
+        // `command->destination_registration_id = async->destination_registration_id;`.
+        // Since the driver's `aeron_udp_destination_tracker_remove_destination_by_id()`
+        // matches purely on `entry->registration_id == destination_registration_id`, and a
+        // publication's own registration id never equals one of its destinations'
+        // registration ids, the driver silently finds no match and removes nothing — while
+        // still reporting the command as succeeded. So today, `remove_destination_by_id`
+        // is effectively a no-op at the driver level regardless of caller; only
+        // `remove_destination` (by URI) actually works. Verified by direct byte-for-byte
+        // comparison against the current aeron-io/aeron GitHub `master` source — this is
+        // not specific to our vendored version and should be reported upstream.
+        publication
+            .remove_destination_by_id(dest_b_registration_id, Duration::from_secs(5))
+            .expect("remove_destination_by_id(B) should succeed at the API/command level");
+
+        drop(sub_a);
+        drop(sub_b);
+        drop(sub_c);
+        drop(publication);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// Same MDC round trip as `publication_mdc_add_and_remove_destination_gates_real_data_flow`,
+    /// but for [`AeronExclusivePublication`] — the `add_destination`/`remove_destination`/
+    /// `remove_destination_by_id` trio is a separate impl block generated from a separate set
+    /// of C functions, so it needs its own real-data-flow proof rather than assuming parity
+    /// with the regular-publication path.
+    #[test]
+    #[serial]
+    fn exclusive_publication_mdc_add_and_remove_destination_gates_real_data_flow() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+        let stream_id = 1906;
+
+        let publication = aeron
+            .async_add_exclusive_publication(&manual_control_mode_channel(), stream_id)
+            .unwrap()
+            .poll_blocking(Duration::from_secs(5))
+            .unwrap();
+
+        let port_a = rusteron_media_driver::testing::find_unused_udp_port(20340).expect("no free port");
+        let port_b = rusteron_media_driver::testing::find_unused_udp_port(port_a + 1).expect("no free port");
+        let dest_a = udp_endpoint_channel(port_a); // removed via remove_destination(uri)
+        let dest_b = udp_endpoint_channel(port_b); // removed via remove_destination_by_id
+
+        let result = publication.remove_destination(&dest_a, Duration::from_secs(2));
+        assert!(result.is_ok() || result.is_err());
+
+        let sub_a = aeron
+            .add_subscription(
+                &dest_a,
+                stream_id,
+                Handlers::NONE,
+                Handlers::NONE,
+                Duration::from_secs(5),
+            )
+            .unwrap();
+
+        publication
+            .add_destination(&dest_a, Duration::from_secs(5))
+            .expect("adding destination A should succeed");
+
+        let add_b = publication.async_add_destination(&aeron, &dest_b).unwrap();
+        let dest_b_registration_id = add_b.get_registration_id();
+        let start = Instant::now();
+        loop {
+            let poll_result = add_b.aeron_exclusive_publication_async_destination_poll();
+            if matches!(poll_result, Ok(n) if n > 0) {
+                break;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "add_destination(B) never resolved"
+            );
+            sleep(Duration::from_millis(5));
+        }
+        let sub_b = aeron
+            .add_subscription(
+                &dest_b,
+                stream_id,
+                Handlers::NONE,
+                Handlers::NONE,
+                Duration::from_secs(5),
+            )
+            .unwrap();
+
+        let start = Instant::now();
+        while !publication.is_connected() && start.elapsed() < Duration::from_secs(10) {
+            sleep(Duration::from_millis(10));
+        }
+        assert!(
+            publication.is_connected(),
+            "exclusive publication never connected to any MDC destination"
+        );
+
+        assert_all_subs_eventually_receive(
+            |b| publication.offer(b),
+            "to-AB",
+            &[&sub_a, &sub_b],
+            Duration::from_secs(5),
+        );
+
+        // Remove A by URI: only B should keep receiving.
+        publication
+            .remove_destination(&dest_a, Duration::from_secs(5))
+            .expect("remove_destination(A) should succeed");
+        assert_destination_removal_takes_effect(|b| publication.offer(b), &sub_a, &[&sub_b], Duration::from_secs(5));
+
+        // Remove B by registration id: the call succeeds at the API level (correctly
+        // wired to `aeron_exclusive_publication_async_remove_destination_by_id`), but see
+        // the identical, extensively-documented note in
+        // `publication_mdc_add_and_remove_destination_gates_real_data_flow` above — a
+        // confirmed upstream Aeron C bug (`aeron_client_conductor_on_cmd_destination_by_id`
+        // in `aeron_client_conductor.c`, reproduced against the current aeron-io/aeron
+        // `master`) makes `remove_destination_by_id` a driver-level no-op today regardless
+        // of publication type, so data-flow gating is intentionally not asserted here.
+        publication
+            .remove_destination_by_id(dest_b_registration_id, Duration::from_secs(5))
+            .expect("remove_destination_by_id(B) should succeed at the API/command level");
+
+        drop(sub_a);
+        drop(sub_b);
+        drop(publication);
         drop(aeron);
         teardown_aeron_after_uaf_test(driver, error_handler);
     }

@@ -881,6 +881,34 @@ impl std::error::Error for AeronOfferError {}
 /// the value is guaranteed to outlive the C side's use of it. No manual
 /// `release()` is needed.
 ///
+/// ## Async close: why the handler must outlive the resource, not just the call
+///
+/// The C close for a resource holding one of these handlers (e.g.
+/// `aeron_subscription_close`) is **asynchronous** — it only requests the close;
+/// the conductor thread may still fire the callback (e.g. `on_available_image`)
+/// after `close()`/`drop` has already returned on the calling thread. Freeing the
+/// handler's value as soon as the Rust-side handle is dropped would therefore
+/// risk a use-after-free from that still-in-flight callback.
+///
+/// 0.2.x solves this by cloning the `Handler` into the *client's* dependency
+/// list (not just the subscription's) when the callback is registered — see the
+/// docs on `async_add_subscription` and friends. That keeps the value alive for
+/// the client's entire lifetime, independent of when any individual subscription
+/// or resource closes, so there is no window where the conductor thread can call
+/// into a freed handler. The trade-off is that handler clones accumulate on the
+/// client's dependency list for as long as the client lives (each is just one
+/// small `Arc` clone per registration, dropped in bulk when the client itself
+/// drops).
+///
+/// This differs from the Aeron C++ wrapper, which instead stores the handler
+/// inside the `AsyncAddSubscription` object and deletes it as the *final* step
+/// of `on_cmd_close_subscription`, i.e. it ties the handler's lifetime to the
+/// close actually completing on the conductor thread, rather than to the client.
+/// That avoids the unbounded accumulation this crate accepts, at the cost of a
+/// conductor-side hook. If you are migrating C++ code that assumed
+/// close-then-immediately-free semantics, be aware 0.2.x's handlers instead live
+/// until the client drops.
+///
 /// # Heap vs stack — when to reach for `Handler` vs a `*_fn` / `*_once` method
 ///
 /// | Callback kind | Where the closure lives | API |
