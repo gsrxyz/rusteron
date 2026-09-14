@@ -22,8 +22,8 @@ mod tests {
     use serial_test::serial;
     use std::error::Error;
     use std::os::raw::c_int;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread::{self, sleep};
     use std::time::{Duration, Instant};
 

@@ -11,7 +11,7 @@
 //! cargo run --release --features "static precompile" --example recording_throughput
 //! ```
 
-use rusteron_archive::testing::{find_unused_udp_port, EmbeddedArchiveMediaDriverProcess};
+use rusteron_archive::testing::{EmbeddedArchiveMediaDriverProcess, find_unused_udp_port};
 use rusteron_archive::*;
 use std::thread::sleep;
 use std::time::{Duration, Instant};

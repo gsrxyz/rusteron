@@ -41,14 +41,16 @@ pub fn main() -> Result<(), Box<dyn error::Error>> {
     println!("string length: {large_string_len}");
 
     let _publisher_handler = {
-        std::thread::spawn(move || loop {
-            // Typed offer: retry the retryable errors, stop on fatal ones.
-            match publisher.offer("1".repeat(large_string_len).as_bytes()) {
-                Ok(_) => {}
-                Err(e) if e.is_retryable() => error!("failed to send message ({e}); retrying"),
-                Err(e) => {
-                    error!("publication gone ({e}); stopping publisher thread");
-                    break;
+        std::thread::spawn(move || {
+            loop {
+                // Typed offer: retry the retryable errors, stop on fatal ones.
+                match publisher.offer("1".repeat(large_string_len).as_bytes()) {
+                    Ok(_) => {}
+                    Err(e) if e.is_retryable() => error!("failed to send message ({e}); retrying"),
+                    Err(e) => {
+                        error!("publication gone ({e}); stopping publisher thread");
+                        break;
+                    }
                 }
             }
         })

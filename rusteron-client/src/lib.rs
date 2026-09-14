@@ -5,6 +5,7 @@
 #![allow(clippy::all)]
 #![allow(unused_unsafe)]
 #![allow(unused_variables)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 //! # Features
 //!
@@ -357,9 +358,9 @@ mod tests {
     use std::error::Error;
     use std::io::Write;
     use std::os::raw::c_int;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
-    use std::thread::{sleep, JoinHandle};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::thread::{JoinHandle, sleep};
     use std::time::{Duration, Instant};
 
     #[derive(Default, Debug)]
@@ -1714,11 +1715,11 @@ mod tests {
                 counter_id: i32,
             ) -> () {
                 info!(
-            "on counter key={:?}, label={:?} registration_id={registration_id}, counter_id={counter_id}, value={}, {counters_reader:?}",
-            String::from_utf8(counters_reader.get_counter_key(counter_id).unwrap()),
-            counters_reader.get_counter_label(counter_id, 1000),
-            counters_reader.addr(counter_id)
-        );
+                    "on counter key={:?}, label={:?} registration_id={registration_id}, counter_id={counter_id}, value={}, {counters_reader:?}",
+                    String::from_utf8(counters_reader.get_counter_key(counter_id).unwrap()),
+                    counters_reader.get_counter_label(counter_id, 1000),
+                    counters_reader.addr(counter_id)
+                );
 
                 assert_eq!(
                     counters_reader.counter_registration_id(counter_id).unwrap(),
@@ -2584,8 +2585,8 @@ mod tests {
     /// deterministic — they fuzz the invariants the unit tests only sample.
     mod property_tests {
         use crate::{
-            validate_endpoint_for_aeron_udp, AeronCError, AeronErrorType, AeronOfferError, AeronStatus,
-            AeronStatusTracker,
+            AeronCError, AeronErrorType, AeronOfferError, AeronStatus, AeronStatusTracker,
+            validate_endpoint_for_aeron_udp,
         };
         use proptest::prelude::*;
 
@@ -3545,9 +3546,11 @@ mod tests {
             .expect("subscriber position counter");
         assert!(counters.get_counter_value(position_counter) >= 0);
 
-        assert!(counters
-            .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, -12345)
-            .is_none());
+        assert!(
+            counters
+                .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, -12345)
+                .is_none()
+        );
 
         drop(publisher);
         drop(subscription);
@@ -4017,7 +4020,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     const SYS_PAGESIZE: i32 = 30;
 
-    extern "C" {
+    unsafe extern "C" {
         fn mprotect(addr: *mut core::ffi::c_void, len: usize, prot: i32) -> i32;
         fn sysconf(name: i32) -> isize;
         fn write(fd: i32, buf: *const core::ffi::c_void, count: usize) -> isize;
@@ -4061,7 +4064,7 @@ mod tests {
     #[test]
     #[serial]
     fn prove_rc_teardown_frees_via_mprotect() {
-        extern "C" {
+        unsafe extern "C" {
             fn signal(sig: i32, handler: unsafe extern "C" fn(i32)) -> usize;
             fn fork() -> i32;
             fn waitpid(pid: i32, status: *mut i32, options: i32) -> i32;

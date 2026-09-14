@@ -5,8 +5,8 @@
 //! lives in exactly one place.
 
 use crate::{Aeron, AeronCError, AeronDriver, AeronDriverContext, IntoCString};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 
 /// An embedded media driver running on a background thread, with a unique directory,

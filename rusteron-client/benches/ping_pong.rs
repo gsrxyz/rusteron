@@ -1,9 +1,9 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use rusteron_client::*;
 use rusteron_media_driver::{AeronDriver, AeronDriverContext, IntoCString};
 use std::hint::black_box;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 

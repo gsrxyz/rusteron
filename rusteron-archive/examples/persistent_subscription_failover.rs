@@ -15,7 +15,7 @@
 //! cargo run --release --features "static precompile" --example persistent_subscription_failover
 //! ```
 
-use rusteron_archive::testing::{find_unused_udp_port, EmbeddedArchiveMediaDriverProcess};
+use rusteron_archive::testing::{EmbeddedArchiveMediaDriverProcess, find_unused_udp_port};
 use rusteron_archive::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};

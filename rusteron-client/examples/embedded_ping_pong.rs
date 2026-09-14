@@ -1,10 +1,10 @@
 use hdrhistogram::Histogram;
 use rusteron_client::*;
 use std::error::Error;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::thread::{sleep, JoinHandle};
+use std::thread::{JoinHandle, sleep};
 use std::time::Duration;
 
 const PING_STREAM_ID: i32 = 1002;

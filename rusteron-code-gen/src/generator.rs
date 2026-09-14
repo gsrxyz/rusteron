@@ -3,11 +3,11 @@ use crate::get_possible_wrappers;
 use crate::snake_to_pascal_case;
 use itertools::Itertools;
 use proc_macro2::{Ident, TokenStream};
-use quote::{format_ident, quote, ToTokens};
+use quote::{ToTokens, format_ident, quote};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ops::Deref;
 use std::str::FromStr;
-use syn::{parse_str, ImplItem, Item, Type};
+use syn::{ImplItem, Item, Type, parse_str};
 
 pub const COMMON_CODE: &str = include_str!("common.rs");
 pub const CLIENT_BINDINGS: &str = include_str!("../bindings/client.rs");

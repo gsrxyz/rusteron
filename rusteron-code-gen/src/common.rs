@@ -374,7 +374,7 @@ impl<T> ManagedCResource<T> {
     /// alive while the returned `&mut` is in use.
     #[inline(always)]
     pub unsafe fn get_mut(&self) -> &mut T {
-        &mut *self.get()
+        unsafe { &mut *self.get() }
     }
 
     #[inline]
@@ -962,7 +962,7 @@ impl<T> Handler<T> {
     /// Caller must ensure that no other references to the inner value are active.
     #[inline(always)]
     pub unsafe fn get_mut(&self) -> &mut T {
-        &mut *self.inner.get()
+        unsafe { &mut *self.inner.get() }
     }
 }
 
@@ -1115,18 +1115,18 @@ pub(crate) mod test_alloc {
     unsafe impl GlobalAlloc for TrackingAllocator {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
             self.allocs.fetch_add(1, Ordering::SeqCst);
-            System.alloc(layout)
+            unsafe { System.alloc(layout) }
         }
         unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
             self.allocs.fetch_sub(1, Ordering::SeqCst);
-            System.dealloc(ptr, layout)
+            unsafe { System.dealloc(ptr, layout) }
         }
         unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
             self.allocs.fetch_add(1, Ordering::SeqCst);
-            System.alloc_zeroed(layout)
+            unsafe { System.alloc_zeroed(layout) }
         }
         unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-            System.realloc(ptr, layout, new_size)
+            unsafe { System.realloc(ptr, layout, new_size) }
         }
     }
 

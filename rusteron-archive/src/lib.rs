@@ -5,6 +5,7 @@
 #![allow(clippy::all)]
 #![allow(unused_unsafe)]
 #![allow(unused_variables)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 //! # Features
 //!
@@ -594,7 +595,7 @@ mod tests {
     use super::*;
     use log::{error, info};
 
-    use crate::testing::{valgrind_timeout, EmbeddedArchiveMediaDriverProcess};
+    use crate::testing::{EmbeddedArchiveMediaDriverProcess, valgrind_timeout};
 
     #[test]
     fn archive_error_parse_extracts_error_code() {
@@ -674,9 +675,9 @@ mod tests {
     use std::error::Error;
     use std::os::raw::c_int;
     use std::str::FromStr;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
-    use std::thread::{sleep, JoinHandle};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::thread::{JoinHandle, sleep};
     use std::time::{Duration, Instant};
 
     #[derive(Default, Debug)]
@@ -978,12 +979,7 @@ mod tests {
 
         info!(
             "ReplayMerge initialization: recordingId={}, startPosition={}, subscriptionChannel={:?}, replayChannel={:?}, replayDestination={:?}, liveDestination={:?}",
-            recording_id,
-            start_position,
-            subscribe_channel,
-            &replay_channel,
-            &replay_destination,
-            &live_destination
+            recording_id, start_position, subscribe_channel, &replay_channel, &replay_destination, &live_destination
         );
 
         // media_driver

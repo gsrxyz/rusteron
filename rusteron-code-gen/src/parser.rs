@@ -1,4 +1,4 @@
-use crate::generator::{parse_custom_methods, CBinding, CWrapper, Method};
+use crate::generator::{CBinding, CWrapper, Method, parse_custom_methods};
 use crate::{Arg, ArgProcessing, CHandler};
 use itertools::Itertools;
 use quote::ToTokens;
@@ -478,8 +478,8 @@ fn extract_return_type(output: &syn::ReturnType) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::parse_bindings;
     use crate::ArgProcessing;
+    use crate::parser::parse_bindings;
     use std::path::PathBuf;
 
     fn running_under_valgrind() -> bool {

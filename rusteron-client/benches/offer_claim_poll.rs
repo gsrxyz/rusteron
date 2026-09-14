@@ -4,7 +4,7 @@
 //! wrappers must add ~zero overhead vs the raw `i64`-returning `offer` / `try_claim`.
 //! Run with `cargo bench -p rusteron-client`.
 
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use rusteron_client::*;
 use rusteron_media_driver::{AeronDriver, AeronDriverContext};
 use std::ffi::CStr;

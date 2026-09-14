@@ -1,8 +1,8 @@
 use rusteron_client::*;
 use std::ffi::CStr;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use std::thread;
 use std::time::{Duration, Instant};
