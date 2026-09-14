@@ -22,7 +22,7 @@ env:
 
 jobs:
   release:
-    timeout-minutes: 45
+    timeout-minutes: 120
     runs-on: ubuntu-latest
 
     steps:
@@ -31,6 +31,10 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+
+      - name: Capture pre-release commit SHA
+        id: pre_release_sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -89,21 +93,46 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const runs = await github.rest.actions.listWorkflowRuns({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'ci.yml',
-              branch: context.ref.replace('refs/heads/',''),
-              status: 'success',
-              per_page: 1
-            });
-            if (!runs.data.workflow_runs.length) {
-              core.setFailed('No successful CI runs found for this branch.');
-            } else {
-              const runId = runs.data.workflow_runs[0].id;
-              core.setOutput('ci_run_id', runId);
-              console.log(`✔ Latest CI run ID is ${runId}`);
+            // Tie this to the exact commit that was merged (before the
+            // cargo-release version-bump commit), and wait for *that*
+            // commit's CI run to finish, instead of grabbing whatever
+            // "latest success" run happens to exist. Picking any old
+            // successful run is wrong: its artifacts may have expired
+            // (short retention) and it may not even reflect this code.
+            const sha = '${{ steps.pre_release_sha.outputs.sha }}';
+            const maxAttempts = 40; // ~40 * 90s = 60 minutes of waiting
+            const delayMs = 90000;
+
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'ci.yml',
+                head_sha: sha,
+                per_page: 5
+              });
+
+              if (runs.data.workflow_runs.length) {
+                const run = runs.data.workflow_runs[0];
+                console.log(`Attempt ${attempt}/${maxAttempts}: CI run ${run.id} for ${sha} status=${run.status} conclusion=${run.conclusion}`);
+
+                if (run.status === 'completed') {
+                  if (run.conclusion === 'success') {
+                    core.setOutput('ci_run_id', run.id);
+                    console.log(`✔ CI run ${run.id} succeeded for commit ${sha}`);
+                    return;
+                  }
+                  core.setFailed(`CI run ${run.id} for commit ${sha} finished with conclusion "${run.conclusion}", not "success". Aborting release.`);
+                  return;
+                }
+              } else {
+                console.log(`Attempt ${attempt}/${maxAttempts}: no CI run found yet for commit ${sha}`);
+              }
+
+              await new Promise(r => setTimeout(r, delayMs));
             }
+
+            core.setFailed(`Timed out after ~60 minutes waiting for the CI run of commit ${sha} to complete.`);
 
       - name: Download all artifacts via CLI loop
         shell: bash
