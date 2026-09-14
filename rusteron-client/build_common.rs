@@ -368,13 +368,27 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     let mut builder = bindgen::Builder::default()
         .clang_arg(format!("-I{}", header_path.display()))
         // Match the CMAKE_C_STANDARD 11 used to actually compile the Aeron C
-        // sources. Without this, bindgen's own libclang invocation can fall
-        // back to a pre-C11 default on some hosts (observed on Linux arm64
-        // runners), which leaves `<stdatomic.h>` unable to define
-        // `memory_order_acquire`/`memory_order_release` and makes parsing
-        // `aeron_atomic64_c11.h` (used on non-x86_64 CPUs) fail with
-        // "use of undeclared identifier 'memory_order_acquire'".
-        .clang_arg("-std=gnu11")
+        // sources.
+        .clang_arg("-std=gnu11");
+    // On Linux, libclang can end up resolving `<stdatomic.h>` to GCC's own
+    // copy (found via the default system include path) instead of the one
+    // bundled with the libclang/clang version actually doing the parsing.
+    // GCC's stdatomic.h guards its `memory_order` enum behind GCC-specific
+    // feature-test macros that Clang's frontend doesn't satisfy the same way,
+    // so the enum (and `memory_order_acquire`/`memory_order_release`) silently
+    // disappears — breaking parsing of `aeron_atomic64_c11.h` (the header
+    // used for non-x86_64 CPUs, e.g. arm64 CI runners) with "use of
+    // undeclared identifier 'memory_order_acquire'". Forcing `-resource-dir`
+    // to Clang's own resource directory makes it use its own `stdatomic.h`.
+    if cfg!(target_os = "linux")
+        && let Ok(output) = std::process::Command::new("clang").arg("-print-resource-dir").output()
+    {
+        let resource_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !resource_dir.is_empty() {
+            builder = builder.clang_arg(format!("-resource-dir={resource_dir}"));
+        }
+    }
+    let mut builder = builder
         .header("bindings.h")
         .allowlist_function("aeron_.*")
         .allowlist_type("aeron_.*")
