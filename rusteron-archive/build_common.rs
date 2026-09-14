@@ -367,6 +367,14 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     println!("cargo:include={}", header_path.display());
     let mut builder = bindgen::Builder::default()
         .clang_arg(format!("-I{}", header_path.display()))
+        // Match the CMAKE_C_STANDARD 11 used to actually compile the Aeron C
+        // sources. Without this, bindgen's own libclang invocation can fall
+        // back to a pre-C11 default on some hosts (observed on Linux arm64
+        // runners), which leaves `<stdatomic.h>` unable to define
+        // `memory_order_acquire`/`memory_order_release` and makes parsing
+        // `aeron_atomic64_c11.h` (used on non-x86_64 CPUs) fail with
+        // "use of undeclared identifier 'memory_order_acquire'".
+        .clang_arg("-std=gnu11")
         .header("bindings.h")
         .allowlist_function("aeron_.*")
         .allowlist_type("aeron_.*")
