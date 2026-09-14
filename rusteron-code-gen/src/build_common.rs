@@ -546,15 +546,14 @@ fn publish_artifacts(cmake_build_path: &Path) -> std::io::Result<()> {
             continue;
         }
         let entry = entry.unwrap();
-        if entry.file_type().is_file() {
-            if let Some(ext) = entry.path().extension() {
-                if lib_extensions.iter().any(|&e| ext == e) {
-                    // Copy file preserving its file name.
-                    let file_name = entry.path().file_name().unwrap();
-                    fs::copy(entry.path(), publish_dir.join(file_name))?;
-                    libs_copied += 1;
-                }
-            }
+        if entry.file_type().is_file()
+            && let Some(ext) = entry.path().extension()
+            && lib_extensions.iter().any(|&e| ext == e)
+        {
+            // Copy file preserving its file name.
+            let file_name = entry.path().file_name().unwrap();
+            fs::copy(entry.path(), publish_dir.join(file_name))?;
+            libs_copied += 1;
         }
     }
 

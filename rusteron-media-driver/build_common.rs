@@ -292,7 +292,9 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
         if san == "address" {
             match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
                 Ok("macos") => {
-                    if let Ok(output) = std::process::Command::new("clang").arg("-print-resource-dir").output() {
+                    if let Ok(output) =
+                        std::process::Command::new("clang").arg("-print-resource-dir").output()
+                    {
                         let resource_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
                         if !resource_dir.is_empty() {
                             println!("cargo:rustc-link-search=native={resource_dir}/lib/darwin");
@@ -306,12 +308,13 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
                     // path, then emit it so the CI workflow can LD_PRELOAD it to ensure
                     // the ASan runtime loads before any other library (required to avoid
                     // "ASan runtime does not come first in initial library list" errors).
-                    if let Ok(output) = std::process::Command::new("clang").arg("-print-resource-dir").output() {
+                    if let Ok(output) =
+                        std::process::Command::new("clang").arg("-print-resource-dir").output()
+                    {
                         let resource_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
                         if !resource_dir.is_empty() {
                             // Try both possible paths for the ASan runtime library
-                            let asan_path =
-                                format!("{}/lib/x86_64-unknown-linux-gnu/libclang_rt.asan.so", resource_dir);
+                            let asan_path = format!("{}/lib/x86_64-unknown-linux-gnu/libclang_rt.asan.so", resource_dir);
                             let asan_path_legacy = format!("{}/lib/libclang_rt.asan-x86_64.so", resource_dir);
 
                             if std::path::Path::new(&asan_path).exists() {
@@ -472,8 +475,7 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
         // platform differs from the committed snapshots and trip the snapshot
         // tests in rusteron-code-gen on CI.
         let cargo_base_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let custom_bindings_path =
-            cargo_base_dir.join(format!("../rusteron-code-gen/bindings/{}", config.bindings_snapshot));
+        let custom_bindings_path = cargo_base_dir.join(format!("../rusteron-code-gen/bindings/{}", config.bindings_snapshot));
         if custom_bindings_path.exists() {
             fs::copy(out.clone(), custom_bindings_path.clone()).unwrap_or_else(|_| {
                 panic!(
@@ -582,9 +584,7 @@ fn download_precompiled_binaries(artifacts_dir: &Path) -> Result<(), Box<dyn std
         image = "22.04";
     }
 
-    let asset = format!(
-        "https://github.com/gsrxyz/rusteron/releases/download/v{version}/artifacts-{target_os}-{image}-{feature}.tar.gz"
-    );
+    let asset = format!("https://github.com/gsrxyz/rusteron/releases/download/v{version}/artifacts-{target_os}-{image}-{feature}.tar.gz");
 
     println!("downloading from {asset}");
     eprintln!("downloading from {asset}");
