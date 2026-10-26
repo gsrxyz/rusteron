@@ -1,5 +1,6 @@
 //! A panic in a poll handler reaches the caller of `poll`, and the next poll redelivers from
-//! the last committed position. All other callbacks abort, checked in a child process
+//! the last committed position. Other callbacks called during a Rust call are caught and raised
+//! once C returns; callbacks C fires later are logged and the client continues
 
 use super::*;
 use serial_test::serial;
@@ -462,92 +463,151 @@ fn panic_on_one_thread_does_not_affect_another() {
     assert_eq!(normal.join().unwrap(), (1..=100).collect::<Vec<_>>());
 }
 
-// Abort paths: the parent re-runs the test binary on one child test, which panics in a
-// callback, and expects SIGABRT plus the logged callback name
+// Caught paths: C finishes its call with a fallback value, then the wrapper or the poll
+// above raises the panic
 
-const LOGGED_ABORT: &str = " panicked inside an Aeron callback, aborting";
+/// Assembler delegate that records values and panics on `panic_on`
+fn recording_delegate(
+    seen: &Rc<std::cell::RefCell<Vec<u32>>>,
+    panic_on: &Rc<Cell<Option<u32>>>,
+) -> impl FnMut(&[u8]) + 'static {
+    let (seen, panic_on) = (seen.clone(), panic_on.clone());
+    move |buffer| {
+        let v = value(buffer);
+        seen.borrow_mut().push(v);
+        if panic_on.get() == Some(v) {
+            boom();
+        }
+    }
+}
 
-fn assert_child_aborts(child: &str, callback: &str) {
-    use std::os::unix::process::ExitStatusExt;
+/// The caught panic surfaces from the poll. The rest of the poll is still delivered and
+/// the panicking message is not delivered again
+#[test]
+#[serial]
+fn fragment_assembler_delegate_panic_resumes_from_poll() {
+    let ipc = ipc(5020);
+    let (seen, panic_on) = (Rc::default(), Rc::new(Cell::new(Some(2))));
+    let mut delegate = recording_delegate(&seen, &panic_on);
+    let (assembler, _delegate) =
+        Handler::with_fragment_assembler(move |buffer: &[u8], _: AeronHeader| delegate(buffer)).unwrap();
+    offer(&ipc.publication, 1..=3);
+
+    let payload = poll_until_panic(|| {
+        ipc.subscription.poll(Some(&assembler), 10).unwrap();
+    });
+    assert_eq!(panic_message(&*payload), "boom");
+    wait(|| {
+        ipc.subscription.poll(Some(&assembler), 10).unwrap();
+        seen.borrow().len() >= 3
+    });
+
+    offer(&ipc.publication, [4]);
+    wait(|| {
+        ipc.subscription.poll(Some(&assembler), 10).unwrap();
+        seen.borrow().len() >= 4
+    });
+    assert_eq!(*seen.borrow(), [1, 2, 3, 4]);
+}
+
+/// The caught panic returns ABORT to C, so the panicking message is delivered again
+#[test]
+#[serial]
+fn controlled_fragment_assembler_delegate_panic_redelivers() {
+    let ipc = ipc(5024);
+    let (seen, panic_on) = (Rc::default(), Rc::new(Cell::new(Some(2))));
+    let mut delegate = recording_delegate(&seen, &panic_on);
+    let (assembler, _delegate) = Handler::with_controlled_fragment_assembler(move |buffer: &[u8], _: AeronHeader| {
+        delegate(buffer);
+        aeron_controlled_fragment_handler_action_t::AERON_ACTION_CONTINUE
+    })
+    .unwrap();
+    offer(&ipc.publication, 1..=3);
+
+    let payload = poll_until_panic(|| {
+        ipc.subscription.controlled_poll(Some(&assembler), 10).unwrap();
+    });
+    assert_eq!(panic_message(&*payload), "boom");
+    assert_eq!(*seen.borrow(), [1, 2]);
+
+    panic_on.set(None);
+    wait(|| {
+        ipc.subscription.controlled_poll(Some(&assembler), 10).unwrap();
+        seen.borrow().len() >= 4
+    });
+    assert_eq!(*seen.borrow(), [1, 2, 2, 3]);
+}
+
+/// C releases the image list before the panic is raised, so the subscription stays usable
+#[test]
+#[serial]
+fn image_visitor_panic_resumes_from_for_each_image() {
+    let ipc = ipc(5021);
+    let payload = catch_unwind(AssertUnwindSafe(|| ipc.subscription.for_each_image(|_| boom()))).unwrap_err();
+    assert_eq!(panic_message(&*payload), "boom");
+
+    let mut images = 0;
+    ipc.subscription.for_each_image(|_| images += 1);
+    assert_eq!(images, 1);
+    offer(&ipc.publication, [1]);
+    assert_eq!(drain(&ipc.subscription, 1), [1]);
+}
+
+/// The supplier's fallback is 0, so that one message is published with reserved value 0
+#[test]
+#[serial]
+fn reserved_value_supplier_panic_resumes_from_offer() {
+    let ipc = ipc(5022);
+    let supplier = Handler::new(|_: &mut [u8]| -> i64 { boom() });
+    let payload = poll_until_panic(|| {
+        let _ = ipc
+            .publication
+            .offer_with_reserved_value(&1u32.to_le_bytes(), Some(&supplier));
+    });
+    assert_eq!(panic_message(&*payload), "boom");
+
+    offer(&ipc.publication, [2]);
+    assert_eq!(drain(&ipc.subscription, 2), [1, 2]);
+}
+
+// Logged paths: C keeps the callback and fires it later, often on the conductor thread,
+// where there is no Rust caller. The parent re-runs the test binary on one child test and
+// checks stderr for the log line, then that the client still works
+
+#[test]
+#[serial]
+fn conductor_callback_panic_is_logged_and_client_continues() {
     let output = std::process::Command::new(std::env::current_exe().unwrap())
-        .args([child, "--exact", "--ignored", "--nocapture", "--test-threads=1"])
+        .args([
+            "panic_tests::child_conductor_callback_panics",
+            "--exact",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1",
+        ])
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let expected = format!("{callback}{LOGGED_ABORT}");
-    assert_eq!(output.status.signal(), Some(6), "{child} must abort, stderr:\n{stderr}");
-    assert!(stderr.contains(&expected), "missing `{expected}` in stderr:\n{stderr}");
+    let expected = "aeron_on_available_image_t_callback panicked inside an Aeron callback, continuing: boom";
+    assert!(output.status.success(), "child must not abort, stderr:\n{stderr}");
+    assert!(stderr.contains(expected), "missing `{expected}` in stderr:\n{stderr}");
 }
 
 #[test]
-#[serial]
-fn fragment_assembler_delegate_panic_aborts() {
-    assert_child_aborts(
-        "panic_tests::child_fragment_assembler_delegate_panics",
-        "aeron_fragment_handler_t_callback",
-    );
-}
-
-#[test]
-#[ignore = "run by fragment_assembler_delegate_panic_aborts in a child process"]
-fn child_fragment_assembler_delegate_panics() {
-    let ipc = ipc(5020);
-    let (assembler, _delegate) = Handler::with_fragment_assembler(|_: &[u8], _: AeronHeader| panic!("boom")).unwrap();
-    offer(&ipc.publication, [1]);
-    wait(|| ipc.subscription.poll(Some(&assembler), 10).unwrap() > 0);
-}
-
-#[test]
-#[serial]
-fn image_visitor_panic_aborts() {
-    assert_child_aborts("panic_tests::child_image_visitor_panics", "rusteron_image_visitor");
-}
-
-#[test]
-#[ignore = "run by image_visitor_panic_aborts in a child process"]
-fn child_image_visitor_panics() {
-    let ipc = ipc(5021);
-    ipc.subscription.for_each_image(|_| panic!("boom"));
-}
-
-#[test]
-#[serial]
-fn reserved_value_supplier_panic_aborts() {
-    assert_child_aborts(
-        "panic_tests::child_reserved_value_supplier_panics",
-        "aeron_reserved_value_supplier_t_callback",
-    );
-}
-
-#[test]
-#[ignore = "run by reserved_value_supplier_panic_aborts in a child process"]
-fn child_reserved_value_supplier_panics() {
-    let ipc = ipc(5022);
-    let supplier = Handler::new(|_: &mut [u8]| -> i64 { panic!("boom") });
-    let _ = ipc
-        .publication
-        .offer_with_reserved_value(&[1, 2, 3, 4], Some(&supplier));
-}
-
-#[test]
-#[serial]
-fn conductor_callback_panic_aborts() {
-    assert_child_aborts(
-        "panic_tests::child_conductor_callback_panics",
-        "aeron_on_available_image_t_callback",
-    );
-}
-
-#[test]
-#[ignore = "run by conductor_callback_panic_aborts in a child process"]
+#[ignore = "run by conductor_callback_panic_is_logged_and_client_continues in a child process"]
 fn child_conductor_callback_panics() {
+    static FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     let ipc = ipc(5023);
-    let on_available = Handler::new(|_: AeronSubscription, _: AeronImage| panic!("boom"));
+    let on_available = Handler::new(|_: AeronSubscription, _: AeronImage| {
+        FIRED.store(true, std::sync::atomic::Ordering::Release);
+        boom()
+    });
     let subscription = ipc
         .aeron
         .add_subscription(AERON_IPC_STREAM, 5023, Some(&on_available), Handlers::NONE, TIMEOUT)
         .unwrap();
-    // the conductor thread aborts the process once it reports the image
-    std::thread::sleep(TIMEOUT);
-    drop(subscription);
+    wait(|| FIRED.load(std::sync::atomic::Ordering::Acquire) && subscription.is_connected());
+
+    offer(&ipc.publication, [1]);
+    assert_eq!(drain(&subscription, 1), [1]);
 }

@@ -588,8 +588,8 @@ unsafe extern "C" fn rusteron_image_visitor<F: FnMut(&AeronImage)>(
     let image = AeronImage {
         inner: CResource::Borrowed(image),
     };
-    // abort, as a panic here would leak the subscription's image list refcount
-    abort_on_panic("rusteron_image_visitor", || f(&image));
+    // caught so C can release the image list refcount, then raised by for_each_image
+    catch_panic((), || f(&image));
 }
 
 /// Shared polling loop for the `add_destination`/`remove_destination[_by_id]` blocking
@@ -707,6 +707,7 @@ impl AeronSubscription {
                 &mut f as *mut _ as *mut ::std::os::raw::c_void,
             )
         }
+        resume_caught_panic();
     }
 
     pub fn async_add_destination(
@@ -1572,7 +1573,10 @@ impl Aeron {
     }
 }
 
+// The delegate's panic is caught so the assembler state stays valid; the poll raises it on return
 impl AeronFragmentHandlerCallback for AeronFragmentAssembler {
+    const RESUMES_CAUGHT_PANIC: bool = true;
+
     fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: AeronHeader) -> () {
         unsafe {
             aeron_fragment_assembler_handler(
@@ -1586,6 +1590,8 @@ impl AeronFragmentHandlerCallback for AeronFragmentAssembler {
 }
 
 impl AeronControlledFragmentHandlerCallback for AeronControlledFragmentAssembler {
+    const RESUMES_CAUGHT_PANIC: bool = true;
+
     fn handle_aeron_controlled_fragment_handler(
         &mut self,
         buffer: &[u8],
@@ -1754,7 +1760,7 @@ macro_rules! impl_publication_methods {
                 buffer: &[u8],
                 reserved_value_supplier: Option<&Handler<H>>,
             ) -> i64 {
-                unsafe {
+                let position = unsafe {
                     $offer(
                         self.get_inner(),
                         buffer.as_ptr() as *mut _,
@@ -1763,7 +1769,7 @@ macro_rules! impl_publication_methods {
                             let callback: aeron_reserved_value_supplier_t = if reserved_value_supplier.is_none() {
                                 None
                             } else {
-                                Some(aeron_reserved_value_supplier_t_callback::<H>)
+                                Some(aeron_reserved_value_supplier_t_callback_catch::<H>)
                             };
                             callback
                         },
@@ -1771,7 +1777,11 @@ macro_rules! impl_publication_methods {
                             .map(|m| m.as_raw())
                             .unwrap_or_else(|| std::ptr::null_mut()),
                     )
+                };
+                if reserved_value_supplier.is_some() {
+                    resume_caught_panic();
                 }
+                position
             }
 
             /// Raw, branch-free variant of [`Self::try_claim`]: position or negative sentinel.
@@ -2080,11 +2090,14 @@ impl AeronFragmentClosureAssembler {
         unsafe {
             self.handler.get_mut().set(ctx, func);
         }
-        let result = pollable.poll_with_assembler(Some(&self.assembler), fragment_limit);
+        // clear `ctx` even if `func` panicked, so no dangling pointer is left behind
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            pollable.poll_with_assembler(Some(&self.assembler), fragment_limit)
+        }));
         unsafe {
             self.handler.get_mut().clear();
         }
-        result
+        result.unwrap_or_else(|payload| std::panic::resume_unwind(payload))
     }
 }
 
@@ -2201,11 +2214,13 @@ impl AeronControlledFragmentClosureAssembler {
         unsafe {
             self.handler.get_mut().set(ctx, func);
         }
-        let result = pollable.controlled_poll_with_assembler(Some(&self.assembler), fragment_limit);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            pollable.controlled_poll_with_assembler(Some(&self.assembler), fragment_limit)
+        }));
         unsafe {
             self.handler.get_mut().clear();
         }
-        result
+        result.unwrap_or_else(|payload| std::panic::resume_unwind(payload))
     }
 }
 

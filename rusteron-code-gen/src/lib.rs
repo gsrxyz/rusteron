@@ -403,10 +403,11 @@ mod tests {
         );
     }
 
-    /// `_unwind` trampolines are a plain call with no catch; the others catch and abort
+    /// `_unwind` trampolines are a plain call, `_catch` ones store the panic, plain ones log it.
+    /// None of them abort
     #[test]
     #[cfg(not(target_os = "windows"))]
-    fn unwind_trampolines_do_not_catch_and_others_abort() {
+    fn trampolines_unwind_catch_or_log() {
         if running_under_valgrind() {
             return;
         }
@@ -443,14 +444,46 @@ mod tests {
             for suffix in ["_callback", "_callback_for_once_closure"] {
                 let (abi, body) = trampoline(&format!("{handler}{suffix}_unwind"));
                 assert_eq!(abi.as_deref(), Some("C-unwind"));
-                assert!(
-                    !body.contains("abort_on_panic") && !body.contains("catch_unwind"),
-                    "{body}"
-                );
-                let (abi, body) = trampoline(&format!("{handler}{suffix}"));
+                assert!(!body.contains("_panic") && !body.contains("catch_unwind"), "{body}");
+                let (abi, body) = trampoline(&format!("{handler}{suffix}_catch"));
                 assert_eq!(abi.as_deref(), Some("C-unwind"));
-                assert!(body.contains("abort_on_panic"), "{body}");
+                assert!(body.contains("catch_panic"), "{body}");
             }
+        }
+        let (_, body) = trampoline("aeron_controlled_fragment_handler_t_callback_catch");
+        assert!(body.contains("AERON_ACTION_ABORT"), "{body}");
+        let (abi, body) = trampoline("aeron_error_handler_t_callback");
+        assert_eq!(abi.as_deref(), Some("C"));
+        assert!(body.contains("log_panic"), "{body}");
+        let (_, body) = trampoline("aeron_reserved_value_supplier_t_callback_catch");
+        assert!(body.contains("catch_panic (Default :: default ()"), "{body}");
+    }
+
+    /// Constructors take a separate code path from methods: assembler delegates must be
+    /// caught (the poll raises them), not logged. Reads the committed snapshot, which the
+    /// snapshot tests keep equal to the generated code
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn assembler_constructors_catch_delegate_panics() {
+        let generated = fs::read_to_string("../rusteron-client/docs-rs/aeron.rs").unwrap();
+        for (class, shim) in [
+            ("AeronFragmentAssembler", "aeron_fragment_handler_t_callback_catch"),
+            (
+                "AeronControlledFragmentAssembler",
+                "aeron_controlled_fragment_handler_t_callback_catch",
+            ),
+            ("AeronImageFragmentAssembler", "aeron_fragment_handler_t_callback_catch"),
+            (
+                "AeronImageControlledFragmentAssembler",
+                "aeron_controlled_fragment_handler_t_callback_catch",
+            ),
+        ] {
+            let start = generated
+                .find(&format!("\nimpl {class} {{"))
+                .unwrap_or_else(|| panic!("missing impl {class}"));
+            let block = &generated[start + 1..];
+            let block = &block[..block.find("\nimpl ").unwrap_or(block.len())];
+            assert!(block.contains(&format!("{shim}::<")), "{class}::new must use {shim}");
         }
     }
 

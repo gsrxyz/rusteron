@@ -28,12 +28,42 @@ This project builds on a fork of [`libaeron-sys`](https://github.com/bspeice/lib
 * Minimal runtime overhead
 * Low maintenance costs
 
-**Why generated bindings**: the main advantage of generating the bindings from the Aeron C headers is that the API is always complete and matches the Aeron documentation. Every C function and setting is available under a predictable name, with no wrapper lagging behind an Aeron release. Hand-written bindings can look nicer, but they are hard to maintain, and when something breaks you cannot tell whether the fault is in the wrapper or in Aeron itself. Because the generated code is a thin pass-through to the C API, a problem can be reproduced against Aeron directly, and Aeron's own docs, samples and issue tracker apply as-is. Aeron is specialised, and rusteron is aimed mainly at people who already know low-latency development and want the real Aeron API rather than an abstraction over it.
+**Why generated bindings**: the main advantage of generating the bindings from the Aeron C headers is that the API is always complete and matches the Aeron documentation. Every C function and setting is available under a predictable name, with no wrapper lagging behind an Aeron release. Hand-written bindings can look nicer, but they are hard to maintain, and when something breaks you cannot tell whether the fault is in the wrapper or in Aeron itself. Because the generated code is a thin pass-through to the C API, a problem can be reproduced against Aeron directly, and Aeron's own docs, samples and issue tracker apply as-is. Aeron is specialised, and rusteron is aimed mainly at people who already know low-latency development and want the real Aeron API rather than an abstraction over it. As with any low-level API, that power cuts both ways: rusteron guards against the common mistakes, but it is still possible to shoot yourself in the foot if the API is misused, so it pays to know how Aeron expects each call to be used.
 
 **Lifecycle**: since 0.2, closing or dropping handles in any order is safe. `aeron.close()` is deferred while any publication, subscription, counter or clone is alive, and those handles stay usable until the last one drops (see [Resource Lifecycle](./rusteron-client/README.md#resource-lifecycle--close)). The remaining sharp edges:
 - `unsafe close_now()` frees children immediately.
-- A panic in a fragment, controlled or block handler passed to a subscription, image or replay-merge `poll` unwinds to the caller of `poll`. Nothing is lost: the fragments from the start of that poll (or the last `COMMIT`) up to the panicking one are delivered again on the next poll, so handlers must tolerate redelivery. Order is kept within each image; on a subscription with several images the next poll may start at a different image. A panic in any other callback (fragment assemblers, `for_each_image`, reserved-value suppliers, conductor, archive and error callbacks) is logged and aborts the process, because the C code keeps state across that call.
+- A panic in a callback never aborts the process (unless you build with `panic = "abort"`). See [Panics in callbacks](#panics-in-callbacks) for what happens to the panic and to the message.
 - A retained image must be dropped before `subscription.close()`.
+
+### Panics in callbacks
+
+Aeron calls your Rust code from C. A Rust panic is handled one of three ways, picked per C function when the bindings are generated:
+
+| Callback | Runs on | What happens to the panic | What happens to the message |
+|---|---|---|---|
+| Fragment, controlled or block handler given to a subscription, image or replay-merge `poll` (and the `_fn` variants) | your thread, inside `poll` | **Unwinds** straight through C to the caller of `poll`, with its original payload | Nothing lost. Everything from the start of that poll (or the last `COMMIT`) up to the panicking fragment is delivered again on the next poll, so handlers must tolerate redelivery. Order is kept within each image; on a subscription with several images the next poll may start at a different image |
+| Fragment assembler delegate (`Handler::with_fragment_assembler`, `AeronFragmentClosureAssembler`) | your thread, inside `poll` | **Caught**, the assembler finishes its bookkeeping, then the `poll` raises it on return | The panicking message is not delivered again; the rest of that poll still is |
+| Controlled fragment assembler delegate | your thread, inside `poll` | **Caught**, then raised by the `poll` | The delegate returns `ABORT`, so the panicking message is delivered again on the next poll |
+| Persistent subscription handler and listener (`on_live_joined`, `on_live_left`, `on_error`) | your thread, inside the persistent `poll` | **Caught**, then raised by the `poll` | The panicking fragment is not delivered again |
+| `for_each_image` visitor | your thread | **Caught**, C releases the image list, then `for_each_image` raises it | The remaining images are still visited |
+| Reserved-value supplier (`offer_with_reserved_value`) | your thread, inside `offer` | **Caught**, then the `offer` raises it on return | The message is still published, with reserved value `0` |
+| Other callbacks that run during the call (`aeron_cnc_error_log_read`, counters `foreach`, loss report, URI parse, ...) | your thread | **Caught**, C sees a default return value, then the wrapper raises it on return | Depends on the C function; it sees `0` / null / `()` from the panicking call |
+| Callbacks C keeps and fires later: available / unavailable image, error handler, new publication / subscription / counter, client close, archive and driver callbacks | usually the conductor thread | **Logged** with `log::error!` and `eprintln!` (`<callback> panicked inside an Aeron callback, continuing: <message>`), and the client carries on | That one event is dropped; later events still arrive |
+
+**Why it works this way**
+
+- Aeron C has no cleanup code for an exception passing through it. Unwinding through a C function is only safe when C holds no state between calling the handler and returning. An audit of the Aeron C source found that holds for the 9 poll functions listed in `UNWIND_POLL_FNS` (`rusteron-code-gen/src/generator.rs`): they commit the read position only after the handler returns, so an unwind just skips the commit and the fragments come back. These functions and their handler types are `extern "C-unwind"`, and Aeron C is built with `-fexceptions` so the unwinder can pass through its frames. This path adds no `catch_unwind` and no check to the poll loop.
+- Everywhere else C does hold state across the call: the assembler's reassembly buffer, the image list refcount in `for_each_image`, the claimed term space in `offer`, the persistent subscription's state machine. Unwinding there would leak or corrupt it. So the trampoline catches the panic, returns a value C understands (`()`, `0`, null, `ABORT` for controlled handlers), lets C finish normally, and the Rust wrapper raises the panic once C has returned. You still get the panic, and Aeron's state stays valid.
+- A callback C keeps and fires later, usually on the conductor thread, has no Rust caller to raise the panic to. Aborting the whole process for a bug in, say, an available-image handler is worse than losing that one event, so it is logged and the client continues.
+- Before this, a panic in any callback except a poll handler aborted the process (since Rust 1.81 a panic cannot cross an `extern "C"` function).
+
+**Edge cases**
+
+- Only the first caught panic on a thread is kept until it is raised; a later one is reported by the panic hook and dropped.
+- A caught panic is raised at the next resume point on the same thread. If you drive the image fragment assemblers through the raw bindings, or wrap an assembler in your own handler type, the panic waits until the next call that raises a caught panic. The same applies to a persistent subscription listener when the persistent `poll` is given no fragment handler.
+- With `use_conductor_agent_invoker`, conductor callbacks run inside your `invoke` call, but are still logged rather than raised.
+- Raw bindings: a handler you pass to one of the poll functions must be declared `unsafe extern "C-unwind" fn` (the compiler rejects `extern "C"`). Any other raw callback must not panic; Rust aborts at the `extern "C"` boundary.
+- Want the old behaviour, where any panic stops the process? Set `panic = "abort"` in your Cargo profile. Every panic then aborts immediately, before any of the above runs.
 
 ---
 
@@ -335,7 +365,7 @@ for _ in 0..reconnect_attempts {
 - **Reference-counted handlers.** `Handler::leak()`/`release()` are gone; `Handler::new()` is `Arc`-backed and freed when the last clone drops. Retained-callback setters take the value (closure or trait impl) and return the `Handler`. `Handlers::NONE` covers "no callback".
 - **Typed errors.** `offer`/`try_claim` return `Result<i64, AeronOfferError>` with `is_retryable()`. `AeronCError` construction is allocation-free (never reads `aeron_errmsg()`); `capture_errmsg()` opts into attaching the message. Archive control ops return `Result<_, AeronArchiveError>` (`From` keeps `?` working).
 - **Hot path.** `offer_parts(&[&header, &payload])` publishes several buffers as one message with no intermediate Vec; C-string args follow the `c""`/`cformat!`/reuse pattern above.
-- **After 0.2.13, poll handler panics unwind.** The fragment, controlled and block handler typedefs are `extern "C-unwind"`, as is every raw binding that calls one: the subscription, image, replay-merge and persistent-subscription polls and the `aeron_*fragment_assembler_handler` functions. A raw handler passed to them must be declared `unsafe extern "C-unwind" fn` (the compiler rejects `extern "C"`). A raw delegate given to a fragment assembler or a persistent subscription must still not panic: unwinding there skips Aeron's own cleanup and can drop or corrupt a message. Setters that store another wrapper, such as `AeronArchiveContext::set_aeron()`, now keep it alive.
+- **After 0.2.13, callback panics no longer abort.** Poll handler panics unwind to the caller of `poll`; other callbacks catch the panic and raise it once C returns, or log it if C fires them later (see [Panics in callbacks](#panics-in-callbacks)). The fragment, controlled and block handler typedefs and the 9 subscription, image and replay-merge poll functions are `extern "C-unwind"`; a raw handler passed to them must be declared `unsafe extern "C-unwind" fn` (the compiler rejects `extern "C"`). Setters that store another wrapper, such as `AeronArchiveContext::set_aeron()`, now keep it alive.
 - **After 0.2.10, handles are `Send` only under `multi-threaded`.** Up to 0.2.10, publication, subscription, counter and counters-reader handles were `Send` without it, which was unsound: each shares its client's `Rc` reference count. Code that moves one to another thread now gives that thread its own client (`Aeron::connect_dir`) or enables `multi-threaded`.
 - **Convenience.** `Aeron::connect_dir`, `AeronDriver::launch_embedded_guard` (RAII), `ChannelUri::add_session_id`, `AeronUriStringBuilder::ipc()/udp()`, retained-image accessors, direct constant getters, and ported samples (basic_publisher/subscriber, ping/pong, file transfer, MDS, request/response).
 
@@ -368,8 +398,8 @@ Old → new for every renamed/changed API
 | `DarwinPthread*`, `OpaquePthread*` wrapper structs in the generated API | removed | Bindgen pthread internals are no longer emitted as wrapper types; socket types the driver wrappers reference (`sockaddr_storage`, `iovec`, …) are retained. |
 
 Behavioural notes:
-- Handler panics: see **Lifecycle** at the top. Poll handlers unwind with redelivery,
-  other callbacks abort.
+- Handler panics: see [Panics in callbacks](#panics-in-callbacks). Poll handlers unwind
+  with redelivery, other callbacks are caught and raised, or logged when C fires them later.
 - `AeronCError` construction never reads or copies `aeron_errmsg()` — retry loops
   (e.g. polling that keeps returning `-1`) stay allocation-free. `Display` /
   `get_last_err_message()` read the live buffer; call `err.capture_errmsg()` at the

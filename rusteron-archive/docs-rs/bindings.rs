@@ -2400,9 +2400,8 @@ unsafe extern "C" {
         assembler: *mut aeron_image_fragment_assembler_t,
     ) -> ::std::os::raw::c_int;
 }
-unsafe extern "C-unwind" {
+unsafe extern "C" {
     #[doc = " Handler function to be passed for handling fragment assembly.\n\n @param clientd passed in the poll call (must be a aeron_image_fragment_assembler_t)\n @param buffer containing the data.\n @param length of the data in bytes.\n @param header representing the meta data for the data."]
-    #[link_name = "\u{1}_aeron_image_fragment_assembler_handler"]
     pub fn aeron_image_fragment_assembler_handler(
         clientd: *mut ::std::os::raw::c_void,
         buffer: *const u8,
@@ -2424,9 +2423,8 @@ unsafe extern "C" {
         assembler: *mut aeron_image_controlled_fragment_assembler_t,
     ) -> ::std::os::raw::c_int;
 }
-unsafe extern "C-unwind" {
+unsafe extern "C" {
     #[doc = " Handler function to be passed for handling fragment assembly.\n\n @param clientd passed in the poll call (must be a aeron_image_controlled_fragment_assembler_t)\n @param buffer containing the data.\n @param length of the data in bytes.\n @param header representing the meta data for the data.\n @return The action to be taken with regard to the stream position after the callback."]
-    #[link_name = "\u{1}_aeron_image_controlled_fragment_assembler_handler"]
     pub fn aeron_image_controlled_fragment_assembler_handler(
         clientd: *mut ::std::os::raw::c_void,
         buffer: *const u8,
@@ -2446,9 +2444,8 @@ unsafe extern "C" {
     #[doc = " Delete a fragment assembler.\n\n @param assembler to delete.\n @return 0 for success or -1 for error."]
     pub fn aeron_fragment_assembler_delete(assembler: *mut aeron_fragment_assembler_t) -> ::std::os::raw::c_int;
 }
-unsafe extern "C-unwind" {
+unsafe extern "C" {
     #[doc = " Handler function to be passed for handling fragment assembly.\n\n @param clientd passed in the poll call (must be a aeron_fragment_assembler_t)\n @param buffer containing the data.\n @param length of the data in bytes.\n @param header representing the meta data for the data."]
-    #[link_name = "\u{1}_aeron_fragment_assembler_handler"]
     pub fn aeron_fragment_assembler_handler(
         clientd: *mut ::std::os::raw::c_void,
         buffer: *const u8,
@@ -2477,9 +2474,8 @@ unsafe extern "C" {
         assembler: *mut aeron_controlled_fragment_assembler_t,
     ) -> ::std::os::raw::c_int;
 }
-unsafe extern "C-unwind" {
+unsafe extern "C" {
     #[doc = " Handler function to be passed for handling fragment assembly.\n\n @param clientd passed in the poll call (must be a aeron_controlled_fragment_assembler_t)\n @param buffer containing the data.\n @param length of the data in bytes.\n @param header representing the meta data for the data.\n @return The action to be taken with regard to the stream position after the callback."]
-    #[link_name = "\u{1}_aeron_controlled_fragment_assembler_handler"]
     pub fn aeron_controlled_fragment_assembler_handler(
         clientd: *mut ::std::os::raw::c_void,
         buffer: *const u8,
@@ -4130,9 +4126,8 @@ unsafe extern "C" {
         persistent_subscription: *mut aeron_archive_persistent_subscription_t,
     ) -> *mut aeron_archive_persistent_subscription_context_t;
 }
-unsafe extern "C-unwind" {
+unsafe extern "C" {
     #[doc = " Poll a persistent subscription for available messages.\n <p>\n Delivers assembled messages to the handler, so the handler shouldn't be a fragment assembler.\n\n @param persistent_subscription to poll.\n @param handler for handling read messages.\n @param clientd to pass to the handler.\n @param fragment_limit maximum number of message fragments to read when polling.\n @return positive number if fragments have been read or the persistent subscription has done other work,\n 0 if no fragments have been read and no work has been done, negative on error."]
-    #[link_name = "\u{1}_aeron_archive_persistent_subscription_poll"]
     pub fn aeron_archive_persistent_subscription_poll(
         persistent_subscription: *mut aeron_archive_persistent_subscription_t,
         handler: aeron_fragment_handler_t,
@@ -4140,9 +4135,8 @@ unsafe extern "C-unwind" {
         fragment_limit: usize,
     ) -> ::std::os::raw::c_int;
 }
-unsafe extern "C-unwind" {
+unsafe extern "C" {
     #[doc = " Poll in a controlled manner a persistent subscription for available messages.\n <p>\n Delivers assembled messages to the handler, so the handler shouldn't be a fragment assembler.\n\n @param persistent_subscription to poll.\n @param handler for handling read messages.\n @param clientd to pass to the handler.\n @param fragment_limit maximum number of message fragments to read when polling.\n @return positive number if fragments have been read or the persistent subscription has done other work,\n 0 if no fragments have been read and no work has been done, negative on error."]
-    #[link_name = "\u{1}_aeron_archive_persistent_subscription_controlled_poll"]
     pub fn aeron_archive_persistent_subscription_controlled_poll(
         persistent_subscription: *mut aeron_archive_persistent_subscription_t,
         handler: aeron_controlled_fragment_handler_t,

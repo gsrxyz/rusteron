@@ -994,15 +994,56 @@ pub fn is_udp_port_available(port: u16) -> bool {
     std::net::UdpSocket::bind(("127.0.0.1", port)).is_ok()
 }
 
-/// Runs a callback called from Aeron C. On panic, logs the callback name and aborts
+thread_local! {
+    /// Panic caught by [`catch_panic`], waiting for [`resume_caught_panic`]
+    static CAUGHT_PANIC: std::cell::Cell<Option<Box<dyn std::any::Any + Send>>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Runs a callback called from Aeron C that has a Rust caller further up the stack. On panic,
+/// stores the panic and returns `fallback`, so C finishes its call normally. The Rust wrapper
+/// then raises it again with [`resume_caught_panic`]. If a panic is already stored, the later
+/// one is dropped (the panic hook has already printed it)
 #[doc(hidden)]
 #[inline(always)]
-pub fn abort_on_panic<R>(callback: &str, f: impl FnOnce() -> R) -> R {
+pub fn catch_panic<R>(fallback: R, f: impl FnOnce() -> R) -> R {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(result) => result,
-        Err(_) => {
-            log::error!("{} panicked inside an Aeron callback, aborting", callback);
-            std::process::abort()
+        Err(payload) => {
+            CAUGHT_PANIC.with(|slot| {
+                let first = slot.take().unwrap_or(payload);
+                slot.set(Some(first));
+            });
+            fallback
+        }
+    }
+}
+
+/// Raises the panic stored by [`catch_panic`] on this thread, if any
+#[doc(hidden)]
+#[inline]
+pub fn resume_caught_panic() {
+    if let Some(payload) = CAUGHT_PANIC.take() {
+        std::panic::resume_unwind(payload)
+    }
+}
+
+/// Runs a callback Aeron C fires with no Rust caller to pass a panic to, e.g. on the conductor
+/// thread. On panic, logs it and returns `fallback`, so the client keeps running
+#[doc(hidden)]
+#[inline(always)]
+pub fn log_panic<R>(callback: &str, fallback: R, f: impl FnOnce() -> R) -> R {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(result) => result,
+        Err(payload) => {
+            let message = payload
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                .unwrap_or("non-string panic payload");
+            log::error!("{callback} panicked inside an Aeron callback, continuing: {message}");
+            eprintln!("{callback} panicked inside an Aeron callback, continuing: {message}");
+            fallback
         }
     }
 }

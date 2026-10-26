@@ -2733,9 +2733,8 @@ unsafe extern "C" {
         assembler: *mut aeron_image_fragment_assembler_t,
     ) -> ::std::os::raw::c_int;
 }
-unsafe extern "C-unwind" {
+unsafe extern "C" {
     #[doc = " Handler function to be passed for handling fragment assembly.\n\n @param clientd passed in the poll call (must be a aeron_image_fragment_assembler_t)\n @param buffer containing the data.\n @param length of the data in bytes.\n @param header representing the meta data for the data."]
-    #[link_name = "\u{1}_aeron_image_fragment_assembler_handler"]
     pub fn aeron_image_fragment_assembler_handler(
         clientd: *mut ::std::os::raw::c_void,
         buffer: *const u8,
@@ -2757,9 +2756,8 @@ unsafe extern "C" {
         assembler: *mut aeron_image_controlled_fragment_assembler_t,
     ) -> ::std::os::raw::c_int;
 }
-unsafe extern "C-unwind" {
+unsafe extern "C" {
     #[doc = " Handler function to be passed for handling fragment assembly.\n\n @param clientd passed in the poll call (must be a aeron_image_controlled_fragment_assembler_t)\n @param buffer containing the data.\n @param length of the data in bytes.\n @param header representing the meta data for the data.\n @return The action to be taken with regard to the stream position after the callback."]
-    #[link_name = "\u{1}_aeron_image_controlled_fragment_assembler_handler"]
     pub fn aeron_image_controlled_fragment_assembler_handler(
         clientd: *mut ::std::os::raw::c_void,
         buffer: *const u8,
@@ -2779,9 +2777,8 @@ unsafe extern "C" {
     #[doc = " Delete a fragment assembler.\n\n @param assembler to delete.\n @return 0 for success or -1 for error."]
     pub fn aeron_fragment_assembler_delete(assembler: *mut aeron_fragment_assembler_t) -> ::std::os::raw::c_int;
 }
-unsafe extern "C-unwind" {
+unsafe extern "C" {
     #[doc = " Handler function to be passed for handling fragment assembly.\n\n @param clientd passed in the poll call (must be a aeron_fragment_assembler_t)\n @param buffer containing the data.\n @param length of the data in bytes.\n @param header representing the meta data for the data."]
-    #[link_name = "\u{1}_aeron_fragment_assembler_handler"]
     pub fn aeron_fragment_assembler_handler(
         clientd: *mut ::std::os::raw::c_void,
         buffer: *const u8,
@@ -2810,9 +2807,8 @@ unsafe extern "C" {
         assembler: *mut aeron_controlled_fragment_assembler_t,
     ) -> ::std::os::raw::c_int;
 }
-unsafe extern "C-unwind" {
+unsafe extern "C" {
     #[doc = " Handler function to be passed for handling fragment assembly.\n\n @param clientd passed in the poll call (must be a aeron_controlled_fragment_assembler_t)\n @param buffer containing the data.\n @param length of the data in bytes.\n @param header representing the meta data for the data.\n @return The action to be taken with regard to the stream position after the callback."]
-    #[link_name = "\u{1}_aeron_controlled_fragment_assembler_handler"]
     pub fn aeron_controlled_fragment_assembler_handler(
         clientd: *mut ::std::os::raw::c_void,
         buffer: *const u8,

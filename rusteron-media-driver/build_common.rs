@@ -441,12 +441,12 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     for var in config.extra_allowlist_vars {
         builder = builder.allowlist_var(*var);
     }
-    // Any C function that calls a `C-unwind` handler must be `C-unwind` too. Only
-    // UNWIND_POLL_FNS actually let a panic through. Names are anchored (^...$) for exact matches
+    // Only UNWIND_POLL_FNS let a panic through, so only they and their handler types are
+    // `C-unwind`. Every other handler catches its panic before returning to C. Names are
+    // anchored (^...$) for exact matches
     for name in rusteron_code_gen::UNWIND_HANDLER_TYPES
         .iter()
         .chain(rusteron_code_gen::UNWIND_POLL_FNS)
-        .chain(rusteron_code_gen::UNWIND_ABI_ONLY_FNS)
     {
         builder = builder.override_abi(bindgen::Abi::CUnwind, format!("^{name}$"));
     }

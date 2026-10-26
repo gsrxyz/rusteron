@@ -384,24 +384,21 @@ struct ListenerHolder {
 }
 
 // Hand-written trampolines: the code generator only wires single-callback args,
-// but this listener has 3 callbacks sharing one clientd. A panic aborts, as unwinding
-// would break the persistent subscription's state
+// but this listener has 3 callbacks sharing one clientd. They fire inside the persistent
+// poll, so a panic is caught (unwinding through C would break its state) and the poll
+// raises it on return
 unsafe extern "C" fn persistent_subscription_on_live_joined(clientd: *mut std::ffi::c_void) {
     if !clientd.is_null() {
         // SAFETY: clientd is the ListenerHolder kept alive as a dependency of the subscription.
         let holder = &*(clientd as *const ListenerHolder);
-        abort_on_panic("persistent_subscription_on_live_joined", || {
-            holder.listener.on_live_joined()
-        });
+        catch_panic((), || holder.listener.on_live_joined());
     }
 }
 
 unsafe extern "C" fn persistent_subscription_on_live_left(clientd: *mut std::ffi::c_void) {
     if !clientd.is_null() {
         let holder = &*(clientd as *const ListenerHolder);
-        abort_on_panic("persistent_subscription_on_live_left", || {
-            holder.listener.on_live_left()
-        });
+        catch_panic((), || holder.listener.on_live_left());
     }
 }
 
@@ -417,9 +414,7 @@ unsafe extern "C" fn persistent_subscription_on_error(
         } else {
             std::borrow::Cow::Borrowed("")
         };
-        abort_on_panic("persistent_subscription_on_error", || {
-            holder.listener.on_error(error_code, &msg)
-        });
+        catch_panic((), || holder.listener.on_error(error_code, &msg));
     }
 }
 
