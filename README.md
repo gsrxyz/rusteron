@@ -28,7 +28,13 @@ This project builds on a fork of [`libaeron-sys`](https://github.com/bspeice/lib
 * Minimal runtime overhead
 * Low maintenance costs
 
-**Warning**: This library operates in an `unsafe` context and requires care. Improper usage (e.g., using a publisher after the Aeron client is closed) can lead to **undefined behavior or segmentation faults**.
+**Why generated bindings**: the main advantage of generating the bindings from the Aeron C headers is that the API is always complete and matches the Aeron documentation. Every C function and setting is available under a predictable name, with no wrapper lagging behind an Aeron release. Hand-written bindings can look nicer, but they are hard to maintain, and when something breaks you cannot tell whether the fault is in the wrapper or in Aeron itself. Because the generated code is a thin pass-through to the C API, a problem can be reproduced against Aeron directly, and Aeron's own docs, samples and issue tracker apply as-is. Aeron is specialised, and rusteron is aimed mainly at people who already know low-latency development and want the real Aeron API rather than an abstraction over it.
+
+**Lifecycle**: since 0.2, closing or dropping handles in any order is safe. `aeron.close()` is deferred while any publication, subscription, counter or clone is alive, and those handles stay usable until the last one drops (see [Resource Lifecycle](./rusteron-client/README.md#resource-lifecycle--close)). The remaining sharp edges:
+- `unsafe close_now()` frees children immediately.
+- A panic in a handler aborts the process, because it cannot unwind through the C frames. If a handler can panic, wrap its body in `std::panic::catch_unwind` and report the failure through your own state.
+- A retained image must be dropped before `subscription.close()`.
+- `AeronArchiveContext::set_aeron()` does not keep the client alive. Connect with `AeronArchiveAsyncConnect::new_with_aeron(&ctx, &aeron)`, which does; with `set_aeron()` plus `new()` or `aeron_archive_connect()`, closing the client before the archive is a use-after-free.
 
 ---
 
@@ -383,12 +389,6 @@ Measured on 2026-10-09 between two Azure `Standard_D8s_v6` VMs (Intel Xeon Plati
 
 These were used in every run, and earlier runs on smaller VMs showed each to help:
 - `AERON_TERM_BUFFER_SPARSE_FILE=false` (driver) and `AERON_CLIENT_PRE_TOUCH_MAPPED_MEMORY=true` (clients). Without them a new publication page-faults its way through its log.
-  - **TODO: upgrade to Aeron 1.53.2 or later, and until then pre-touch only on Linux and Windows.**
-    - On Linux and Windows, Aeron's C client pre-touches through the operating system (`MAP_POPULATE` on Linux), which leaves the data alone.
-    - Elsewhere, macOS included, Aeron 1.52.2 (the version rusteron builds) writes 0 into the first byte of every page of a log it maps, which may already hold live frames, and so corrupts them. An archive replay lost its frames this way in every run on a Mac.
-    - Aeron 1.53.2 (2026-09-18) fixed it with a compare-and-swap of 0 for 0: "Fix log buffer corruption when pre-touch is used and the native pre-touch is not available".
-    - `rusteron-client/examples/embedded_ping_pong.rs` pre-touches only on Linux and Windows; after the upgrade, turn it on everywhere.
-    - After `just update-aeron-version 1.53.3`, or any later release, delete this note.
 - `AERON_DIR` on 2 MiB `hugetlbfs` with `AERON_FILE_PAGE_SIZE=2097152`.
 - `noop` idle for the driver's sender and receiver.
 - Every busy-spinning thread pinned to its own core, and everything else (interrupts, the driver's conductor, the clients' other threads) on a housekeeping CPU.

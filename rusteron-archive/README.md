@@ -127,11 +127,11 @@ For detailed guides and code snippets on Aeron features in Rust, see:
 
 ## Safety Considerations
 
-1. **Aeron Lifetime** – The `AeronArchive` depends on an external `Aeron` instance. Ensure `Aeron` outlives all references to the archive.
+1. **Aeron Lifetime** – Connect with `AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)`: the archive then keeps the client alive, and the two close in any order. `set_aeron()` stores only the C pointer, so with `AeronArchiveAsyncConnect::new()` or `aeron_archive_connect()` the `Aeron` client must outlive the archive; closing it first is a use-after-free.
 2. **Persistent Subscription Lifetime** – A persistent subscription keeps the `Aeron` client and archive context given to its builder open until it closes. Building it also points the archive context at the subscription's client, so build with `PersistentSubscriptionBuilder::new_with_aeron(&archive_context, &aeron)`, which sets one client on both. Without a client the subscription makes its own and closes it, and the archive context must not be used again afterwards.
-3. **Unsafe Bindings** – The module interfaces directly with Aeron’s C API. Improper resource handling can cause undefined behavior.
-4. **Automatic Handler Cleanup** – Handlers are reference-counted; registered callbacks live as long as the resource that registered them and are freed automatically.
-5. **Thread Safety** – Use care when accessing Aeron objects across threads. Synchronize access appropriately.
+3. **Deferred Close** – `archive.close()` is deferred while a clone is alive and does not close the `Aeron` client. `unsafe close_now()` frees it immediately, so any surviving handle then dangles.
+4. **Automatic Handler Cleanup** – Handlers are reference-counted; registered callbacks live as long as the resource that registered them and are freed automatically. A panic in a handler aborts the process.
+5. **Thread Safety** – Handles use `Rc` and stay on the thread that created them, unless the `multi-threaded` feature is enabled (see the [root README](../README.md#multi-threaded-send-and-sync-handles)).
 
 ---
 

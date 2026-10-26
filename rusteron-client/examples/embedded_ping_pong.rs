@@ -4,8 +4,7 @@
 //! message, pong echoes it back, and ping records the round trip in a histogram.
 //!
 //! Set `AERON_DIR` to use a running media driver; otherwise one is embedded. As in Aeron's
-//! `embedded-ping-pong` script, term buffers are non-sparse and, on Linux and Windows, the
-//! clients pre-touch them, the setting to use for latency-sensitive streams.
+//! `embedded-ping-pong` script, term buffers are non-sparse and the clients pre-touch them, the setting to use for latency-sensitive streams.
 //!
 //! ```bash
 //! cargo run --release --features examples --example embedded_ping_pong
@@ -93,9 +92,7 @@ fn client_context(dir: &str) -> Result<AeronContext, AeronCError> {
     let context = AeronContext::new()?;
     context.set_dir(&cformat!("{dir}"))?;
     context.set_error_handler(Some(|code: i32, msg: &str| eprintln!("aeron error {code}: {msg}")))?;
-    // fault the log buffers in when they are mapped, not on the first measured messages; only
-    // where Aeron pre-touches through the OS, as elsewhere 1.52.2 overwrites live frames
-    context.set_pre_touch_mapped_memory(cfg!(any(target_os = "linux", target_os = "windows")))?;
+    context.set_pre_touch_mapped_memory(true)?;
     Ok(context)
 }
 
