@@ -52,7 +52,7 @@ fn c_offer(publication: *mut aeron_exclusive_publication_t, payload: &[u8]) {
     }
 }
 
-unsafe extern "C" fn count_bytes(
+unsafe extern "C-unwind" fn count_bytes(
     clientd: *mut c_void,
     _buffer: *const u8,
     length: usize,

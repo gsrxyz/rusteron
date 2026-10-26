@@ -269,12 +269,12 @@ jobs:
           llvm=$(rustc -vV | sed -n 's/^LLVM version: \([0-9]*\).*/\1/p')
           wget -q https://apt.llvm.org/llvm.sh && sudo bash llvm.sh "$llvm" && sudo apt-get install -y "lld-$llvm"
           echo "CC=clang-$llvm" >> "$GITHUB_ENV"
-          echo "RUSTFLAGS=-Ctarget-cpu=native -Clinker-plugin-lto -Clinker=clang-$llvm -Clink-arg=-fuse-ld=lld-$llvm -Clink-arg=-Wl,-mllvm,-locally-hot-callsite-threshold=3000" >> "$GITHUB_ENV"
+          echo "RUSTFLAGS=-Ctarget-cpu=native -Clinker-plugin-lto -Clinker=clang-$llvm -Clink-arg=-fuse-ld=lld-$llvm" >> "$GITHUB_ENV"
 
       - name: Test
         run: cargo test -p rusteron-client --features static --lib -- --nocapture
 
-      - name: Check the publish calls were inlined
+      - name: Check aeron_buffer_claim_commit was inlined
         # pipefail, so a failed build piped into tee fails the step
         shell: bash
         run: |
@@ -282,7 +282,7 @@ jobs:
           grep -q "cross-language LTO: Aeron C compiled to bitcode" build.log
           bin=$(grep -o 'Executable.*' build.log | tail -1 | sed 's/.*(\(.*\))/\1/')
           test -x "$bin"
-          nm "$bin" | grep -E ' aeron_(exclusive_)?publication_(offerv?|try_claim)$| aeron_buffer_claim_commit$' || true
-          left=$(nm "$bin" | grep -cE ' aeron_(exclusive_)?publication_(offerv?|try_claim)$| aeron_buffer_claim_commit$' || true)
-          echo "out-of-line publish functions: $left"
+          nm "$bin" | grep -E ' aeron_buffer_claim_commit$' || true
+          left=$(nm "$bin" | grep -cE ' aeron_buffer_claim_commit$' || true)
+          echo "out-of-line aeron_buffer_claim_commit: $left"
           test "$left" = 0

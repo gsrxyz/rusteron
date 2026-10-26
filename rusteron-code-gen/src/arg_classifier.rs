@@ -4,7 +4,9 @@
 //! fragments the emitters need (signature, FFI call, generics, retained-handler registration,
 //! and the `_fn` stack-closure variant). `generate_methods` then emits purely from the classification.
 
-use crate::generator::{Arg, ArgProcessing, CHandler, CWrapper, Method, ReturnType, is_sync_handler_type};
+use crate::generator::{
+    Arg, ArgProcessing, CHandler, CWrapper, Method, ReturnType, UNWIND_POLL_FNS, is_sync_handler_type,
+};
 use crate::snake_to_pascal_case;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -146,8 +148,10 @@ pub fn classify_method_args(
             _ => false,
         });
 
+    // only these C functions let a handler panic reach the caller
+    let unwinds = UNWIND_POLL_FNS.contains(&method.fn_name.as_str());
     let mut uses_self = false;
-    let args = method
+    let mut args: Vec<ClassifiedArg> = method
         .arguments
         .iter()
         .map(|arg| {
@@ -157,10 +161,24 @@ pub fn classify_method_args(
                 wrappers,
                 closure_handlers,
                 &owned_retained,
+                unwinds,
                 &mut uses_self,
             )
         })
         .collect();
+
+    for (arg, classified) in method.arguments.iter().zip(args.iter_mut()) {
+        if classified.kind == ArgRole::WrapperPointer && setter_borrows_arg(method, arg) {
+            let name = arg.as_ident();
+            let keep_alive = quote! { self.inner.add_dependency(#name.clone()); };
+            // keep it only if C accepted it (void setters cannot fail)
+            classified.registration = Some(if method.return_type.is_c_raw_int() {
+                quote! { if result >= 0 { #keep_alive } }
+            } else {
+                keep_alive
+            });
+        }
+    }
 
     ClassifiedMethodArgs {
         uses_self,
@@ -170,12 +188,24 @@ pub fn classify_method_args(
     }
 }
 
+/// Types a C setter takes ownership of. C frees them, so `self` must not keep them too
+const C_OWNED_SET_TYPES: &[&str] = &["aeron_counter_t", "aeron_udp_channel_interceptor_bindings_t"];
+
+/// Whether a C setter keeps a pointer to `arg` without owning it (e.g.
+/// aeron_archive_context_set_aeron). If so, `self` must keep `arg` alive
+// ponytail: relies on Aeron's `_set_` naming; add new C-owned types to C_OWNED_SET_TYPES
+fn setter_borrows_arg(method: &Method, arg: &Arg) -> bool {
+    method.fn_name.contains("_set_") && !C_OWNED_SET_TYPES.iter().any(|t| arg.c_type.ends_with(t))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn classify_arg(
     arg: &Arg,
     own_type_name: &str,
     wrappers: &BTreeMap<String, CWrapper>,
     closure_handlers: &[CHandler],
     owned_retained: &Option<Arg>,
+    unwinds: bool,
     uses_self: &mut bool,
 ) -> ClassifiedArg {
     let none = ClassifiedArg {
@@ -222,7 +252,15 @@ fn classify_arg(
     // handler arguments (the callback side; the clientd side is Absorbed below)
     if let ArgProcessing::Handler(handler_client) = &arg.processing {
         if !arg.is_mut_pointer() {
-            return classify_handler_arg(arg, handler_client, wrappers, closure_handlers, owned_retained, none);
+            return classify_handler_arg(
+                arg,
+                handler_client,
+                wrappers,
+                closure_handlers,
+                owned_retained,
+                unwinds,
+                none,
+            );
         }
         // clientd pointer: merged into the callback argument
         return none;
@@ -247,19 +285,23 @@ fn classify_arg(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn classify_handler_arg(
     arg: &Arg,
     handler_client: &[Arg],
     wrappers: &BTreeMap<String, CWrapper>,
     closure_handlers: &[CHandler],
     owned_retained: &Option<Arg>,
+    unwinds: bool,
     none: ClassifiedArg,
 ) -> ClassifiedArg {
     let handler = handler_client.first().unwrap();
     let name = arg.as_ident();
     let raw_name = format_ident!("{}_raw", arg.name);
-    let shim = format_ident!("{}_callback", handler.c_type);
-    let once_shim = format_ident!("{}_callback_for_once_closure", handler.c_type);
+    // `_unwind` trampolines let a panic through, the others abort
+    let suffix = if unwinds { "_unwind" } else { "" };
+    let shim = format_ident!("{}_callback{}", handler.c_type, suffix);
+    let once_shim = format_ident!("{}_callback_for_once_closure{}", handler.c_type, suffix);
     let handler_type = handler.as_type();
     let new_type =
         parse_str::<Type>(&format!("{}HandlerImpl", snake_to_pascal_case(&arg.c_type))).expect("Invalid class name");
@@ -462,5 +504,116 @@ mod tests {
         assert!(classified.args[0].signature.is_none());
         assert_eq!(classified.signatures().len(), 0);
         assert_eq!(classified.calls().len(), 1);
+    }
+
+    /// Every identifier in `tokens`, including inside groups
+    fn idents(tokens: TokenStream) -> Vec<String> {
+        tokens
+            .into_iter()
+            .flat_map(|tree| match tree {
+                proc_macro2::TokenTree::Ident(ident) => vec![ident.to_string()],
+                proc_macro2::TokenTree::Group(group) => idents(group.stream()),
+                _ => vec![],
+            })
+            .collect()
+    }
+
+    /// Across the real bindings, only UNWIND_POLL_FNS get `_unwind` trampolines
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn unwind_trampolines_only_on_unwind_poll_fns() {
+        let mut unwinding = std::collections::BTreeSet::new();
+        let mut calls_by_fn = BTreeMap::new();
+        let mut registrations_by_fn = BTreeMap::new();
+        for file in ["client.rs", "archive.rs"] {
+            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("bindings")
+                .join(file);
+            let bindings = crate::parse_bindings(&path);
+            for wrapper in bindings.wrappers.values() {
+                for method in &wrapper.methods {
+                    let classified =
+                        classify_method_args(method, &wrapper.type_name, &bindings.wrappers, &bindings.handlers);
+                    let (calls, once_calls) = (classified.calls(), classified.once_calls());
+                    let tokens = idents(quote! { #(#calls)* #(#once_calls)* });
+                    if tokens.iter().any(|t| t.ends_with("_unwind")) {
+                        unwinding.insert(method.fn_name.clone());
+                    }
+                    calls_by_fn.insert(method.fn_name.clone(), tokens);
+                    let registrations = classified.registrations();
+                    registrations_by_fn.insert(method.fn_name.clone(), quote! { #(#registrations)* }.to_string());
+                }
+            }
+        }
+
+        let expected: std::collections::BTreeSet<String> = UNWIND_POLL_FNS.iter().map(|s| s.to_string()).collect();
+        assert_eq!(unwinding, expected);
+
+        for (fn_name, shim) in [
+            ("aeron_fragment_assembler_create", "aeron_fragment_handler_t_callback"),
+            ("aeron_publication_offer", "aeron_reserved_value_supplier_t_callback"),
+        ] {
+            let tokens = &calls_by_fn[fn_name];
+            assert!(
+                tokens.iter().any(|t| t == shim),
+                "{fn_name} must use the aborting {shim}: {tokens:?}"
+            );
+        }
+
+        // set_aeron keeps the client alive once C accepts it
+        assert_eq!(
+            registrations_by_fn["aeron_archive_context_set_aeron"],
+            quote! { if result >= 0 { self.inner.add_dependency(aeron.clone()); } }.to_string()
+        );
+        // C frees the counter, so the context must not keep it
+        assert_eq!(
+            registrations_by_fn["aeron_archive_persistent_subscription_context_set_state_counter"],
+            ""
+        );
+    }
+
+    /// Every C function that calls a `C-unwind` handler must be declared `C-unwind`.
+    /// Fails if a new Aeron version adds one that is missing from the lists
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn every_fn_calling_an_unwind_handler_is_declared_c_unwind() {
+        let declared: std::collections::BTreeSet<&str> = UNWIND_POLL_FNS
+            .iter()
+            .chain(crate::UNWIND_ABI_ONLY_FNS)
+            .copied()
+            .collect();
+        let mut callers = std::collections::BTreeSet::new();
+        for file in ["client.rs", "archive.rs"] {
+            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("bindings")
+                .join(file);
+            let source = std::fs::read_to_string(&path).unwrap();
+            let file: syn::File = syn::parse_file(&source).unwrap();
+            for item in &file.items {
+                let syn::Item::ForeignMod(foreign) = item else { continue };
+                for foreign_item in &foreign.items {
+                    let syn::ForeignItem::Fn(f) = foreign_item else {
+                        continue;
+                    };
+                    let name = f.sig.ident.to_string();
+                    let takes_handler = f.sig.inputs.iter().any(|input| {
+                        let syn::FnArg::Typed(typed) = input else { return false };
+                        let ty = &typed.ty;
+                        let ty = quote! { #ty }.to_string();
+                        crate::UNWIND_HANDLER_TYPES.contains(&ty.as_str())
+                    });
+                    if !takes_handler {
+                        continue;
+                    }
+                    // an assembler `_create` stores the delegate, its `_handler` calls it
+                    match name.strip_suffix("_create") {
+                        Some(assembler) => callers.insert(format!("{assembler}_handler")),
+                        None => callers.insert(name),
+                    };
+                }
+            }
+        }
+        let declared: std::collections::BTreeSet<String> = declared.iter().map(|s| s.to_string()).collect();
+        assert_eq!(callers, declared);
     }
 }

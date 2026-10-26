@@ -196,7 +196,12 @@ impl Harness {
     }
 }
 
-unsafe extern "C" fn c_count(clientd: *mut c_void, _buffer: *const u8, length: usize, _header: *mut aeron_header_t) {
+unsafe extern "C-unwind" fn c_count(
+    clientd: *mut c_void,
+    _buffer: *const u8,
+    length: usize,
+    _header: *mut aeron_header_t,
+) {
     // SAFETY: clientd is the `&mut u64` the poll call passed.
     unsafe { *clientd.cast::<u64>() += length as u64 };
 }

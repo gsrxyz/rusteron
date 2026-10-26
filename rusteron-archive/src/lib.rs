@@ -384,19 +384,24 @@ struct ListenerHolder {
 }
 
 // Hand-written trampolines: the code generator only wires single-callback args,
-// but this listener has 3 callbacks sharing one clientd.
+// but this listener has 3 callbacks sharing one clientd. A panic aborts, as unwinding
+// would break the persistent subscription's state
 unsafe extern "C" fn persistent_subscription_on_live_joined(clientd: *mut std::ffi::c_void) {
     if !clientd.is_null() {
         // SAFETY: clientd is the ListenerHolder kept alive as a dependency of the subscription.
         let holder = &*(clientd as *const ListenerHolder);
-        holder.listener.on_live_joined();
+        abort_on_panic("persistent_subscription_on_live_joined", || {
+            holder.listener.on_live_joined()
+        });
     }
 }
 
 unsafe extern "C" fn persistent_subscription_on_live_left(clientd: *mut std::ffi::c_void) {
     if !clientd.is_null() {
         let holder = &*(clientd as *const ListenerHolder);
-        holder.listener.on_live_left();
+        abort_on_panic("persistent_subscription_on_live_left", || {
+            holder.listener.on_live_left()
+        });
     }
 }
 
@@ -412,7 +417,9 @@ unsafe extern "C" fn persistent_subscription_on_error(
         } else {
             std::borrow::Cow::Borrowed("")
         };
-        holder.listener.on_error(error_code, &msg);
+        abort_on_panic("persistent_subscription_on_error", || {
+            holder.listener.on_error(error_code, &msg)
+        });
     }
 }
 
@@ -1487,6 +1494,63 @@ mod tests {
             let polled = AeronArchiveAsyncConnect::new(&context)?.poll_blocking(Duration::from_secs(10))?;
             drop(polled);
             drop(connected);
+            Ok(())
+        })();
+
+        drop(aeron);
+        drop(archive_context);
+        drop(media_driver);
+        drop(pub_error_frame_handler);
+        drop(error_handler);
+        test_result
+    }
+
+    /// The context keeps every client passed to `set_aeron` alive, even after the caller drops
+    /// theirs or a later call replaces it
+    #[test]
+    #[serial]
+    pub fn set_aeron_keeps_clients_alive_after_caller_drops_them() -> Result<(), Box<dyn error::Error>> {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+        EmbeddedArchiveMediaDriverProcess::kill_all_java_processes()?;
+        let (aeron, archive_context, media_driver, pub_error_frame_handler, error_handler) = start_aeron_archive()?;
+
+        let test_result: Result<(), Box<dyn error::Error>> = (|| {
+            let new_client = || -> Result<Aeron, Box<dyn error::Error>> {
+                let ctx = AeronContext::new()?;
+                ctx.set_dir(&aeron.context().get_dir().into_c_string())?;
+                let client = Aeron::new(&ctx)?;
+                client.start()?;
+                Ok(client)
+            };
+            let context = AeronArchiveContext::new()?;
+            let (first, second) = (new_client()?, new_client()?);
+            let (first_id, second_id) = (first.client_id(), second.client_id());
+            context.set_aeron(&first)?;
+            context.set_aeron(&second)?;
+            drop(first);
+            drop(second);
+
+            // the replaced client stays alive, as objects made from it may still use it
+            let replaced = context.inner.get_dependency::<Aeron>().ok_or("first client not kept")?;
+            assert_eq!(replaced.client_id(), first_id);
+            assert!(!replaced.is_closed());
+
+            // without the fix these would use a freed client
+            let client = context.get_aeron();
+            assert_eq!(client.client_id(), second_id);
+            let timeout = Duration::from_secs(5);
+            let subscription =
+                client.add_subscription(AERON_IPC_STREAM, 7001, Handlers::NONE, Handlers::NONE, timeout)?;
+            let publication = client.add_publication(AERON_IPC_STREAM, 7001, timeout)?;
+            let start = Instant::now();
+            let mut received = 0;
+            while received == 0 {
+                assert!(start.elapsed() < timeout, "no message through the context's client");
+                let _ = publication.offer(b"alive");
+                subscription.poll_fn(|_, _| received += 1, 10)?;
+                sleep(Duration::from_millis(1));
+            }
+            // publication and subscription drop before the context that keeps their client
             Ok(())
         })();
 

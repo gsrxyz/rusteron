@@ -32,9 +32,8 @@ This project builds on a fork of [`libaeron-sys`](https://github.com/bspeice/lib
 
 **Lifecycle**: since 0.2, closing or dropping handles in any order is safe. `aeron.close()` is deferred while any publication, subscription, counter or clone is alive, and those handles stay usable until the last one drops (see [Resource Lifecycle](./rusteron-client/README.md#resource-lifecycle--close)). The remaining sharp edges:
 - `unsafe close_now()` frees children immediately.
-- A panic in a handler aborts the process, because it cannot unwind through the C frames. If a handler can panic, wrap its body in `std::panic::catch_unwind` and report the failure through your own state.
+- A panic in a fragment, controlled or block handler passed to a subscription, image or replay-merge `poll` unwinds to the caller of `poll`. Nothing is lost: the fragments from the start of that poll (or the last `COMMIT`) up to the panicking one are delivered again on the next poll, so handlers must tolerate redelivery. Order is kept within each image; on a subscription with several images the next poll may start at a different image. A panic in any other callback (fragment assemblers, `for_each_image`, reserved-value suppliers, conductor, archive and error callbacks) is logged and aborts the process, because the C code keeps state across that call.
 - A retained image must be dropped before `subscription.close()`.
-- `AeronArchiveContext::set_aeron()` does not keep the client alive. Connect with `AeronArchiveAsyncConnect::new_with_aeron(&ctx, &aeron)`, which does; with `set_aeron()` plus `new()` or `aeron_archive_connect()`, closing the client before the archive is a use-after-free.
 
 ---
 
@@ -126,8 +125,7 @@ rusteron's own build settings do not reach crates that depend on it.
    ```toml
    [target.x86_64-unknown-linux-gnu]
    linker = "clang-22"
-   rustflags = ["-Clinker-plugin-lto", "-Clink-arg=-fuse-ld=lld-22", "-Ctarget-cpu=native",
-                "-Clink-arg=-Wl,-mllvm,-locally-hot-callsite-threshold=3000"]
+   rustflags = ["-Clinker-plugin-lto", "-Clink-arg=-fuse-ld=lld-22", "-Ctarget-cpu=native"]
 
    [env]
    CC = "clang-22"
@@ -140,25 +138,18 @@ rusteron's own build settings do not reach crates that depend on it.
    C uses full LTO (`-flto`) to match Rust's `lto = "fat"`; with Rust `lto = "thin"`, set
    `RUSTERON_C_LTO=thin`. Mixing fat Rust with thin C inlines nothing.
 
-   `-locally-hot-callsite-threshold` raises LLVM's inlining limit at call sites it estimates as
-   hot: run at least 60 times as often as the entry of the function containing them, which in
-   practice means a loop in that same function once earlier inlining is done. At its default
-   (525), Aeron's `offer`, `offerv` and `try_claim` (585 to 1085 by LLVM's cost model) stay calls
-   wherever the application calls them from more than one place; at 3000 they inline at the hot
-   call sites, while every other call site keeps the normal threshold (250).
-
 4. Check it worked. The build prints
    `cross-language LTO: Aeron C compiled to bitcode by clang-22 (LLVM 22) with -flto` for each
-   rusteron crate (Cargo shows build-script warnings only for path dependencies). If the
-   application calls the publish functions only from hot loops, they no longer exist in an
+   rusteron crate (Cargo shows build-script warnings only for path dependencies).
+   `aeron_buffer_claim_commit` is small enough to always inline, so it no longer exists in an
    unstripped binary:
 
    ```bash
-   nm target/release/my-app | grep -E ' aeron_(exclusive_)?publication_(offerv?|try_claim)$| aeron_buffer_claim_commit$'   # prints nothing
+   nm target/release/my-app | grep ' aeron_buffer_claim_commit$'   # prints nothing
    ```
 
-   A call made anywhere else (start-up, a one-off message, a retry path) keeps a separate copy of
-   that function even when the hot loop inlined it. To check the hot call sites themselves, link
+   Whether larger functions such as `offer`, `offerv` and `try_claim` inline is left to LLVM's
+   default cost model, so they may stay calls. To see the decision at each call site, link
    with LLVM's remarks (`-Clink-arg=-Wl,--opt-remarks-filename,remarks.yaml
    -Clink-arg=-Wl,--opt-remarks-passes,inline`): each call site is listed as inlined or as
    "too costly".
@@ -308,8 +299,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### C strings without hidden allocations
 
-Every channel/URI argument is a `&CStr` (the C API's type), so every heap allocation is
-visible at the call site. Recommended three-tier pattern, cheapest first:
+Every channel/URI argument is a `&CStr` (the C API's type), not `&str`/`String`, so every heap
+allocation is visible at the call site.
+
+`&str`/`String` appear only where they add no allocation, e.g. strings borrowed back from C. Some
+Aeron wrappers take `&str` everywhere and hide the conversion; here it is explicit.
+
+Recommended three-tier pattern, cheapest first:
 
 ```rust,no_run
 # use rusteron_client::*;
@@ -339,6 +335,7 @@ for _ in 0..reconnect_attempts {
 - **Reference-counted handlers.** `Handler::leak()`/`release()` are gone; `Handler::new()` is `Arc`-backed and freed when the last clone drops. Retained-callback setters take the value (closure or trait impl) and return the `Handler`. `Handlers::NONE` covers "no callback".
 - **Typed errors.** `offer`/`try_claim` return `Result<i64, AeronOfferError>` with `is_retryable()`. `AeronCError` construction is allocation-free (never reads `aeron_errmsg()`); `capture_errmsg()` opts into attaching the message. Archive control ops return `Result<_, AeronArchiveError>` (`From` keeps `?` working).
 - **Hot path.** `offer_parts(&[&header, &payload])` publishes several buffers as one message with no intermediate Vec; C-string args follow the `c""`/`cformat!`/reuse pattern above.
+- **After 0.2.13, poll handler panics unwind.** The fragment, controlled and block handler typedefs are `extern "C-unwind"`, as is every raw binding that calls one: the subscription, image, replay-merge and persistent-subscription polls and the `aeron_*fragment_assembler_handler` functions. A raw handler passed to them must be declared `unsafe extern "C-unwind" fn` (the compiler rejects `extern "C"`). A raw delegate given to a fragment assembler or a persistent subscription must still not panic: unwinding there skips Aeron's own cleanup and can drop or corrupt a message. Setters that store another wrapper, such as `AeronArchiveContext::set_aeron()`, now keep it alive.
 - **After 0.2.10, handles are `Send` only under `multi-threaded`.** Up to 0.2.10, publication, subscription, counter and counters-reader handles were `Send` without it, which was unsound: each shares its client's `Rc` reference count. Code that moves one to another thread now gives that thread its own client (`Aeron::connect_dir`) or enables `multi-threaded`.
 - **Convenience.** `Aeron::connect_dir`, `AeronDriver::launch_embedded_guard` (RAII), `ChannelUri::add_session_id`, `AeronUriStringBuilder::ipc()/udp()`, retained-image accessors, direct constant getters, and ported samples (basic_publisher/subscriber, ping/pong, file transfer, MDS, request/response).
 
@@ -371,8 +368,8 @@ Old → new for every renamed/changed API
 | `DarwinPthread*`, `OpaquePthread*` wrapper structs in the generated API | removed | Bindgen pthread internals are no longer emitted as wrapper types; socket types the driver wrappers reference (`sockaddr_storage`, `iovec`, …) are retained. |
 
 Behavioural notes:
-- A panicking fragment handler aborts the process (panic cannot unwind across the C
-  callback boundary) — return instead of panicking in handlers.
+- Handler panics: see **Lifecycle** at the top. Poll handlers unwind with redelivery,
+  other callbacks abort.
 - `AeronCError` construction never reads or copies `aeron_errmsg()` — retry loops
   (e.g. polling that keeps returning `-1`) stay allocation-free. `Display` /
   `get_last_err_message()` read the live buffer; call `err.capture_errmsg()` at the

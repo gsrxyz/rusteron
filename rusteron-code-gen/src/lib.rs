@@ -403,6 +403,57 @@ mod tests {
         );
     }
 
+    /// `_unwind` trampolines are a plain call with no catch; the others catch and abort
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn unwind_trampolines_do_not_catch_and_others_abort() {
+        if running_under_valgrind() {
+            return;
+        }
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("bindings")
+            .join("client.rs");
+        let mut bindings = parse_bindings(&path);
+        // first pass populates the FnMut signatures, as in the snapshot test
+        let bindings_copy = bindings.clone();
+        for handler in bindings.handlers.iter_mut() {
+            let _ = crate::generate_handlers(handler, &bindings_copy);
+        }
+        let bindings_copy = bindings.clone();
+        let mut stream = TokenStream::new();
+        for handler in bindings.handlers.iter_mut() {
+            stream.extend(crate::generate_handlers(handler, &bindings_copy));
+        }
+        let file: syn::File = syn::parse2(stream).expect("generated handlers parse");
+        // (abi, body tokens) of the generated fn with this exact name
+        let trampoline = |name: &str| {
+            file.items
+                .iter()
+                .find_map(|item| match item {
+                    syn::Item::Fn(f) if f.sig.ident == name => {
+                        let abi = f.sig.abi.as_ref().and_then(|a| a.name.as_ref()).map(|n| n.value());
+                        let block = &f.block;
+                        Some((abi, quote::quote!(#block).to_string()))
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("missing {name}"))
+        };
+        for handler in crate::UNWIND_HANDLER_TYPES {
+            for suffix in ["_callback", "_callback_for_once_closure"] {
+                let (abi, body) = trampoline(&format!("{handler}{suffix}_unwind"));
+                assert_eq!(abi.as_deref(), Some("C-unwind"));
+                assert!(
+                    !body.contains("abort_on_panic") && !body.contains("catch_unwind"),
+                    "{body}"
+                );
+                let (abi, body) = trampoline(&format!("{handler}{suffix}"));
+                assert_eq!(abi.as_deref(), Some("C-unwind"));
+                assert!(body.contains("abort_on_panic"), "{body}");
+            }
+        }
+    }
+
     /// `aeron_custom.rs` is a verbatim copy (not generated) into each crate's
     /// `docs-rs/`. Assert the committed copies stay byte-identical to the source
     /// of truth (`rusteron-code-gen/src/aeron_custom.rs`).

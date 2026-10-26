@@ -994,6 +994,19 @@ pub fn is_udp_port_available(port: u16) -> bool {
     std::net::UdpSocket::bind(("127.0.0.1", port)).is_ok()
 }
 
+/// Runs a callback called from Aeron C. On panic, logs the callback name and aborts
+#[doc(hidden)]
+#[inline(always)]
+pub fn abort_on_panic<R>(callback: &str, f: impl FnOnce() -> R) -> R {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(result) => result,
+        Err(_) => {
+            log::error!("{} panicked inside an Aeron callback, aborting", callback);
+            std::process::abort()
+        }
+    }
+}
+
 /// Represents the Aeron URI parser and handler.
 pub struct ChannelUri {}
 

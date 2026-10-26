@@ -588,7 +588,8 @@ unsafe extern "C" fn rusteron_image_visitor<F: FnMut(&AeronImage)>(
     let image = AeronImage {
         inner: CResource::Borrowed(image),
     };
-    f(&image);
+    // abort, as a panic here would leak the subscription's image list refcount
+    abort_on_panic("rusteron_image_visitor", || f(&image));
 }
 
 /// Shared polling loop for the `add_destination`/`remove_destination[_by_id]` blocking

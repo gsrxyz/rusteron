@@ -84,7 +84,7 @@ Most methods use `&self`, allowing mutation without full ownership transfer.
 
 ### Resource Management Caveats
 
-Automatic cleanup applies **only** to `new()` constructors. Other methods (e.g. `set_aeron()`) require manual lifetime and validity tracking to prevent resource misuse.
+Automatic cleanup applies **only** to `new()` constructors. Setters that take another wrapper (e.g. `set_aeron()`) keep it alive for as long as the context.
 
 ### Handlers and errors
 
@@ -127,10 +127,10 @@ For detailed guides and code snippets on Aeron features in Rust, see:
 
 ## Safety Considerations
 
-1. **Aeron Lifetime** – Connect with `AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)`: the archive then keeps the client alive, and the two close in any order. `set_aeron()` stores only the C pointer, so with `AeronArchiveAsyncConnect::new()` or `aeron_archive_connect()` the `Aeron` client must outlive the archive; closing it first is a use-after-free.
+1. **Aeron Lifetime** – Connect with `AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)`: the archive then keeps the client alive, and the two close in any order. `set_aeron()` also keeps the client alive, so `AeronArchiveAsyncConnect::new()` and `aeron_archive_connect()` are safe after the caller drops its `Aeron`. A client obtained with `get_aeron()` is borrowed: publications and subscriptions made from it must drop before the context.
 2. **Persistent Subscription Lifetime** – A persistent subscription keeps the `Aeron` client and archive context given to its builder open until it closes. Building it also points the archive context at the subscription's client, so build with `PersistentSubscriptionBuilder::new_with_aeron(&archive_context, &aeron)`, which sets one client on both. Without a client the subscription makes its own and closes it, and the archive context must not be used again afterwards.
 3. **Deferred Close** – `archive.close()` is deferred while a clone is alive and does not close the `Aeron` client. `unsafe close_now()` frees it immediately, so any surviving handle then dangles.
-4. **Automatic Handler Cleanup** – Handlers are reference-counted; registered callbacks live as long as the resource that registered them and are freed automatically. A panic in a handler aborts the process.
+4. **Automatic Handler Cleanup** – Handlers are reference-counted; registered callbacks live as long as the resource that registered them and are freed automatically. A panic in an archive callback is logged and aborts the process; a panic in a `ReplayMerge` poll handler unwinds to the caller and the fragments are delivered again on the next poll.
 5. **Thread Safety** – Handles use `Rc` and stay on the thread that created them, unless the `multi-threaded` feature is enabled (see the [root README](../README.md#multi-threaded-send-and-sync-handles)).
 
 ---

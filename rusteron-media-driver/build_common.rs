@@ -303,8 +303,10 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     // Sanitizer support — the `sanitize-address` feature is the discoverable way to turn
     // this on; RUSTERON_SANITIZE remains for other sanitizers (thread, undefined, ...).
     // This injects -fsanitize=* flags into the C/C++ compilation via cmake.
+    // -fexceptions lets a Rust panic pass safely through the Aeron poll functions
+    // (UNWIND_POLL_FNS). Without it that is undefined behaviour
     #[allow(unused_mut)]
-    let mut c_flags = "-fcommon".to_string();
+    let mut c_flags = "-fcommon -fexceptions".to_string();
     let mut cxx_flags = String::new();
     println!("cargo:rerun-if-env-changed=RUSTERON_SANITIZE");
     let san_env = std::env::var("RUSTERON_SANITIZE").ok().filter(|s| !s.is_empty());
@@ -438,6 +440,15 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     }
     for var in config.extra_allowlist_vars {
         builder = builder.allowlist_var(*var);
+    }
+    // Any C function that calls a `C-unwind` handler must be `C-unwind` too. Only
+    // UNWIND_POLL_FNS actually let a panic through. Names are anchored (^...$) for exact matches
+    for name in rusteron_code_gen::UNWIND_HANDLER_TYPES
+        .iter()
+        .chain(rusteron_code_gen::UNWIND_POLL_FNS)
+        .chain(rusteron_code_gen::UNWIND_ABI_ONLY_FNS)
+    {
+        builder = builder.override_abi(bindgen::Abi::CUnwind, format!("^{name}$"));
     }
     let bindings = builder.generate().expect("Unable to generate aeron bindings");
 

@@ -2315,7 +2315,7 @@ unsafe extern "C" {
 }
 #[doc = " Callback for handling fragments of data being read from a log.\n\n The frame will either contain a whole message or a fragment of a message to be reassembled. Messages are fragmented\n if greater than the frame for MTU in length.\n\n @param clientd passed to the poll function.\n @param buffer containing the data.\n @param length of the data in bytes.\n @param header representing the meta data for the data."]
 pub type aeron_fragment_handler_t = ::std::option::Option<
-    unsafe extern "C" fn(
+    unsafe extern "C-unwind" fn(
         clientd: *mut ::std::os::raw::c_void,
         buffer: *const u8,
         length: usize,
@@ -2337,7 +2337,7 @@ pub enum aeron_controlled_fragment_handler_action_en {
 pub use self::aeron_controlled_fragment_handler_action_en as aeron_controlled_fragment_handler_action_t;
 #[doc = " Callback for handling fragments of data being read from a log.\n\n Handler for reading data that is coming from a log buffer. The frame will either contain a whole message\n or a fragment of a message to be reassembled. Messages are fragmented if greater than the frame for MTU in length.\n\n @param clientd passed to the controlled poll function.\n @param buffer containing the data.\n @param length of the data in bytes.\n @param header representing the meta data for the data.\n @return The action to be taken with regard to the stream position after the callback."]
 pub type aeron_controlled_fragment_handler_t = ::std::option::Option<
-    unsafe extern "C" fn(
+    unsafe extern "C-unwind" fn(
         clientd: *mut ::std::os::raw::c_void,
         buffer: *const u8,
         length: usize,
@@ -2346,7 +2346,7 @@ pub type aeron_controlled_fragment_handler_t = ::std::option::Option<
 >;
 #[doc = " Callback for handling a block of messages being read from a log.\n\n @param clientd passed to the block poll function.\n @param buffer containing the block of message fragments.\n @param offset at which the block begins, including any frame headers.\n @param length of the block in bytes, including any frame headers that is aligned.\n @param session_id of the stream containing this block of message fragments.\n @param term_id of the stream containing this block of message fragments."]
 pub type aeron_block_handler_t = ::std::option::Option<
-    unsafe extern "C" fn(
+    unsafe extern "C-unwind" fn(
         clientd: *mut ::std::os::raw::c_void,
         buffer: *const u8,
         length: usize,
@@ -2421,8 +2421,9 @@ impl Default for aeron_subscription_constants_stct {
     }
 }
 pub type aeron_subscription_constants_t = aeron_subscription_constants_stct;
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     #[doc = " Poll the images under the subscription for available message fragments.\n <p>\n Each fragment read will be a whole message if it is under MTU length. If larger than MTU then it will come\n as a series of fragments ordered within a session.\n <p>\n To assemble messages that span multiple fragments then use aeron_fragment_assembler_t.\n\n @param subscription to poll.\n @param handler for handling each message fragment as it is read.\n @param fragment_limit number of message fragments to limit when polling across multiple images.\n @return the number of fragments received or -1 for error."]
+    #[link_name = "\u{1}_aeron_subscription_poll"]
     pub fn aeron_subscription_poll(
         subscription: *mut aeron_subscription_t,
         handler: aeron_fragment_handler_t,
@@ -2430,8 +2431,9 @@ unsafe extern "C" {
         fragment_limit: usize,
     ) -> ::std::os::raw::c_int;
 }
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     #[doc = " Poll in a controlled manner the images under the subscription for available message fragments.\n Control is applied to fragments in the stream. If more fragments can be read on another stream\n they will even if BREAK or ABORT is returned from the fragment handler.\n <p>\n Each fragment read will be a whole message if it is under MTU length. If larger than MTU then it will come\n as a series of fragments ordered within a session.\n <p>\n To assemble messages that span multiple fragments then use aeron_controlled_fragment_assembler_t.\n\n @param subscription to poll.\n @param handler for handling each message fragment as it is read.\n @param fragment_limit number of message fragments to limit when polling across multiple images.\n @return the number of fragments received or -1 for error."]
+    #[link_name = "\u{1}_aeron_subscription_controlled_poll"]
     pub fn aeron_subscription_controlled_poll(
         subscription: *mut aeron_subscription_t,
         handler: aeron_controlled_fragment_handler_t,
@@ -2439,8 +2441,9 @@ unsafe extern "C" {
         fragment_limit: usize,
     ) -> ::std::os::raw::c_int;
 }
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     #[doc = " Poll the images under the subscription for available message fragments in blocks.\n <p>\n This method is useful for operations like bulk archiving and messaging indexing.\n\n @param subscription to poll.\n @param handler to receive a block of fragments from each image.\n @param block_length_limit for each image polled.\n @return the number of bytes consumed or -1 for error."]
+    #[link_name = "\u{1}_aeron_subscription_block_poll"]
     pub fn aeron_subscription_block_poll(
         subscription: *mut aeron_subscription_t,
         handler: aeron_block_handler_t,
@@ -2655,8 +2658,9 @@ unsafe extern "C" {
     #[doc = " Was the associated publication revoked?\n\n @param image to check\n @return true if the associated publication was revoked."]
     pub fn aeron_image_is_publication_revoked(image: *mut aeron_image_t) -> bool;
 }
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     #[doc = " Poll for new messages in a stream. If new messages are found beyond the last consumed position then they\n will be delivered to the handler up to a limited number of fragments as specified.\n <p>\n Use a fragment assembler to assemble messages which span multiple fragments.\n\n @param image to poll.\n @param handler to which message fragments are delivered.\n @param clientd to pass to the handler.\n @param fragment_limit for the number of fragments to be consumed during one polling operation.\n @return the number of fragments that have been consumed or -1 for error."]
+    #[link_name = "\u{1}_aeron_image_poll"]
     pub fn aeron_image_poll(
         image: *mut aeron_image_t,
         handler: aeron_fragment_handler_t,
@@ -2664,8 +2668,9 @@ unsafe extern "C" {
         fragment_limit: usize,
     ) -> ::std::os::raw::c_int;
 }
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     #[doc = " Poll for new messages in a stream. If new messages are found beyond the last consumed position then they\n will be delivered to the handler up to a limited number of fragments as specified.\n <p>\n Use a controlled fragment assembler to assemble messages which span multiple fragments.\n\n @param image to poll.\n @param handler to which message fragments are delivered.\n @param clientd to pass to the handler.\n @param fragment_limit for the number of fragments to be consumed during one polling operation.\n @return the number of fragments that have been consumed or -1 for error."]
+    #[link_name = "\u{1}_aeron_image_controlled_poll"]
     pub fn aeron_image_controlled_poll(
         image: *mut aeron_image_t,
         handler: aeron_controlled_fragment_handler_t,
@@ -2673,8 +2678,9 @@ unsafe extern "C" {
         fragment_limit: usize,
     ) -> ::std::os::raw::c_int;
 }
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     #[doc = " Poll for new messages in a stream. If new messages are found beyond the last consumed position then they\n will be delivered to the handler up to a limited number of fragments as specified or the maximum position specified.\n <p>\n Use a fragment assembler to assemble messages which span multiple fragments.\n\n @param image to poll.\n @param handler to which message fragments are delivered.\n @param clientd to pass to the handler.\n @param limit_position to consume messages up to.\n @param fragment_limit for the number of fragments to be consumed during one polling operation.\n @return the number of fragments that have been consumed or -1 for error."]
+    #[link_name = "\u{1}_aeron_image_bounded_poll"]
     pub fn aeron_image_bounded_poll(
         image: *mut aeron_image_t,
         handler: aeron_fragment_handler_t,
@@ -2683,8 +2689,9 @@ unsafe extern "C" {
         fragment_limit: usize,
     ) -> ::std::os::raw::c_int;
 }
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     #[doc = " Poll for new messages in a stream. If new messages are found beyond the last consumed position then they\n will be delivered to the handler up to a limited number of fragments as specified or the maximum position specified.\n <p>\n Use a controlled fragment assembler to assemble messages which span multiple fragments.\n\n @param image to poll.\n @param handler to which message fragments are delivered.\n @param clientd to pass to the handler.\n @param limit_position to consume messages up to.\n @param fragment_limit for the number of fragments to be consumed during one polling operation.\n @return the number of fragments that have been consumed or -1 for error."]
+    #[link_name = "\u{1}_aeron_image_bounded_controlled_poll"]
     pub fn aeron_image_bounded_controlled_poll(
         image: *mut aeron_image_t,
         handler: aeron_controlled_fragment_handler_t,
@@ -2693,8 +2700,9 @@ unsafe extern "C" {
         fragment_limit: usize,
     ) -> ::std::os::raw::c_int;
 }
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     #[doc = " Poll for new messages in a stream. If new messages are found beyond the last consumed position then they\n will be delivered to the handler up to a limited number of bytes.\n <p>\n A scan will terminate if a padding frame is encountered. If first frame in a scan is padding then a block\n for the padding is notified. If the padding comes after the first frame in a scan then the scan terminates\n at the offset the padding frame begins. Padding frames are delivered singularly in a block.\n <p>\n Padding frames may be for a greater range than the limit offset but only the header needs to be valid so\n relevant length of the frame is data header length.\n\n @param image to poll.\n @param handler to which block is delivered.\n @param clientd to pass to the handler.\n @param block_length_limit up to which a block may be in length.\n @return the number of bytes that have been consumed or -1 for error."]
+    #[link_name = "\u{1}_aeron_image_block_poll"]
     pub fn aeron_image_block_poll(
         image: *mut aeron_image_t,
         handler: aeron_block_handler_t,
@@ -2725,8 +2733,9 @@ unsafe extern "C" {
         assembler: *mut aeron_image_fragment_assembler_t,
     ) -> ::std::os::raw::c_int;
 }
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     #[doc = " Handler function to be passed for handling fragment assembly.\n\n @param clientd passed in the poll call (must be a aeron_image_fragment_assembler_t)\n @param buffer containing the data.\n @param length of the data in bytes.\n @param header representing the meta data for the data."]
+    #[link_name = "\u{1}_aeron_image_fragment_assembler_handler"]
     pub fn aeron_image_fragment_assembler_handler(
         clientd: *mut ::std::os::raw::c_void,
         buffer: *const u8,
@@ -2748,8 +2757,9 @@ unsafe extern "C" {
         assembler: *mut aeron_image_controlled_fragment_assembler_t,
     ) -> ::std::os::raw::c_int;
 }
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     #[doc = " Handler function to be passed for handling fragment assembly.\n\n @param clientd passed in the poll call (must be a aeron_image_controlled_fragment_assembler_t)\n @param buffer containing the data.\n @param length of the data in bytes.\n @param header representing the meta data for the data.\n @return The action to be taken with regard to the stream position after the callback."]
+    #[link_name = "\u{1}_aeron_image_controlled_fragment_assembler_handler"]
     pub fn aeron_image_controlled_fragment_assembler_handler(
         clientd: *mut ::std::os::raw::c_void,
         buffer: *const u8,
@@ -2769,8 +2779,9 @@ unsafe extern "C" {
     #[doc = " Delete a fragment assembler.\n\n @param assembler to delete.\n @return 0 for success or -1 for error."]
     pub fn aeron_fragment_assembler_delete(assembler: *mut aeron_fragment_assembler_t) -> ::std::os::raw::c_int;
 }
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     #[doc = " Handler function to be passed for handling fragment assembly.\n\n @param clientd passed in the poll call (must be a aeron_fragment_assembler_t)\n @param buffer containing the data.\n @param length of the data in bytes.\n @param header representing the meta data for the data."]
+    #[link_name = "\u{1}_aeron_fragment_assembler_handler"]
     pub fn aeron_fragment_assembler_handler(
         clientd: *mut ::std::os::raw::c_void,
         buffer: *const u8,
@@ -2799,8 +2810,9 @@ unsafe extern "C" {
         assembler: *mut aeron_controlled_fragment_assembler_t,
     ) -> ::std::os::raw::c_int;
 }
-unsafe extern "C" {
+unsafe extern "C-unwind" {
     #[doc = " Handler function to be passed for handling fragment assembly.\n\n @param clientd passed in the poll call (must be a aeron_controlled_fragment_assembler_t)\n @param buffer containing the data.\n @param length of the data in bytes.\n @param header representing the meta data for the data.\n @return The action to be taken with regard to the stream position after the callback."]
+    #[link_name = "\u{1}_aeron_controlled_fragment_assembler_handler"]
     pub fn aeron_controlled_fragment_assembler_handler(
         clientd: *mut ::std::os::raw::c_void,
         buffer: *const u8,

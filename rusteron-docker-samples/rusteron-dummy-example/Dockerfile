@@ -21,7 +21,7 @@ ARG BUILD_TYPE=release
 # -C linker-plugin-lto makes rusteron compile Aeron C to LLVM bitcode with $CC, so the linker
 # can inline it into the Rust that calls it
 ENV CC=clang-${LLVM_VERSION}
-ENV RUSTFLAGS="-C target-cpu=native -C linker-plugin-lto -C linker=clang-${LLVM_VERSION} -C link-arg=-fuse-ld=lld-${LLVM_VERSION} -C link-arg=-Wl,-mllvm,-locally-hot-callsite-threshold=3000"
+ENV RUSTFLAGS="-C target-cpu=native -C linker-plugin-lto -C linker=clang-${LLVM_VERSION} -C link-arg=-fuse-ld=lld-${LLVM_VERSION}"
 RUN . "$HOME/.cargo/env" && cargo update && cargo build --profile ${BUILD_TYPE}
 
 FROM debian:trixie-slim

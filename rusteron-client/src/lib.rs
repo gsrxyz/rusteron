@@ -251,6 +251,9 @@ mod mdc_mds_guide_doctests {}
 mod media_driver_guide_doctests {}
 
 #[cfg(test)]
+mod panic_tests;
+
+#[cfg(test)]
 mod idle_strategy_tests {
     use super::*;
     use std::time::Instant;

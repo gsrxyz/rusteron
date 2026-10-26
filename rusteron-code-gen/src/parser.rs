@@ -120,8 +120,13 @@ fn process_c_method(
     fm: &ItemForeignMod,
     handler_names: &BTreeSet<String>,
 ) {
-    // Extract functions inside extern "C" blocks
-    if fm.abi.name.is_some() && fm.abi.name.as_ref().unwrap().value() == "C" {
+    // Extract functions inside extern "C" and extern "C-unwind" blocks
+    if fm
+        .abi
+        .name
+        .as_ref()
+        .is_some_and(|abi| matches!(abi.value().as_str(), "C" | "C-unwind"))
+    {
         for foreign_item in &fm.items {
             if let syn::ForeignItem::Fn(f) = foreign_item {
                 let docs = get_doc_comments(&f.attrs);

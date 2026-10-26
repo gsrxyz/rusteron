@@ -1090,6 +1090,18 @@ pub fn find_unused_udp_port(start_port: u16) -> Option<u16> {
 pub fn is_udp_port_available(port: u16) -> bool {
     std::net::UdpSocket::bind(("127.0.0.1", port)).is_ok()
 }
+#[doc = " Runs a callback called from Aeron C. On panic, logs the callback name and aborts"]
+#[doc(hidden)]
+#[inline(always)]
+pub fn abort_on_panic<R>(callback: &str, f: impl FnOnce() -> R) -> R {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(result) => result,
+        Err(_) => {
+            log::error!("{} panicked inside an Aeron callback, aborting", callback);
+            std::process::abort()
+        }
+    }
+}
 #[doc = " Represents the Aeron URI parser and handler."]
 pub struct ChannelUri {}
 impl ChannelUri {
@@ -7068,9 +7080,7 @@ impl AeronCnc {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is logged and **aborts the process**"]
     pub fn error_log_read_fn<AeronErrorLogReaderFuncHandlerImpl: FnMut(i32, i64, i64, &str) -> ()>(
         &self,
         mut callback: AeronErrorLogReaderFuncHandlerImpl,
@@ -7176,9 +7186,7 @@ impl AeronCnc {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is logged and **aborts the process**"]
     pub fn loss_reporter_read_fn<
         AeronLossReporterReadEntryFuncHandlerImpl: FnMut(i64, i64, i64, i64, i32, i32, &str, &str) -> (),
     >(
@@ -11663,9 +11671,7 @@ impl AeronCountersReader {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is logged and **aborts the process**"]
     pub fn foreach_counter_fn<
         AeronCountersReaderForeachCounterFuncHandlerImpl: FnMut(i64, i32, i32, &[u8], &str) -> (),
     >(
@@ -12039,9 +12045,7 @@ impl AeronCountersReader {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is logged and **aborts the process**"]
     pub fn foreach_metadata_fn<
         AeronCountersReaderForeachMetadataFuncHandlerImpl: FnMut(i32, i32, &[u8], &[u8]) -> (),
     >(
@@ -23228,6 +23232,9 @@ impl AeronDriverContext {
                 .join(", ")
             );
             let result = aeron_driver_context_set_conductor_duty_cycle_tracker(self.get_inner(), value.get_inner());
+            if result >= 0 {
+                self.inner.add_dependency(value.clone());
+            }
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -23266,6 +23273,9 @@ impl AeronDriverContext {
                 .join(", ")
             );
             let result = aeron_driver_context_set_sender_duty_cycle_tracker(self.get_inner(), value.get_inner());
+            if result >= 0 {
+                self.inner.add_dependency(value.clone());
+            }
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -23304,6 +23314,9 @@ impl AeronDriverContext {
                 .join(", ")
             );
             let result = aeron_driver_context_set_receiver_duty_cycle_tracker(self.get_inner(), value.get_inner());
+            if result >= 0 {
+                self.inner.add_dependency(value.clone());
+            }
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -23342,6 +23355,9 @@ impl AeronDriverContext {
                 .join(", ")
             );
             let result = aeron_driver_context_set_name_resolver_time_tracker(self.get_inner(), value.get_inner());
+            if result >= 0 {
+                self.inner.add_dependency(value.clone());
+            }
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -23496,6 +23512,9 @@ impl AeronDriverContext {
                 .join(", ")
             );
             let result = aeron_driver_context_set_sender_port_manager(self.get_inner(), value.get_inner());
+            if result >= 0 {
+                self.inner.add_dependency(value.clone());
+            }
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -23534,6 +23553,9 @@ impl AeronDriverContext {
                 .join(", ")
             );
             let result = aeron_driver_context_set_receiver_port_manager(self.get_inner(), value.get_inner());
+            if result >= 0 {
+                self.inner.add_dependency(value.clone());
+            }
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -32075,9 +32097,7 @@ impl AeronExclusivePublication {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is logged and **aborts the process**"]
     pub fn offerv_fn<AeronReservedValueSupplierHandlerImpl: FnMut(&mut [u8]) -> i64>(
         &self,
         iov: &AeronIovec,
@@ -36771,7 +36791,7 @@ impl AeronImage {
                     let callback: aeron_fragment_handler_t = if handler.is_none() {
                         None
                     } else {
-                        Some(aeron_fragment_handler_t_callback::<AeronFragmentHandlerHandlerImpl>)
+                        Some(aeron_fragment_handler_t_callback_unwind::<AeronFragmentHandlerHandlerImpl>)
                     };
                     callback
                 },
@@ -36808,9 +36828,8 @@ impl AeronImage {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
+    #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
         &self,
         mut handler: AeronFragmentHandlerHandlerImpl,
@@ -36829,7 +36848,7 @@ impl AeronImage {
             );
             let result = aeron_image_poll(
                 self.get_inner(),
-                Some(aeron_fragment_handler_t_callback_for_once_closure::<AeronFragmentHandlerHandlerImpl>),
+                Some(aeron_fragment_handler_t_callback_for_once_closure_unwind::<AeronFragmentHandlerHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
                 fragment_limit.into(),
             );
@@ -36874,7 +36893,11 @@ impl AeronImage {
                     let callback: aeron_controlled_fragment_handler_t = if handler.is_none() {
                         None
                     } else {
-                        Some(aeron_controlled_fragment_handler_t_callback::<AeronControlledFragmentHandlerHandlerImpl>)
+                        Some(
+                            aeron_controlled_fragment_handler_t_callback_unwind::<
+                                AeronControlledFragmentHandlerHandlerImpl,
+                            >,
+                        )
                     };
                     callback
                 },
@@ -36911,9 +36934,8 @@ impl AeronImage {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
+    #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn controlled_poll_fn<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
@@ -36935,7 +36957,7 @@ impl AeronImage {
             let result = aeron_image_controlled_poll(
                 self.get_inner(),
                 Some(
-                    aeron_controlled_fragment_handler_t_callback_for_once_closure::<
+                    aeron_controlled_fragment_handler_t_callback_for_once_closure_unwind::<
                         AeronControlledFragmentHandlerHandlerImpl,
                     >,
                 ),
@@ -36986,7 +37008,7 @@ impl AeronImage {
                     let callback: aeron_fragment_handler_t = if handler.is_none() {
                         None
                     } else {
-                        Some(aeron_fragment_handler_t_callback::<AeronFragmentHandlerHandlerImpl>)
+                        Some(aeron_fragment_handler_t_callback_unwind::<AeronFragmentHandlerHandlerImpl>)
                     };
                     callback
                 },
@@ -37025,9 +37047,8 @@ impl AeronImage {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
+    #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn bounded_poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
         &self,
         mut handler: AeronFragmentHandlerHandlerImpl,
@@ -37048,7 +37069,7 @@ impl AeronImage {
             );
             let result = aeron_image_bounded_poll(
                 self.get_inner(),
-                Some(aeron_fragment_handler_t_callback_for_once_closure::<AeronFragmentHandlerHandlerImpl>),
+                Some(aeron_fragment_handler_t_callback_for_once_closure_unwind::<AeronFragmentHandlerHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
                 limit_position.into(),
                 fragment_limit.into(),
@@ -37099,7 +37120,11 @@ impl AeronImage {
                     let callback: aeron_controlled_fragment_handler_t = if handler.is_none() {
                         None
                     } else {
-                        Some(aeron_controlled_fragment_handler_t_callback::<AeronControlledFragmentHandlerHandlerImpl>)
+                        Some(
+                            aeron_controlled_fragment_handler_t_callback_unwind::<
+                                AeronControlledFragmentHandlerHandlerImpl,
+                            >,
+                        )
                     };
                     callback
                 },
@@ -37138,9 +37163,8 @@ impl AeronImage {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
+    #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn bounded_controlled_poll_fn<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
@@ -37164,7 +37188,7 @@ impl AeronImage {
             let result = aeron_image_bounded_controlled_poll(
                 self.get_inner(),
                 Some(
-                    aeron_controlled_fragment_handler_t_callback_for_once_closure::<
+                    aeron_controlled_fragment_handler_t_callback_for_once_closure_unwind::<
                         AeronControlledFragmentHandlerHandlerImpl,
                     >,
                 ),
@@ -37218,7 +37242,7 @@ impl AeronImage {
                     let callback: aeron_block_handler_t = if handler.is_none() {
                         None
                     } else {
-                        Some(aeron_block_handler_t_callback::<AeronBlockHandlerHandlerImpl>)
+                        Some(aeron_block_handler_t_callback_unwind::<AeronBlockHandlerHandlerImpl>)
                     };
                     callback
                 },
@@ -37260,9 +37284,8 @@ impl AeronImage {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
+    #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn block_poll_fn<AeronBlockHandlerHandlerImpl: FnMut(&[u8], i32, i32) -> ()>(
         &self,
         mut handler: AeronBlockHandlerHandlerImpl,
@@ -37281,7 +37304,7 @@ impl AeronImage {
             );
             let result = aeron_image_block_poll(
                 self.get_inner(),
-                Some(aeron_block_handler_t_callback_for_once_closure::<AeronBlockHandlerHandlerImpl>),
+                Some(aeron_block_handler_t_callback_for_once_closure_unwind::<AeronBlockHandlerHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
                 block_length_limit.into(),
             );
@@ -40729,9 +40752,7 @@ impl AeronLossDetector {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is logged and **aborts the process**"]
     pub fn init_fn<AeronTermGapScannerGapDetectedFuncHandlerImpl: FnMut(i32, i32, usize) -> ()>(
         &self,
         feedback_delay_state: &AeronFeedbackDelayGeneratorState,
@@ -41639,9 +41660,7 @@ impl AeronLossReporter {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is logged and **aborts the process**"]
     pub fn read_fn<AeronLossReporterReadEntryFuncHandlerImpl: FnMut(i64, i64, i64, i64, i32, i32, &str, &str) -> ()>(
         buffer: &[u8],
         mut entry_func: AeronLossReporterReadEntryFuncHandlerImpl,
@@ -42855,9 +42874,7 @@ impl AeronMpscRb {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is logged and **aborts the process**"]
     pub fn read_fn<AeronRbHandlerHandlerImpl: FnMut(i32, *const ::std::os::raw::c_void, usize) -> ()>(
         &self,
         mut handler: AeronRbHandlerHandlerImpl,
@@ -42932,9 +42949,7 @@ impl AeronMpscRb {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is logged and **aborts the process**"]
     pub fn controlled_read_fn<
         AeronRbControlledHandlerHandlerImpl: FnMut(i32, *const ::std::os::raw::c_void, usize) -> aeron_rb_read_action_t,
     >(
@@ -49592,9 +49607,7 @@ impl AeronPublication {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is logged and **aborts the process**"]
     pub fn offerv_fn<AeronReservedValueSupplierHandlerImpl: FnMut(&mut [u8]) -> i64>(
         &self,
         iov: &AeronIovec,
@@ -56109,9 +56122,7 @@ impl AeronSpscRb {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is logged and **aborts the process**"]
     pub fn read_fn<AeronRbHandlerHandlerImpl: FnMut(i32, *const ::std::os::raw::c_void, usize) -> ()>(
         &self,
         mut handler: AeronRbHandlerHandlerImpl,
@@ -56186,9 +56197,7 @@ impl AeronSpscRb {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is logged and **aborts the process**"]
     pub fn controlled_read_fn<
         AeronRbControlledHandlerHandlerImpl: FnMut(i32, *const ::std::os::raw::c_void, usize) -> aeron_rb_read_action_t,
     >(
@@ -59463,7 +59472,7 @@ impl AeronSubscription {
                     let callback: aeron_fragment_handler_t = if handler.is_none() {
                         None
                     } else {
-                        Some(aeron_fragment_handler_t_callback::<AeronFragmentHandlerHandlerImpl>)
+                        Some(aeron_fragment_handler_t_callback_unwind::<AeronFragmentHandlerHandlerImpl>)
                     };
                     callback
                 },
@@ -59501,9 +59510,8 @@ impl AeronSubscription {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
+    #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
         &self,
         mut handler: AeronFragmentHandlerHandlerImpl,
@@ -59522,7 +59530,7 @@ impl AeronSubscription {
             );
             let result = aeron_subscription_poll(
                 self.get_inner(),
-                Some(aeron_fragment_handler_t_callback_for_once_closure::<AeronFragmentHandlerHandlerImpl>),
+                Some(aeron_fragment_handler_t_callback_for_once_closure_unwind::<AeronFragmentHandlerHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
                 fragment_limit.into(),
             );
@@ -59570,7 +59578,11 @@ impl AeronSubscription {
                     let callback: aeron_controlled_fragment_handler_t = if handler.is_none() {
                         None
                     } else {
-                        Some(aeron_controlled_fragment_handler_t_callback::<AeronControlledFragmentHandlerHandlerImpl>)
+                        Some(
+                            aeron_controlled_fragment_handler_t_callback_unwind::<
+                                AeronControlledFragmentHandlerHandlerImpl,
+                            >,
+                        )
                     };
                     callback
                 },
@@ -59610,9 +59622,8 @@ impl AeronSubscription {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
+    #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn controlled_poll_fn<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
@@ -59634,7 +59645,7 @@ impl AeronSubscription {
             let result = aeron_subscription_controlled_poll(
                 self.get_inner(),
                 Some(
-                    aeron_controlled_fragment_handler_t_callback_for_once_closure::<
+                    aeron_controlled_fragment_handler_t_callback_for_once_closure_unwind::<
                         AeronControlledFragmentHandlerHandlerImpl,
                     >,
                 ),
@@ -59680,7 +59691,7 @@ impl AeronSubscription {
                     let callback: aeron_block_handler_t = if handler.is_none() {
                         None
                     } else {
-                        Some(aeron_block_handler_t_callback::<AeronBlockHandlerHandlerImpl>)
+                        Some(aeron_block_handler_t_callback_unwind::<AeronBlockHandlerHandlerImpl>)
                     };
                     callback
                 },
@@ -59711,9 +59722,8 @@ impl AeronSubscription {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
+    #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn block_poll_fn<AeronBlockHandlerHandlerImpl: FnMut(&[u8], i32, i32) -> ()>(
         &self,
         mut handler: AeronBlockHandlerHandlerImpl,
@@ -59732,7 +59742,7 @@ impl AeronSubscription {
             );
             let result = aeron_subscription_block_poll(
                 self.get_inner(),
-                Some(aeron_block_handler_t_callback_for_once_closure::<AeronBlockHandlerHandlerImpl>),
+                Some(aeron_block_handler_t_callback_for_once_closure_unwind::<AeronBlockHandlerHandlerImpl>),
                 &mut handler as *mut _ as *mut std::os::raw::c_void,
                 block_length_limit.into(),
             );
@@ -62114,9 +62124,7 @@ impl Aeron {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is logged and **aborts the process**"]
     pub fn error_log_read_fn<AeronErrorLogReaderFuncHandlerImpl: FnMut(i32, i64, i64, &str) -> ()>(
         buffer: &[u8],
         mut reader: AeronErrorLogReaderFuncHandlerImpl,
@@ -68131,9 +68139,7 @@ impl AeronUri {
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
-    #[doc = r#" A panic inside the closure cannot unwind across the `extern "C"` callback"#]
-    #[doc = r" boundary and **aborts the process** (since Rust 1.81). Return early instead"]
-    #[doc = r" of panicking in production fragment handlers."]
+    #[doc = r" A panic in the closure is logged and **aborts the process**"]
     pub fn parse_params_fn<AeronUriParseCallbackHandlerImpl: FnMut(&str, &str) -> ::std::os::raw::c_int>(
         uri: *mut ::std::os::raw::c_char,
         mut param_func: AeronUriParseCallbackHandlerImpl,
@@ -70854,7 +70860,7 @@ unsafe extern "C" fn aeron_fprintf_handler_t_callback<F: AeronFprintfHandlerCall
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_fprintf_handler));
+        log::debug!("calling {}", stringify!(aeron_fprintf_handler_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -70870,20 +70876,22 @@ unsafe extern "C" fn aeron_fprintf_handler_t_callback<F: AeronFprintfHandlerCall
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(arg3 as *mut F) };
-    closure.handle_aeron_fprintf_handler(
-        if arg1.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(arg1).to_str().unwrap_or("") }
-        },
-        arg2.into(),
-        if arg4.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(arg4).to_str().unwrap_or("") }
-        },
-        arg5.into(),
-    )
+    abort_on_panic(stringify!(aeron_fprintf_handler_t_callback), || {
+        closure.handle_aeron_fprintf_handler(
+            if arg1.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(arg1).to_str().unwrap_or("") }
+            },
+            arg2.into(),
+            if arg4.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(arg4).to_str().unwrap_or("") }
+            },
+            arg5.into(),
+        )
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_fprintf_handler_t_callback_for_once_closure<
@@ -70920,20 +70928,22 @@ unsafe extern "C" fn aeron_fprintf_handler_t_callback_for_once_closure<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(arg3 as *mut F) };
-    closure(
-        if arg1.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(arg1).to_str().unwrap_or("") }
-        },
-        arg2.into(),
-        if arg4.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(arg4).to_str().unwrap_or("") }
-        },
-        arg5.into(),
-    )
+    abort_on_panic(stringify!(aeron_fprintf_handler_t_callback_for_once_closure), || {
+        closure(
+            if arg1.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(arg1).to_str().unwrap_or("") }
+            },
+            arg2.into(),
+            if arg4.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(arg4).to_str().unwrap_or("") }
+            },
+            arg5.into(),
+        )
+    })
 }
 #[doc = "The error handler to be called when an error occurs."]
 #[doc = r""]
@@ -70994,7 +71004,7 @@ unsafe extern "C" fn aeron_error_handler_t_callback<F: AeronErrorHandlerCallback
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_error_handler));
+        log::debug!("calling {}", stringify!(aeron_error_handler_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -71008,14 +71018,16 @@ unsafe extern "C" fn aeron_error_handler_t_callback<F: AeronErrorHandlerCallback
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_error_handler(
-        errcode.into(),
-        if message.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(message).to_str().unwrap_or("") }
-        },
-    )
+    abort_on_panic(stringify!(aeron_error_handler_t_callback), || {
+        closure.handle_aeron_error_handler(
+            errcode.into(),
+            if message.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(message).to_str().unwrap_or("") }
+            },
+        )
+    })
 }
 #[allow(dead_code)]
 #[doc = "The error handler to be called when an error occurs."]
@@ -71047,14 +71059,16 @@ unsafe extern "C" fn aeron_error_handler_t_callback_for_once_closure<F: FnMut(::
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(
-        errcode.into(),
-        if message.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(message).to_str().unwrap_or("") }
-        },
-    )
+    abort_on_panic(stringify!(aeron_error_handler_t_callback_for_once_closure), || {
+        closure(
+            errcode.into(),
+            if message.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(message).to_str().unwrap_or("") }
+            },
+        )
+    })
 }
 #[doc = "The error frame handler to be called when the driver notifies the client about an error frame being received."]
 #[doc = " The data passed to this callback will only be valid for the lifetime of the callback. The user should use"]
@@ -71114,7 +71128,10 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback<F: AeronPu
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_publication_error_frame_handler));
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_publication_error_frame_handler_t_callback)
+        );
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -71127,7 +71144,9 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback<F: AeronPu
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_publication_error_frame_handler(error_frame.into())
+    abort_on_panic(stringify!(aeron_publication_error_frame_handler_t_callback), || {
+        closure.handle_aeron_publication_error_frame_handler(error_frame.into())
+    })
 }
 #[allow(dead_code)]
 #[doc = "The error frame handler to be called when the driver notifies the client about an error frame being received."]
@@ -71161,7 +71180,10 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_for_once_c
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(error_frame.into())
+    abort_on_panic(
+        stringify!(aeron_publication_error_frame_handler_t_callback_for_once_closure),
+        || closure(error_frame.into()),
+    )
 }
 #[doc = "Generalised notification callback."]
 #[doc = r""]
@@ -71212,7 +71234,7 @@ unsafe extern "C" fn aeron_notification_t_callback<F: AeronNotificationCallback>
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_notification));
+        log::debug!("calling {}", stringify!(aeron_notification_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -71221,7 +71243,9 @@ unsafe extern "C" fn aeron_notification_t_callback<F: AeronNotificationCallback>
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_notification()
+    abort_on_panic(stringify!(aeron_notification_t_callback), || {
+        closure.handle_aeron_notification()
+    })
 }
 #[allow(dead_code)]
 #[doc = "Generalised notification callback."]
@@ -71243,7 +71267,7 @@ unsafe extern "C" fn aeron_notification_t_callback_for_once_closure<F: FnMut() -
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure()
+    abort_on_panic(stringify!(aeron_notification_t_callback_for_once_closure), || closure())
 }
 #[doc = "Function called by aeron_client_t to deliver notification that the media driver has added an aeron_publication_t"]
 #[doc = " or aeron_exclusive_publication_t successfully."]
@@ -71356,7 +71380,7 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback<F: AeronNewPublicationC
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_on_new_publication));
+        log::debug!("calling {}", stringify!(aeron_on_new_publication_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -71372,16 +71396,18 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback<F: AeronNewPublicationC
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_on_new_publication(
-        if channel.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(channel).to_str().unwrap_or("") }
-        },
-        stream_id.into(),
-        session_id.into(),
-        correlation_id.into(),
-    )
+    abort_on_panic(stringify!(aeron_on_new_publication_t_callback), || {
+        closure.handle_aeron_on_new_publication(
+            if channel.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(channel).to_str().unwrap_or("") }
+            },
+            stream_id.into(),
+            session_id.into(),
+            correlation_id.into(),
+        )
+    })
 }
 #[allow(dead_code)]
 #[doc = "Function called by aeron_client_t to deliver notification that the media driver has added an aeron_publication_t"]
@@ -71426,16 +71452,18 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback_for_once_closure<F: FnM
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(
-        if channel.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(channel).to_str().unwrap_or("") }
-        },
-        stream_id.into(),
-        session_id.into(),
-        correlation_id.into(),
-    )
+    abort_on_panic(stringify!(aeron_on_new_publication_t_callback_for_once_closure), || {
+        closure(
+            if channel.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(channel).to_str().unwrap_or("") }
+            },
+            stream_id.into(),
+            session_id.into(),
+            correlation_id.into(),
+        )
+    })
 }
 #[doc = "Function called by aeron_client_t to deliver notification that the media driver has added an aeron_subscription_t"]
 #[doc = " successfully."]
@@ -71516,7 +71544,7 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback<F: AeronNewSubscriptio
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_on_new_subscription));
+        log::debug!("calling {}", stringify!(aeron_on_new_subscription_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -71531,15 +71559,17 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback<F: AeronNewSubscriptio
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_on_new_subscription(
-        if channel.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(channel).to_str().unwrap_or("") }
-        },
-        stream_id.into(),
-        correlation_id.into(),
-    )
+    abort_on_panic(stringify!(aeron_on_new_subscription_t_callback), || {
+        closure.handle_aeron_on_new_subscription(
+            if channel.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(channel).to_str().unwrap_or("") }
+            },
+            stream_id.into(),
+            correlation_id.into(),
+        )
+    })
 }
 #[allow(dead_code)]
 #[doc = "Function called by aeron_client_t to deliver notification that the media driver has added an aeron_subscription_t"]
@@ -71582,14 +71612,19 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback_for_once_closure<F: Fn
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(
-        if channel.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(channel).to_str().unwrap_or("") }
+    abort_on_panic(
+        stringify!(aeron_on_new_subscription_t_callback_for_once_closure),
+        || {
+            closure(
+                if channel.is_null() {
+                    ""
+                } else {
+                    unsafe { std::ffi::CStr::from_ptr(channel).to_str().unwrap_or("") }
+                },
+                stream_id.into(),
+                correlation_id.into(),
+            )
         },
-        stream_id.into(),
-        correlation_id.into(),
     )
 }
 #[doc = "Function called by aeron_client_t to deliver notifications that an aeron_image_t was added."]
@@ -71659,7 +71694,7 @@ unsafe extern "C" fn aeron_on_available_image_t_callback<F: AeronAvailableImageC
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_on_available_image));
+        log::debug!("calling {}", stringify!(aeron_on_available_image_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -71673,7 +71708,9 @@ unsafe extern "C" fn aeron_on_available_image_t_callback<F: AeronAvailableImageC
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_on_available_image(subscription.into(), image.into())
+    abort_on_panic(stringify!(aeron_on_available_image_t_callback), || {
+        closure.handle_aeron_on_available_image(subscription.into(), image.into())
+    })
 }
 #[allow(dead_code)]
 #[doc = "Function called by aeron_client_t to deliver notifications that an aeron_image_t was added."]
@@ -71711,7 +71748,9 @@ unsafe extern "C" fn aeron_on_available_image_t_callback_for_once_closure<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(subscription.into(), image.into())
+    abort_on_panic(stringify!(aeron_on_available_image_t_callback_for_once_closure), || {
+        closure(subscription.into(), image.into())
+    })
 }
 #[doc = "Function called by aeron_client_t to deliver notifications that an aeron_image_t has been removed from use and"]
 #[doc = " should not be used any longer."]
@@ -71782,7 +71821,7 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback<F: AeronUnavailableIm
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_on_unavailable_image));
+        log::debug!("calling {}", stringify!(aeron_on_unavailable_image_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -71796,7 +71835,9 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback<F: AeronUnavailableIm
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_on_unavailable_image(subscription.into(), image.into())
+    abort_on_panic(stringify!(aeron_on_unavailable_image_t_callback), || {
+        closure.handle_aeron_on_unavailable_image(subscription.into(), image.into())
+    })
 }
 #[allow(dead_code)]
 #[doc = "Function called by aeron_client_t to deliver notifications that an aeron_image_t has been removed from use and"]
@@ -71835,7 +71876,10 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback_for_once_closure<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(subscription.into(), image.into())
+    abort_on_panic(
+        stringify!(aeron_on_unavailable_image_t_callback_for_once_closure),
+        || closure(subscription.into(), image.into()),
+    )
 }
 #[doc = "Function called by aeron_client_t to deliver notifications that a counter has been added to the driver."]
 #[doc = ""]
@@ -71933,7 +71977,7 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback<F: AeronAvailableCoun
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_on_available_counter));
+        log::debug!("calling {}", stringify!(aeron_on_available_counter_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -71948,7 +71992,9 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback<F: AeronAvailableCoun
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_on_available_counter(counters_reader.into(), registration_id.into(), counter_id.into())
+    abort_on_panic(stringify!(aeron_on_available_counter_t_callback), || {
+        closure.handle_aeron_on_available_counter(counters_reader.into(), registration_id.into(), counter_id.into())
+    })
 }
 #[allow(dead_code)]
 #[doc = "Function called by aeron_client_t to deliver notifications that a counter has been added to the driver."]
@@ -71989,7 +72035,10 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback_for_once_closure<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(counters_reader.into(), registration_id.into(), counter_id.into())
+    abort_on_panic(
+        stringify!(aeron_on_available_counter_t_callback_for_once_closure),
+        || closure(counters_reader.into(), registration_id.into(), counter_id.into()),
+    )
 }
 #[doc = "Function called by aeron_client_t to deliver notifications that a counter has been removed from the driver."]
 #[doc = ""]
@@ -72087,7 +72136,7 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback<F: AeronUnavailable
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_on_unavailable_counter));
+        log::debug!("calling {}", stringify!(aeron_on_unavailable_counter_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -72102,7 +72151,9 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback<F: AeronUnavailable
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_on_unavailable_counter(counters_reader.into(), registration_id.into(), counter_id.into())
+    abort_on_panic(stringify!(aeron_on_unavailable_counter_t_callback), || {
+        closure.handle_aeron_on_unavailable_counter(counters_reader.into(), registration_id.into(), counter_id.into())
+    })
 }
 #[allow(dead_code)]
 #[doc = "Function called by aeron_client_t to deliver notifications that a counter has been removed from the driver."]
@@ -72143,7 +72194,10 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback_for_once_closure<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(counters_reader.into(), registration_id.into(), counter_id.into())
+    abort_on_panic(
+        stringify!(aeron_on_unavailable_counter_t_callback_for_once_closure),
+        || closure(counters_reader.into(), registration_id.into(), counter_id.into()),
+    )
 }
 #[doc = "Function called by aeron_client_t to deliver notifications that the client is closing."]
 #[doc = ""]
@@ -72198,7 +72252,7 @@ unsafe extern "C" fn aeron_on_close_client_t_callback<F: AeronCloseClientCallbac
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_on_close_client));
+        log::debug!("calling {}", stringify!(aeron_on_close_client_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -72207,7 +72261,9 @@ unsafe extern "C" fn aeron_on_close_client_t_callback<F: AeronCloseClientCallbac
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_on_close_client()
+    abort_on_panic(stringify!(aeron_on_close_client_t_callback), || {
+        closure.handle_aeron_on_close_client()
+    })
 }
 #[allow(dead_code)]
 #[doc = "Function called by aeron_client_t to deliver notifications that the client is closing."]
@@ -72234,7 +72290,9 @@ unsafe extern "C" fn aeron_on_close_client_t_callback_for_once_closure<F: FnMut(
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure()
+    abort_on_panic(stringify!(aeron_on_close_client_t_callback_for_once_closure), || {
+        closure()
+    })
 }
 #[doc = r""]
 #[doc = r""]
@@ -72288,7 +72346,7 @@ unsafe extern "C" fn aeron_agent_on_start_func_t_callback<F: AeronAgentStartFunc
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_agent_on_start_func));
+        log::debug!("calling {}", stringify!(aeron_agent_on_start_func_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -72301,10 +72359,12 @@ unsafe extern "C" fn aeron_agent_on_start_func_t_callback<F: AeronAgentStartFunc
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_agent_on_start_func(if role_name.is_null() {
-        ""
-    } else {
-        unsafe { std::ffi::CStr::from_ptr(role_name).to_str().unwrap_or("") }
+    abort_on_panic(stringify!(aeron_agent_on_start_func_t_callback), || {
+        closure.handle_aeron_agent_on_start_func(if role_name.is_null() {
+            ""
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(role_name).to_str().unwrap_or("") }
+        })
     })
 }
 #[allow(dead_code)]
@@ -72334,11 +72394,16 @@ unsafe extern "C" fn aeron_agent_on_start_func_t_callback_for_once_closure<F: Fn
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(if role_name.is_null() {
-        ""
-    } else {
-        unsafe { std::ffi::CStr::from_ptr(role_name).to_str().unwrap_or("") }
-    })
+    abort_on_panic(
+        stringify!(aeron_agent_on_start_func_t_callback_for_once_closure),
+        || {
+            closure(if role_name.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(role_name).to_str().unwrap_or("") }
+            })
+        },
+    )
 }
 #[doc = "Function called by aeron_counters_reader_foreach_counter for each counter in the aeron_counters_reader_t."]
 #[doc = ""]
@@ -72458,7 +72523,7 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback<
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_counters_reader_foreach_counter_func)
+            stringify!(aeron_counters_reader_foreach_counter_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -72478,24 +72543,29 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_counters_reader_foreach_counter_func(
-        value.into(),
-        id.into(),
-        type_id.into(),
-        if key.is_null() {
-            &[] as &[_]
-        } else {
-            std::slice::from_raw_parts(key, key_length.try_into().unwrap())
-        },
-        if label.is_null() {
-            ""
-        } else {
-            unsafe {
-                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                    label as *const u8,
-                    label_length.try_into().unwrap(),
-                ))
-            }
+    abort_on_panic(
+        stringify!(aeron_counters_reader_foreach_counter_func_t_callback),
+        || {
+            closure.handle_aeron_counters_reader_foreach_counter_func(
+                value.into(),
+                id.into(),
+                type_id.into(),
+                if key.is_null() {
+                    &[] as &[_]
+                } else {
+                    std::slice::from_raw_parts(key, key_length.try_into().unwrap())
+                },
+                if label.is_null() {
+                    ""
+                } else {
+                    unsafe {
+                        std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                            label as *const u8,
+                            label_length.try_into().unwrap(),
+                        ))
+                    }
+                },
+            )
         },
     )
 }
@@ -72547,24 +72617,29 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback_for_o
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(
-        value.into(),
-        id.into(),
-        type_id.into(),
-        if key.is_null() {
-            &[] as &[_]
-        } else {
-            std::slice::from_raw_parts(key, key_length.try_into().unwrap())
-        },
-        if label.is_null() {
-            ""
-        } else {
-            unsafe {
-                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                    label as *const u8,
-                    label_length.try_into().unwrap(),
-                ))
-            }
+    abort_on_panic(
+        stringify!(aeron_counters_reader_foreach_counter_func_t_callback_for_once_closure),
+        || {
+            closure(
+                value.into(),
+                id.into(),
+                type_id.into(),
+                if key.is_null() {
+                    &[] as &[_]
+                } else {
+                    std::slice::from_raw_parts(key, key_length.try_into().unwrap())
+                },
+                if label.is_null() {
+                    ""
+                } else {
+                    unsafe {
+                        std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                            label as *const u8,
+                            label_length.try_into().unwrap(),
+                        ))
+                    }
+                },
+            )
         },
     )
 }
@@ -72631,7 +72706,7 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback<F: AeronReservedVa
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_reserved_value_supplier));
+        log::debug!("calling {}", stringify!(aeron_reserved_value_supplier_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -72645,12 +72720,14 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback<F: AeronReservedVa
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_reserved_value_supplier(unsafe {
-        if buffer.is_null() {
-            &mut [] as &mut [_]
-        } else {
-            std::slice::from_raw_parts_mut(buffer, frame_length.try_into().unwrap())
-        }
+    abort_on_panic(stringify!(aeron_reserved_value_supplier_t_callback), || {
+        closure.handle_aeron_reserved_value_supplier(unsafe {
+            if buffer.is_null() {
+                &mut [] as &mut [_]
+            } else {
+                std::slice::from_raw_parts_mut(buffer, frame_length.try_into().unwrap())
+            }
+        })
     })
 }
 #[allow(dead_code)]
@@ -72687,13 +72764,18 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback_for_once_closure<F
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(unsafe {
-        if buffer.is_null() {
-            &mut [] as &mut [_]
-        } else {
-            std::slice::from_raw_parts_mut(buffer, frame_length.try_into().unwrap())
-        }
-    })
+    abort_on_panic(
+        stringify!(aeron_reserved_value_supplier_t_callback_for_once_closure),
+        || {
+            closure(unsafe {
+                if buffer.is_null() {
+                    &mut [] as &mut [_]
+                } else {
+                    std::slice::from_raw_parts_mut(buffer, frame_length.try_into().unwrap())
+                }
+            })
+        },
+    )
 }
 #[doc = "Callback for handling fragments of data being read from a log."]
 #[doc = ""]
@@ -72759,7 +72841,7 @@ impl AeronFragmentHandlerCallback for NoHandler {
 #[doc = " @param buffer containing the data."]
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
-unsafe extern "C" fn aeron_fragment_handler_t_callback<F: AeronFragmentHandlerCallback>(
+unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback<F: AeronFragmentHandlerCallback>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
     length: usize,
@@ -72771,12 +72853,111 @@ unsafe extern "C" fn aeron_fragment_handler_t_callback<F: AeronFragmentHandlerCa
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_fragment_handler));
+        log::debug!("calling {}", stringify!(aeron_fragment_handler_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
         "{}({}\n)",
         stringify!(aeron_fragment_handler_t_callback),
+        [
+            format!("{} = {:?}", stringify!(clientd), clientd),
+            format!("{} = {:?}", stringify!(buffer), buffer),
+            format!("{} = {:?}", stringify!(length), length),
+            format!("{} = {:?}", stringify!(header), header)
+        ]
+        .join(", ")
+    );
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
+    abort_on_panic(stringify!(aeron_fragment_handler_t_callback), || {
+        closure.handle_aeron_fragment_handler(
+            if buffer.is_null() {
+                &[] as &[_]
+            } else {
+                std::slice::from_raw_parts(buffer, length.try_into().unwrap())
+            },
+            header.into(),
+        )
+    })
+}
+#[allow(dead_code)]
+#[doc = "Callback for handling fragments of data being read from a log."]
+#[doc = ""]
+#[doc = " The frame will either contain a whole message or a fragment of a message to be reassembled. Messages are fragmented"]
+#[doc = " if greater than the frame for MTU in length."]
+#[doc = ""]
+#[doc = " @param clientd passed to the poll function."]
+#[doc = " @param buffer containing the data."]
+#[doc = " @param length of the data in bytes."]
+#[doc = " @param header representing the meta data for the data."]
+unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure<F: FnMut(&[u8], AeronHeader) -> ()>(
+    clientd: *mut ::std::os::raw::c_void,
+    buffer: *const u8,
+    length: usize,
+    header: *mut aeron_header_t,
+) -> () {
+    #[cfg(debug_assertions)]
+    if clientd.is_null() {
+        unimplemented!("closure should not be null")
+    }
+    #[cfg(feature = "extra-logging")]
+    {
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_fragment_handler_t_callback_for_once_closure)
+        );
+    }
+    #[cfg(feature = "log-c-bindings")]
+    log::debug!(
+        "{}({}\n)",
+        stringify!(aeron_fragment_handler_t_callback_for_once_closure),
+        [
+            format!("{} = {:?}", stringify!(clientd), clientd),
+            format!("{} = {:?}", stringify!(buffer), buffer),
+            format!("{} = {:?}", stringify!(length), length),
+            format!("{} = {:?}", stringify!(header), header)
+        ]
+        .join(", ")
+    );
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
+    abort_on_panic(stringify!(aeron_fragment_handler_t_callback_for_once_closure), || {
+        closure(
+            if buffer.is_null() {
+                &[] as &[_]
+            } else {
+                std::slice::from_raw_parts(buffer, length.try_into().unwrap())
+            },
+            header.into(),
+        )
+    })
+}
+#[allow(dead_code)]
+#[doc = "Callback for handling fragments of data being read from a log."]
+#[doc = ""]
+#[doc = " The frame will either contain a whole message or a fragment of a message to be reassembled. Messages are fragmented"]
+#[doc = " if greater than the frame for MTU in length."]
+#[doc = ""]
+#[doc = " @param clientd passed to the poll function."]
+#[doc = " @param buffer containing the data."]
+#[doc = " @param length of the data in bytes."]
+#[doc = " @param header representing the meta data for the data."]
+unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_unwind<F: AeronFragmentHandlerCallback>(
+    clientd: *mut ::std::os::raw::c_void,
+    buffer: *const u8,
+    length: usize,
+    header: *mut aeron_header_t,
+) -> () {
+    #[cfg(debug_assertions)]
+    if clientd.is_null() {
+        unimplemented!("closure should not be null")
+    }
+    #[cfg(feature = "extra-logging")]
+    {
+        log::debug!("calling {}", stringify!(aeron_fragment_handler_t_callback_unwind));
+    }
+    #[cfg(feature = "log-c-bindings")]
+    log::debug!(
+        "{}({}\n)",
+        stringify!(aeron_fragment_handler_t_callback_unwind),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(buffer), buffer),
@@ -72805,7 +72986,9 @@ unsafe extern "C" fn aeron_fragment_handler_t_callback<F: AeronFragmentHandlerCa
 #[doc = " @param buffer containing the data."]
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
-unsafe extern "C" fn aeron_fragment_handler_t_callback_for_once_closure<F: FnMut(&[u8], AeronHeader) -> ()>(
+unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_unwind<
+    F: FnMut(&[u8], AeronHeader) -> (),
+>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
     length: usize,
@@ -72819,13 +73002,13 @@ unsafe extern "C" fn aeron_fragment_handler_t_callback_for_once_closure<F: FnMut
     {
         log::debug!(
             "calling {}",
-            stringify!(aeron_fragment_handler_t_callback_for_once_closure)
+            stringify!(aeron_fragment_handler_t_callback_for_once_closure_unwind)
         );
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
         "{}({}\n)",
-        stringify!(aeron_fragment_handler_t_callback_for_once_closure),
+        stringify!(aeron_fragment_handler_t_callback_for_once_closure_unwind),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(buffer), buffer),
@@ -72932,7 +73115,7 @@ impl AeronControlledFragmentHandlerCallback for NoHandler {
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
 #[doc = " @return The action to be taken with regard to the stream position after the callback."]
-unsafe extern "C" fn aeron_controlled_fragment_handler_t_callback<F: AeronControlledFragmentHandlerCallback>(
+unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback<F: AeronControlledFragmentHandlerCallback>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
     length: usize,
@@ -72944,12 +73127,123 @@ unsafe extern "C" fn aeron_controlled_fragment_handler_t_callback<F: AeronContro
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_controlled_fragment_handler));
+        log::debug!("calling {}", stringify!(aeron_controlled_fragment_handler_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
         "{}({}\n)",
         stringify!(aeron_controlled_fragment_handler_t_callback),
+        [
+            format!("{} = {:?}", stringify!(clientd), clientd),
+            format!("{} = {:?}", stringify!(buffer), buffer),
+            format!("{} = {:?}", stringify!(length), length),
+            format!("{} = {:?}", stringify!(header), header)
+        ]
+        .join(", ")
+    );
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
+    abort_on_panic(stringify!(aeron_controlled_fragment_handler_t_callback), || {
+        closure.handle_aeron_controlled_fragment_handler(
+            if buffer.is_null() {
+                &[] as &[_]
+            } else {
+                std::slice::from_raw_parts(buffer, length.try_into().unwrap())
+            },
+            header.into(),
+        )
+    })
+}
+#[allow(dead_code)]
+#[doc = "Callback for handling fragments of data being read from a log."]
+#[doc = ""]
+#[doc = " Handler for reading data that is coming from a log buffer. The frame will either contain a whole message"]
+#[doc = " or a fragment of a message to be reassembled. Messages are fragmented if greater than the frame for MTU in length."]
+#[doc = ""]
+#[doc = " @param clientd passed to the controlled poll function."]
+#[doc = " @param buffer containing the data."]
+#[doc = " @param length of the data in bytes."]
+#[doc = " @param header representing the meta data for the data."]
+#[doc = " @return The action to be taken with regard to the stream position after the callback."]
+unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_once_closure<
+    F: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
+>(
+    clientd: *mut ::std::os::raw::c_void,
+    buffer: *const u8,
+    length: usize,
+    header: *mut aeron_header_t,
+) -> aeron_controlled_fragment_handler_action_t {
+    #[cfg(debug_assertions)]
+    if clientd.is_null() {
+        unimplemented!("closure should not be null")
+    }
+    #[cfg(feature = "extra-logging")]
+    {
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_controlled_fragment_handler_t_callback_for_once_closure)
+        );
+    }
+    #[cfg(feature = "log-c-bindings")]
+    log::debug!(
+        "{}({}\n)",
+        stringify!(aeron_controlled_fragment_handler_t_callback_for_once_closure),
+        [
+            format!("{} = {:?}", stringify!(clientd), clientd),
+            format!("{} = {:?}", stringify!(buffer), buffer),
+            format!("{} = {:?}", stringify!(length), length),
+            format!("{} = {:?}", stringify!(header), header)
+        ]
+        .join(", ")
+    );
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
+    abort_on_panic(
+        stringify!(aeron_controlled_fragment_handler_t_callback_for_once_closure),
+        || {
+            closure(
+                if buffer.is_null() {
+                    &[] as &[_]
+                } else {
+                    std::slice::from_raw_parts(buffer, length.try_into().unwrap())
+                },
+                header.into(),
+            )
+        },
+    )
+}
+#[allow(dead_code)]
+#[doc = "Callback for handling fragments of data being read from a log."]
+#[doc = ""]
+#[doc = " Handler for reading data that is coming from a log buffer. The frame will either contain a whole message"]
+#[doc = " or a fragment of a message to be reassembled. Messages are fragmented if greater than the frame for MTU in length."]
+#[doc = ""]
+#[doc = " @param clientd passed to the controlled poll function."]
+#[doc = " @param buffer containing the data."]
+#[doc = " @param length of the data in bytes."]
+#[doc = " @param header representing the meta data for the data."]
+#[doc = " @return The action to be taken with regard to the stream position after the callback."]
+unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_unwind<
+    F: AeronControlledFragmentHandlerCallback,
+>(
+    clientd: *mut ::std::os::raw::c_void,
+    buffer: *const u8,
+    length: usize,
+    header: *mut aeron_header_t,
+) -> aeron_controlled_fragment_handler_action_t {
+    #[cfg(debug_assertions)]
+    if clientd.is_null() {
+        unimplemented!("closure should not be null")
+    }
+    #[cfg(feature = "extra-logging")]
+    {
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_controlled_fragment_handler_t_callback_unwind)
+        );
+    }
+    #[cfg(feature = "log-c-bindings")]
+    log::debug!(
+        "{}({}\n)",
+        stringify!(aeron_controlled_fragment_handler_t_callback_unwind),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(buffer), buffer),
@@ -72979,7 +73273,7 @@ unsafe extern "C" fn aeron_controlled_fragment_handler_t_callback<F: AeronContro
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
 #[doc = " @return The action to be taken with regard to the stream position after the callback."]
-unsafe extern "C" fn aeron_controlled_fragment_handler_t_callback_for_once_closure<
+unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_once_closure_unwind<
     F: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
 >(
     clientd: *mut ::std::os::raw::c_void,
@@ -72995,13 +73289,13 @@ unsafe extern "C" fn aeron_controlled_fragment_handler_t_callback_for_once_closu
     {
         log::debug!(
             "calling {}",
-            stringify!(aeron_controlled_fragment_handler_t_callback_for_once_closure)
+            stringify!(aeron_controlled_fragment_handler_t_callback_for_once_closure_unwind)
         );
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
         "{}({}\n)",
-        stringify!(aeron_controlled_fragment_handler_t_callback_for_once_closure),
+        stringify!(aeron_controlled_fragment_handler_t_callback_for_once_closure_unwind),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(buffer), buffer),
@@ -73083,7 +73377,7 @@ impl AeronBlockHandlerCallback for NoHandler {
 #[doc = " @param length of the block in bytes, including any frame headers that is aligned."]
 #[doc = " @param session_id of the stream containing this block of message fragments."]
 #[doc = " @param term_id of the stream containing this block of message fragments."]
-unsafe extern "C" fn aeron_block_handler_t_callback<F: AeronBlockHandlerCallback>(
+unsafe extern "C-unwind" fn aeron_block_handler_t_callback<F: AeronBlockHandlerCallback>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
     length: usize,
@@ -73096,12 +73390,115 @@ unsafe extern "C" fn aeron_block_handler_t_callback<F: AeronBlockHandlerCallback
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_block_handler));
+        log::debug!("calling {}", stringify!(aeron_block_handler_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
         "{}({}\n)",
         stringify!(aeron_block_handler_t_callback),
+        [
+            format!("{} = {:?}", stringify!(clientd), clientd),
+            format!("{} = {:?}", stringify!(buffer), buffer),
+            format!("{} = {:?}", stringify!(length), length),
+            format!("{} = {:?}", stringify!(session_id), session_id),
+            format!("{} = {:?}", stringify!(term_id), term_id)
+        ]
+        .join(", ")
+    );
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
+    abort_on_panic(stringify!(aeron_block_handler_t_callback), || {
+        closure.handle_aeron_block_handler(
+            if buffer.is_null() {
+                &[] as &[_]
+            } else {
+                std::slice::from_raw_parts(buffer, length.try_into().unwrap())
+            },
+            session_id.into(),
+            term_id.into(),
+        )
+    })
+}
+#[allow(dead_code)]
+#[doc = "Callback for handling a block of messages being read from a log."]
+#[doc = ""]
+#[doc = " @param clientd passed to the block poll function."]
+#[doc = " @param buffer containing the block of message fragments."]
+#[doc = " @param offset at which the block begins, including any frame headers."]
+#[doc = " @param length of the block in bytes, including any frame headers that is aligned."]
+#[doc = " @param session_id of the stream containing this block of message fragments."]
+#[doc = " @param term_id of the stream containing this block of message fragments."]
+unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_once_closure<F: FnMut(&[u8], i32, i32) -> ()>(
+    clientd: *mut ::std::os::raw::c_void,
+    buffer: *const u8,
+    length: usize,
+    session_id: i32,
+    term_id: i32,
+) -> () {
+    #[cfg(debug_assertions)]
+    if clientd.is_null() {
+        unimplemented!("closure should not be null")
+    }
+    #[cfg(feature = "extra-logging")]
+    {
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_block_handler_t_callback_for_once_closure)
+        );
+    }
+    #[cfg(feature = "log-c-bindings")]
+    log::debug!(
+        "{}({}\n)",
+        stringify!(aeron_block_handler_t_callback_for_once_closure),
+        [
+            format!("{} = {:?}", stringify!(clientd), clientd),
+            format!("{} = {:?}", stringify!(buffer), buffer),
+            format!("{} = {:?}", stringify!(length), length),
+            format!("{} = {:?}", stringify!(session_id), session_id),
+            format!("{} = {:?}", stringify!(term_id), term_id)
+        ]
+        .join(", ")
+    );
+    let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
+    abort_on_panic(stringify!(aeron_block_handler_t_callback_for_once_closure), || {
+        closure(
+            if buffer.is_null() {
+                &[] as &[_]
+            } else {
+                std::slice::from_raw_parts(buffer, length.try_into().unwrap())
+            },
+            session_id.into(),
+            term_id.into(),
+        )
+    })
+}
+#[allow(dead_code)]
+#[doc = "Callback for handling a block of messages being read from a log."]
+#[doc = ""]
+#[doc = " @param clientd passed to the block poll function."]
+#[doc = " @param buffer containing the block of message fragments."]
+#[doc = " @param offset at which the block begins, including any frame headers."]
+#[doc = " @param length of the block in bytes, including any frame headers that is aligned."]
+#[doc = " @param session_id of the stream containing this block of message fragments."]
+#[doc = " @param term_id of the stream containing this block of message fragments."]
+unsafe extern "C-unwind" fn aeron_block_handler_t_callback_unwind<F: AeronBlockHandlerCallback>(
+    clientd: *mut ::std::os::raw::c_void,
+    buffer: *const u8,
+    length: usize,
+    session_id: i32,
+    term_id: i32,
+) -> () {
+    #[cfg(debug_assertions)]
+    if clientd.is_null() {
+        unimplemented!("closure should not be null")
+    }
+    #[cfg(feature = "extra-logging")]
+    {
+        log::debug!("calling {}", stringify!(aeron_block_handler_t_callback_unwind));
+    }
+    #[cfg(feature = "log-c-bindings")]
+    log::debug!(
+        "{}({}\n)",
+        stringify!(aeron_block_handler_t_callback_unwind),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(buffer), buffer),
@@ -73131,7 +73528,7 @@ unsafe extern "C" fn aeron_block_handler_t_callback<F: AeronBlockHandlerCallback
 #[doc = " @param length of the block in bytes, including any frame headers that is aligned."]
 #[doc = " @param session_id of the stream containing this block of message fragments."]
 #[doc = " @param term_id of the stream containing this block of message fragments."]
-unsafe extern "C" fn aeron_block_handler_t_callback_for_once_closure<F: FnMut(&[u8], i32, i32) -> ()>(
+unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_once_closure_unwind<F: FnMut(&[u8], i32, i32) -> ()>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
     length: usize,
@@ -73146,13 +73543,13 @@ unsafe extern "C" fn aeron_block_handler_t_callback_for_once_closure<F: FnMut(&[
     {
         log::debug!(
             "calling {}",
-            stringify!(aeron_block_handler_t_callback_for_once_closure)
+            stringify!(aeron_block_handler_t_callback_for_once_closure_unwind)
         );
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
         "{}({}\n)",
-        stringify!(aeron_block_handler_t_callback_for_once_closure),
+        stringify!(aeron_block_handler_t_callback_for_once_closure_unwind),
         [
             format!("{} = {:?}", stringify!(clientd), clientd),
             format!("{} = {:?}", stringify!(buffer), buffer),
@@ -73283,7 +73680,7 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback<F: AeronErrorLogRead
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_error_log_reader_func));
+        log::debug!("calling {}", stringify!(aeron_error_log_reader_func_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -73308,21 +73705,23 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback<F: AeronErrorLogRead
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_error_log_reader_func(
-        observation_count.into(),
-        first_observation_timestamp.into(),
-        last_observation_timestamp.into(),
-        if error.is_null() {
-            ""
-        } else {
-            unsafe {
-                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                    error as *const u8,
-                    error_length.try_into().unwrap(),
-                ))
-            }
-        },
-    )
+    abort_on_panic(stringify!(aeron_error_log_reader_func_t_callback), || {
+        closure.handle_aeron_error_log_reader_func(
+            observation_count.into(),
+            first_observation_timestamp.into(),
+            last_observation_timestamp.into(),
+            if error.is_null() {
+                ""
+            } else {
+                unsafe {
+                    std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                        error as *const u8,
+                        error_length.try_into().unwrap(),
+                    ))
+                }
+            },
+        )
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_error_log_reader_func_t_callback_for_once_closure<F: FnMut(i32, i64, i64, &str) -> ()>(
@@ -73367,19 +73766,24 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback_for_once_closure<F: 
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(
-        observation_count.into(),
-        first_observation_timestamp.into(),
-        last_observation_timestamp.into(),
-        if error.is_null() {
-            ""
-        } else {
-            unsafe {
-                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                    error as *const u8,
-                    error_length.try_into().unwrap(),
-                ))
-            }
+    abort_on_panic(
+        stringify!(aeron_error_log_reader_func_t_callback_for_once_closure),
+        || {
+            closure(
+                observation_count.into(),
+                first_observation_timestamp.into(),
+                last_observation_timestamp.into(),
+                if error.is_null() {
+                    ""
+                } else {
+                    unsafe {
+                        std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                            error as *const u8,
+                            error_length.try_into().unwrap(),
+                        ))
+                    }
+                },
+            )
         },
     )
 }
@@ -73530,7 +73934,7 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback<F: AeronLoss
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_loss_reporter_read_entry_func));
+        log::debug!("calling {}", stringify!(aeron_loss_reporter_read_entry_func_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -73560,34 +73964,36 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback<F: AeronLoss
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_loss_reporter_read_entry_func(
-        observation_count.into(),
-        total_bytes_lost.into(),
-        first_observation_timestamp.into(),
-        last_observation_timestamp.into(),
-        session_id.into(),
-        stream_id.into(),
-        if channel.is_null() {
-            ""
-        } else {
-            unsafe {
-                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                    channel as *const u8,
-                    channel_length.try_into().unwrap(),
-                ))
-            }
-        },
-        if source.is_null() {
-            ""
-        } else {
-            unsafe {
-                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                    source as *const u8,
-                    source_length.try_into().unwrap(),
-                ))
-            }
-        },
-    )
+    abort_on_panic(stringify!(aeron_loss_reporter_read_entry_func_t_callback), || {
+        closure.handle_aeron_loss_reporter_read_entry_func(
+            observation_count.into(),
+            total_bytes_lost.into(),
+            first_observation_timestamp.into(),
+            last_observation_timestamp.into(),
+            session_id.into(),
+            stream_id.into(),
+            if channel.is_null() {
+                ""
+            } else {
+                unsafe {
+                    std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                        channel as *const u8,
+                        channel_length.try_into().unwrap(),
+                    ))
+                }
+            },
+            if source.is_null() {
+                ""
+            } else {
+                unsafe {
+                    std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                        source as *const u8,
+                        source_length.try_into().unwrap(),
+                    ))
+                }
+            },
+        )
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback_for_once_closure<
@@ -73644,32 +74050,37 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback_for_once_clo
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(
-        observation_count.into(),
-        total_bytes_lost.into(),
-        first_observation_timestamp.into(),
-        last_observation_timestamp.into(),
-        session_id.into(),
-        stream_id.into(),
-        if channel.is_null() {
-            ""
-        } else {
-            unsafe {
-                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                    channel as *const u8,
-                    channel_length.try_into().unwrap(),
-                ))
-            }
-        },
-        if source.is_null() {
-            ""
-        } else {
-            unsafe {
-                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                    source as *const u8,
-                    source_length.try_into().unwrap(),
-                ))
-            }
+    abort_on_panic(
+        stringify!(aeron_loss_reporter_read_entry_func_t_callback_for_once_closure),
+        || {
+            closure(
+                observation_count.into(),
+                total_bytes_lost.into(),
+                first_observation_timestamp.into(),
+                last_observation_timestamp.into(),
+                session_id.into(),
+                stream_id.into(),
+                if channel.is_null() {
+                    ""
+                } else {
+                    unsafe {
+                        std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                            channel as *const u8,
+                            channel_length.try_into().unwrap(),
+                        ))
+                    }
+                },
+                if source.is_null() {
+                    ""
+                } else {
+                    unsafe {
+                        std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                            source as *const u8,
+                            source_length.try_into().unwrap(),
+                        ))
+                    }
+                },
+            )
         },
     )
 }
@@ -73725,7 +74136,7 @@ unsafe extern "C" fn aeron_idle_strategy_func_t_callback<F: AeronIdleStrategyFun
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_idle_strategy_func));
+        log::debug!("calling {}", stringify!(aeron_idle_strategy_func_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -73738,7 +74149,9 @@ unsafe extern "C" fn aeron_idle_strategy_func_t_callback<F: AeronIdleStrategyFun
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_idle_strategy_func(work_count.into())
+    abort_on_panic(stringify!(aeron_idle_strategy_func_t_callback), || {
+        closure.handle_aeron_idle_strategy_func(work_count.into())
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_idle_strategy_func_t_callback_for_once_closure<F: FnMut(::std::os::raw::c_int) -> ()>(
@@ -73767,7 +74180,9 @@ unsafe extern "C" fn aeron_idle_strategy_func_t_callback_for_once_closure<F: FnM
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(work_count.into())
+    abort_on_panic(stringify!(aeron_idle_strategy_func_t_callback_for_once_closure), || {
+        closure(work_count.into())
+    })
 }
 #[doc = r""]
 #[doc = r""]
@@ -73826,7 +74241,7 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback<F: AeronUriParseCallbac
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_uri_parse_callback));
+        log::debug!("calling {}", stringify!(aeron_uri_parse_callback_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -73840,18 +74255,20 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback<F: AeronUriParseCallbac
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_uri_parse_callback(
-        if key.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(key).to_str().unwrap_or("") }
-        },
-        if value.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(value).to_str().unwrap_or("") }
-        },
-    )
+    abort_on_panic(stringify!(aeron_uri_parse_callback_t_callback), || {
+        closure.handle_aeron_uri_parse_callback(
+            if key.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(key).to_str().unwrap_or("") }
+            },
+            if value.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(value).to_str().unwrap_or("") }
+            },
+        )
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_uri_parse_callback_t_callback_for_once_closure<
@@ -73884,18 +74301,20 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback_for_once_closure<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(
-        if key.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(key).to_str().unwrap_or("") }
-        },
-        if value.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(value).to_str().unwrap_or("") }
-        },
-    )
+    abort_on_panic(stringify!(aeron_uri_parse_callback_t_callback_for_once_closure), || {
+        closure(
+            if key.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(key).to_str().unwrap_or("") }
+            },
+            if value.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(value).to_str().unwrap_or("") }
+            },
+        )
+    })
 }
 #[doc = r""]
 #[doc = r""]
@@ -73952,7 +74371,10 @@ unsafe extern "C" fn aeron_driver_termination_validator_func_t_callback<
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_driver_termination_validator_func));
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_driver_termination_validator_func_t_callback)
+        );
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -73966,12 +74388,14 @@ unsafe extern "C" fn aeron_driver_termination_validator_func_t_callback<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_driver_termination_validator_func(unsafe {
-        if buffer.is_null() {
-            &mut [] as &mut [_]
-        } else {
-            std::slice::from_raw_parts_mut(buffer, length.try_into().unwrap())
-        }
+    abort_on_panic(stringify!(aeron_driver_termination_validator_func_t_callback), || {
+        closure.handle_aeron_driver_termination_validator_func(unsafe {
+            if buffer.is_null() {
+                &mut [] as &mut [_]
+            } else {
+                std::slice::from_raw_parts_mut(buffer, length.try_into().unwrap())
+            }
+        })
     })
 }
 #[allow(dead_code)]
@@ -74005,13 +74429,18 @@ unsafe extern "C" fn aeron_driver_termination_validator_func_t_callback_for_once
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(unsafe {
-        if buffer.is_null() {
-            &mut [] as &mut [_]
-        } else {
-            std::slice::from_raw_parts_mut(buffer, length.try_into().unwrap())
-        }
-    })
+    abort_on_panic(
+        stringify!(aeron_driver_termination_validator_func_t_callback_for_once_closure),
+        || {
+            closure(unsafe {
+                if buffer.is_null() {
+                    &mut [] as &mut [_]
+                } else {
+                    std::slice::from_raw_parts_mut(buffer, length.try_into().unwrap())
+                }
+            })
+        },
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -74064,7 +74493,7 @@ unsafe extern "C" fn aeron_driver_termination_hook_func_t_callback<F: AeronDrive
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_driver_termination_hook_func));
+        log::debug!("calling {}", stringify!(aeron_driver_termination_hook_func_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -74073,7 +74502,9 @@ unsafe extern "C" fn aeron_driver_termination_hook_func_t_callback<F: AeronDrive
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_driver_termination_hook_func()
+    abort_on_panic(stringify!(aeron_driver_termination_hook_func_t_callback), || {
+        closure.handle_aeron_driver_termination_hook_func()
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_driver_termination_hook_func_t_callback_for_once_closure<F: FnMut() -> ()>(
@@ -74097,7 +74528,10 @@ unsafe extern "C" fn aeron_driver_termination_hook_func_t_callback_for_once_clos
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure()
+    abort_on_panic(
+        stringify!(aeron_driver_termination_hook_func_t_callback_for_once_closure),
+        || closure(),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -74151,7 +74585,7 @@ unsafe extern "C" fn aeron_queue_drain_func_t_callback<F: AeronQueueDrainFuncCal
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_queue_drain_func));
+        log::debug!("calling {}", stringify!(aeron_queue_drain_func_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -74164,7 +74598,9 @@ unsafe extern "C" fn aeron_queue_drain_func_t_callback<F: AeronQueueDrainFuncCal
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_queue_drain_func(item.into())
+    abort_on_panic(stringify!(aeron_queue_drain_func_t_callback), || {
+        closure.handle_aeron_queue_drain_func(item.into())
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_queue_drain_func_t_callback_for_once_closure<F: FnMut(*mut ::std::os::raw::c_void) -> ()>(
@@ -74193,7 +74629,9 @@ unsafe extern "C" fn aeron_queue_drain_func_t_callback_for_once_closure<F: FnMut
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(item.into())
+    abort_on_panic(stringify!(aeron_queue_drain_func_t_callback_for_once_closure), || {
+        closure(item.into())
+    })
 }
 #[doc = r""]
 #[doc = r""]
@@ -74254,7 +74692,7 @@ unsafe extern "C" fn aeron_rb_handler_t_callback<F: AeronRbHandlerCallback>(
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_rb_handler));
+        log::debug!("calling {}", stringify!(aeron_rb_handler_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -74269,7 +74707,9 @@ unsafe extern "C" fn aeron_rb_handler_t_callback<F: AeronRbHandlerCallback>(
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(arg4 as *mut F) };
-    closure.handle_aeron_rb_handler(arg1.into(), arg2.into(), arg3.into())
+    abort_on_panic(stringify!(aeron_rb_handler_t_callback), || {
+        closure.handle_aeron_rb_handler(arg1.into(), arg2.into(), arg3.into())
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_rb_handler_t_callback_for_once_closure<
@@ -74301,7 +74741,9 @@ unsafe extern "C" fn aeron_rb_handler_t_callback_for_once_closure<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(arg4 as *mut F) };
-    closure(arg1.into(), arg2.into(), arg3.into())
+    abort_on_panic(stringify!(aeron_rb_handler_t_callback_for_once_closure), || {
+        closure(arg1.into(), arg2.into(), arg3.into())
+    })
 }
 #[doc = r""]
 #[doc = r""]
@@ -74389,7 +74831,7 @@ unsafe extern "C" fn aeron_rb_controlled_handler_t_callback<F: AeronRbControlled
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_rb_controlled_handler));
+        log::debug!("calling {}", stringify!(aeron_rb_controlled_handler_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -74404,7 +74846,9 @@ unsafe extern "C" fn aeron_rb_controlled_handler_t_callback<F: AeronRbControlled
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(arg4 as *mut F) };
-    closure.handle_aeron_rb_controlled_handler(arg1.into(), arg2.into(), arg3.into())
+    abort_on_panic(stringify!(aeron_rb_controlled_handler_t_callback), || {
+        closure.handle_aeron_rb_controlled_handler(arg1.into(), arg2.into(), arg3.into())
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_rb_controlled_handler_t_callback_for_once_closure<
@@ -74439,7 +74883,10 @@ unsafe extern "C" fn aeron_rb_controlled_handler_t_callback_for_once_closure<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(arg4 as *mut F) };
-    closure(arg1.into(), arg2.into(), arg3.into())
+    abort_on_panic(
+        stringify!(aeron_rb_controlled_handler_t_callback_for_once_closure),
+        || closure(arg1.into(), arg2.into(), arg3.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -74536,7 +74983,7 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_idle_func_t_callback<
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_flow_control_strategy_on_idle_func)
+            stringify!(aeron_flow_control_strategy_on_idle_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -74553,12 +75000,14 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_idle_func_t_callback<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_flow_control_strategy_on_idle_func(
-        now_ns.into(),
-        snd_lmt.into(),
-        snd_pos.into(),
-        is_end_of_stream.into(),
-    )
+    abort_on_panic(stringify!(aeron_flow_control_strategy_on_idle_func_t_callback), || {
+        closure.handle_aeron_flow_control_strategy_on_idle_func(
+            now_ns.into(),
+            snd_lmt.into(),
+            snd_pos.into(),
+            is_end_of_stream.into(),
+        )
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_flow_control_strategy_on_idle_func_t_callback_for_once_closure<
@@ -74595,7 +75044,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_idle_func_t_callback_for_onc
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(now_ns.into(), snd_lmt.into(), snd_pos.into(), is_end_of_stream.into())
+    abort_on_panic(
+        stringify!(aeron_flow_control_strategy_on_idle_func_t_callback_for_once_closure),
+        || closure(now_ns.into(), snd_lmt.into(), snd_pos.into(), is_end_of_stream.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -74710,7 +75162,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback<F: AeronF
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_flow_control_strategy_on_sm_func));
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_flow_control_strategy_on_sm_func_t_callback)
+        );
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -74729,18 +75184,20 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback<F: AeronF
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_flow_control_strategy_on_sm_func(
-        if sm.is_null() {
-            &[] as &[_]
-        } else {
-            std::slice::from_raw_parts(sm, length.try_into().unwrap())
-        },
-        recv_addr.into(),
-        snd_lmt.into(),
-        initial_term_id.into(),
-        position_bits_to_shift.into(),
-        now_ns.into(),
-    )
+    abort_on_panic(stringify!(aeron_flow_control_strategy_on_sm_func_t_callback), || {
+        closure.handle_aeron_flow_control_strategy_on_sm_func(
+            if sm.is_null() {
+                &[] as &[_]
+            } else {
+                std::slice::from_raw_parts(sm, length.try_into().unwrap())
+            },
+            recv_addr.into(),
+            snd_lmt.into(),
+            initial_term_id.into(),
+            position_bits_to_shift.into(),
+            now_ns.into(),
+        )
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback_for_once_closure<
@@ -74783,17 +75240,22 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback_for_once_
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(
-        if sm.is_null() {
-            &[] as &[_]
-        } else {
-            std::slice::from_raw_parts(sm, length.try_into().unwrap())
+    abort_on_panic(
+        stringify!(aeron_flow_control_strategy_on_sm_func_t_callback_for_once_closure),
+        || {
+            closure(
+                if sm.is_null() {
+                    &[] as &[_]
+                } else {
+                    std::slice::from_raw_parts(sm, length.try_into().unwrap())
+                },
+                recv_addr.into(),
+                snd_lmt.into(),
+                initial_term_id.into(),
+                position_bits_to_shift.into(),
+                now_ns.into(),
+            )
         },
-        recv_addr.into(),
-        snd_lmt.into(),
-        initial_term_id.into(),
-        position_bits_to_shift.into(),
-        now_ns.into(),
     )
 }
 #[doc = r""]
@@ -74899,7 +75361,7 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_setup_func_t_callback<
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_flow_control_strategy_on_setup_func)
+            stringify!(aeron_flow_control_strategy_on_setup_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -74918,17 +75380,19 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_setup_func_t_callback<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_flow_control_strategy_on_setup_func(
-        if setup.is_null() {
-            &[] as &[_]
-        } else {
-            std::slice::from_raw_parts(setup, length.try_into().unwrap())
-        },
-        now_ns.into(),
-        snd_lmt.into(),
-        position_bits_to_shift.into(),
-        snd_pos.into(),
-    )
+    abort_on_panic(stringify!(aeron_flow_control_strategy_on_setup_func_t_callback), || {
+        closure.handle_aeron_flow_control_strategy_on_setup_func(
+            if setup.is_null() {
+                &[] as &[_]
+            } else {
+                std::slice::from_raw_parts(setup, length.try_into().unwrap())
+            },
+            now_ns.into(),
+            snd_lmt.into(),
+            position_bits_to_shift.into(),
+            snd_pos.into(),
+        )
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_flow_control_strategy_on_setup_func_t_callback_for_once_closure<
@@ -74969,16 +75433,21 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_setup_func_t_callback_for_on
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(
-        if setup.is_null() {
-            &[] as &[_]
-        } else {
-            std::slice::from_raw_parts(setup, length.try_into().unwrap())
+    abort_on_panic(
+        stringify!(aeron_flow_control_strategy_on_setup_func_t_callback_for_once_closure),
+        || {
+            closure(
+                if setup.is_null() {
+                    &[] as &[_]
+                } else {
+                    std::slice::from_raw_parts(setup, length.try_into().unwrap())
+                },
+                now_ns.into(),
+                snd_lmt.into(),
+                position_bits_to_shift.into(),
+                snd_pos.into(),
+            )
         },
-        now_ns.into(),
-        snd_lmt.into(),
-        position_bits_to_shift.into(),
-        snd_pos.into(),
     )
 }
 #[doc = r""]
@@ -75070,7 +75539,7 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback<
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_flow_control_strategy_on_error_func)
+            stringify!(aeron_flow_control_strategy_on_error_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -75087,15 +75556,17 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_flow_control_strategy_on_error_func(
-        if error.is_null() {
-            &[] as &[_]
-        } else {
-            std::slice::from_raw_parts(error, length.try_into().unwrap())
-        },
-        recv_addr.into(),
-        now_ns.into(),
-    )
+    abort_on_panic(stringify!(aeron_flow_control_strategy_on_error_func_t_callback), || {
+        closure.handle_aeron_flow_control_strategy_on_error_func(
+            if error.is_null() {
+                &[] as &[_]
+            } else {
+                std::slice::from_raw_parts(error, length.try_into().unwrap())
+            },
+            recv_addr.into(),
+            now_ns.into(),
+        )
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback_for_once_closure<
@@ -75132,14 +75603,19 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback_for_on
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(
-        if error.is_null() {
-            &[] as &[_]
-        } else {
-            std::slice::from_raw_parts(error, length.try_into().unwrap())
+    abort_on_panic(
+        stringify!(aeron_flow_control_strategy_on_error_func_t_callback_for_once_closure),
+        || {
+            closure(
+                if error.is_null() {
+                    &[] as &[_]
+                } else {
+                    std::slice::from_raw_parts(error, length.try_into().unwrap())
+                },
+                recv_addr.into(),
+                now_ns.into(),
+            )
         },
-        recv_addr.into(),
-        now_ns.into(),
     )
 }
 #[doc = r""]
@@ -75233,7 +75709,7 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_ca
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_flow_control_strategy_on_trigger_send_setup_func)
+            stringify!(aeron_flow_control_strategy_on_trigger_send_setup_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -75250,14 +75726,19 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_ca
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_flow_control_strategy_on_trigger_send_setup_func(
-        if sm.is_null() {
-            &[] as &[_]
-        } else {
-            std::slice::from_raw_parts(sm, length.try_into().unwrap())
+    abort_on_panic(
+        stringify!(aeron_flow_control_strategy_on_trigger_send_setup_func_t_callback),
+        || {
+            closure.handle_aeron_flow_control_strategy_on_trigger_send_setup_func(
+                if sm.is_null() {
+                    &[] as &[_]
+                } else {
+                    std::slice::from_raw_parts(sm, length.try_into().unwrap())
+                },
+                recv_addr.into(),
+                now_ns.into(),
+            )
         },
-        recv_addr.into(),
-        now_ns.into(),
     )
 }
 #[allow(dead_code)]
@@ -75295,14 +75776,19 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_ca
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(
-        if sm.is_null() {
-            &[] as &[_]
-        } else {
-            std::slice::from_raw_parts(sm, length.try_into().unwrap())
+    abort_on_panic(
+        stringify!(aeron_flow_control_strategy_on_trigger_send_setup_func_t_callback_for_once_closure),
+        || {
+            closure(
+                if sm.is_null() {
+                    &[] as &[_]
+                } else {
+                    std::slice::from_raw_parts(sm, length.try_into().unwrap())
+                },
+                recv_addr.into(),
+                now_ns.into(),
+            )
         },
-        recv_addr.into(),
-        now_ns.into(),
     )
 }
 #[doc = r""]
@@ -75409,7 +75895,7 @@ unsafe extern "C" fn aeron_flow_control_strategy_max_retransmission_length_func_
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_flow_control_strategy_max_retransmission_length_func)
+            stringify!(aeron_flow_control_strategy_max_retransmission_length_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -75426,11 +75912,16 @@ unsafe extern "C" fn aeron_flow_control_strategy_max_retransmission_length_func_
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_flow_control_strategy_max_retransmission_length_func(
-        term_offset.into(),
-        resend_length.into(),
-        term_buffer_length.into(),
-        mtu_length.into(),
+    abort_on_panic(
+        stringify!(aeron_flow_control_strategy_max_retransmission_length_func_t_callback),
+        || {
+            closure.handle_aeron_flow_control_strategy_max_retransmission_length_func(
+                term_offset.into(),
+                resend_length.into(),
+                term_buffer_length.into(),
+                mtu_length.into(),
+            )
+        },
     )
 }
 #[allow(dead_code)]
@@ -75468,11 +75959,16 @@ unsafe extern "C" fn aeron_flow_control_strategy_max_retransmission_length_func_
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(
-        term_offset.into(),
-        resend_length.into(),
-        term_buffer_length.into(),
-        mtu_length.into(),
+    abort_on_panic(
+        stringify!(aeron_flow_control_strategy_max_retransmission_length_func_t_callback_for_once_closure),
+        || {
+            closure(
+                term_offset.into(),
+                resend_length.into(),
+                term_buffer_length.into(),
+                mtu_length.into(),
+            )
+        },
     )
 }
 #[doc = r""]
@@ -75535,7 +76031,7 @@ unsafe extern "C" fn aeron_congestion_control_strategy_should_measure_rtt_func_t
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_congestion_control_strategy_should_measure_rtt_func)
+            stringify!(aeron_congestion_control_strategy_should_measure_rtt_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -75549,7 +76045,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_should_measure_rtt_func_t
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_congestion_control_strategy_should_measure_rtt_func(now_ns.into())
+    abort_on_panic(
+        stringify!(aeron_congestion_control_strategy_should_measure_rtt_func_t_callback),
+        || closure.handle_aeron_congestion_control_strategy_should_measure_rtt_func(now_ns.into()),
+    )
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_congestion_control_strategy_should_measure_rtt_func_t_callback_for_once_closure<
@@ -75580,7 +76079,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_should_measure_rtt_func_t
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(now_ns.into())
+    abort_on_panic(
+        stringify!(aeron_congestion_control_strategy_should_measure_rtt_func_t_callback_for_once_closure),
+        || closure(now_ns.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -75640,7 +76142,7 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_sent_func_t_callb
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_congestion_control_strategy_on_rttm_sent_func)
+            stringify!(aeron_congestion_control_strategy_on_rttm_sent_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -75654,7 +76156,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_sent_func_t_callb
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_congestion_control_strategy_on_rttm_sent_func(now_ns.into())
+    abort_on_panic(
+        stringify!(aeron_congestion_control_strategy_on_rttm_sent_func_t_callback),
+        || closure.handle_aeron_congestion_control_strategy_on_rttm_sent_func(now_ns.into()),
+    )
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_sent_func_t_callback_for_once_closure<
@@ -75685,7 +76190,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_sent_func_t_callb
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(now_ns.into())
+    abort_on_panic(
+        stringify!(aeron_congestion_control_strategy_on_rttm_sent_func_t_callback_for_once_closure),
+        || closure(now_ns.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -75775,7 +76283,7 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback<
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_congestion_control_strategy_on_rttm_func)
+            stringify!(aeron_congestion_control_strategy_on_rttm_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -75791,7 +76299,16 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_congestion_control_strategy_on_rttm_func(now_ns.into(), rtt_ns.into(), source_address.into())
+    abort_on_panic(
+        stringify!(aeron_congestion_control_strategy_on_rttm_func_t_callback),
+        || {
+            closure.handle_aeron_congestion_control_strategy_on_rttm_func(
+                now_ns.into(),
+                rtt_ns.into(),
+                source_address.into(),
+            )
+        },
+    )
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback_for_once_closure<
@@ -75826,7 +76343,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback_f
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(now_ns.into(), rtt_ns.into(), source_address.into())
+    abort_on_panic(
+        stringify!(aeron_congestion_control_strategy_on_rttm_func_t_callback_for_once_closure),
+        || closure(now_ns.into(), rtt_ns.into(), source_address.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -75887,7 +76407,7 @@ unsafe extern "C" fn aeron_congestion_control_strategy_initial_window_length_fun
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_congestion_control_strategy_initial_window_length_func)
+            stringify!(aeron_congestion_control_strategy_initial_window_length_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -75897,7 +76417,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_initial_window_length_fun
         [format!("{} = {:?}", stringify!(state), state)].join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_congestion_control_strategy_initial_window_length_func()
+    abort_on_panic(
+        stringify!(aeron_congestion_control_strategy_initial_window_length_func_t_callback),
+        || closure.handle_aeron_congestion_control_strategy_initial_window_length_func(),
+    )
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_congestion_control_strategy_initial_window_length_func_t_callback_for_once_closure<
@@ -75923,7 +76446,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_initial_window_length_fun
         [format!("{} = {:?}", stringify!(state), state)].join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure()
+    abort_on_panic(
+        stringify!(aeron_congestion_control_strategy_initial_window_length_func_t_callback_for_once_closure),
+        || closure(),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -75984,7 +76510,7 @@ unsafe extern "C" fn aeron_congestion_control_strategy_max_window_length_func_t_
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_congestion_control_strategy_max_window_length_func)
+            stringify!(aeron_congestion_control_strategy_max_window_length_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -75994,7 +76520,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_max_window_length_func_t_
         [format!("{} = {:?}", stringify!(state), state)].join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_congestion_control_strategy_max_window_length_func()
+    abort_on_panic(
+        stringify!(aeron_congestion_control_strategy_max_window_length_func_t_callback),
+        || closure.handle_aeron_congestion_control_strategy_max_window_length_func(),
+    )
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_congestion_control_strategy_max_window_length_func_t_callback_for_once_closure<
@@ -76020,7 +76549,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_max_window_length_func_t_
         [format!("{} = {:?}", stringify!(state), state)].join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure()
+    abort_on_panic(
+        stringify!(aeron_congestion_control_strategy_max_window_length_func_t_callback_for_once_closure),
+        || closure(),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -76069,7 +76601,7 @@ unsafe extern "C" fn aeron_agent_do_work_func_t_callback<F: AeronAgentDoWorkFunc
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_agent_do_work_func));
+        log::debug!("calling {}", stringify!(aeron_agent_do_work_func_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -76078,7 +76610,9 @@ unsafe extern "C" fn aeron_agent_do_work_func_t_callback<F: AeronAgentDoWorkFunc
         [format!("{} = {:?}", stringify!(arg1), arg1)].join(", ")
     );
     let closure: &mut F = unsafe { &mut *(arg1 as *mut F) };
-    closure.handle_aeron_agent_do_work_func()
+    abort_on_panic(stringify!(aeron_agent_do_work_func_t_callback), || {
+        closure.handle_aeron_agent_do_work_func()
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_agent_do_work_func_t_callback_for_once_closure<F: FnMut() -> ::std::os::raw::c_int>(
@@ -76102,7 +76636,9 @@ unsafe extern "C" fn aeron_agent_do_work_func_t_callback_for_once_closure<F: FnM
         [format!("{} = {:?}", stringify!(arg1), arg1)].join(", ")
     );
     let closure: &mut F = unsafe { &mut *(arg1 as *mut F) };
-    closure()
+    abort_on_panic(stringify!(aeron_agent_do_work_func_t_callback_for_once_closure), || {
+        closure()
+    })
 }
 #[doc = r""]
 #[doc = r""]
@@ -76155,7 +76691,7 @@ unsafe extern "C" fn aeron_agent_on_close_func_t_callback<F: AeronAgentCloseFunc
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_agent_on_close_func));
+        log::debug!("calling {}", stringify!(aeron_agent_on_close_func_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -76164,7 +76700,9 @@ unsafe extern "C" fn aeron_agent_on_close_func_t_callback<F: AeronAgentCloseFunc
         [format!("{} = {:?}", stringify!(arg1), arg1)].join(", ")
     );
     let closure: &mut F = unsafe { &mut *(arg1 as *mut F) };
-    closure.handle_aeron_agent_on_close_func()
+    abort_on_panic(stringify!(aeron_agent_on_close_func_t_callback), || {
+        closure.handle_aeron_agent_on_close_func()
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_agent_on_close_func_t_callback_for_once_closure<F: FnMut() -> ()>(
@@ -76188,7 +76726,10 @@ unsafe extern "C" fn aeron_agent_on_close_func_t_callback_for_once_closure<F: Fn
         [format!("{} = {:?}", stringify!(arg1), arg1)].join(", ")
     );
     let closure: &mut F = unsafe { &mut *(arg1 as *mut F) };
-    closure()
+    abort_on_panic(
+        stringify!(aeron_agent_on_close_func_t_callback_for_once_closure),
+        || closure(),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -76287,7 +76828,7 @@ unsafe extern "C" fn aeron_counters_reader_foreach_metadata_func_t_callback<
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_counters_reader_foreach_metadata_func)
+            stringify!(aeron_counters_reader_foreach_metadata_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -76306,18 +76847,23 @@ unsafe extern "C" fn aeron_counters_reader_foreach_metadata_func_t_callback<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_counters_reader_foreach_metadata_func(
-        id.into(),
-        type_id.into(),
-        if key.is_null() {
-            &[] as &[_]
-        } else {
-            std::slice::from_raw_parts(key, key_length.try_into().unwrap())
-        },
-        if label.is_null() {
-            &[] as &[_]
-        } else {
-            std::slice::from_raw_parts(label, label_length.try_into().unwrap())
+    abort_on_panic(
+        stringify!(aeron_counters_reader_foreach_metadata_func_t_callback),
+        || {
+            closure.handle_aeron_counters_reader_foreach_metadata_func(
+                id.into(),
+                type_id.into(),
+                if key.is_null() {
+                    &[] as &[_]
+                } else {
+                    std::slice::from_raw_parts(key, key_length.try_into().unwrap())
+                },
+                if label.is_null() {
+                    &[] as &[_]
+                } else {
+                    std::slice::from_raw_parts(label, label_length.try_into().unwrap())
+                },
+            )
         },
     )
 }
@@ -76360,18 +76906,23 @@ unsafe extern "C" fn aeron_counters_reader_foreach_metadata_func_t_callback_for_
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(
-        id.into(),
-        type_id.into(),
-        if key.is_null() {
-            &[] as &[_]
-        } else {
-            std::slice::from_raw_parts(key, key_length.try_into().unwrap())
-        },
-        if label.is_null() {
-            &[] as &[_]
-        } else {
-            std::slice::from_raw_parts(label, label_length.try_into().unwrap())
+    abort_on_panic(
+        stringify!(aeron_counters_reader_foreach_metadata_func_t_callback_for_once_closure),
+        || {
+            closure(
+                id.into(),
+                type_id.into(),
+                if key.is_null() {
+                    &[] as &[_]
+                } else {
+                    std::slice::from_raw_parts(key, key_length.try_into().unwrap())
+                },
+                if label.is_null() {
+                    &[] as &[_]
+                } else {
+                    std::slice::from_raw_parts(label, label_length.try_into().unwrap())
+                },
+            )
         },
     )
 }
@@ -76427,7 +76978,10 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_update_func_t_callback<F: AeronDut
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_duty_cycle_tracker_update_func));
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_duty_cycle_tracker_update_func_t_callback)
+        );
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -76440,7 +76994,9 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_update_func_t_callback<F: AeronDut
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_duty_cycle_tracker_update_func(now_ns.into())
+    abort_on_panic(stringify!(aeron_duty_cycle_tracker_update_func_t_callback), || {
+        closure.handle_aeron_duty_cycle_tracker_update_func(now_ns.into())
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_duty_cycle_tracker_update_func_t_callback_for_once_closure<F: FnMut(i64) -> ()>(
@@ -76469,7 +77025,10 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_update_func_t_callback_for_once_cl
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(now_ns.into())
+    abort_on_panic(
+        stringify!(aeron_duty_cycle_tracker_update_func_t_callback_for_once_closure),
+        || closure(now_ns.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -76529,7 +77088,7 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_measure_and_update_func_t_callback
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_duty_cycle_tracker_measure_and_update_func)
+            stringify!(aeron_duty_cycle_tracker_measure_and_update_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -76543,7 +77102,10 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_measure_and_update_func_t_callback
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_duty_cycle_tracker_measure_and_update_func(now_ns.into())
+    abort_on_panic(
+        stringify!(aeron_duty_cycle_tracker_measure_and_update_func_t_callback),
+        || closure.handle_aeron_duty_cycle_tracker_measure_and_update_func(now_ns.into()),
+    )
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_duty_cycle_tracker_measure_and_update_func_t_callback_for_once_closure<
@@ -76574,7 +77136,10 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_measure_and_update_func_t_callback
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(now_ns.into())
+    abort_on_panic(
+        stringify!(aeron_duty_cycle_tracker_measure_and_update_func_t_callback_for_once_closure),
+        || closure(now_ns.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -76633,7 +77198,10 @@ unsafe extern "C" fn aeron_int64_counter_map_for_each_func_t_callback<F: AeronIn
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_int64_counter_map_for_each_func));
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_int64_counter_map_for_each_func_t_callback)
+        );
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -76647,7 +77215,9 @@ unsafe extern "C" fn aeron_int64_counter_map_for_each_func_t_callback<F: AeronIn
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_int64_counter_map_for_each_func(key.into(), value.into())
+    abort_on_panic(stringify!(aeron_int64_counter_map_for_each_func_t_callback), || {
+        closure.handle_aeron_int64_counter_map_for_each_func(key.into(), value.into())
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_int64_counter_map_for_each_func_t_callback_for_once_closure<F: FnMut(i64, i64) -> ()>(
@@ -76678,7 +77248,10 @@ unsafe extern "C" fn aeron_int64_counter_map_for_each_func_t_callback_for_once_c
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(key.into(), value.into())
+    abort_on_panic(
+        stringify!(aeron_int64_counter_map_for_each_func_t_callback_for_once_closure),
+        || closure(key.into(), value.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -76737,7 +77310,10 @@ unsafe extern "C" fn aeron_int64_counter_map_predicate_func_t_callback<F: AeronI
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_int64_counter_map_predicate_func));
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_int64_counter_map_predicate_func_t_callback)
+        );
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -76751,7 +77327,9 @@ unsafe extern "C" fn aeron_int64_counter_map_predicate_func_t_callback<F: AeronI
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_int64_counter_map_predicate_func(key.into(), value.into())
+    abort_on_panic(stringify!(aeron_int64_counter_map_predicate_func_t_callback), || {
+        closure.handle_aeron_int64_counter_map_predicate_func(key.into(), value.into())
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_int64_counter_map_predicate_func_t_callback_for_once_closure<F: FnMut(i64, i64) -> bool>(
@@ -76782,7 +77360,10 @@ unsafe extern "C" fn aeron_int64_counter_map_predicate_func_t_callback_for_once_
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(key.into(), value.into())
+    abort_on_panic(
+        stringify!(aeron_int64_counter_map_predicate_func_t_callback_for_once_closure),
+        || closure(key.into(), value.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -76874,7 +77455,7 @@ unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback<
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_port_manager_get_managed_port_func)
+            stringify!(aeron_port_manager_get_managed_port_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -76890,7 +77471,13 @@ unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_port_manager_get_managed_port_func(bind_addr_out.into(), udp_channel.into(), bind_addr.into())
+    abort_on_panic(stringify!(aeron_port_manager_get_managed_port_func_t_callback), || {
+        closure.handle_aeron_port_manager_get_managed_port_func(
+            bind_addr_out.into(),
+            udp_channel.into(),
+            bind_addr.into(),
+        )
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback_for_once_closure<
@@ -76925,7 +77512,10 @@ unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback_for_onc
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(bind_addr_out.into(), udp_channel.into(), bind_addr.into())
+    abort_on_panic(
+        stringify!(aeron_port_manager_get_managed_port_func_t_callback_for_once_closure),
+        || closure(bind_addr_out.into(), udp_channel.into(), bind_addr.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -76983,7 +77573,7 @@ unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback<
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_port_manager_free_managed_port_func)
+            stringify!(aeron_port_manager_free_managed_port_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -76997,7 +77587,9 @@ unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_port_manager_free_managed_port_func(bind_addr.into())
+    abort_on_panic(stringify!(aeron_port_manager_free_managed_port_func_t_callback), || {
+        closure.handle_aeron_port_manager_free_managed_port_func(bind_addr.into())
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback_for_once_closure<
@@ -77028,7 +77620,10 @@ unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback_for_on
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(bind_addr.into())
+    abort_on_panic(
+        stringify!(aeron_port_manager_free_managed_port_func_t_callback_for_once_closure),
+        || closure(bind_addr.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -77081,7 +77676,7 @@ unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback<F: AeronEndOfLif
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_end_of_life_resource_free));
+        log::debug!("calling {}", stringify!(aeron_end_of_life_resource_free_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -77090,7 +77685,9 @@ unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback<F: AeronEndOfLif
         [format!("{} = {:?}", stringify!(resource), resource)].join(", ")
     );
     let closure: &mut F = unsafe { &mut *(resource as *mut F) };
-    closure.handle_aeron_end_of_life_resource_free()
+    abort_on_panic(stringify!(aeron_end_of_life_resource_free_t_callback), || {
+        closure.handle_aeron_end_of_life_resource_free()
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback_for_once_closure<F: FnMut() -> bool>(
@@ -77114,7 +77711,10 @@ unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback_for_once_closure
         [format!("{} = {:?}", stringify!(resource), resource)].join(", ")
     );
     let closure: &mut F = unsafe { &mut *(resource as *mut F) };
-    closure()
+    abort_on_panic(
+        stringify!(aeron_end_of_life_resource_free_t_callback_for_once_closure),
+        || closure(),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -77168,7 +77768,10 @@ unsafe extern "C" fn aeron_send_channel_loss_supplier_func_t_callback<F: AeronSe
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_send_channel_loss_supplier_func));
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_send_channel_loss_supplier_func_t_callback)
+        );
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -77181,7 +77784,9 @@ unsafe extern "C" fn aeron_send_channel_loss_supplier_func_t_callback<F: AeronSe
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_send_channel_loss_supplier_func(endpoint.into())
+    abort_on_panic(stringify!(aeron_send_channel_loss_supplier_func_t_callback), || {
+        closure.handle_aeron_send_channel_loss_supplier_func(endpoint.into())
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_send_channel_loss_supplier_func_t_callback_for_once_closure<
@@ -77212,7 +77817,10 @@ unsafe extern "C" fn aeron_send_channel_loss_supplier_func_t_callback_for_once_c
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(endpoint.into())
+    abort_on_panic(
+        stringify!(aeron_send_channel_loss_supplier_func_t_callback_for_once_closure),
+        || closure(endpoint.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -77285,7 +77893,7 @@ unsafe extern "C" fn aeron_receive_channel_loss_supplier_func_t_callback<
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_receive_channel_loss_supplier_func)
+            stringify!(aeron_receive_channel_loss_supplier_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -77299,7 +77907,9 @@ unsafe extern "C" fn aeron_receive_channel_loss_supplier_func_t_callback<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_receive_channel_loss_supplier_func(endpoint.into())
+    abort_on_panic(stringify!(aeron_receive_channel_loss_supplier_func_t_callback), || {
+        closure.handle_aeron_receive_channel_loss_supplier_func(endpoint.into())
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_receive_channel_loss_supplier_func_t_callback_for_once_closure<
@@ -77330,7 +77940,10 @@ unsafe extern "C" fn aeron_receive_channel_loss_supplier_func_t_callback_for_onc
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(endpoint.into())
+    abort_on_panic(
+        stringify!(aeron_receive_channel_loss_supplier_func_t_callback_for_once_closure),
+        || closure(endpoint.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -77390,7 +78003,10 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback<F: Aeron
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_str_to_ptr_hash_map_for_each_func));
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_str_to_ptr_hash_map_for_each_func_t_callback)
+        );
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -77405,19 +78021,21 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback<F: Aeron
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_str_to_ptr_hash_map_for_each_func(
-        if key.is_null() {
-            ""
-        } else {
-            unsafe {
-                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                    key as *const u8,
-                    key_len.try_into().unwrap(),
-                ))
-            }
-        },
-        value.into(),
-    )
+    abort_on_panic(stringify!(aeron_str_to_ptr_hash_map_for_each_func_t_callback), || {
+        closure.handle_aeron_str_to_ptr_hash_map_for_each_func(
+            if key.is_null() {
+                ""
+            } else {
+                unsafe {
+                    std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                        key as *const u8,
+                        key_len.try_into().unwrap(),
+                    ))
+                }
+            },
+            value.into(),
+        )
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback_for_once_closure<
@@ -77452,18 +78070,23 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback_for_once
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(
-        if key.is_null() {
-            ""
-        } else {
-            unsafe {
-                std::str::from_utf8_unchecked(std::slice::from_raw_parts(
-                    key as *const u8,
-                    key_len.try_into().unwrap(),
-                ))
-            }
+    abort_on_panic(
+        stringify!(aeron_str_to_ptr_hash_map_for_each_func_t_callback_for_once_closure),
+        || {
+            closure(
+                if key.is_null() {
+                    ""
+                } else {
+                    unsafe {
+                        std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                            key as *const u8,
+                            key_len.try_into().unwrap(),
+                        ))
+                    }
+                },
+                value.into(),
+            )
         },
-        value.into(),
     )
 }
 #[doc = r""]
@@ -77527,7 +78150,7 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_for_each_func_t_callback<
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_int64_to_ptr_hash_map_for_each_func)
+            stringify!(aeron_int64_to_ptr_hash_map_for_each_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -77542,7 +78165,9 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_for_each_func_t_callback<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_int64_to_ptr_hash_map_for_each_func(key.into(), value.into())
+    abort_on_panic(stringify!(aeron_int64_to_ptr_hash_map_for_each_func_t_callback), || {
+        closure.handle_aeron_int64_to_ptr_hash_map_for_each_func(key.into(), value.into())
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_int64_to_ptr_hash_map_for_each_func_t_callback_for_once_closure<
@@ -77575,7 +78200,10 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_for_each_func_t_callback_for_on
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(key.into(), value.into())
+    abort_on_panic(
+        stringify!(aeron_int64_to_ptr_hash_map_for_each_func_t_callback_for_once_closure),
+        || closure(key.into(), value.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -77658,7 +78286,7 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_predicate_func_t_callback<
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_int64_to_ptr_hash_map_predicate_func)
+            stringify!(aeron_int64_to_ptr_hash_map_predicate_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -77673,7 +78301,10 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_predicate_func_t_callback<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_int64_to_ptr_hash_map_predicate_func(key.into(), value.into())
+    abort_on_panic(
+        stringify!(aeron_int64_to_ptr_hash_map_predicate_func_t_callback),
+        || closure.handle_aeron_int64_to_ptr_hash_map_predicate_func(key.into(), value.into()),
+    )
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_int64_to_ptr_hash_map_predicate_func_t_callback_for_once_closure<
@@ -77706,7 +78337,10 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_predicate_func_t_callback_for_o
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(key.into(), value.into())
+    abort_on_panic(
+        stringify!(aeron_int64_to_ptr_hash_map_predicate_func_t_callback_for_once_closure),
+        || closure(key.into(), value.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -77792,7 +78426,7 @@ unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback<F: AeronUriHost
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_uri_hostname_resolver_func));
+        log::debug!("calling {}", stringify!(aeron_uri_hostname_resolver_func_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -77807,15 +78441,17 @@ unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback<F: AeronUriHost
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_uri_hostname_resolver_func(
-        if host.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(host).to_str().unwrap_or("") }
-        },
-        hints.into(),
-        info.into(),
-    )
+    abort_on_panic(stringify!(aeron_uri_hostname_resolver_func_t_callback), || {
+        closure.handle_aeron_uri_hostname_resolver_func(
+            if host.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(host).to_str().unwrap_or("") }
+            },
+            hints.into(),
+            info.into(),
+        )
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback_for_once_closure<
@@ -77850,14 +78486,19 @@ unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback_for_once_closur
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(
-        if host.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(host).to_str().unwrap_or("") }
+    abort_on_panic(
+        stringify!(aeron_uri_hostname_resolver_func_t_callback_for_once_closure),
+        || {
+            closure(
+                if host.is_null() {
+                    ""
+                } else {
+                    unsafe { std::ffi::CStr::from_ptr(host).to_str().unwrap_or("") }
+                },
+                hints.into(),
+                info.into(),
+            )
         },
-        hints.into(),
-        info.into(),
     )
 }
 #[doc = r""]
@@ -77953,7 +78594,7 @@ unsafe extern "C" fn aeron_ifaddr_func_t_callback<F: AeronIfaddrFuncCallback>(
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_ifaddr_func));
+        log::debug!("calling {}", stringify!(aeron_ifaddr_func_t_callback));
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -77969,16 +78610,18 @@ unsafe extern "C" fn aeron_ifaddr_func_t_callback<F: AeronIfaddrFuncCallback>(
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_ifaddr_func(
-        if name.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(name).to_str().unwrap_or("") }
-        },
-        addr.into(),
-        netmask.into(),
-        flags.into(),
-    )
+    abort_on_panic(stringify!(aeron_ifaddr_func_t_callback), || {
+        closure.handle_aeron_ifaddr_func(
+            if name.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(name).to_str().unwrap_or("") }
+            },
+            addr.into(),
+            netmask.into(),
+            flags.into(),
+        )
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_ifaddr_func_t_callback_for_once_closure<
@@ -78012,16 +78655,18 @@ unsafe extern "C" fn aeron_ifaddr_func_t_callback_for_once_closure<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(
-        if name.is_null() {
-            ""
-        } else {
-            unsafe { std::ffi::CStr::from_ptr(name).to_str().unwrap_or("") }
-        },
-        addr.into(),
-        netmask.into(),
-        flags.into(),
-    )
+    abort_on_panic(stringify!(aeron_ifaddr_func_t_callback_for_once_closure), || {
+        closure(
+            if name.is_null() {
+                ""
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(name).to_str().unwrap_or("") }
+            },
+            addr.into(),
+            netmask.into(),
+            flags.into(),
+        )
+    })
 }
 #[doc = r""]
 #[doc = r""]
@@ -78107,7 +78752,10 @@ unsafe extern "C" fn aeron_retransmit_handler_resend_func_t_callback<F: AeronRet
     }
     #[cfg(feature = "extra-logging")]
     {
-        log::debug!("calling {}", stringify!(handle_aeron_retransmit_handler_resend_func));
+        log::debug!(
+            "calling {}",
+            stringify!(aeron_retransmit_handler_resend_func_t_callback)
+        );
     }
     #[cfg(feature = "log-c-bindings")]
     log::debug!(
@@ -78122,7 +78770,9 @@ unsafe extern "C" fn aeron_retransmit_handler_resend_func_t_callback<F: AeronRet
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_retransmit_handler_resend_func(term_id.into(), term_offset.into(), length.into())
+    abort_on_panic(stringify!(aeron_retransmit_handler_resend_func_t_callback), || {
+        closure.handle_aeron_retransmit_handler_resend_func(term_id.into(), term_offset.into(), length.into())
+    })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_retransmit_handler_resend_func_t_callback_for_once_closure<
@@ -78157,7 +78807,10 @@ unsafe extern "C" fn aeron_retransmit_handler_resend_func_t_callback_for_once_cl
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(term_id.into(), term_offset.into(), length.into())
+    abort_on_panic(
+        stringify!(aeron_retransmit_handler_resend_func_t_callback_for_once_closure),
+        || closure(term_id.into(), term_offset.into(), length.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -78243,7 +78896,7 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_simple_func_t_callba
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_loss_generator_should_drop_frame_simple_func)
+            stringify!(aeron_loss_generator_should_drop_frame_simple_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -78259,12 +78912,17 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_simple_func_t_callba
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_loss_generator_should_drop_frame_simple_func(
-        address.into(),
-        if buffer.is_null() {
-            &[] as &[_]
-        } else {
-            std::slice::from_raw_parts(buffer, length.try_into().unwrap())
+    abort_on_panic(
+        stringify!(aeron_loss_generator_should_drop_frame_simple_func_t_callback),
+        || {
+            closure.handle_aeron_loss_generator_should_drop_frame_simple_func(
+                address.into(),
+                if buffer.is_null() {
+                    &[] as &[_]
+                } else {
+                    std::slice::from_raw_parts(buffer, length.try_into().unwrap())
+                },
+            )
         },
     )
 }
@@ -78301,12 +78959,17 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_simple_func_t_callba
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(
-        address.into(),
-        if buffer.is_null() {
-            &[] as &[_]
-        } else {
-            std::slice::from_raw_parts(buffer, length.try_into().unwrap())
+    abort_on_panic(
+        stringify!(aeron_loss_generator_should_drop_frame_simple_func_t_callback_for_once_closure),
+        || {
+            closure(
+                address.into(),
+                if buffer.is_null() {
+                    &[] as &[_]
+                } else {
+                    std::slice::from_raw_parts(buffer, length.try_into().unwrap())
+                },
+            )
         },
     )
 }
@@ -78438,7 +79101,7 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_detailed_func_t_call
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_loss_generator_should_drop_frame_detailed_func)
+            stringify!(aeron_loss_generator_should_drop_frame_detailed_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -78458,14 +79121,19 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_detailed_func_t_call
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure.handle_aeron_loss_generator_should_drop_frame_detailed_func(
-        address.into(),
-        buffer.into(),
-        stream_id.into(),
-        session_id.into(),
-        term_id.into(),
-        term_offset.into(),
-        length.into(),
+    abort_on_panic(
+        stringify!(aeron_loss_generator_should_drop_frame_detailed_func_t_callback),
+        || {
+            closure.handle_aeron_loss_generator_should_drop_frame_detailed_func(
+                address.into(),
+                buffer.into(),
+                stream_id.into(),
+                session_id.into(),
+                term_id.into(),
+                term_offset.into(),
+                length.into(),
+            )
+        },
     )
 }
 #[allow(dead_code)]
@@ -78509,14 +79177,19 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_detailed_func_t_call
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    closure(
-        address.into(),
-        buffer.into(),
-        stream_id.into(),
-        session_id.into(),
-        term_id.into(),
-        term_offset.into(),
-        length.into(),
+    abort_on_panic(
+        stringify!(aeron_loss_generator_should_drop_frame_detailed_func_t_callback_for_once_closure),
+        || {
+            closure(
+                address.into(),
+                buffer.into(),
+                stream_id.into(),
+                session_id.into(),
+                term_id.into(),
+                term_offset.into(),
+                length.into(),
+            )
+        },
     )
 }
 #[doc = r""]
@@ -78609,7 +79282,7 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_int64_to_tagged_ptr_hash_map_for_each_func)
+            stringify!(aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -78625,7 +79298,10 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_int64_to_tagged_ptr_hash_map_for_each_func(key.into(), tag.into(), value.into())
+    abort_on_panic(
+        stringify!(aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback),
+        || closure.handle_aeron_int64_to_tagged_ptr_hash_map_for_each_func(key.into(), tag.into(), value.into()),
+    )
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback_for_once_closure<
@@ -78660,7 +79336,10 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(key.into(), tag.into(), value.into())
+    abort_on_panic(
+        stringify!(aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback_for_once_closure),
+        || closure(key.into(), tag.into(), value.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -78752,7 +79431,7 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callbac
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_int64_to_tagged_ptr_hash_map_predicate_func)
+            stringify!(aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -78768,7 +79447,10 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callbac
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_int64_to_tagged_ptr_hash_map_predicate_func(key.into(), tag.into(), value.into())
+    abort_on_panic(
+        stringify!(aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callback),
+        || closure.handle_aeron_int64_to_tagged_ptr_hash_map_predicate_func(key.into(), tag.into(), value.into()),
+    )
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callback_for_once_closure<
@@ -78803,7 +79485,10 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callbac
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(key.into(), tag.into(), value.into())
+    abort_on_panic(
+        stringify!(aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callback_for_once_closure),
+        || closure(key.into(), tag.into(), value.into()),
+    )
 }
 #[doc = r""]
 #[doc = r""]
@@ -78893,7 +79578,7 @@ unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback<
     {
         log::debug!(
             "calling {}",
-            stringify!(handle_aeron_term_gap_scanner_on_gap_detected_func)
+            stringify!(aeron_term_gap_scanner_on_gap_detected_func_t_callback)
         );
     }
     #[cfg(feature = "log-c-bindings")]
@@ -78909,7 +79594,16 @@ unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure.handle_aeron_term_gap_scanner_on_gap_detected_func(term_id.into(), term_offset.into(), length.into())
+    abort_on_panic(
+        stringify!(aeron_term_gap_scanner_on_gap_detected_func_t_callback),
+        || {
+            closure.handle_aeron_term_gap_scanner_on_gap_detected_func(
+                term_id.into(),
+                term_offset.into(),
+                length.into(),
+            )
+        },
+    )
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback_for_once_closure<
@@ -78944,6 +79638,9 @@ unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback_for_
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    closure(term_id.into(), term_offset.into(), length.into())
+    abort_on_panic(
+        stringify!(aeron_term_gap_scanner_on_gap_detected_func_t_callback_for_once_closure),
+        || closure(term_id.into(), term_offset.into(), length.into()),
+    )
 }
 
