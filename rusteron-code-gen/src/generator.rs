@@ -678,10 +678,8 @@ impl CWrapper {
                 let fn_arguments: Vec<TokenStream> = classified.signatures();
                 let mut arg_names: Vec<TokenStream> = classified.calls();
                 let retained_handler_registrations: Vec<TokenStream> = classified.registrations();
-                let mut resumes: Vec<TokenStream> = classified.resumes();
-                if crate::arg_classifier::fires_stored_consumer(&method.fn_name) {
-                    resumes.push(quote! { resume_caught_panic(); });
-                }
+                let preludes: Vec<TokenStream> = classified.preludes();
+                let resumes: Vec<TokenStream> = classified.resumes();
 
                 let mut converter = return_type_helper.handle_c_to_rs_return(quote! { result }, true, false);
 
@@ -903,6 +901,7 @@ impl CWrapper {
                         #(#method_docs)*
                         pub fn #fn_name #where_clause(#possible_self #(#fn_arguments),*) -> #return_type {
                             #set_closed
+                            #(#preludes)*
                             unsafe {
                                 let mut mut_result: #rt = Default::default();
 
@@ -936,6 +935,7 @@ impl CWrapper {
                         #(#method_docs)*
                         pub fn #fn_name #where_clause(#possible_self #(#fn_arguments),*) -> #return_type {
                             #set_closed
+                            #(#preludes)*
                             #handler_prelude
                             unsafe {
                                 #[cfg(feature = "log-c-bindings")]

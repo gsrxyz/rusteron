@@ -1500,20 +1500,37 @@ mod tests {
         test_result
     }
 
-    /// A borrowed context (e.g. from `get_archive_context()`) leaves the client's lifetime to its
-    /// owner, so `set_aeron` must not panic on it
+    /// A borrowed context (e.g. from `get_archive_context()`) cannot keep a client alive, so
+    /// `set_aeron` on it is refused before C is changed, rather than leaving C a pointer the
+    /// caller may free. The owning context still accepts it
     #[test]
     #[serial]
-    pub fn set_aeron_on_borrowed_context_does_not_panic() -> Result<(), Box<dyn error::Error>> {
+    pub fn set_aeron_on_borrowed_context_is_rejected() -> Result<(), Box<dyn error::Error>> {
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes()?;
         let (aeron, archive_context, media_driver, pub_error_frame_handler, error_handler) = start_aeron_archive()?;
 
         let test_result: Result<(), Box<dyn error::Error>> = (|| {
+            let other_context = AeronContext::new()?;
+            other_context.set_dir(&aeron.context().get_dir().into_c_string())?;
+            let other = Aeron::new(&other_context)?;
+            other.start()?;
+
             let owned = AeronArchiveContext::new()?;
+            owned.set_aeron(&aeron)?;
             let borrowed = AeronArchiveContext::from(owned.get_inner());
-            borrowed.set_aeron(&aeron)?;
+
+            let Err(err) = borrowed.set_aeron(&other) else {
+                return Err("a borrowed context must refuse set_aeron".into());
+            };
+            assert!(err.message().is_some_and(|m| m.contains("borrowed")), "{err:?}");
+            // C was not changed: the owner still has its own client
             assert_eq!(owned.get_aeron().get_inner(), aeron.get_inner());
+
+            // the owner can still change it, and keeps the new client alive
+            owned.set_aeron(&other)?;
+            drop(other);
+            assert!(!owned.get_aeron().is_closed());
             Ok(())
         })();
 

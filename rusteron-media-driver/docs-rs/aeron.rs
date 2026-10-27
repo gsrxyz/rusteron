@@ -23280,6 +23280,12 @@ impl AeronDriverContext {
     }
     #[inline]
     pub fn set_conductor_duty_cycle_tracker(&self, value: &AeronDutyCycleTracker) -> Result<i32, AeronCError> {
+        if self.inner.as_owned().is_none() {
+            return Err(AeronCError::with_message(
+                -1,
+                "aeron_driver_context_set_conductor_duty_cycle_tracker: this wrapper is borrowed, so it cannot keep `value` alive; call it on the wrapper that owns the C object",
+            ));
+        }
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -23323,6 +23329,12 @@ impl AeronDriverContext {
     }
     #[inline]
     pub fn set_sender_duty_cycle_tracker(&self, value: &AeronDutyCycleTracker) -> Result<i32, AeronCError> {
+        if self.inner.as_owned().is_none() {
+            return Err(AeronCError::with_message(
+                -1,
+                "aeron_driver_context_set_sender_duty_cycle_tracker: this wrapper is borrowed, so it cannot keep `value` alive; call it on the wrapper that owns the C object",
+            ));
+        }
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -23366,6 +23378,12 @@ impl AeronDriverContext {
     }
     #[inline]
     pub fn set_receiver_duty_cycle_tracker(&self, value: &AeronDutyCycleTracker) -> Result<i32, AeronCError> {
+        if self.inner.as_owned().is_none() {
+            return Err(AeronCError::with_message(
+                -1,
+                "aeron_driver_context_set_receiver_duty_cycle_tracker: this wrapper is borrowed, so it cannot keep `value` alive; call it on the wrapper that owns the C object",
+            ));
+        }
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -23409,6 +23427,12 @@ impl AeronDriverContext {
     }
     #[inline]
     pub fn set_name_resolver_time_tracker(&self, value: &AeronDutyCycleTracker) -> Result<i32, AeronCError> {
+        if self.inner.as_owned().is_none() {
+            return Err(AeronCError::with_message(
+                -1,
+                "aeron_driver_context_set_name_resolver_time_tracker: this wrapper is borrowed, so it cannot keep `value` alive; call it on the wrapper that owns the C object",
+            ));
+        }
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -23568,6 +23592,12 @@ impl AeronDriverContext {
     }
     #[inline]
     pub fn set_sender_port_manager(&self, value: &AeronPortManager) -> Result<i32, AeronCError> {
+        if self.inner.as_owned().is_none() {
+            return Err(AeronCError::with_message(
+                -1,
+                "aeron_driver_context_set_sender_port_manager: this wrapper is borrowed, so it cannot keep `value` alive; call it on the wrapper that owns the C object",
+            ));
+        }
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -23611,6 +23641,12 @@ impl AeronDriverContext {
     }
     #[inline]
     pub fn set_receiver_port_manager(&self, value: &AeronPortManager) -> Result<i32, AeronCError> {
+        if self.inner.as_owned().is_none() {
+            return Err(AeronCError::with_message(
+                -1,
+                "aeron_driver_context_set_receiver_port_manager: this wrapper is borrowed, so it cannot keep `value` alive; call it on the wrapper that owns the C object",
+            ));
+        }
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(

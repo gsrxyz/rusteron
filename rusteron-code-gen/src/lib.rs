@@ -275,24 +275,12 @@ mod tests {
         t.pass(file)
     }
 
-    /// Regenerate `aeron.rs` exactly as `build.rs` does (single rustfmt pass over
-    /// the whole stream, test-modules disabled) and assert it byte-matches the
-    /// committed `docs-rs/aeron.rs`. Catches "forgot to rebuild with
-    /// `COPY_BINDINGS=true`" drift as a CI failure instead of a stale docs.rs.
-    fn assert_aeron_rs_snapshot_matches(
-        bindings_file: &str,
-        snapshot_rel_path: &str,
-        skip_filter: fn(&str) -> bool,
-        extra_custom_code: &[&str],
-    ) {
-        if running_under_valgrind() {
-            return;
-        }
-
+    /// Generates `aeron.rs` the way build.rs does, from the bindings snapshot packaged with
+    /// this crate, so tests that use it still run from the published crate
+    fn generate_aeron_rs(bindings_file: &str, skip_filter: fn(&str) -> bool, extra_custom_code: &[&str]) -> String {
         let bindings_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("bindings")
             .join(bindings_file);
-        let snapshot_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(snapshot_rel_path);
 
         let mut bindings = crate::parse_bindings_with_custom(&bindings_path, extra_custom_code);
         // First pass: populate FnMut(...) names required by generate_rust_code.
@@ -325,8 +313,26 @@ mod tests {
             stream.extend(code);
         }
 
-        let generated = format_with_rustfmt(&stream.to_string())
-            .unwrap_or_else(|_| panic!("rustfmt failed on regenerated {bindings_file}"));
+        format_with_rustfmt(&stream.to_string())
+            .unwrap_or_else(|_| panic!("rustfmt failed on regenerated {bindings_file}"))
+    }
+
+    /// Regenerate `aeron.rs` exactly as `build.rs` does (single rustfmt pass over
+    /// the whole stream, test-modules disabled) and assert it byte-matches the
+    /// committed `docs-rs/aeron.rs`. Catches "forgot to rebuild with
+    /// `COPY_BINDINGS=true`" drift as a CI failure instead of a stale docs.rs.
+    fn assert_aeron_rs_snapshot_matches(
+        bindings_file: &str,
+        snapshot_rel_path: &str,
+        skip_filter: fn(&str) -> bool,
+        extra_custom_code: &[&str],
+    ) {
+        if running_under_valgrind() {
+            return;
+        }
+
+        let snapshot_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(snapshot_rel_path);
+        let generated = generate_aeron_rs(bindings_file, skip_filter, extra_custom_code);
         let committed = fs::read_to_string(&snapshot_path)
             .unwrap_or_else(|_| panic!("missing committed snapshot: {}", snapshot_path.display()));
 
@@ -471,13 +477,35 @@ mod tests {
         }
     }
 
+    /// The descriptor pollers' `reset`/`poll` are hand-written in `aeron_custom_archive.rs`,
+    /// so the generator must skip them, `reset_fn` included
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn descriptor_poller_reset_and_poll_are_hand_written() {
+        let generated = generate_aeron_rs("archive.rs", |t| t.starts_with("aeron_"), &[crate::CUSTOM_ARCHIVE_CODE]);
+        let custom = crate::CUSTOM_ARCHIVE_CODE;
+        for poller in [
+            "recording_descriptor_poller",
+            "recording_subscription_descriptor_poller",
+        ] {
+            assert!(
+                generated.contains(&format!("aeron_archive_{poller}_t")),
+                "{poller} not generated"
+            );
+            for op in ["reset", "poll"] {
+                let call = format!("aeron_archive_{poller}_{op}(");
+                assert!(!generated.contains(&call), "generated {call}");
+                assert!(custom.contains(&call), "missing hand-written {call}");
+            }
+        }
+    }
+
     /// Constructors take a separate code path from methods: assembler delegates must be
-    /// caught (the poll raises them), not logged. Reads the committed snapshot, which the
-    /// snapshot tests keep equal to the generated code
+    /// caught (the poll raises them), not logged
     #[test]
     #[cfg(not(target_os = "windows"))]
     fn assembler_constructors_catch_delegate_panics() {
-        let generated = fs::read_to_string("../rusteron-client/docs-rs/aeron.rs").unwrap();
+        let generated = generate_aeron_rs("client.rs", |t| t.starts_with("aeron_"), &[]);
         for (class, shim) in [
             ("AeronFragmentAssembler", "aeron_fragment_handler_t_callback_catch"),
             (

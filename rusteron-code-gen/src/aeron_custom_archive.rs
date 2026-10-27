@@ -457,3 +457,117 @@ impl ControlledFragmentAssemblable for AeronArchivePersistentSubscription {
         self.controlled_poll(assembler, fragment_limit)
     }
 }
+
+// Recording descriptor pollers: written by hand, not generated
+//
+// `reset` stores the consumer and a later `poll` calls it. The generator only looks at the
+// callback type, and everywhere else this type is called during the call itself. So it would
+// generate a `reset_fn` whose closure is gone by the time `poll` runs, and a panic check that
+// runs too early. The generator skips methods defined in this file, so we write them here:
+// - `reset` takes a `Handler`, which the poller keeps alive, and uses the `_catch` trampoline so
+//   a panic never crosses C
+// - `poll` raises the caught panic after C returns
+
+impl AeronArchiveRecordingDescriptorPoller {
+    /// Sets up the poller for the next `poll`, which calls `recording_descriptor_consumer` for
+    /// each descriptor received. The poller keeps the handler alive.
+    #[inline]
+    pub fn reset<
+        AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl: AeronArchiveRecordingDescriptorConsumerFuncCallback + 'static,
+    >(
+        &self,
+        correlation_id: i64,
+        record_count: i32,
+        recording_descriptor_consumer: Option<&Handler<AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl>>,
+    ) {
+        #[cfg(feature = "log-c-bindings")]
+        log::info!("aeron_archive_recording_descriptor_poller_reset({correlation_id}, {record_count})");
+        let callback: aeron_archive_recording_descriptor_consumer_func_t = recording_descriptor_consumer.map(|_| {
+            aeron_archive_recording_descriptor_consumer_func_t_callback_catch::<
+                AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl,
+            > as _
+        });
+        let clientd = recording_descriptor_consumer.map_or(std::ptr::null_mut(), |h| h.as_raw());
+        unsafe {
+            aeron_archive_recording_descriptor_poller_reset(
+                self.get_inner(),
+                correlation_id,
+                record_count,
+                callback,
+                clientd,
+            )
+        };
+        if let (Some(handler), Some(inner)) = (recording_descriptor_consumer, self.inner.as_owned()) {
+            inner.add_dependency(handler.clone());
+        }
+    }
+
+    /// Polls for descriptors, calling the consumer given to `reset`. A panic in the consumer is
+    /// raised here once C returns
+    #[inline]
+    pub fn poll(&self) -> Result<i32, AeronCError> {
+        let result = unsafe { aeron_archive_recording_descriptor_poller_poll(self.get_inner()) };
+        #[cfg(feature = "log-c-bindings")]
+        log::info!("aeron_archive_recording_descriptor_poller_poll() -> {result}");
+        resume_caught_panic();
+        if result < 0 {
+            Err(AeronCError::from_code(result))
+        } else {
+            Ok(result)
+        }
+    }
+}
+
+impl AeronArchiveRecordingSubscriptionDescriptorPoller {
+    /// Sets up the poller for the next `poll`, which calls
+    /// `recording_subscription_descriptor_consumer` for each descriptor received. The poller
+    /// keeps the handler alive.
+    #[inline]
+    pub fn reset<
+        AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl: AeronArchiveRecordingSubscriptionDescriptorConsumerFuncCallback + 'static,
+    >(
+        &self,
+        correlation_id: i64,
+        subscription_count: i32,
+        recording_subscription_descriptor_consumer: Option<
+            &Handler<AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl>,
+        >,
+    ) {
+        #[cfg(feature = "log-c-bindings")]
+        log::info!("aeron_archive_recording_subscription_descriptor_poller_reset({correlation_id}, {subscription_count})");
+        let callback: aeron_archive_recording_subscription_descriptor_consumer_func_t =
+            recording_subscription_descriptor_consumer.map(|_| {
+                aeron_archive_recording_subscription_descriptor_consumer_func_t_callback_catch::<
+                    AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl,
+                > as _
+            });
+        let clientd = recording_subscription_descriptor_consumer.map_or(std::ptr::null_mut(), |h| h.as_raw());
+        unsafe {
+            aeron_archive_recording_subscription_descriptor_poller_reset(
+                self.get_inner(),
+                correlation_id,
+                subscription_count,
+                callback,
+                clientd,
+            )
+        };
+        if let (Some(handler), Some(inner)) = (recording_subscription_descriptor_consumer, self.inner.as_owned()) {
+            inner.add_dependency(handler.clone());
+        }
+    }
+
+    /// Polls for descriptors, calling the consumer given to `reset`. A panic in the consumer is
+    /// raised here once C returns
+    #[inline]
+    pub fn poll(&self) -> Result<i32, AeronCError> {
+        let result = unsafe { aeron_archive_recording_subscription_descriptor_poller_poll(self.get_inner()) };
+        #[cfg(feature = "log-c-bindings")]
+        log::info!("aeron_archive_recording_subscription_descriptor_poller_poll() -> {result}");
+        resume_caught_panic();
+        if result < 0 {
+            Err(AeronCError::from_code(result))
+        } else {
+            Ok(result)
+        }
+    }
+}

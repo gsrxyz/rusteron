@@ -148,7 +148,7 @@ pub fn classify_method_args(
     {
         let a = handler_value_args[0];
         match &a.processing {
-            ArgProcessing::Handler(hc) if !is_sync_handler(&method.fn_name, &hc[0].c_type) => Some(a.clone()),
+            ArgProcessing::Handler(hc) if !is_sync_handler_type(&hc[0].c_type) => Some(a.clone()),
             _ => None,
         }
     } else {
@@ -156,7 +156,7 @@ pub fn classify_method_args(
     };
     let once_capable = !handler_value_args.is_empty()
         && handler_value_args.iter().all(|arg| match &arg.processing {
-            ArgProcessing::Handler(hc) => is_sync_handler(&method.fn_name, &hc[0].c_type),
+            ArgProcessing::Handler(hc) => is_sync_handler_type(&hc[0].c_type),
             _ => false,
         });
 
@@ -180,7 +180,6 @@ pub fn classify_method_args(
     for (arg, classified) in method.arguments.iter().zip(args.iter_mut()) {
         if classified.kind == ArgRole::WrapperPointer && setter_borrows_arg(method, arg) {
             let name = arg.as_ident();
-            // a borrowed `self` (e.g. from `get_archive_context()`) leaves lifetimes to its owner
             let keep_alive = quote! {
                 if let Some(__inner) = self.inner.as_owned() {
                     __inner.add_dependency(#name.clone());
@@ -192,6 +191,21 @@ pub fn classify_method_args(
             } else {
                 keep_alive
             });
+            // A borrowed `self` (e.g. from `get_archive_context()`) cannot keep `arg` alive, so
+            // return an error before calling C
+            // TODO: void setters cannot return an error, so on a borrowed `self` the caller
+            // must keep `arg` alive
+            if method.return_type.is_c_raw_int() {
+                let msg = format!(
+                    "{}: this wrapper is borrowed, so it cannot keep `{}` alive; call it on the wrapper that owns the C object",
+                    method.fn_name, arg.name
+                );
+                classified.prelude = Some(quote! {
+                    if self.inner.as_owned().is_none() {
+                        return Err(AeronCError::with_message(-1, #msg));
+                    }
+                });
+            }
         }
     }
 
@@ -201,32 +215,6 @@ pub fn classify_method_args(
         owned_retained,
         once_capable,
     }
-}
-
-/// Pollers whose `_reset` stores the consumer that the next `_poll` calls. The consumer
-/// types are sync everywhere else (e.g. `aeron_archive_list_recordings`), so the type alone
-/// cannot say these keep it
-const DEFERRED_CONSUMER_POLLERS: &[&str] = &[
-    "aeron_archive_recording_descriptor_poller",
-    "aeron_archive_recording_subscription_descriptor_poller",
-];
-
-/// `fn_name` stores a sync-typed callback for a later `_poll` (see [`DEFERRED_CONSUMER_POLLERS`])
-fn stores_consumer_for_poll(fn_name: &str) -> bool {
-    DEFERRED_CONSUMER_POLLERS
-        .iter()
-        .any(|p| fn_name.strip_prefix(p) == Some("_reset"))
-}
-
-/// `fn_name` calls the consumer an earlier `_reset` stored, so it raises its caught panic
-pub(crate) fn fires_stored_consumer(fn_name: &str) -> bool {
-    DEFERRED_CONSUMER_POLLERS
-        .iter()
-        .any(|p| fn_name.strip_prefix(p) == Some("_poll"))
-}
-
-fn is_sync_handler(fn_name: &str, c_type: &str) -> bool {
-    is_sync_handler_type(c_type) && !stores_consumer_for_poll(fn_name)
 }
 
 // not ideal to have these constants but these are exceptions to the r
@@ -345,14 +333,13 @@ fn classify_handler_arg(
     let handler_type = handler.as_type();
     let new_type =
         parse_str::<Type>(&format!("{}HandlerImpl", snake_to_pascal_case(&arg.c_type))).expect("Invalid class name");
-    let sync = is_sync_handler(fn_name, &handler.c_type);
+    let sync = is_sync_handler_type(&handler.c_type);
 
     // How a panic in the handler gets back to Rust (see the trampolines in generator.rs):
     // - UNWIND_POLL_FNS: straight through C. A handler that caught a panic one level down
     //   (fragment assemblers) sets RESUMES_CAUGHT_PANIC so the poll raises it on return
     // - sync handlers: caught, then raised by this wrapper once C returns
     // - fragment handlers C keeps (assembler delegates): caught, then raised by the poll above
-    // - descriptor poller consumers stored by `_reset`: caught, then raised by `_poll`
     // - anything else C keeps fires later, often on the conductor thread: logged
     let unwinds = UNWIND_POLL_FNS.contains(&fn_name);
     let fragment_handler = UNWIND_HANDLER_TYPES.contains(&handler.c_type.as_str());
@@ -368,7 +355,7 @@ fn classify_handler_arg(
             Some(quote! { if #name.is_some() { resume_caught_panic(); } }),
             Some(quote! { resume_caught_panic(); }),
         )
-    } else if fragment_handler || stores_consumer_for_poll(fn_name) {
+    } else if fragment_handler {
         ("_catch", None, None)
     } else {
         ("", None, None)
@@ -449,7 +436,7 @@ fn classify_handler_arg(
             kind: ArgRole::HandlerRetainedBorrowed,
             signature: Some(quote! { #name: Option<&Handler<#new_type>> }),
             call: Some(borrow_call),
-            // registered as a dependency, so 'static even for a sync type (descriptor pollers)
+            // registered as a dependency, so always 'static
             generic: rt.method_generics_for_where(true),
             registration: Some(quote! {
                 if let Some(__handler) = #name {
@@ -600,6 +587,7 @@ mod tests {
         let mut unwinding = std::collections::BTreeSet::new();
         let mut calls_by_fn = BTreeMap::new();
         let mut registrations_by_fn = BTreeMap::new();
+        let mut preludes_by_fn = BTreeMap::new();
         for file in ["client.rs", "archive.rs"] {
             let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("bindings")
@@ -618,13 +606,10 @@ mod tests {
                             .collect();
                         for shim in &shims {
                             // a caught panic needs a resume point, else it waits in the slot forever:
-                            // this wrapper, the poll above for fragment handlers C keeps, or the
-                            // descriptor poller's own `_poll`
+                            // this wrapper, or the poll above for fragment handlers C keeps
                             if let Some(c_type) = shim.strip_suffix("_callback_catch") {
                                 assert!(
-                                    arg.resume.is_some()
-                                        || UNWIND_HANDLER_TYPES.contains(&c_type)
-                                        || stores_consumer_for_poll(&method.fn_name),
+                                    arg.resume.is_some() || UNWIND_HANDLER_TYPES.contains(&c_type),
                                     "{}: {shim} has no resume point",
                                     method.fn_name
                                 );
@@ -648,6 +633,8 @@ mod tests {
                     calls_by_fn.insert(method.fn_name.clone(), tokens);
                     let registrations = classified.registrations();
                     registrations_by_fn.insert(method.fn_name.clone(), quote! { #(#registrations)* }.to_string());
+                    let preludes = classified.preludes();
+                    preludes_by_fn.insert(method.fn_name.clone(), quote! { #(#preludes)* }.to_string());
                 }
             }
         }
@@ -665,11 +652,6 @@ mod tests {
                 "aeron_archive_persistent_subscription_poll",
                 "aeron_fragment_handler_t_callback_catch",
             ),
-            // stored by reset, caught and raised by the poller's poll
-            (
-                "aeron_archive_recording_descriptor_poller_reset",
-                "aeron_archive_recording_descriptor_consumer_func_t_callback_catch",
-            ),
             // retained by C, fired later: logged
             ("aeron_context_set_error_handler", "aeron_error_handler_t_callback"),
         ] {
@@ -678,18 +660,6 @@ mod tests {
                 tokens.iter().any(|t| t == shim),
                 "{fn_name} must use {shim}: {tokens:?}"
             );
-        }
-
-        // C keeps the consumer past reset: no stack-closure variant, and the Handler is kept alive
-        for fn_name in [
-            "aeron_archive_recording_descriptor_poller_reset",
-            "aeron_archive_recording_subscription_descriptor_poller_reset",
-        ] {
-            assert!(
-                !calls_by_fn[fn_name].iter().any(|t| t.contains("_for_once_closure")),
-                "{fn_name} must not take a stack closure"
-            );
-            assert!(registrations_by_fn[fn_name].contains("add_dependency"), "{fn_name}");
         }
 
         // set_aeron keeps the client alive once C accepts it, unless the context is borrowed
@@ -704,11 +674,19 @@ mod tests {
             }
             .to_string()
         );
-        // C frees the counter, so the context must not keep it
-        assert_eq!(
-            registrations_by_fn["aeron_archive_persistent_subscription_context_set_state_counter"],
-            ""
+        // a borrowed context cannot keep the client, so set_aeron refuses before calling C
+        let guard = &preludes_by_fn["aeron_archive_context_set_aeron"];
+        assert!(
+            guard.contains(&quote! { if self.inner.as_owned().is_none() }.to_string()) && guard.contains("borrowed"),
+            "{guard}"
         );
+        // C frees the counter, so the context must not keep it, nor refuse a borrowed self
+        for by_fn in [&registrations_by_fn, &preludes_by_fn] {
+            assert_eq!(
+                by_fn["aeron_archive_persistent_subscription_context_set_state_counter"],
+                ""
+            );
+        }
     }
 
     /// UNWIND_HANDLER_TYPES must be exactly the handler types UNWIND_POLL_FNS take.
