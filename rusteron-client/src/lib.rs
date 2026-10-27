@@ -3941,7 +3941,7 @@ mod tests {
 
     /// Same drop-before-poll leak proof, but for `AeronAsyncAddCounter` — a user counter's
     /// key buffer (not the registration id) is the only thing we control, so match on the
-    /// exact key bytes instead of `find_by_type_and_registration_id`.
+    /// key bytes instead of `find_by_type_and_registration_id`.
     #[test]
     #[serial]
     fn dropping_unpolled_async_counter_does_not_leak_driver_counter() {
@@ -3958,16 +3958,14 @@ mod tests {
 
         let counters = aeron.counters_reader();
         let start = Instant::now();
-        let mut leaked_counter = None;
-        let mut first_seen = None;
-        while start.elapsed() < Duration::from_secs(5) {
-            leaked_counter = counters.find_by_type_id(type_id, |key| key.starts_with(&key_buffer));
-            if leaked_counter.is_some() && first_seen.is_none() { first_seen = Some(start.elapsed()); }
-            if leaked_counter.is_none() && first_seen.is_some() { break; }
-            if leaked_counter.is_none() && start.elapsed() > Duration::from_secs(2) { break; }
-            sleep(Duration::from_millis(1));
+        // the reader passes the whole 112-byte key region, so match the prefix. The driver can
+        // add the counter before the cancel reaches it, so wait for it to go
+        let find = || counters.find_by_type_id(type_id, |key| key.starts_with(&key_buffer));
+        let mut leaked_counter = find();
+        while leaked_counter.is_some() && start.elapsed() < Duration::from_secs(5) {
+            sleep(Duration::from_millis(20));
+            leaked_counter = find();
         }
-        println!("PROBE first_seen={first_seen:?} gone_at={:?} leaked={leaked_counter:?}", start.elapsed());
         assert!(
             leaked_counter.is_none(),
             "user counter is still registered with the driver even though the async poller \
@@ -4049,10 +4047,15 @@ mod tests {
             drop(poller);
 
             let counters = aeron.counters_reader();
+            let find = || counters.find_by_type_id(type_id, |key| key.starts_with(&key_buffer));
+            let start = Instant::now();
+            let mut still_present = find();
+            while still_present.is_some() && start.elapsed() < Duration::from_secs(5) {
+                sleep(Duration::from_millis(20));
+                still_present = find();
+            }
             assert!(
-                counters
-                    .find_by_type_id(type_id, |key| key.starts_with(&key_buffer))
-                    .is_none(),
+                still_present.is_none(),
                 "explicit .cancel() should release the pending counter registration"
             );
         }
