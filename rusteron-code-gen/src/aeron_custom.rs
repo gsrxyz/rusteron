@@ -1518,32 +1518,32 @@ impl AeronCountersReader {
         }
     }
 
+    /// Length of every counter's key region: C's `AERON_COUNTER_MAX_KEY_LENGTH` (a `sizeof`,
+    /// which bindgen skips), Java's `CountersReader.MAX_KEY_LENGTH`.
+    pub const MAX_KEY_LENGTH: usize = unsafe { std::mem::zeroed::<aeron_counter_metadata_descriptor_t>() }.key.len();
+
+    /// Get the key for a counter: its whole key region, [`Self::MAX_KEY_LENGTH`] (112) bytes.
+    ///
+    /// Keys are binary and their layout is type-specific (see `aeron_counters.h`), so zero bytes
+    /// can sit anywhere in one. Bytes past what the counter's type defines are zero.
     #[inline]
-    #[doc = "Get the key for a counter."]
     pub fn get_counter_key(&self, counter_id: i32) -> Result<Vec<u8>, AeronCError> {
-        let mut dst = Vec::new();
+        let mut dst = Vec::with_capacity(Self::MAX_KEY_LENGTH);
         self.get_counter_key_into(counter_id, &mut dst)?;
         Ok(dst)
     }
 
+    /// Get the key for a counter into `dst`, replacing its contents: see [`Self::get_counter_key`].
     #[inline]
-    #[doc = "Get the key for a counter."]
     pub fn get_counter_key_into(&self, counter_id: i32, dst: &mut Vec<u8>) -> Result<(), AeronCError> {
+        dst.clear();
         let mut key_ptr: *mut u8 = std::ptr::null_mut();
         unsafe {
             let result = bindings::aeron_counters_reader_metadata_key(self.get_inner(), counter_id, &mut key_ptr);
             if result < 0 || key_ptr.is_null() {
                 return Err(AeronCError::from_code(result));
             }
-
-            loop {
-                let val = *key_ptr.add(dst.len());
-                if val == 0 {
-                    break;
-                } else {
-                    dst.push(val);
-                }
-            }
+            dst.extend_from_slice(std::slice::from_raw_parts(key_ptr, Self::MAX_KEY_LENGTH));
             Ok(())
         }
     }
