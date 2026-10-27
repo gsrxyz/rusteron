@@ -285,6 +285,12 @@ Which structures get which behaviour:
 Ordering is structurally safe in any combination: children hold references to the client, the
 client holds its context, and closing/dropping in *any* order defers the C teardown until the
 last handle releases (verified by the `complex_object_graph_close_is_safe_in_any_order` test).
+This covers owned handles. Two exceptions:
+
+- Borrowed handles (wrapping a pointer C gave out, e.g. `AeronArchiveContext::get_aeron()`) hold
+  no reference, so they must not outlive their owner.
+- A buffer claim from `try_claim` / `try_claim_owned` points into the publication's log buffer
+  and must be committed or aborted before the publication closes.
 
 ## Migrating 0.1 → 0.2
 

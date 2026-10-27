@@ -1,4 +1,5 @@
 use log::{LevelFilter, Log, Metadata, Record};
+use std::io::Write;
 use std::sync::Once;
 
 struct StderrLogger;
@@ -10,7 +11,8 @@ impl Log for StderrLogger {
 
     fn log(&self, record: &Record<'_>) {
         if self.enabled(record.metadata()) {
-            eprintln!("{} {}", record.level(), record.args());
+            // `eprintln!` panics if stderr fails, and this can run inside an Aeron callback
+            let _ = writeln!(std::io::stderr(), "{} {}", record.level(), record.args());
         }
     }
 

@@ -30,8 +30,10 @@ This project builds on a fork of [`libaeron-sys`](https://github.com/bspeice/lib
 
 **Why generated bindings**: the main advantage of generating the bindings from the Aeron C headers is that the API is always complete and matches the Aeron documentation. Every C function and setting is available under a predictable name, with no wrapper lagging behind an Aeron release. Hand-written bindings can look nicer, but they are hard to maintain, and when something breaks you cannot tell whether the fault is in the wrapper or in Aeron itself. Because the generated code is a thin pass-through to the C API, a problem can be reproduced against Aeron directly, and Aeron's own docs, samples and issue tracker apply as-is. Aeron is specialised, and rusteron is aimed mainly at people who already know low-latency development and want the real Aeron API rather than an abstraction over it. As with any low-level API, that power cuts both ways: rusteron guards against the common mistakes, but it is still possible to shoot yourself in the foot if the API is misused, so it pays to know how Aeron expects each call to be used.
 
-**Lifecycle**: since 0.2, closing or dropping handles in any order is safe. `aeron.close()` is deferred while any publication, subscription, counter or clone is alive, and those handles stay usable until the last one drops (see [Resource Lifecycle](./rusteron-client/README.md#resource-lifecycle--close)). The remaining sharp edges:
+**Lifecycle**: since 0.2, closing or dropping owned handles in any order is safe. `aeron.close()` is deferred while any publication, subscription, counter or clone is alive, and those handles stay usable until the last one drops (see [Resource Lifecycle](./rusteron-client/README.md#resource-lifecycle--close)). The remaining sharp edges:
 - `unsafe close_now()` frees children immediately.
+- Borrowed handles do not keep their owner alive. For example, an `Aeron` from `archive_context.get_aeron()` or a descriptor poller from `AeronArchive` must not outlive the context or archive it came from.
+- A buffer claim (`try_claim` / `try_claim_owned`) must be committed or aborted before its publication closes.
 - A panic in a callback never aborts the process (unless you build with `panic = "abort"`). See [Panics in callbacks](#panics-in-callbacks) for what happens to the panic and to the message.
 - A retained image must be dropped before `subscription.close()`.
 
@@ -330,11 +332,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### C strings without hidden allocations
 
-Every channel/URI argument is a `&CStr` (the C API's type), not `&str`/`String`, so every heap
-allocation is visible at the call site.
+In the generated APIs every channel/URI argument is a `&CStr` (the C API's type), not
+`&str`/`String`, so every heap allocation is visible at the call site. `&str`/`String` appear there
+only where they add no allocation, e.g. strings borrowed back from C.
 
-`&str`/`String` appear only where they add no allocation, e.g. strings borrowed back from C. Some
-Aeron wrappers take `&str` everywhere and hide the conversion; here it is explicit.
+A few hand-written convenience helpers take `&str` and allocate on each call:
+`AeronArchive::connect`, the persistent-subscription builder's `live_channel` / `replay_channel`,
+and the replication params builder's `replication_channel` / `src_response_channel`. They are
+meant for setup, not the hot path.
 
 Recommended three-tier pattern, cheapest first:
 

@@ -593,8 +593,34 @@ fn conductor_callback_panic_is_logged_and_client_continues() {
     assert!(stderr.contains(expected), "missing `{expected}` in stderr:\n{stderr}");
 }
 
+/// Reporting a panic must not panic itself: with the read end of its stderr pipe closed, every
+/// stderr write in the child fails with `EPIPE`, and a panicking write would abort
 #[test]
-#[ignore = "run by conductor_callback_panic_is_logged_and_client_continues in a child process"]
+#[serial]
+fn conductor_callback_panic_with_broken_stderr_does_not_abort() {
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "panic_tests::child_conductor_callback_panics",
+            "--exact",
+            "--ignored",
+            "--test-threads=1",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stderr.take());
+    let output = child.wait_with_output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "child must not abort: {:?}, stdout:\n{stdout}",
+        output.status
+    );
+}
+
+#[test]
+#[ignore = "run by the conductor callback panic tests in a child process"]
 fn child_conductor_callback_panics() {
     static FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     let ipc = ipc(5023);

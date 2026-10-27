@@ -1042,7 +1042,11 @@ pub fn log_panic<R>(callback: &str, fallback: R, f: impl FnOnce() -> R) -> R {
                 .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
                 .unwrap_or("non-string panic payload");
             log::error!("{callback} panicked inside an Aeron callback, continuing: {message}");
-            eprintln!("{callback} panicked inside an Aeron callback, continuing: {message}");
+            // not `eprintln!`, which panics if stderr fails, and a panic here would abort
+            let _ = std::io::Write::write_fmt(
+                &mut std::io::stderr(),
+                format_args!("{callback} panicked inside an Aeron callback, continuing: {message}\n"),
+            );
             fallback
         }
     }
