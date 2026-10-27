@@ -1857,7 +1857,7 @@ mod tests {
             ) -> () {
                 info!(
                     "on counter key={:?}, label={:?} registration_id={registration_id}, counter_id={counter_id}, value={}, {counters_reader:?}",
-                    String::from_utf8(counters_reader.get_counter_key(counter_id).unwrap()),
+                    counters_reader.get_counter_key(counter_id),
                     counters_reader.get_counter_label(counter_id, 1000),
                     counters_reader.addr(counter_id)
                 );
@@ -1870,7 +1870,7 @@ mod tests {
                 if let Ok(label) = counters_reader.get_counter_label(counter_id, 1000) {
                     if label == "label_buffer" {
                         self.found_counter = true;
-                        assert_eq!(&counters_reader.get_counter_key(counter_id).unwrap(), "key".as_bytes());
+                        assert!(counters_reader.get_counter_key(counter_id).unwrap().starts_with(b"key"));
                     }
                 }
             }
@@ -1902,7 +1902,23 @@ mod tests {
 
         let reader = aeron.counters_reader();
         assert_eq!(reader.get_counter_label(counter_id, 256)?, "label_buffer");
-        assert_eq!(reader.get_counter_key(counter_id)?, "key".as_bytes());
+        let mut expected_key = [0u8; AeronCountersReader::MAX_KEY_LENGTH];
+        expected_key[..3].copy_from_slice(b"key");
+        assert_eq!(reader.get_counter_key(counter_id)?, expected_key);
+
+        // Keys are binary: zero bytes before non-zero ones must not cut the key short.
+        let mut binary_key = Vec::from(0u64.to_le_bytes());
+        binary_key.extend_from_slice(&7u32.to_le_bytes());
+        let binary_counter = aeron.add_counter(125, &binary_key, "binary_key", Duration::from_secs(5))?;
+        let binary_id = binary_counter.get_constants()?.counter_id;
+        let mut expected_key = [0u8; AeronCountersReader::MAX_KEY_LENGTH];
+        expected_key[..binary_key.len()].copy_from_slice(&binary_key);
+        assert_eq!(reader.get_counter_key(binary_id)?, expected_key);
+        let mut key_dst = vec![0xff; 3];
+        reader.get_counter_key_into(binary_id, &mut key_dst)?;
+        assert_eq!(key_dst, expected_key);
+        assert!(reader.get_counter_key_into(-1, &mut key_dst).is_err());
+        assert!(key_dst.is_empty());
 
         let mut dst = String::with_capacity(64);
         assert!(reader.get_counter_label_into(-1, &mut dst).is_err());
