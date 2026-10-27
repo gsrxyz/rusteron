@@ -1979,6 +1979,15 @@ impl AeronErrorHandlerCallback for AeronErrorLogger {
 unsafe impl Send for AeronErrorLogger {}
 unsafe impl Sync for AeronErrorLogger {}
 
+/// Runs the closure when dropped, so cleanup also happens when a panic unwinds
+struct OnDrop<F: FnMut()>(F);
+
+impl<F: FnMut()> Drop for OnDrop<F> {
+    fn drop(&mut self) {
+        (self.0)()
+    }
+}
+
 pub struct FnMutMessageHandler {
     func: fn(*mut (), &[u8], AeronHeader),
     ctx: *mut (),
@@ -2090,14 +2099,10 @@ impl AeronFragmentClosureAssembler {
         unsafe {
             self.handler.get_mut().set(ctx, func);
         }
-        // clear `ctx` even if `func` panicked, so no dangling pointer is left behind
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            pollable.poll_with_assembler(Some(&self.assembler), fragment_limit)
-        }));
-        unsafe {
-            self.handler.get_mut().clear();
-        }
-        result.unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+        // clear `ctx` on return and on unwind, so no dangling pointer is left behind
+        let handler = &self.handler;
+        let _clear = OnDrop(|| unsafe { handler.get_mut().clear() });
+        pollable.poll_with_assembler(Some(&self.assembler), fragment_limit)
     }
 }
 
@@ -2214,13 +2219,10 @@ impl AeronControlledFragmentClosureAssembler {
         unsafe {
             self.handler.get_mut().set(ctx, func);
         }
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            pollable.controlled_poll_with_assembler(Some(&self.assembler), fragment_limit)
-        }));
-        unsafe {
-            self.handler.get_mut().clear();
-        }
-        result.unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+        // clear `ctx` on return and on unwind, so no dangling pointer is left behind
+        let handler = &self.handler;
+        let _clear = OnDrop(|| unsafe { handler.get_mut().clear() });
+        pollable.controlled_poll_with_assembler(Some(&self.assembler), fragment_limit)
     }
 }
 

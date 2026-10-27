@@ -1979,6 +1979,15 @@ impl AeronErrorHandlerCallback for AeronErrorLogger {
 unsafe impl Send for AeronErrorLogger {}
 unsafe impl Sync for AeronErrorLogger {}
 
+/// Runs the closure when dropped, so cleanup also happens when a panic unwinds
+struct OnDrop<F: FnMut()>(F);
+
+impl<F: FnMut()> Drop for OnDrop<F> {
+    fn drop(&mut self) {
+        (self.0)()
+    }
+}
+
 pub struct FnMutMessageHandler {
     func: fn(*mut (), &[u8], AeronHeader),
     ctx: *mut (),
@@ -2090,14 +2099,10 @@ impl AeronFragmentClosureAssembler {
         unsafe {
             self.handler.get_mut().set(ctx, func);
         }
-        // clear `ctx` even if `func` panicked, so no dangling pointer is left behind
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            pollable.poll_with_assembler(Some(&self.assembler), fragment_limit)
-        }));
-        unsafe {
-            self.handler.get_mut().clear();
-        }
-        result.unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+        // clear `ctx` on return and on unwind, so no dangling pointer is left behind
+        let handler = &self.handler;
+        let _clear = OnDrop(|| unsafe { handler.get_mut().clear() });
+        pollable.poll_with_assembler(Some(&self.assembler), fragment_limit)
     }
 }
 
@@ -2214,13 +2219,10 @@ impl AeronControlledFragmentClosureAssembler {
         unsafe {
             self.handler.get_mut().set(ctx, func);
         }
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            pollable.controlled_poll_with_assembler(Some(&self.assembler), fragment_limit)
-        }));
-        unsafe {
-            self.handler.get_mut().clear();
-        }
-        result.unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+        // clear `ctx` on return and on unwind, so no dangling pointer is left behind
+        let handler = &self.handler;
+        let _clear = OnDrop(|| unsafe { handler.get_mut().clear() });
+        pollable.controlled_poll_with_assembler(Some(&self.assembler), fragment_limit)
     }
 }
 
@@ -3201,28 +3203,32 @@ impl ControlledFragmentAssemblable for AeronArchivePersistentSubscription {
 // generate a `reset_fn` whose closure is gone by the time `poll` runs, and a panic check that
 // runs too early. The generator skips methods defined in this file, so we write them here:
 // - `reset` takes a `Handler`, which the poller keeps alive, and uses the `_catch` trampoline so
-//   a panic never crosses C
+//   a panic never crosses C. A borrowed poller cannot keep it, so `reset` returns an error
 // - `poll` raises the caught panic after C returns
 
 impl AeronArchiveRecordingDescriptorPoller {
     /// Sets up the poller for the next `poll`, which calls `recording_descriptor_consumer` for
-    /// each descriptor received. The poller keeps the handler alive.
+    /// each descriptor received. The poller keeps the handler alive, so a borrowed poller (as
+    /// returned by `AeronArchive`) returns an error and C is not changed
     #[inline]
-    pub fn reset<
-        AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl: AeronArchiveRecordingDescriptorConsumerFuncCallback + 'static,
-    >(
+    pub fn reset<H: AeronArchiveRecordingDescriptorConsumerFuncCallback + 'static>(
         &self,
         correlation_id: i64,
         record_count: i32,
-        recording_descriptor_consumer: Option<&Handler<AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl>>,
-    ) {
+        recording_descriptor_consumer: Option<&Handler<H>>,
+    ) -> Result<(), AeronCError> {
+        // C keeps a pointer to the handler, so the poller must keep it alive. Pollers from
+        // `AeronArchive` are borrowed and cannot, so refuse before C is changed
+        let Some(inner) = self.inner.as_owned() else {
+            return Err(AeronCError::with_message(
+                -1,
+                "aeron_archive_recording_descriptor_poller_reset: this poller is borrowed, so it cannot keep the consumer alive",
+            ));
+        };
         #[cfg(feature = "log-c-bindings")]
         log::info!("aeron_archive_recording_descriptor_poller_reset({correlation_id}, {record_count})");
-        let callback: aeron_archive_recording_descriptor_consumer_func_t = recording_descriptor_consumer.map(|_| {
-            aeron_archive_recording_descriptor_consumer_func_t_callback_catch::<
-                AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl,
-            > as _
-        });
+        let callback: aeron_archive_recording_descriptor_consumer_func_t = recording_descriptor_consumer
+            .map(|_| aeron_archive_recording_descriptor_consumer_func_t_callback_catch::<H> as _);
         let clientd = recording_descriptor_consumer.map_or(std::ptr::null_mut(), |h| h.as_raw());
         unsafe {
             aeron_archive_recording_descriptor_poller_reset(
@@ -3233,9 +3239,10 @@ impl AeronArchiveRecordingDescriptorPoller {
                 clientd,
             )
         };
-        if let (Some(handler), Some(inner)) = (recording_descriptor_consumer, self.inner.as_owned()) {
+        if let Some(handler) = recording_descriptor_consumer {
             inner.add_dependency(handler.clone());
         }
+        Ok(())
     }
 
     /// Polls for descriptors, calling the consumer given to `reset`. A panic in the consumer is
@@ -3257,26 +3264,30 @@ impl AeronArchiveRecordingDescriptorPoller {
 impl AeronArchiveRecordingSubscriptionDescriptorPoller {
     /// Sets up the poller for the next `poll`, which calls
     /// `recording_subscription_descriptor_consumer` for each descriptor received. The poller
-    /// keeps the handler alive.
+    /// keeps the handler alive, so a borrowed poller (as returned by `AeronArchive`) returns
+    /// an error and C is not changed
     #[inline]
-    pub fn reset<
-        AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl: AeronArchiveRecordingSubscriptionDescriptorConsumerFuncCallback + 'static,
-    >(
+    pub fn reset<H: AeronArchiveRecordingSubscriptionDescriptorConsumerFuncCallback + 'static>(
         &self,
         correlation_id: i64,
         subscription_count: i32,
-        recording_subscription_descriptor_consumer: Option<
-            &Handler<AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl>,
-        >,
-    ) {
+        recording_subscription_descriptor_consumer: Option<&Handler<H>>,
+    ) -> Result<(), AeronCError> {
+        // C keeps a pointer to the handler, so the poller must keep it alive. Pollers from
+        // `AeronArchive` are borrowed and cannot, so refuse before C is changed
+        let Some(inner) = self.inner.as_owned() else {
+            return Err(AeronCError::with_message(
+                -1,
+                "aeron_archive_recording_subscription_descriptor_poller_reset: this poller is borrowed, so it cannot keep the consumer alive",
+            ));
+        };
         #[cfg(feature = "log-c-bindings")]
-        log::info!("aeron_archive_recording_subscription_descriptor_poller_reset({correlation_id}, {subscription_count})");
+        log::info!(
+            "aeron_archive_recording_subscription_descriptor_poller_reset({correlation_id}, {subscription_count})"
+        );
         let callback: aeron_archive_recording_subscription_descriptor_consumer_func_t =
-            recording_subscription_descriptor_consumer.map(|_| {
-                aeron_archive_recording_subscription_descriptor_consumer_func_t_callback_catch::<
-                    AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl,
-                > as _
-            });
+            recording_subscription_descriptor_consumer
+                .map(|_| aeron_archive_recording_subscription_descriptor_consumer_func_t_callback_catch::<H> as _);
         let clientd = recording_subscription_descriptor_consumer.map_or(std::ptr::null_mut(), |h| h.as_raw());
         unsafe {
             aeron_archive_recording_subscription_descriptor_poller_reset(
@@ -3287,9 +3298,10 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
                 clientd,
             )
         };
-        if let (Some(handler), Some(inner)) = (recording_subscription_descriptor_consumer, self.inner.as_owned()) {
+        if let Some(handler) = recording_subscription_descriptor_consumer {
             inner.add_dependency(handler.clone());
         }
+        Ok(())
     }
 
     /// Polls for descriptors, calling the consumer given to `reset`. A panic in the consumer is

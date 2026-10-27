@@ -1542,6 +1542,54 @@ mod tests {
         test_result
     }
 
+    /// The archive's descriptor pollers are borrowed, so they cannot keep a consumer alive and
+    /// `reset` must refuse before C stores a pointer the caller may free
+    #[test]
+    #[serial]
+    pub fn reset_on_archive_descriptor_pollers_is_rejected() -> Result<(), Box<dyn error::Error>> {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+        EmbeddedArchiveMediaDriverProcess::kill_all_java_processes()?;
+        let (aeron, archive_context, media_driver, pub_error_frame_handler, error_handler) = start_aeron_archive()?;
+
+        let test_result: Result<(), Box<dyn error::Error>> = (|| {
+            let archive = AeronArchiveAsyncConnect::new_with_aeron(&archive_context.clone(), &aeron)?
+                .poll_blocking(Duration::from_secs(30))?;
+
+            let poller = archive.recording_descriptor_poller();
+            let (correlation_id, clientd) = (poller.correlation_id(), poller.recording_descriptor_consumer_clientd());
+            let consumer = Handler::new(AeronArchiveRecordingDescriptorConsumerFuncLogger);
+            let Err(err) = poller.reset(correlation_id + 1, 1, Some(&consumer)) else {
+                return Err("a borrowed recording descriptor poller must refuse reset".into());
+            };
+            assert!(err.message().is_some_and(|m| m.contains("borrowed")), "{err:?}");
+            assert_eq!(poller.correlation_id(), correlation_id);
+            assert_eq!(poller.recording_descriptor_consumer_clientd(), clientd);
+
+            let poller = archive.recording_subscription_descriptor_poller();
+            let (correlation_id, clientd) = (
+                poller.correlation_id(),
+                poller.recording_subscription_descriptor_consumer_clientd(),
+            );
+            let consumer = Handler::new(AeronArchiveRecordingSubscriptionDescriptorConsumerFuncLogger);
+            let Err(err) = poller.reset(correlation_id + 1, 1, Some(&consumer)) else {
+                return Err("a borrowed recording subscription descriptor poller must refuse reset".into());
+            };
+            assert!(err.message().is_some_and(|m| m.contains("borrowed")), "{err:?}");
+            assert_eq!(poller.correlation_id(), correlation_id);
+            assert_eq!(poller.recording_subscription_descriptor_consumer_clientd(), clientd);
+
+            archive.close()?;
+            Ok(())
+        })();
+
+        drop(aeron);
+        drop(archive_context);
+        drop(media_driver);
+        drop(pub_error_frame_handler);
+        drop(error_handler);
+        test_result
+    }
+
     /// The context keeps every client passed to `set_aeron` alive, even after the caller drops
     /// theirs or a later call replaces it
     #[test]
@@ -1575,7 +1623,8 @@ mod tests {
             // without the fix these would use a freed client
             let client = context.get_aeron();
             assert_eq!(client.client_id(), second_id);
-            let timeout = Duration::from_secs(5);
+            // the harness does not wait for the Java driver, which can take seconds to start on CI
+            let timeout = Duration::from_secs(30);
             let subscription =
                 client.add_subscription(AERON_IPC_STREAM, 7001, Handlers::NONE, Handlers::NONE, timeout)?;
             let publication = client.add_publication(AERON_IPC_STREAM, 7001, timeout)?;
