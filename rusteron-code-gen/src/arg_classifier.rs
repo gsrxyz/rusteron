@@ -217,13 +217,12 @@ pub fn classify_method_args(
     }
 }
 
-// not ideal to have these constants but these are exceptions to the r
+// not ideal to have these constants but these are exceptions to the rule
 /// Types a C setter takes ownership of. C frees them, so `self` must not keep them too
 const C_OWNED_SET_TYPES: &[&str] = &["aeron_counter_t", "aeron_udp_channel_interceptor_bindings_t"];
 
 /// Whether a C setter keeps a pointer to `arg` without owning it (e.g.
 /// aeron_archive_context_set_aeron). If so, `self` must keep `arg` alive
-// ponytail: relies on Aeron's `_set_` naming; add new C-owned types to C_OWNED_SET_TYPES
 fn setter_borrows_arg(method: &Method, arg: &Arg) -> bool {
     method.fn_name.contains("_set_") && !C_OWNED_SET_TYPES.iter().any(|t| arg.c_type.ends_with(t))
 }

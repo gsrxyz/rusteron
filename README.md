@@ -397,6 +397,7 @@ Old → new for every renamed/changed API
 | `archive.start_replay(...)`, `start_recording(...)`, … → `Result<_, AeronCError>` | `Result<_, AeronArchiveError>` | Control ops on `AeronArchive` return the typed error (parseable code + message). Constructors, async-connect, and context setters still return `AeronCError`; `From<AeronArchiveError> for AeronCError` keeps `?` working across the boundary. |
 | `async_add_exclusive_publication.poll(...).get_registration_id()` on the deprecated `exclusive_exclusive` alias | only `aeron_async_add_exclusive_publication_get_registration_id` is exposed | The deprecated `aeron_async_add_exclusive_exclusive_publication_get_registration_id` C alias is dropped (it collided with the canonical name); use the canonical `get_registration_id()`. |
 | `DarwinPthread*`, `OpaquePthread*` wrapper structs in the generated API | removed | Bindgen pthread internals are no longer emitted as wrapper types; socket types the driver wrappers reference (`sockaddr_storage`, `iovec`, …) are retained. |
+| `recording_descriptor_poller().reset(...)` / `recording_subscription_descriptor_poller().reset(...)` → `()` | `→ Result<(), AeronCError>` | C keeps a pointer to the consumer, so the poller must keep it alive. Pollers returned by `AeronArchive` are borrowed and cannot, so `reset` returns an error before C is changed. Use `list_recordings` / `list_recording_subscriptions` instead. |
 
 Behavioural notes:
 - Handler panics: see [Panics in callbacks](#panics-in-callbacks). Poll handlers unwind
