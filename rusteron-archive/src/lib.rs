@@ -27,7 +27,7 @@ use std::cell::Cell;
 use std::os::raw::c_int;
 #[cfg(feature = "multi-threaded")]
 use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Result codes returned by `AeronPublication::offer` / `try_claim` (Aeron `aeronc.h`). A positive
 /// value is the resulting log position; the negatives classify the failure.
@@ -402,6 +402,7 @@ unsafe extern "C" fn persistent_subscription_on_live_left(clientd: *mut std::ffi
     }
 }
 
+#[cold]
 unsafe extern "C" fn persistent_subscription_on_error(
     clientd: *mut std::ffi::c_void,
     error_code: c_int,

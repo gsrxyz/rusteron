@@ -17,6 +17,7 @@ use std::mem::MaybeUninit;
 use std::ops::Deref;
 #[allow(unused_imports)]
 use std::ops::DerefMut;
+use std::time::Duration;
 
 /// Reference-counting smart pointer: `Rc` by default, `Arc` under the
 /// `multi-threaded` feature. Swap is transparent — `RcOrArc::new`, `.clone()`,
@@ -638,7 +639,7 @@ impl From<AeronErrorType> for AeronCError {
 }
 
 impl AeronErrorType {
-    pub fn code(&self) -> i32 {
+    pub const fn code(&self) -> i32 {
         match self {
             AeronErrorType::GenericError => -1,
             AeronErrorType::ClientErrorDriverTimeout => -1000,
@@ -667,7 +668,7 @@ impl AeronErrorType {
         self.is_back_pressured() || self.is_admin_action()
     }
 
-    pub fn from_code(code: i32) -> Self {
+    pub const fn from_code(code: i32) -> Self {
         match code {
             -1 => AeronErrorType::GenericError,
             -1000 => AeronErrorType::ClientErrorDriverTimeout,
@@ -684,7 +685,7 @@ impl AeronErrorType {
         }
     }
 
-    pub fn to_string(&self) -> &'static str {
+    pub const fn to_string(&self) -> &'static str {
         match self {
             AeronErrorType::GenericError => "Generic Error",
             AeronErrorType::ClientErrorDriverTimeout => "Client Error Driver Timeout",
@@ -767,6 +768,7 @@ impl AeronCError {
     }
 
     /// [`Self::from_code`] with an attached message.
+    #[cold]
     pub fn with_message(code: i32, msg: impl Into<String>) -> Self {
         let mut err = Self::from_code(code);
         err.msg = Some(msg.into());
@@ -778,7 +780,7 @@ impl AeronCError {
         self.msg.as_deref()
     }
 
-    pub fn kind(&self) -> AeronErrorType {
+    pub const fn kind(&self) -> AeronErrorType {
         AeronErrorType::from_code(self.code)
     }
 
@@ -842,7 +844,7 @@ impl AeronOfferError {
 
     /// A retry (possibly after idling / waiting for a subscriber) can succeed.
     #[inline]
-    pub fn is_retryable(&self) -> bool {
+    pub const fn is_retryable(&self) -> bool {
         matches!(
             self,
             AeronOfferError::NotConnected | AeronOfferError::BackPressured | AeronOfferError::AdminAction
@@ -851,7 +853,7 @@ impl AeronOfferError {
 
     /// The publication will never accept this offer again; recreate or give up.
     #[inline]
-    pub fn is_fatal(&self) -> bool {
+    pub const fn is_fatal(&self) -> bool {
         !self.is_retryable()
     }
 }
@@ -1010,13 +1012,19 @@ pub fn catch_panic<R>(fallback: R, f: impl FnOnce() -> R) -> R {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(result) => result,
         Err(payload) => {
-            CAUGHT_PANIC.with(|slot| {
-                let first = slot.take().unwrap_or(payload);
-                slot.set(Some(first));
-            });
+            store_caught_panic(payload);
             fallback
         }
     }
+}
+
+#[cold]
+#[inline(never)]
+fn store_caught_panic(payload: Box<dyn std::any::Any + Send>) {
+    CAUGHT_PANIC.with(|slot| {
+        let first = slot.take().unwrap_or(payload);
+        slot.set(Some(first));
+    });
 }
 
 /// Raises the panic stored by [`catch_panic`] on this thread, if any
@@ -1024,6 +1032,7 @@ pub fn catch_panic<R>(fallback: R, f: impl FnOnce() -> R) -> R {
 #[inline]
 pub fn resume_caught_panic() {
     if let Some(payload) = CAUGHT_PANIC.take() {
+        std::hint::cold_path();
         std::panic::resume_unwind(payload)
     }
 }
@@ -1036,20 +1045,26 @@ pub fn log_panic<R>(callback: &str, fallback: R, f: impl FnOnce() -> R) -> R {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(result) => result,
         Err(payload) => {
-            let message = payload
-                .downcast_ref::<&str>()
-                .copied()
-                .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-                .unwrap_or("non-string panic payload");
-            log::error!("{callback} panicked inside an Aeron callback, continuing: {message}");
-            // not `eprintln!`, which panics if stderr fails, and a panic here would abort
-            let _ = std::io::Write::write_fmt(
-                &mut std::io::stderr(),
-                format_args!("{callback} panicked inside an Aeron callback, continuing: {message}\n"),
-            );
+            report_panic(callback, &*payload);
             fallback
         }
     }
+}
+
+#[cold]
+#[inline(never)]
+fn report_panic(callback: &str, payload: &(dyn std::any::Any + Send)) {
+    let message = payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("non-string panic payload");
+    log::error!("{callback} panicked inside an Aeron callback, continuing: {message}");
+    // not `eprintln!`, which panics if stderr fails, and a panic here would abort
+    let _ = std::io::Write::write_fmt(
+        &mut std::io::stderr(),
+        format_args!("{callback} panicked inside an Aeron callback, continuing: {message}\n"),
+    );
 }
 
 /// Represents the Aeron URI parser and handler.
@@ -1119,7 +1134,7 @@ pub enum Media {
 }
 
 impl Media {
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Media::Ipc => "ipc",
             Media::Udp => "udp",
@@ -1137,7 +1152,7 @@ pub enum ControlMode {
 }
 
 impl ControlMode {
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             ControlMode::Manual => "manual",
             ControlMode::Dynamic => "dynamic",
@@ -1314,6 +1329,201 @@ impl IntoCString for String {
         log::info!("created c string on heap: {:?}", self);
 
         std::ffi::CString::new(self).expect("failed to create CString")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Idle strategies for poll loops. Pure-Rust port of Aeron's `IdleStrategy`
+// (Java/C++): pass the work count from the last `poll` to `idle(work_count)`; it returns
+// immediately when work was done, otherwise backs off the CPU (spin / yield / sleep).
+// ---------------------------------------------------------------------------
+
+/// Back off a poll loop when the last cycle did no work. Mirrors Aeron's `IdleStrategy`:
+/// `idle(work_count)` returns immediately when `work_count > 0`, otherwise spins / yields /
+/// sleeps depending on the implementation.
+pub trait IdleStrategy {
+    /// Called with the work/fragment count from the last operation. Implementations return
+    /// immediately when `work_count > 0` (work was done) and back off otherwise.
+    fn idle(&mut self, work_count: i32);
+
+    /// Reset accumulated backoff state after a productive period. Default: no-op.
+    fn reset(&mut self) {}
+}
+
+/// Spin with a CPU pause hint. Lowest latency, pins a core. (Aeron `BusySpinIdleStrategy`.)
+pub struct BusySpinIdleStrategy;
+impl BusySpinIdleStrategy {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+impl Default for BusySpinIdleStrategy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl IdleStrategy for BusySpinIdleStrategy {
+    #[inline]
+    fn idle(&mut self, work_count: i32) {
+        if work_count > 0 {
+            return;
+        }
+        std::hint::spin_loop();
+    }
+}
+
+/// No-op — never yields the core. (Aeron `NoOpIdleStrategy`.)
+pub struct NoOpIdleStrategy;
+impl NoOpIdleStrategy {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+impl Default for NoOpIdleStrategy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl IdleStrategy for NoOpIdleStrategy {
+    #[inline]
+    fn idle(&mut self, _work_count: i32) {}
+}
+
+/// Yield the OS thread when idle. Lower CPU than busy-spin, slightly higher latency.
+/// (Aeron `YieldingIdleStrategy`.)
+pub struct YieldingIdleStrategy;
+impl YieldingIdleStrategy {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+impl Default for YieldingIdleStrategy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl IdleStrategy for YieldingIdleStrategy {
+    #[inline]
+    fn idle(&mut self, work_count: i32) {
+        if work_count > 0 {
+            return;
+        }
+        std::thread::yield_now();
+    }
+}
+
+/// Sleep for a fixed duration when idle. (Aeron `SleepingIdleStrategy`.)
+pub struct SleepingIdleStrategy {
+    duration: Duration,
+}
+impl SleepingIdleStrategy {
+    pub const fn new(duration: Duration) -> Self {
+        Self { duration }
+    }
+}
+impl IdleStrategy for SleepingIdleStrategy {
+    #[inline]
+    fn idle(&mut self, work_count: i32) {
+        if work_count == 0 {
+            std::thread::sleep(self.duration);
+        }
+    }
+}
+
+/// Adaptive backoff: spin a few times, then yield a few times, then sleep with an exponentially
+/// growing park up to a max. A good general-purpose strategy. (Aeron `BackoffIdleStrategy`.)
+///
+/// Defaults match Aeron: `max_spins = 10`, `max_yields = 20`, `min_park = 1µs`, `max_park = 1ms`.
+pub struct BackoffIdleStrategy {
+    max_spins: i64,
+    max_yields: i64,
+    min_park: Duration,
+    max_park: Duration,
+    spins: i64,
+    yields: i64,
+    park: Duration,
+    state: u8,
+}
+
+const BACKOFF_NOT_IDLE: u8 = 0;
+const BACKOFF_SPINNING: u8 = 1;
+const BACKOFF_YIELDING: u8 = 2;
+const BACKOFF_PARKING: u8 = 3;
+
+impl BackoffIdleStrategy {
+    /// Defaults match Aeron: 10 spins, 20 yields, park 1µs..1ms.
+    pub const fn new() -> Self {
+        Self::with(10, 20, Duration::from_micros(1), Duration::from_millis(1))
+    }
+
+    /// Full control over the backoff parameters.
+    pub const fn with(max_spins: i64, max_yields: i64, min_park: Duration, max_park: Duration) -> Self {
+        Self {
+            max_spins,
+            max_yields,
+            min_park,
+            max_park,
+            spins: 0,
+            yields: 0,
+            park: min_park,
+            state: BACKOFF_NOT_IDLE,
+        }
+    }
+
+    #[inline]
+    fn idle_one(&mut self) {
+        match self.state {
+            BACKOFF_NOT_IDLE => {
+                self.state = BACKOFF_SPINNING;
+                self.spins += 1;
+            }
+            BACKOFF_SPINNING => {
+                std::hint::spin_loop();
+                self.spins += 1;
+                if self.spins > self.max_spins {
+                    self.state = BACKOFF_YIELDING;
+                    self.yields = 0;
+                }
+            }
+            BACKOFF_YIELDING => {
+                self.yields += 1;
+                if self.yields > self.max_yields {
+                    self.state = BACKOFF_PARKING;
+                    self.park = self.min_park;
+                } else {
+                    std::thread::yield_now();
+                }
+            }
+            _ => {
+                // PARKING — sleep then double the park period up to the max.
+                std::thread::sleep(self.park);
+                self.park = std::cmp::min(self.park.saturating_mul(2), self.max_park);
+            }
+        }
+    }
+}
+
+impl Default for BackoffIdleStrategy {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl IdleStrategy for BackoffIdleStrategy {
+    #[inline]
+    fn idle(&mut self, work_count: i32) {
+        if work_count > 0 {
+            self.reset();
+        } else {
+            self.idle_one();
+        }
+    }
+
+    fn reset(&mut self) {
+        self.spins = 0;
+        self.yields = 0;
+        self.park = self.min_park;
+        self.state = BACKOFF_NOT_IDLE;
     }
 }
 

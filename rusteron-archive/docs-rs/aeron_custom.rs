@@ -68,7 +68,7 @@ impl AeronStatus {
     /// Derive a status from an `offer` / `try_claim` error when it corresponds
     /// to a known transition (`BackPressured` / `Closed`). Returns `None` for
     /// errors that are not status-like (e.g. `MaxPositionExceeded`).
-    pub fn from_error(error: &AeronOfferError) -> Option<Self> {
+    pub const fn from_error(error: &AeronOfferError) -> Option<Self> {
         match error {
             AeronOfferError::BackPressured => Some(Self::BackPressured),
             AeronOfferError::Closed => Some(Self::Closed),
@@ -1028,6 +1028,7 @@ impl AeronCError {
     /// Call at the error site when the error will be stored, logged later, or sent
     /// across threads — otherwise `Display` reads the live buffer, which a later
     /// error can overwrite.
+    #[cold]
     pub fn capture_errmsg(mut self) -> Self {
         if self.msg.is_none() {
             self.msg = Some(Aeron::errmsg().into());
@@ -1728,7 +1729,7 @@ impl AeronClaim {
 
     /// Stream position Aeron assigned to this claim.
     #[inline]
-    pub fn position(&self) -> i64 {
+    pub const fn position(&self) -> i64 {
         self.position
     }
 
@@ -1993,6 +1994,7 @@ impl AeronImage {
 /// only behind `--features log-c-bindings`-style debugging).
 pub struct AeronErrorLogger;
 impl AeronErrorHandlerCallback for AeronErrorLogger {
+    #[cold]
     fn handle_aeron_error_handler(&mut self, error_code: std::ffi::c_int, msg: &str) -> () {
         log::error!("aeron error {}: {}", error_code, msg);
     }
@@ -2021,7 +2023,7 @@ impl AeronFragmentHandlerCallback for FnMutMessageHandler {
 }
 
 impl FnMutMessageHandler {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             func: Self::noop,
             ctx: std::ptr::null_mut(),
@@ -2055,7 +2057,7 @@ impl FnMutMessageHandler {
     /// [`AeronFragmentClosureAssembler::poll`] calls this before returning so the
     /// raw pointer never outlives the borrow it was created from.
     #[inline]
-    pub fn clear(&mut self) {
+    pub const fn clear(&mut self) {
         self.func = Self::noop;
         self.ctx = std::ptr::null_mut();
     }
@@ -2133,7 +2135,7 @@ pub struct FnMutControlledMessageHandler {
 }
 
 impl FnMutControlledMessageHandler {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             func: Self::noop,
             ctx: std::ptr::null_mut(),
@@ -2167,7 +2169,7 @@ impl FnMutControlledMessageHandler {
     /// Drop the borrowed `ctx` (cf. [`FnMutMessageHandler::clear`]) so a later stray
     /// [`call`](Self::call) returns `CONTINUE` instead of dereferencing a stale pointer.
     #[inline]
-    pub fn clear(&mut self) {
+    pub const fn clear(&mut self) {
         self.func = Self::noop;
         self.ctx = std::ptr::null_mut();
     }
@@ -2290,7 +2292,7 @@ impl AeronStatusTracker {
 
     /// Reset the tracker, causing the next call to [`observe`](Self::observe)
     /// to emit even if the status matches the previously-observed value.
-    pub fn reset(&mut self) {
+    pub const fn reset(&mut self) {
         self.last_status = None;
     }
 
@@ -2796,7 +2798,7 @@ impl AeronArchiveErrorCode {
     /// Accepts both the wire codes (0-16) and the client codes (200-216,
     /// `AERON_ARCHIVE_ERROR_CODE_*` = wire + 200) that the C archive client's error
     /// handler reports and embeds in its `errorCode=N` text since Aeron 1.53.3.
-    pub fn from_code(code: i32) -> Self {
+    pub const fn from_code(code: i32) -> Self {
         match code {
             0 => Self::Generic,
             1 => Self::ActiveListing,
@@ -2823,7 +2825,7 @@ impl AeronArchiveErrorCode {
     /// Resource-exhaustion codes — the operation can succeed later once capacity frees up
     /// (a replay/recording slot or storage). Everything else is a state/identity error:
     /// fix the request, don't retry it blindly.
-    pub fn is_resource_exhausted(&self) -> bool {
+    pub const fn is_resource_exhausted(&self) -> bool {
         matches!(self, Self::MaxReplays | Self::MaxRecordings | Self::StorageSpace)
     }
 }
@@ -2841,6 +2843,7 @@ impl AeronArchiveError {
     /// failed request (and so in `AeronCError` `lastError` messages), not in
     /// `poll_for_error_response` payloads.
     /// Falls back to [`AeronArchiveErrorCode::Generic`] when no code is present.
+    #[cold]
     pub fn parse(message: &str) -> Self {
         let code = message
             .split("errorCode=")
@@ -2865,6 +2868,7 @@ impl AeronArchiveError {
     /// it has to, the typed code only exists inside the message. Archive control
     /// operations are request/response calls, not hot-path loops, so the copy is
     /// acceptable there.
+    #[cold]
     pub fn from_code(code: i32) -> Self {
         let message = Aeron::errmsg();
         if message.contains("errorCode=") {
@@ -2918,7 +2922,7 @@ pub struct AeronArchiveReplayParamsBuilder {
 }
 
 impl AeronArchiveReplayParams {
-    pub fn builder() -> AeronArchiveReplayParamsBuilder {
+    pub const fn builder() -> AeronArchiveReplayParamsBuilder {
         AeronArchiveReplayParamsBuilder {
             bounding_limit_counter_id: AERON_NULL_VALUE,
             file_io_max_length: AERON_NULL_VALUE,
@@ -2932,43 +2936,43 @@ impl AeronArchiveReplayParams {
 
 impl AeronArchiveReplayParamsBuilder {
     /// Start the replay from this position (default: the recording's start).
-    pub fn position(mut self, position: i64) -> Self {
+    pub const fn position(mut self, position: i64) -> Self {
         self.position = position;
         self
     }
 
     /// Replay this many bytes (default: to the recording's end).
-    pub fn length(mut self, length: i64) -> Self {
+    pub const fn length(mut self, length: i64) -> Self {
         self.length = length;
         self
     }
 
     /// Follow a live recording after the recorded portion (`length = i64::MAX`).
-    pub fn follow_live(mut self) -> Self {
+    pub const fn follow_live(mut self) -> Self {
         self.length = i64::MAX;
         self
     }
 
     /// Bound the replay by this counter (triggers a bounded replay request).
-    pub fn bounded_by(mut self, counter_id: i32) -> Self {
+    pub const fn bounded_by(mut self, counter_id: i32) -> Self {
         self.bounding_limit_counter_id = counter_id;
         self
     }
 
     /// Maximum size of an archive file IO operation during the replay.
-    pub fn file_io_max_length(mut self, length: i32) -> Self {
+    pub const fn file_io_max_length(mut self, length: i32) -> Self {
         self.file_io_max_length = length;
         self
     }
 
     /// Token for replays where the initiating image did not create the archive session.
-    pub fn replay_token(mut self, token: i64) -> Self {
+    pub const fn replay_token(mut self, token: i64) -> Self {
         self.replay_token = token;
         self
     }
 
     /// Subscription registration id for response-channel replays on an existing channel.
-    pub fn subscription_registration_id(mut self, registration_id: i64) -> Self {
+    pub const fn subscription_registration_id(mut self, registration_id: i64) -> Self {
         self.subscription_registration_id = registration_id;
         self
     }

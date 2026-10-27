@@ -68,7 +68,7 @@ impl AeronStatus {
     /// Derive a status from an `offer` / `try_claim` error when it corresponds
     /// to a known transition (`BackPressured` / `Closed`). Returns `None` for
     /// errors that are not status-like (e.g. `MaxPositionExceeded`).
-    pub fn from_error(error: &AeronOfferError) -> Option<Self> {
+    pub const fn from_error(error: &AeronOfferError) -> Option<Self> {
         match error {
             AeronOfferError::BackPressured => Some(Self::BackPressured),
             AeronOfferError::Closed => Some(Self::Closed),
@@ -1028,6 +1028,7 @@ impl AeronCError {
     /// Call at the error site when the error will be stored, logged later, or sent
     /// across threads — otherwise `Display` reads the live buffer, which a later
     /// error can overwrite.
+    #[cold]
     pub fn capture_errmsg(mut self) -> Self {
         if self.msg.is_none() {
             self.msg = Some(Aeron::errmsg().into());
@@ -1728,7 +1729,7 @@ impl AeronClaim {
 
     /// Stream position Aeron assigned to this claim.
     #[inline]
-    pub fn position(&self) -> i64 {
+    pub const fn position(&self) -> i64 {
         self.position
     }
 
@@ -1993,6 +1994,7 @@ impl AeronImage {
 /// only behind `--features log-c-bindings`-style debugging).
 pub struct AeronErrorLogger;
 impl AeronErrorHandlerCallback for AeronErrorLogger {
+    #[cold]
     fn handle_aeron_error_handler(&mut self, error_code: std::ffi::c_int, msg: &str) -> () {
         log::error!("aeron error {}: {}", error_code, msg);
     }
@@ -2021,7 +2023,7 @@ impl AeronFragmentHandlerCallback for FnMutMessageHandler {
 }
 
 impl FnMutMessageHandler {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             func: Self::noop,
             ctx: std::ptr::null_mut(),
@@ -2055,7 +2057,7 @@ impl FnMutMessageHandler {
     /// [`AeronFragmentClosureAssembler::poll`] calls this before returning so the
     /// raw pointer never outlives the borrow it was created from.
     #[inline]
-    pub fn clear(&mut self) {
+    pub const fn clear(&mut self) {
         self.func = Self::noop;
         self.ctx = std::ptr::null_mut();
     }
@@ -2133,7 +2135,7 @@ pub struct FnMutControlledMessageHandler {
 }
 
 impl FnMutControlledMessageHandler {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             func: Self::noop,
             ctx: std::ptr::null_mut(),
@@ -2167,7 +2169,7 @@ impl FnMutControlledMessageHandler {
     /// Drop the borrowed `ctx` (cf. [`FnMutMessageHandler::clear`]) so a later stray
     /// [`call`](Self::call) returns `CONTINUE` instead of dereferencing a stale pointer.
     #[inline]
-    pub fn clear(&mut self) {
+    pub const fn clear(&mut self) {
         self.func = Self::noop;
         self.ctx = std::ptr::null_mut();
     }
@@ -2290,7 +2292,7 @@ impl AeronStatusTracker {
 
     /// Reset the tracker, causing the next call to [`observe`](Self::observe)
     /// to emit even if the status matches the previously-observed value.
-    pub fn reset(&mut self) {
+    pub const fn reset(&mut self) {
         self.last_status = None;
     }
 
