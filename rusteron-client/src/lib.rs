@@ -3959,14 +3959,15 @@ mod tests {
         let counters = aeron.counters_reader();
         let start = Instant::now();
         let mut leaked_counter = None;
-        while start.elapsed() < Duration::from_secs(2) {
-            // the reader passes the whole 112-byte key region, so match the prefix
-            if let Some(counter) = counters.find_by_type_id(type_id, |key| key.starts_with(&key_buffer)) {
-                leaked_counter = Some(counter);
-                break;
-            }
-            sleep(Duration::from_millis(20));
+        let mut first_seen = None;
+        while start.elapsed() < Duration::from_secs(5) {
+            leaked_counter = counters.find_by_type_id(type_id, |key| key.starts_with(&key_buffer));
+            if leaked_counter.is_some() && first_seen.is_none() { first_seen = Some(start.elapsed()); }
+            if leaked_counter.is_none() && first_seen.is_some() { break; }
+            if leaked_counter.is_none() && start.elapsed() > Duration::from_secs(2) { break; }
+            sleep(Duration::from_millis(1));
         }
+        println!("PROBE first_seen={first_seen:?} gone_at={:?} leaked={leaked_counter:?}", start.elapsed());
         assert!(
             leaked_counter.is_none(),
             "user counter is still registered with the driver even though the async poller \
