@@ -840,18 +840,6 @@ impl AeronExclusivePublication {
     /// retrieved automatically from the publication's dependency graph — pass it
     /// explicitly via [`Self::async_remove_destination_by_id`] only when you hold it
     /// already.
-    ///
-    /// # Known upstream bug: currently a driver-level no-op see https://github.com/aeron-io/aeron/issues/2138
-    ///
-    /// Until this is fixed upstream, prefer [`Self::remove_destination`] (by URI) — it does
-    /// not go through this by-id code path and has been verified end-to-end (real data stops
-    /// flowing to a removed destination) in this crate's test suite.
-    ///
-    /// Because of the bug above, this method deliberately returns `Err` even when the driver
-    /// acknowledges the command (`Ok(())` would misleadingly imply the destination was
-    /// actually removed). Use [`Self::async_remove_destination_by_id`] if you need the raw,
-    /// 1:1 C-API-faithful async handle instead (e.g. to track upstream's own fix once
-    /// available).
     pub fn remove_destination_by_id(
         &self,
         destination_registration_id: i64,
@@ -862,19 +850,7 @@ impl AeronExclusivePublication {
             .get_dependency::<Aeron>()
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_remove_destination_by_id(&client, destination_registration_id)?;
-        poll_destination_op_to_completion(&client, &result, timeout, (destination_registration_id, self))?;
-        // The driver acknowledged the command, but per the confirmed upstream bug documented
-        // above, that acknowledgement does NOT mean the destination was actually removed —
-        // report this honestly as an error rather than a misleading `Ok(())`, so callers
-        // can't mistake "command accepted" for "destination gone". Use `remove_destination`
-        // (by URI) instead, which has been verified end-to-end to actually stop data flow.
-        Err(AeronCError::with_message(
-            -1,
-            "remove_destination_by_id: driver acknowledged the command, but a confirmed \
-             upstream Aeron C bug (aeron_client_conductor_on_cmd_destination_by_id sends the \
-             wrong registration id) means the destination was almost certainly NOT actually \
-             removed; use remove_destination (by URI) instead",
-        ))
+        poll_destination_op_to_completion(&client, &result, timeout, (destination_registration_id, self))
     }
 }
 
@@ -949,16 +925,6 @@ impl AeronPublication {
     /// retrieved automatically from the publication's dependency graph — pass it
     /// explicitly via [`Self::async_remove_destination_by_id`] only when you hold it
     /// already.
-    ///
-    /// Until this is fixed upstream, prefer [`Self::remove_destination`] (by URI) — it does
-    /// not go through this by-id code path and has been verified end-to-end (real data stops
-    /// flowing to a removed destination) in this crate's test suite.
-    ///
-    /// Because of the bug above, this method deliberately returns `Err` even when the driver
-    /// acknowledges the command (`Ok(())` would misleadingly imply the destination was
-    /// actually removed). Use [`Self::async_remove_destination_by_id`] if you need the raw,
-    /// 1:1 C-API-faithful async handle instead (e.g. to track upstream's own fix once
-    /// available).
     pub fn remove_destination_by_id(
         &self,
         destination_registration_id: i64,
@@ -969,19 +935,7 @@ impl AeronPublication {
             .get_dependency::<Aeron>()
             .ok_or_else(|| AeronCError::with_message(-1, "publication has no owning Aeron client"))?;
         let result = self.async_remove_destination_by_id(&client, destination_registration_id)?;
-        poll_destination_op_to_completion(&client, &result, timeout, (destination_registration_id, self))?;
-        // The driver acknowledged the command, but per the confirmed upstream bug documented
-        // above, that acknowledgement does NOT mean the destination was actually removed —
-        // report this honestly as an error rather than a misleading `Ok(())`, so callers
-        // can't mistake "command accepted" for "destination gone". Use `remove_destination`
-        // (by URI) instead, which has been verified end-to-end to actually stop data flow.
-        Err(AeronCError::with_message(
-            -1,
-            "remove_destination_by_id: driver acknowledged the command, but a confirmed \
-             upstream Aeron C bug (aeron_client_conductor_on_cmd_destination_by_id sends the \
-             wrong registration id) means the destination was almost certainly NOT actually \
-             removed; use remove_destination (by URI) instead",
-        ))
+        poll_destination_op_to_completion(&client, &result, timeout, (destination_registration_id, self))
     }
 }
 
@@ -2728,6 +2682,7 @@ impl AeronErrorType {
         self == &AeronErrorType::PublicationBackPressured
             || self == &AeronErrorType::PublicationAdminAction
             || self == &AeronErrorType::ClientErrorBufferFull
+            || self == &AeronErrorType::ClientErrorDriverBufferFull
             || self == &AeronErrorType::TimedOut
     }
 
@@ -2741,6 +2696,8 @@ impl AeronErrorType {
             || self == &AeronErrorType::ClientErrorDriverTimeout
             || self == &AeronErrorType::ClientErrorClientTimeout
             || self == &AeronErrorType::ClientErrorConductorServiceTimeout
+            || self == &AeronErrorType::ClientErrorClientIllegalState
+            || self == &AeronErrorType::ClientErrorBroadcastReceiverIllegalState
     }
 }
 

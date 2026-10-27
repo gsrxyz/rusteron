@@ -4,8 +4,8 @@
 
 /// Archive control-response error codes (`io.aeron.archive.client.ArchiveException`).
 ///
-/// The C archive client reports control-session errors only as text (with the code
-/// embedded as `errorCode=N`); [`AeronArchiveError::parse`] recovers the typed code.
+/// Server errors are embedded as `errorCode=N` in the C error text.
+/// Local client failures use the separate 2000-2002 error domain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AeronArchiveErrorCode {
     Generic,
@@ -25,6 +25,9 @@ pub enum AeronArchiveErrorCode {
     ReplicationConnectionFailure,
     EmptyRecording,
     InvalidPosition,
+    ReentrantCall,
+    NotConnected,
+    IllegalState,
     Unknown(i32),
 }
 
@@ -35,8 +38,10 @@ impl AeronArchiveErrorCode {
     /// `archive_error_codes_match_the_c_source` test.
     ///
     /// Accepts both the wire codes (0-16) and the client codes (200-216,
-    /// `AERON_ARCHIVE_ERROR_CODE_*` = wire + 200) that the C archive client's error
-    /// handler reports and embeds in its `errorCode=N` text since Aeron 1.53.3.
+    /// `AERON_ARCHIVE_ERROR_CODE_*` = wire + 200) used in C archive errors.
+    /// On the current master revision, callbacks also report these mapped codes.
+    /// Local client errors accept either the positive callback code or the negative
+    /// thread-local code returned by `aeron_errcode()`.
     pub const fn from_code(code: i32) -> Self {
         match code {
             0 => Self::Generic,
@@ -57,6 +62,9 @@ impl AeronArchiveErrorCode {
             15 => Self::EmptyRecording,
             16 => Self::InvalidPosition,
             200..=216 => Self::from_code(code - 200),
+            2000 | -2000 => Self::ReentrantCall,
+            2001 | -2001 => Self::NotConnected,
+            2002 | -2002 => Self::IllegalState,
             other => Self::Unknown(other),
         }
     }
@@ -100,19 +108,25 @@ impl AeronArchiveError {
     }
 
     /// Builds the typed error at an `aeron_archive_*` FFI error site: reads the current
-    /// thread-local `aeron_errmsg()` text and parses the embedded `errorCode=N` out of
-    /// it (that is where the C archive client stores the real control-response code).
+    /// thread-local error. Server responses embed `errorCode=N` in `aeron_errmsg()`;
+    /// local client failures store their negative code in `aeron_errcode()`.
     ///
     /// Unlike [`AeronCError::from_code`], this *does* read and copy the error text —
-    /// it has to, the typed code only exists inside the message. Archive control
-    /// operations are request/response calls, not hot-path loops, so the copy is
-    /// acceptable there.
+    /// preserving the archive's response details. Archive control operations are
+    /// request/response calls, not hot-path loops, so the copy is acceptable there.
     #[cold]
     pub fn from_code(code: i32) -> Self {
         let message = Aeron::errmsg();
         if message.contains("errorCode=") {
             Self::parse(message)
         } else {
+            let client_code = unsafe { aeron_errcode() };
+            if matches!(client_code, -2002..=-2000) {
+                return Self {
+                    code: AeronArchiveErrorCode::from_code(client_code),
+                    message: message.to_string(),
+                };
+            }
             // No structured code in the buffer (e.g. generic C-level failure); preserve
             // the message verbatim and let the code fall through to the parsed form, or
             // Generic if nothing is recoverable.
@@ -146,6 +160,58 @@ impl std::fmt::Display for AeronArchiveError {
 }
 
 impl std::error::Error for AeronArchiveError {}
+
+impl AeronCountersReader {
+    /// Copies the source identity into `destination`, including a trailing NUL if nonempty.
+    /// Returns the number of bytes copied, excluding that terminator.
+    pub fn aeron_archive_recording_pos_get_source_identity(
+        &self,
+        counter_id: i32,
+        destination: &mut [u8],
+    ) -> Result<usize, AeronCError> {
+        // len_p is an in/out capacity, not an output-only primitive.
+        let mut length = destination.len();
+        let result = unsafe {
+            aeron_archive_recording_pos_get_source_identity(
+                self.get_inner(),
+                counter_id,
+                destination.as_mut_ptr().cast(),
+                &mut length,
+            )
+        };
+        if result < 0 {
+            return Err(AeronCError::from_code(result).capture_errmsg());
+        }
+        Ok(length)
+    }
+}
+
+impl AeronArchivePersistentSubscription {
+    /// Borrows the C context without transferring ownership.
+    ///
+    /// # Safety
+    ///
+    /// The subscription must be open. The returned pointer must not be closed or used
+    /// after the subscription closes; it does not retain the subscription's dependencies.
+    pub unsafe fn get_persistent_subscription_context(
+        &self,
+    ) -> *mut aeron_archive_persistent_subscription_context_t {
+        unsafe { aeron_archive_persistent_subscription_get_persistent_subscription_context(self.get_inner()) }
+    }
+
+    /// Transfers responsibility for closing the C context to the caller.
+    ///
+    /// # Safety
+    ///
+    /// The subscription must be open, and ownership may only be taken once. Close the
+    /// subscription before closing this context, keeping its client, archive context,
+    /// counters and listener alive until both have closed.
+    pub unsafe fn get_and_own_persistent_subscription_context(
+        &self,
+    ) -> *mut aeron_archive_persistent_subscription_context_t {
+        unsafe { aeron_archive_persistent_subscription_get_and_own_persistent_subscription_context(self.get_inner()) }
+    }
+}
 
 /// Fluent builder for [`AeronArchiveReplayParams`], starting from aeron's defaults
 /// (every field `AERON_NULL_VALUE`: replay from the recording start to its end, with the

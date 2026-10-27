@@ -1,5 +1,6 @@
 #include <stddef.h>
 #include <aeronc.h>
+#include <aeron_archive_client_error.h>
 #include <client/aeron_archive.h>
 #include <client/aeron_archive_client.h>
 #include <uri/aeron_uri.h>

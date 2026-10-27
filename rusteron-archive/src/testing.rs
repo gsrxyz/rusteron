@@ -7,6 +7,7 @@ use std::backtrace::Backtrace;
 use std::ffi::CString;
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::{Arc, Mutex, Weak};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use std::{fs, io, panic, process};
@@ -27,8 +28,10 @@ pub(crate) fn valgrind_timeout(base_secs: u64) -> Duration {
     }
 }
 
+static ARCHIVE_PROCESSES: Mutex<Vec<Weak<Mutex<Child>>>> = Mutex::new(Vec::new());
+
 pub struct EmbeddedArchiveMediaDriverProcess {
-    child: Child,
+    child: Arc<Mutex<Child>>,
     pub aeron_dir: CString,
     pub archive_dir: CString,
     pub control_request_channel: String,
@@ -289,6 +292,11 @@ impl EmbeddedArchiveMediaDriverProcess {
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .spawn()?;
+        let child = Arc::new(Mutex::new(child));
+        let mut processes = ARCHIVE_PROCESSES.lock().expect("archive process registry poisoned");
+        processes.retain(|process| process.strong_count() > 0);
+        processes.push(Arc::downgrade(&child));
+        drop(processes);
 
         info!(
             "started archive media driver [{:?}",
@@ -314,16 +322,21 @@ impl EmbeddedArchiveMediaDriverProcess {
         Ok(())
     }
 
+    /// Stops only archive Java children launched by this process, never unrelated JVMs.
     pub fn kill_all_java_processes() -> io::Result<ExitStatus> {
-        if cfg!(not(target_os = "windows")) {
-            return Ok(std::process::Command::new("pkill")
-                .args(["-9", "java"])
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .spawn()?
-                .wait()?);
+        let mut processes = ARCHIVE_PROCESSES.lock().expect("archive process registry poisoned");
+        let mut status = ExitStatus::default();
+        for process in processes.iter().filter_map(Weak::upgrade) {
+            let mut child = process.lock().expect("archive child lock poisoned");
+            if let Some(exited) = child.try_wait()? {
+                status = exited;
+            } else {
+                child.kill()?;
+                status = child.wait()?;
+            }
         }
-        Ok(ExitStatus::default())
+        processes.retain(|process| process.strong_count() > 0);
+        Ok(status)
     }
 }
 
@@ -331,9 +344,18 @@ impl EmbeddedArchiveMediaDriverProcess {
 impl Drop for EmbeddedArchiveMediaDriverProcess {
     fn drop(&mut self) {
         warn!("WARN: stopping aeron archive media driver!!!!");
-        // Attempt to kill the Java process if it’s still running
-        if let Err(e) = self.child.kill() {
-            error!("Failed to kill Java process: {}", e);
+        let mut child = self.child.lock().expect("archive child lock poisoned");
+        match child.try_wait() {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                if let Err(e) = child.kill() {
+                    error!("Failed to kill Java process: {}", e);
+                }
+                if let Err(e) = child.wait() {
+                    error!("Failed to reap Java process: {}", e);
+                }
+            }
+            Err(e) => error!("Failed to check Java process: {}", e),
         }
 
         // Clean up directories after the process has terminated

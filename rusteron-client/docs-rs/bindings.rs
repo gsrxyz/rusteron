@@ -6,6 +6,8 @@ pub const AERON_CLIENT_ERROR_CLIENT_TIMEOUT: u32 = 1001;
 pub const AERON_CLIENT_ERROR_CONDUCTOR_SERVICE_TIMEOUT: u32 = 1002;
 pub const AERON_CLIENT_ERROR_BUFFER_FULL: u32 = 1003;
 pub const AERON_CLIENT_ERROR_DRIVER_BUFFER_FULL: u32 = 1004;
+pub const AERON_CLIENT_ERROR_CLIENT_ILLEGAL_STATE: u32 = 1005;
+pub const AERON_CLIENT_ERROR_BROADCAST_RECEIVER_ILLEGAL_STATE: u32 = 1006;
 pub const AERON_CLIENT_MAX_LOCAL_ADDRESS_STR_LEN: u32 = 64;
 pub const AERON_RESPONSE_ADDRESS_TYPE_IPV4: u32 = 1;
 pub const AERON_RESPONSE_ADDRESS_TYPE_IPV6: u32 = 2;
@@ -71,6 +73,7 @@ pub const AERON_URI_SPIES_SIMULATE_CONNECTION_KEY: &[u8; 4] = b"ssc\0";
 pub const AERON_URI_ATS_KEY: &[u8; 4] = b"ats\0";
 pub const AERON_URI_SOCKET_SNDBUF_KEY: &[u8; 10] = b"so-sndbuf\0";
 pub const AERON_URI_SOCKET_RCVBUF_KEY: &[u8; 10] = b"so-rcvbuf\0";
+pub const AERON_URI_SOCKET_TOS_KEY: &[u8; 7] = b"so-tos\0";
 pub const AERON_URI_RECEIVER_WINDOW_KEY: &[u8; 8] = b"rcv-wnd\0";
 pub const AERON_URI_MEDIA_RCV_TIMESTAMP_OFFSET_KEY: &[u8; 20] = b"media-rcv-ts-offset\0";
 pub const AERON_URI_CHANNEL_RCV_TIMESTAMP_OFFSET_KEY: &[u8; 22] = b"channel-rcv-ts-offset\0";
@@ -256,10 +259,10 @@ pub const AERON_COUNTER_ARCHIVE_REPLAYER_MAX_READ_TIME_TYPE_ID: u32 = 108;
 pub const AERON_COUNTER_ARCHIVE_REPLAYER_TOTAL_READ_BYTES_TYPE_ID: u32 = 109;
 pub const AERON_COUNTER_ARCHIVE_REPLAYER_TOTAL_READ_TIME_TYPE_ID: u32 = 110;
 pub const AERON_COUNTER_ARCHIVE_REPLAY_SESSION_COUNT_TYPE_ID: u32 = 112;
-pub const AERON_PERSISTENT_SUBSCRIPTION_STATE_TYPE_ID: u32 = 114;
-pub const AERON_PERSISTENT_SUBSCRIPTION_JOIN_DIFFERENCE_TYPE_ID: u32 = 115;
-pub const AERON_PERSISTENT_SUBSCRIPTION_LIVE_LEFT_COUNT_TYPE_ID: u32 = 116;
-pub const AERON_PERSISTENT_SUBSCRIPTION_LIVE_JOINED_COUNT_TYPE_ID: u32 = 117;
+pub const AERON_COUNTER_ARCHIVE_PERSISTENT_SUBSCRIPTION_STATE_TYPE_ID: u32 = 114;
+pub const AERON_COUNTER_ARCHIVE_PERSISTENT_SUBSCRIPTION_JOIN_DIFFERENCE_TYPE_ID: u32 = 115;
+pub const AERON_COUNTER_ARCHIVE_PERSISTENT_SUBSCRIPTION_LIVE_LEFT_COUNT_TYPE_ID: u32 = 116;
+pub const AERON_COUNTER_ARCHIVE_PERSISTENT_SUBSCRIPTION_LIVE_JOINED_COUNT_TYPE_ID: u32 = 117;
 pub const AERON_COUNTER_CLUSTER_CONSENSUS_MODULE_STATE_TYPE_ID: u32 = 200;
 pub const AERON_COUNTER_CLUSTER_NODE_ROLE_TYPE_ID: u32 = 201;
 pub const AERON_COUNTER_CLUSTER_CONTROL_TOGGLE_TYPE_ID: u32 = 202;
@@ -294,6 +297,8 @@ pub const AERON_COUNTER_CLUSTER_TOTAL_SNAPSHOT_DURATION_THRESHOLD_EXCEEDED_TYPE_
 pub const AERON_COUNTER_CLUSTERED_SERVICE_SNAPSHOT_DURATION_THRESHOLD_EXCEEDED_TYPE_ID: u32 = 237;
 pub const AERON_COUNTER_CLUSTER_ELECTION_COUNT_TYPE_ID: u32 = 238;
 pub const AERON_COUNTER_CLUSTER_LEADERSHIP_TERM_ID_TYPE_ID: u32 = 239;
+pub const AERON_COUNTER_CLUSTER_BACKUP_SNAPSHOT_RETRIEVE_COUNT_TYPE_ID: u32 = 240;
+pub const AERON_COUNTER_CLUSTER_SESSION_TYPE_ID: u32 = 241;
 pub const AERON_COUNTER_SELECTOR_CLIENTS_COUNTER_TYPE_ID: u32 = 300;
 pub const AERON_COUNTER_SELECTOR_SUBSCRIPTIONS_COUNTER_TYPE_ID: u32 = 301;
 pub const AERON_COUNTER_SELECTOR_MAX_CYCLE_TIME_TYPE_ID: u32 = 302;
@@ -4176,6 +4181,27 @@ unsafe extern "C" {
         clientd: *mut ::std::os::raw::c_void,
     ) -> usize;
 }
+#[repr(C, packed(4))]
+#[derive(Debug, Default, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct aeron_archive_recording_position_key_layout_stct {
+    pub recording_id: i64,
+    pub session_id: i32,
+    pub source_identity_length: i32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of aeron_archive_recording_position_key_layout_stct"]
+        [::std::mem::size_of::<aeron_archive_recording_position_key_layout_stct>() - 16usize];
+    ["Alignment of aeron_archive_recording_position_key_layout_stct"]
+        [::std::mem::align_of::<aeron_archive_recording_position_key_layout_stct>() - 4usize];
+    ["Offset of field: aeron_archive_recording_position_key_layout_stct::recording_id"]
+        [::std::mem::offset_of!(aeron_archive_recording_position_key_layout_stct, recording_id) - 0usize];
+    ["Offset of field: aeron_archive_recording_position_key_layout_stct::session_id"]
+        [::std::mem::offset_of!(aeron_archive_recording_position_key_layout_stct, session_id) - 8usize];
+    ["Offset of field: aeron_archive_recording_position_key_layout_stct::source_identity_length"]
+        [::std::mem::offset_of!(aeron_archive_recording_position_key_layout_stct, source_identity_length) - 12usize];
+};
+pub type aeron_archive_recording_position_key_layout_t = aeron_archive_recording_position_key_layout_stct;
 unsafe extern "C" {
     pub fn aeron_thread_set_name(name: *const ::std::os::raw::c_char) -> ::std::os::raw::c_int;
 }

@@ -13,6 +13,17 @@ pub enum CpuTarget {
     Baseline,
 }
 
+/// The compiler CMake actually used, rather than a potentially different `clang` on PATH.
+pub fn cmake_c_compiler(cache: &str) -> Option<&str> {
+    cache.lines().find_map(|line| {
+        let value = line
+            .strip_prefix("CMAKE_C_COMPILER:FILEPATH=")
+            .or_else(|| line.strip_prefix("CMAKE_C_COMPILER:STRING="))
+            .or_else(|| line.strip_prefix("CMAKE_C_COMPILER:UNINITIALIZED="))?;
+        (!value.is_empty()).then_some(value)
+    })
+}
+
 /// `CMAKE_C_FLAGS_RELEASE` for the Aeron C build of `arch` (`CARGO_CFG_TARGET_ARCH`)
 /// and `vendor` (`CARGO_CFG_TARGET_VENDOR`) for `target`. `march` (`RUSTERON_C_MARCH`)
 /// overrides the target's `-march`.
@@ -104,9 +115,27 @@ pub fn c_lto_flags(kind: Option<&str>, target: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        CpuTarget, c_lto_flags, llvm_major, lto_release_c_flags, release_c_flags, rustc_target_cpu,
+        CpuTarget, c_lto_flags, cmake_c_compiler, llvm_major, lto_release_c_flags, release_c_flags, rustc_target_cpu,
         wants_linker_plugin_lto,
     };
+
+    #[test]
+    fn cmake_c_compiler_reads_configured_path() {
+        assert_eq!(
+            cmake_c_compiler("// compiler\nCMAKE_C_COMPILER:FILEPATH=/usr/bin/cc\n"),
+            Some("/usr/bin/cc")
+        );
+        assert_eq!(
+            cmake_c_compiler("CMAKE_C_COMPILER:STRING=/compiler with spaces/clang\n"),
+            Some("/compiler with spaces/clang")
+        );
+        assert_eq!(
+            cmake_c_compiler("CMAKE_C_COMPILER:UNINITIALIZED=/usr/bin/cc\n"),
+            Some("/usr/bin/cc")
+        );
+        assert_eq!(cmake_c_compiler("CMAKE_C_COMPILER:FILEPATH=\n"), None);
+        assert_eq!(cmake_c_compiler("CMAKE_CXX_COMPILER:FILEPATH=/usr/bin/c++\n"), None);
+    }
 
     #[test]
     fn lto_c_follows_rustc_cpu() {

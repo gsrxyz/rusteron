@@ -59,11 +59,69 @@ pub const SOURCE_LOCATION_REMOTE: aeron_archive_source_location_en =
 
 pub struct RecordingPos;
 impl RecordingPos {
+    /// Finds a recording counter in any archive. Prefer
+    /// [`Self::find_counter_id_by_session_in_archive`] when archives share a driver.
     pub fn find_counter_id_by_session(counter_reader: &AeronCountersReader, session_id: i32) -> i32 {
-        unsafe { aeron_archive_recording_pos_find_counter_id_by_session_id(counter_reader.get_inner(), session_id) }
+        Self::find_counter_id_matching(counter_reader, |key| key[8..12] == session_id.to_ne_bytes())
     }
+    /// Finds a recording counter in any archive. Prefer
+    /// [`Self::find_counter_id_by_recording_id_in_archive`] when archives share a driver.
     pub fn find_counter_id_by_recording_id(counter_reader: &AeronCountersReader, recording_id: i64) -> i32 {
-        unsafe { aeron_archive_recording_pos_find_counter_id_by_recording_id(counter_reader.get_inner(), recording_id) }
+        Self::find_counter_id_matching(counter_reader, |key| key[..8] == recording_id.to_ne_bytes())
+    }
+
+    fn find_counter_id_matching(counter_reader: &AeronCountersReader, mut matches: impl FnMut(&[u8]) -> bool) -> i32 {
+        let mut result = AERON_NULL_COUNTER_ID;
+        counter_reader.foreach_counter_fn(|_, counter_id, type_id, key, _| {
+            if result == AERON_NULL_COUNTER_ID
+                && type_id == AERON_COUNTER_ARCHIVE_RECORDING_POSITION_TYPE_ID as i32
+                && key.len() >= 12
+                && matches(key)
+            {
+                result = counter_id;
+            }
+        });
+        result
+    }
+
+    /// Finds the recording position counter for a session in the specified archive.
+    pub fn find_counter_id_by_session_in_archive(
+        counter_reader: &AeronCountersReader,
+        session_id: i32,
+        archive_id: i64,
+    ) -> i32 {
+        unsafe {
+            aeron_archive_recording_pos_find_counter_id_by_session_id(
+                counter_reader.get_inner(),
+                session_id,
+                archive_id,
+            )
+        }
+    }
+
+    /// Finds the recording position counter for a recording in the specified archive.
+    pub fn find_counter_id_by_recording_id_in_archive(
+        counter_reader: &AeronCountersReader,
+        recording_id: i64,
+        archive_id: i64,
+    ) -> i32 {
+        unsafe {
+            aeron_archive_recording_pos_find_counter_id_by_recording_id(
+                counter_reader.get_inner(),
+                recording_id,
+                archive_id,
+            )
+        }
+    }
+
+    /// Copies the recording's source identity, reserving one byte for C's NUL terminator.
+    /// Returns the number of identity bytes copied, excluding the terminator.
+    pub fn get_source_identity(
+        counter_reader: &AeronCountersReader,
+        counter_id: i32,
+        destination: &mut [u8],
+    ) -> Result<usize, AeronCError> {
+        counter_reader.aeron_archive_recording_pos_get_source_identity(counter_id, destination)
     }
 
     /// Whether `counter_id` is still the position counter of `recording_id`. It turns false
@@ -838,7 +896,158 @@ mod tests {
                 AeronArchiveErrorCode::Unknown(code),
                 "code {code} must map to a named variant"
             );
+            assert_eq!(AeronArchiveErrorCode::from_code(code + 200), parsed);
         }
+    }
+
+    #[test]
+    fn archive_client_error_codes_match_bindings() {
+        for (constant, variant) in [
+            (
+                AERON_ARCHIVE_CLIENT_ERROR_REENTRANT_CALL,
+                AeronArchiveErrorCode::ReentrantCall,
+            ),
+            (
+                AERON_ARCHIVE_CLIENT_ERROR_NOT_CONNECTED,
+                AeronArchiveErrorCode::NotConnected,
+            ),
+            (
+                AERON_ARCHIVE_CLIENT_ERROR_ILLEGAL_STATE,
+                AeronArchiveErrorCode::IllegalState,
+            ),
+        ] {
+            let code = constant as i32;
+            assert_eq!(AeronArchiveErrorCode::from_code(code), variant);
+            assert_eq!(AeronArchiveErrorCode::from_code(-code), variant);
+            assert_eq!(
+                AeronArchiveError::parse(&format!("errorCode={code}, failure")).code,
+                variant
+            );
+            // FFI functions return -1; the actual local client code lives in TLS.
+            unsafe {
+                aeron_err_set(
+                    -code,
+                    c"test".as_ptr(),
+                    c"test".as_ptr(),
+                    0,
+                    c"local client failure".as_ptr(),
+                );
+            }
+            assert_eq!(AeronArchiveError::from_code(-1).code, variant);
+        }
+        unsafe { aeron_err_clear() };
+    }
+
+    #[test]
+    fn recording_position_key_layout_matches_wire_format() {
+        use std::mem::{align_of, offset_of, size_of};
+        assert_eq!(size_of::<aeron_archive_recording_position_key_layout_t>(), 16);
+        assert_eq!(align_of::<aeron_archive_recording_position_key_layout_t>(), 4);
+        assert_eq!(
+            offset_of!(aeron_archive_recording_position_key_layout_t, recording_id),
+            0
+        );
+        assert_eq!(offset_of!(aeron_archive_recording_position_key_layout_t, session_id), 8);
+        assert_eq!(
+            offset_of!(aeron_archive_recording_position_key_layout_t, source_identity_length),
+            12
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn persistent_subscription_context_borrow_and_transfer_close_in_order() -> Result<(), Box<dyn std::error::Error>> {
+        let (aeron, archive_context, media_driver, publication_errors, errors) = start_aeron_archive()?;
+        let result = (|| -> Result<(), Box<dyn std::error::Error>> {
+            for transfer in [false, true] {
+                let subscription = PersistentSubscriptionBuilder::new_with_aeron(&archive_context, &aeron)?
+                    .recording_id(42)?
+                    .live_channel("aeron:ipc")?
+                    .live_stream_id(7)?
+                    .replay_channel("aeron:ipc")?
+                    .replay_stream_id(8)?
+                    .build()?;
+                // The subscription is open; borrowed pointers are only compared, never closed.
+                let borrowed = unsafe { subscription.get_persistent_subscription_context() };
+                assert!(!borrowed.is_null());
+                if transfer {
+                    let owned = unsafe { subscription.get_and_own_persistent_subscription_context() };
+                    assert_eq!(borrowed, owned);
+                    subscription.close()?;
+                    // The client and archive context remain alive until after this close.
+                    assert_eq!(unsafe { aeron_archive_persistent_subscription_context_close(owned) }, 0);
+                } else {
+                    subscription.close()?;
+                }
+            }
+            Ok(())
+        })();
+        drop(aeron);
+        drop(archive_context);
+        drop(media_driver);
+        drop(publication_errors);
+        drop(errors);
+        result
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn recording_counter_lookup_isolates_archives_and_copies_source_identity() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let (aeron, archive_context, media_driver, publication_errors, errors) = start_aeron_archive()?;
+        let result = (|| -> Result<(), Box<dyn std::error::Error>> {
+            let make_key = |archive_id: i64| {
+                let mut key = Vec::from(42_i64.to_ne_bytes());
+                key.extend_from_slice(&7_i32.to_ne_bytes());
+                key.extend_from_slice(&3_i32.to_ne_bytes());
+                key.extend_from_slice(b"ipc");
+                key.extend_from_slice(&archive_id.to_ne_bytes());
+                key
+            };
+            let first = aeron.add_counter(
+                AERON_COUNTER_ARCHIVE_RECORDING_POSITION_TYPE_ID as i32,
+                &make_key(10),
+                "first archive",
+                Duration::from_secs(5),
+            )?;
+            let second = aeron.add_counter(
+                AERON_COUNTER_ARCHIVE_RECORDING_POSITION_TYPE_ID as i32,
+                &make_key(20),
+                "second archive",
+                Duration::from_secs(5),
+            )?;
+            let reader = aeron.counters_reader();
+            let first_id = first.get_constants()?.counter_id;
+            let second_id = second.get_constants()?.counter_id;
+            assert_eq!(RecordingPos::find_counter_id_by_session(&reader, 7), first_id);
+            assert_eq!(RecordingPos::find_counter_id_by_recording_id(&reader, 42), first_id);
+            for (archive_id, expected) in [(10, first_id), (20, second_id), (-1, -1), (30, -1)] {
+                assert_eq!(
+                    RecordingPos::find_counter_id_by_session_in_archive(&reader, 7, archive_id),
+                    expected
+                );
+                assert_eq!(
+                    RecordingPos::find_counter_id_by_recording_id_in_archive(&reader, 42, archive_id),
+                    expected
+                );
+            }
+            assert_eq!(RecordingPos::find_counter_id_by_session(&reader, 99), -1);
+            assert_eq!(RecordingPos::find_counter_id_by_recording_id(&reader, 99), -1);
+            for (capacity, expected) in [(0, &b""[..]), (1, &b"\0"[..]), (3, &b"ip\0"[..]), (4, &b"ipc\0"[..])] {
+                let mut buffer = vec![0xff; capacity];
+                let copied = RecordingPos::get_source_identity(&reader, second_id, &mut buffer)?;
+                assert_eq!(copied, capacity.saturating_sub(1).min(3));
+                assert_eq!(buffer, expected);
+            }
+            assert!(RecordingPos::get_source_identity(&reader, -1, &mut [0; 4]).is_err());
+            Ok(())
+        })();
+        drop(aeron);
+        drop(archive_context);
+        drop(media_driver);
+        drop(publication_errors);
+        drop(errors);
+        result
     }
 
     /// Pins the enum to the aeron C source: every `ARCHIVE_ERROR_CODE_*` define the
@@ -1270,7 +1479,7 @@ mod tests {
 
         let aeron_version = format!("{}.{}.{}", major, minor, patch);
 
-        let cargo_version = "1.53.3";
+        let cargo_version = include_str!("../aeron/version.txt").trim().split('-').next().unwrap();
         assert_eq!(aeron_version, cargo_version);
     }
 

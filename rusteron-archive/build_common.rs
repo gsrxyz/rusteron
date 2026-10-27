@@ -141,10 +141,22 @@ pub fn rusteron_build_main(config: &RusteronBuildConfig) {
     println!("cargo:rerun-if-env-changed=COPY_BINDINGS");
     println!("cargo:rerun-if-env-changed=PUBLISH_ARTIFACTS");
     println!("cargo:rerun-if-env-changed=RUSTERON_C_MARCH");
+    println!("cargo:rerun-if-env-changed=RUSTERON_BUILD_FROM_SOURCE");
 
     // If precompiled artifacts exist (or can be downloaded), use them instead of cmake+java.
     #[cfg(all(any(feature = "precompile", feature = "precompile-rustls"), feature = "static"))]
     {
+        let snapshot = match fs::read_to_string(aeron_root.join("version.txt")) {
+            Ok(version) => version.trim().ends_with("-SNAPSHOT"),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(error) => panic!("Failed to read Aeron version: {error}"),
+        };
+        let force_source = snapshot || std::env::var_os("RUSTERON_BUILD_FROM_SOURCE").is_some();
+        if snapshot {
+            println!(
+                "cargo:warning=Aeron SNAPSHOT requires a source build; published precompiled libraries target released C APIs"
+            );
+        }
         let artifacts_dir = get_artifact_path();
         let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 
@@ -152,7 +164,7 @@ pub fn rusteron_build_main(config: &RusteronBuildConfig) {
             .as_mut()
             .map(|s| s.next().is_none())
             .unwrap_or_default()
-            && std::env::var_os("RUSTERON_BUILD_FROM_SOURCE").is_none()
+            && !force_source
             && let Err(e) = download_precompiled_binaries(&artifacts_dir) {
                 eprintln!("Error downloading precompiled binaries: {e:?}");
                 println!("Error downloading precompiled binaries: {e:?}");
@@ -162,7 +174,7 @@ pub fn rusteron_build_main(config: &RusteronBuildConfig) {
                 .as_mut()
                 .map(|s| s.next().is_some())
                 .unwrap_or_default()
-            && std::env::var_os("RUSTERON_BUILD_FROM_SOURCE").is_none()
+            && !force_source
         {
             println!(
                 "Artifacts found in {}. Using published artifacts.",
@@ -315,7 +327,7 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     } else {
         san_env
     };
-    if let Some(san) = san {
+    if let Some(ref san) = san {
         let san_flags = format!("-fsanitize={} -fno-omit-frame-pointer -g -O1", san);
         c_flags = format!("{} {}", san_flags, c_flags);
         cxx_flags = san_flags;
@@ -330,17 +342,8 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
         // clang-instrumented C objects.
         if san == "address" {
             match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
-                Ok("macos") => {
-                    if let Ok(output) =
-                        std::process::Command::new("clang").arg("-print-resource-dir").output()
-                    {
-                        let resource_dir = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                        if !resource_dir.is_empty() {
-                            println!("cargo:rustc-link-search=native={resource_dir}/lib/darwin");
-                            println!("cargo:rustc-link-lib=dylib=clang_rt.asan_osx_dynamic");
-                        }
-                    }
-                }
+                // macOS must use the runtime of CMake's actual compiler, resolved below.
+                Ok("macos") => {}
                 Ok("linux") => {
                     // Link clang's ASan runtime and output its path for LD_PRELOAD.
                     // We use clang's resource-dir to find the exact libclang_rt.asan
@@ -393,6 +396,28 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
         cmake_config.define(key, value);
     }
     let cmake_output = cmake_config.build_target(link_type.target_name(config)).build();
+    if san.as_deref() == Some("address") && env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        let cache = fs::read_to_string(cmake_output.join("build/CMakeCache.txt"))
+            .expect("Failed to read CMake's configured C compiler for AddressSanitizer");
+        let compiler = rusteron_code_gen::c_build::cmake_c_compiler(&cache)
+            .expect("CMake cache does not identify the C compiler for AddressSanitizer");
+        // Apple Clang and Homebrew Clang have incompatible ASan runtimes.
+        let output = std::process::Command::new(compiler)
+            .arg("-print-resource-dir")
+            .output()
+            .expect("Failed to locate the configured C compiler's AddressSanitizer runtime");
+        assert!(output.status.success(), "C compiler failed to report its resource directory");
+        let resource_dir = String::from_utf8(output.stdout).expect("C compiler resource directory is not UTF-8");
+        let runtime_dir = Path::new(resource_dir.trim()).join("lib/darwin");
+        assert!(
+            runtime_dir.join("libclang_rt.asan_osx_dynamic.dylib").is_file(),
+            "AddressSanitizer runtime missing from {}",
+            runtime_dir.display()
+        );
+        println!("cargo:rustc-link-search=native={}", runtime_dir.display());
+        println!("cargo:rustc-link-lib=dylib=clang_rt.asan_osx_dynamic");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{}", runtime_dir.display());
+    }
 
     // Trying to figure out the final path is a bit weird;
     // For Linux/OSX, it's just build/lib

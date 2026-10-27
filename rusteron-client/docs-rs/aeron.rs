@@ -919,6 +919,9 @@ pub enum AeronErrorType {
     ClientErrorClientTimeout,
     ClientErrorConductorServiceTimeout,
     ClientErrorBufferFull,
+    ClientErrorDriverBufferFull,
+    ClientErrorClientIllegalState,
+    ClientErrorBroadcastReceiverIllegalState,
     PublicationBackPressured,
     PublicationAdminAction,
     PublicationClosed,
@@ -940,6 +943,9 @@ impl AeronErrorType {
             AeronErrorType::ClientErrorClientTimeout => -1001,
             AeronErrorType::ClientErrorConductorServiceTimeout => -1002,
             AeronErrorType::ClientErrorBufferFull => -1003,
+            AeronErrorType::ClientErrorDriverBufferFull => -1004,
+            AeronErrorType::ClientErrorClientIllegalState => -1005,
+            AeronErrorType::ClientErrorBroadcastReceiverIllegalState => -1006,
             AeronErrorType::PublicationBackPressured => -2,
             AeronErrorType::PublicationAdminAction => -3,
             AeronErrorType::PublicationClosed => -4,
@@ -965,6 +971,9 @@ impl AeronErrorType {
             -1001 => AeronErrorType::ClientErrorClientTimeout,
             -1002 => AeronErrorType::ClientErrorConductorServiceTimeout,
             -1003 => AeronErrorType::ClientErrorBufferFull,
+            -1004 => AeronErrorType::ClientErrorDriverBufferFull,
+            -1005 => AeronErrorType::ClientErrorClientIllegalState,
+            -1006 => AeronErrorType::ClientErrorBroadcastReceiverIllegalState,
             -2 => AeronErrorType::PublicationBackPressured,
             -3 => AeronErrorType::PublicationAdminAction,
             -4 => AeronErrorType::PublicationClosed,
@@ -981,6 +990,9 @@ impl AeronErrorType {
             AeronErrorType::ClientErrorClientTimeout => "Client Error Client Timeout",
             AeronErrorType::ClientErrorConductorServiceTimeout => "Client Error Conductor Service Timeout",
             AeronErrorType::ClientErrorBufferFull => "Client Error Buffer Full",
+            AeronErrorType::ClientErrorDriverBufferFull => "Client Error Driver Buffer Full",
+            AeronErrorType::ClientErrorClientIllegalState => "Client Error Client Illegal State",
+            AeronErrorType::ClientErrorBroadcastReceiverIllegalState => "Client Error Broadcast Receiver Illegal State",
             AeronErrorType::PublicationBackPressured => "Publication Back Pressured",
             AeronErrorType::PublicationAdminAction => "Publication Admin Action",
             AeronErrorType::PublicationClosed => "Publication Closed",
@@ -1786,6 +1798,208 @@ mod managed_c_resource_lifecycle_tests {
             !r.manual_close_required,
             "cleanup_struct=true means Rust owns and frees the struct — no warning needed"
         );
+    }
+}
+#[derive(Clone)]
+pub struct AeronArchiveRecordingPositionKeyLayout {
+    inner: CResource<aeron_archive_recording_position_key_layout_t>,
+}
+impl core::fmt::Debug for AeronArchiveRecordingPositionKeyLayout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronArchiveRecordingPositionKeyLayout))
+                .field("inner", &"null")
+                .finish()
+        } else {
+            f.debug_struct(stringify!(AeronArchiveRecordingPositionKeyLayout))
+                .field("inner", &self.inner)
+                .field(stringify!(recording_id), &self.recording_id())
+                .field(stringify!(session_id), &self.session_id())
+                .field(stringify!(source_identity_length), &self.source_identity_length())
+                .finish()
+        }
+    }
+}
+impl AeronArchiveRecordingPositionKeyLayout {
+    #[inline]
+    pub fn new(recording_id: i64, session_id: i32, source_identity_length: i32) -> Result<Self, AeronCError> {
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = aeron_archive_recording_position_key_layout_t {
+                    recording_id: recording_id.into(),
+                    session_id: session_id.into(),
+                    source_identity_length: source_identity_length.into(),
+                };
+                let inner_ptr: *mut aeron_archive_recording_position_key_layout_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!(
+                    "creating zeroed empty resource on heap {}",
+                    stringify!(aeron_archive_recording_position_key_layout_t)
+                );
+                let inst: aeron_archive_recording_position_key_layout_t = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_archive_recording_position_key_layout_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_archive_recording_position_key_layout_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed().into()),
+        }
+    }
+    #[inline]
+    pub fn recording_id(&self) -> i64 {
+        self.recording_id.into()
+    }
+    #[inline]
+    pub fn session_id(&self) -> i32 {
+        self.session_id.into()
+    }
+    #[inline]
+    pub fn source_identity_length(&self) -> i32 {
+        self.source_identity_length.into()
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_archive_recording_position_key_layout_t {
+        self.inner.get()
+    }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
+    #[inline(always)]
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_archive_recording_position_key_layout_t {
+        &mut *self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_archive_recording_position_key_layout_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronArchiveRecordingPositionKeyLayout {
+    type Target = aeron_archive_recording_position_key_layout_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_archive_recording_position_key_layout_t> for AeronArchiveRecordingPositionKeyLayout {
+    #[inline]
+    fn from(value: *mut aeron_archive_recording_position_key_layout_t) -> Self {
+        AeronArchiveRecordingPositionKeyLayout {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronArchiveRecordingPositionKeyLayout> for *mut aeron_archive_recording_position_key_layout_t {
+    #[inline]
+    fn from(value: AeronArchiveRecordingPositionKeyLayout) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronArchiveRecordingPositionKeyLayout> for *mut aeron_archive_recording_position_key_layout_t {
+    #[inline]
+    fn from(value: &AeronArchiveRecordingPositionKeyLayout) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronArchiveRecordingPositionKeyLayout> for aeron_archive_recording_position_key_layout_t {
+    #[inline]
+    fn from(value: AeronArchiveRecordingPositionKeyLayout) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_archive_recording_position_key_layout_t> for AeronArchiveRecordingPositionKeyLayout {
+    #[inline]
+    fn from(value: *const aeron_archive_recording_position_key_layout_t) -> Self {
+        AeronArchiveRecordingPositionKeyLayout {
+            inner: CResource::Borrowed(value as *mut aeron_archive_recording_position_key_layout_t),
+        }
+    }
+}
+impl From<aeron_archive_recording_position_key_layout_t> for AeronArchiveRecordingPositionKeyLayout {
+    #[inline]
+    fn from(value: aeron_archive_recording_position_key_layout_t) -> Self {
+        AeronArchiveRecordingPositionKeyLayout {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for AeronArchiveRecordingPositionKeyLayout {
+    fn default() -> Self {
+        AeronArchiveRecordingPositionKeyLayout::new_zeroed_on_heap()
+    }
+}
+impl AeronArchiveRecordingPositionKeyLayout {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+        copy
+    }
+}
+#[cfg(test)]
+mod aeron_archive_recording_position_key_layout_t_allocation_tests {
+    use super::*;
+    use serial_test::file_serial;
+    #[test]
+    #[file_serial(global)]
+    fn test_new_on_stack() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronArchiveRecordingPositionKeyLayout::new_zeroed_on_stack();
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronArchiveRecordingPositionKeyLayout::default();
+            }
+        });
     }
 }
 #[derive(Clone)]

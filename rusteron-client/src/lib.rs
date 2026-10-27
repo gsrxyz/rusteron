@@ -197,6 +197,7 @@ mod tests {
 
         let dropped = Arc::new(AtomicBool::new(false));
         let (assembler, delegate) = Handler::with_fragment_assembler(Delegate(dropped.clone()))?;
+        assert!(!assembler.delete_session_buffer(42));
         drop(delegate);
         assert!(
             !dropped.load(Ordering::SeqCst),
@@ -205,6 +206,57 @@ mod tests {
         drop(assembler);
         assert!(dropped.load(Ordering::SeqCst));
         Ok(())
+    }
+
+    #[test]
+    fn controlled_fragment_assembler_delete_unknown_session_buffer() -> Result<(), AeronCError> {
+        let delegate = Handler::new(FnMutControlledMessageHandler::new());
+        let assembler = AeronControlledFragmentAssembler::new(Some(&delegate))?;
+        assert!(!assembler.delete_session_buffer(42));
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn subscription_resolved_endpoint_reports_ephemeral_port() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+        let subscription = aeron
+            .add_subscription(
+                c"aeron:udp?endpoint=127.0.0.1:0",
+                1910,
+                Handlers::NONE,
+                Handlers::NONE,
+                Duration::from_secs(5),
+            )
+            .expect("subscription");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let address = loop {
+            let address = subscription
+                .resolved_endpoint_as_string(128)
+                .expect("resolved endpoint");
+            if !address.is_empty() {
+                break address.parse::<std::net::SocketAddr>().expect("socket address");
+            }
+            assert!(Instant::now() < deadline, "subscription endpoint did not resolve");
+            sleep(Duration::from_millis(10));
+        };
+        assert_eq!(address.ip(), std::net::Ipv4Addr::LOCALHOST);
+        assert_ne!(address.port(), 0);
+        let mut buffer = [0; 128];
+        assert_eq!(
+            subscription.resolved_endpoint(&mut buffer).expect("resolved endpoint"),
+            1
+        );
+        assert_eq!(
+            std::ffi::CStr::from_bytes_until_nul(&buffer)
+                .expect("terminated endpoint")
+                .to_str()
+                .expect("UTF-8 endpoint"),
+            address.to_string()
+        );
+        drop(subscription);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
     /// Client-level handlers registered from temporaries stay alive until the client
@@ -351,7 +403,7 @@ mod tests {
             let minor = unsafe { crate::aeron_version_minor() };
             let patch = unsafe { crate::aeron_version_patch() };
 
-            let cargo_version = "1.53.3";
+            let cargo_version = include_str!("../aeron/version.txt").trim().split('-').next().unwrap();
             let aeron_version = format!("{}.{}.{}", major, minor, patch);
             assert_eq!(aeron_version, cargo_version);
 
@@ -2628,10 +2680,59 @@ mod tests {
         /// Sanity: every documented Aeron error code maps back to itself.
         #[test]
         fn known_error_codes_round_trip() {
-            for code in [-1, -2, -3, -4, -5, -6, -1000, -1001, -1002, -1003] {
+            for code in [-1, -2, -3, -4, -5, -6, -1000, -1001, -1002, -1003, -1004, -1005, -1006] {
                 let err = AeronCError::from_code(code);
                 assert_eq!(err.code, code);
                 assert_eq!(AeronErrorType::from_code(code).code(), code);
+            }
+        }
+
+        #[test]
+        fn client_error_codes_match_bindings_and_classification() {
+            use crate::bindings;
+            for (constant, variant, retryable) in [
+                (
+                    bindings::AERON_CLIENT_ERROR_DRIVER_TIMEOUT,
+                    AeronErrorType::ClientErrorDriverTimeout,
+                    false,
+                ),
+                (
+                    bindings::AERON_CLIENT_ERROR_CLIENT_TIMEOUT,
+                    AeronErrorType::ClientErrorClientTimeout,
+                    false,
+                ),
+                (
+                    bindings::AERON_CLIENT_ERROR_CONDUCTOR_SERVICE_TIMEOUT,
+                    AeronErrorType::ClientErrorConductorServiceTimeout,
+                    false,
+                ),
+                (
+                    bindings::AERON_CLIENT_ERROR_BUFFER_FULL,
+                    AeronErrorType::ClientErrorBufferFull,
+                    true,
+                ),
+                (
+                    bindings::AERON_CLIENT_ERROR_DRIVER_BUFFER_FULL,
+                    AeronErrorType::ClientErrorDriverBufferFull,
+                    true,
+                ),
+                (
+                    bindings::AERON_CLIENT_ERROR_CLIENT_ILLEGAL_STATE,
+                    AeronErrorType::ClientErrorClientIllegalState,
+                    false,
+                ),
+                (
+                    bindings::AERON_CLIENT_ERROR_BROADCAST_RECEIVER_ILLEGAL_STATE,
+                    AeronErrorType::ClientErrorBroadcastReceiverIllegalState,
+                    false,
+                ),
+            ] {
+                let code = -(constant as i32);
+                assert_eq!(variant.code(), code);
+                assert_eq!(AeronErrorType::from_code(code), variant);
+                assert_eq!(variant.is_retryable(), retryable);
+                assert_eq!(variant.is_unrecoverable(), !retryable);
+                assert_ne!(variant.to_string(), "Unknown Error");
             }
         }
     }
@@ -4262,38 +4363,10 @@ mod tests {
             Duration::from_secs(5),
         );
 
-        // Remove B by registration id: the C API call itself must succeed (it's correctly
-        // wired end-to-end to `aeron_publication_async_remove_destination_by_id`), but data
-        // flow to sub B is **not** expected to stop here.
-        //
-        // Confirmed upstream bug (still present in aeron-io/aeron `master` as of this
-        // writing, and in the vendored 1.53.3 submodule): `aeron_client_conductor_
-        // on_cmd_destination_by_id()` in `aeron-client/src/main/c/aeron_client_conductor.c`
-        // populates `command->destination_registration_id` with the *parent publication's*
-        // own `resource_registration_id` instead of the destination's actual
-        // `destination_registration_id` (the value this function received as a parameter
-        // and had already stored correctly on the async command struct) —
-        // `command->destination_registration_id = resource_registration_id;` should read
-        // `command->destination_registration_id = async->destination_registration_id;`.
-        // Since the driver's `aeron_udp_destination_tracker_remove_destination_by_id()`
-        // matches purely on `entry->registration_id == destination_registration_id`, and a
-        // publication's own registration id never equals one of its destinations'
-        // registration ids, the driver silently finds no match and removes nothing — while
-        // still reporting the command as succeeded. So today, `remove_destination_by_id`
-        // is effectively a no-op at the driver level regardless of caller; only
-        // `remove_destination` (by URI) actually works. Verified by direct byte-for-byte
-        // comparison against the current aeron-io/aeron GitHub `master` source — this is
-        // not specific to our vendored version and should be reported upstream.
-        // `remove_destination_by_id` now deliberately surfaces this as an `Err` (rather
-        // than a misleading `Ok(())`) precisely because of the bug above — assert that
-        // honest failure instead of a successful data-flow stop.
-        let err = publication
+        publication
             .remove_destination_by_id(dest_b_registration_id, Duration::from_secs(5))
-            .expect_err("remove_destination_by_id(B) must report the known upstream no-op as an error, not Ok(())");
-        assert!(
-            format!("{err:?}").contains("upstream Aeron C bug"),
-            "unexpected error from remove_destination_by_id: {err:?}"
-        );
+            .expect("remove_destination_by_id(B) should succeed");
+        assert_destination_removal_takes_effect(|b| publication.offer(b), &sub_b, &[&sub_c], Duration::from_secs(5));
 
         drop(sub_a);
         drop(sub_b);
@@ -4392,24 +4465,10 @@ mod tests {
             .expect("remove_destination(A) should succeed");
         assert_destination_removal_takes_effect(|b| publication.offer(b), &sub_a, &[&sub_b], Duration::from_secs(5));
 
-        // Remove B by registration id: the call succeeds at the API level (correctly
-        // wired to `aeron_exclusive_publication_async_remove_destination_by_id`), but see
-        // the identical, extensively-documented note in
-        // `publication_mdc_add_and_remove_destination_gates_real_data_flow` above — a
-        // confirmed upstream Aeron C bug (`aeron_client_conductor_on_cmd_destination_by_id`
-        // in `aeron_client_conductor.c`, reproduced against the current aeron-io/aeron
-        // `master`) makes `remove_destination_by_id` a driver-level no-op today regardless
-        // of publication type, so data-flow gating is intentionally not asserted here.
-        // `remove_destination_by_id` now deliberately surfaces this as an `Err` (rather
-        // than a misleading `Ok(())`) precisely because of the bug above — assert that
-        // honest failure instead of a successful data-flow stop.
-        let err = publication
+        publication
             .remove_destination_by_id(dest_b_registration_id, Duration::from_secs(5))
-            .expect_err("remove_destination_by_id(B) must report the known upstream no-op as an error, not Ok(())");
-        assert!(
-            format!("{err:?}").contains("upstream Aeron C bug"),
-            "unexpected error from remove_destination_by_id: {err:?}"
-        );
+            .expect("remove_destination_by_id(B) should succeed");
+        assert_destination_removal_takes_effect(|b| publication.offer(b), &sub_b, &[], Duration::from_secs(5));
 
         drop(sub_a);
         drop(sub_b);

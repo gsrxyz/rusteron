@@ -1309,7 +1309,7 @@ mod tests {
 
         let (aeron, _archive_context, _media_driver_archive, _archive_error_handler) =
             start_aeron_archive_with_config("ps_counter_replace", 9760)?;
-        let state_type = AERON_PERSISTENT_SUBSCRIPTION_STATE_TYPE_ID as i32;
+        let state_type = AERON_COUNTER_ARCHIVE_PERSISTENT_SUBSCRIPTION_STATE_TYPE_ID as i32;
         let replaced =
             AeronAsyncAddCounter::new(&aeron, state_type, &[], "replaced")?.poll_blocking(Duration::from_secs(5))?;
         let kept = AeronAsyncAddCounter::new(&aeron, state_type, &[], "kept")?.poll_blocking(Duration::from_secs(5))?;

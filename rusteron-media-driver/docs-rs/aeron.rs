@@ -767,6 +767,9 @@ pub enum AeronErrorType {
     ClientErrorClientTimeout,
     ClientErrorConductorServiceTimeout,
     ClientErrorBufferFull,
+    ClientErrorDriverBufferFull,
+    ClientErrorClientIllegalState,
+    ClientErrorBroadcastReceiverIllegalState,
     PublicationBackPressured,
     PublicationAdminAction,
     PublicationClosed,
@@ -788,6 +791,9 @@ impl AeronErrorType {
             AeronErrorType::ClientErrorClientTimeout => -1001,
             AeronErrorType::ClientErrorConductorServiceTimeout => -1002,
             AeronErrorType::ClientErrorBufferFull => -1003,
+            AeronErrorType::ClientErrorDriverBufferFull => -1004,
+            AeronErrorType::ClientErrorClientIllegalState => -1005,
+            AeronErrorType::ClientErrorBroadcastReceiverIllegalState => -1006,
             AeronErrorType::PublicationBackPressured => -2,
             AeronErrorType::PublicationAdminAction => -3,
             AeronErrorType::PublicationClosed => -4,
@@ -813,6 +819,9 @@ impl AeronErrorType {
             -1001 => AeronErrorType::ClientErrorClientTimeout,
             -1002 => AeronErrorType::ClientErrorConductorServiceTimeout,
             -1003 => AeronErrorType::ClientErrorBufferFull,
+            -1004 => AeronErrorType::ClientErrorDriverBufferFull,
+            -1005 => AeronErrorType::ClientErrorClientIllegalState,
+            -1006 => AeronErrorType::ClientErrorBroadcastReceiverIllegalState,
             -2 => AeronErrorType::PublicationBackPressured,
             -3 => AeronErrorType::PublicationAdminAction,
             -4 => AeronErrorType::PublicationClosed,
@@ -829,6 +838,9 @@ impl AeronErrorType {
             AeronErrorType::ClientErrorClientTimeout => "Client Error Client Timeout",
             AeronErrorType::ClientErrorConductorServiceTimeout => "Client Error Conductor Service Timeout",
             AeronErrorType::ClientErrorBufferFull => "Client Error Buffer Full",
+            AeronErrorType::ClientErrorDriverBufferFull => "Client Error Driver Buffer Full",
+            AeronErrorType::ClientErrorClientIllegalState => "Client Error Client Illegal State",
+            AeronErrorType::ClientErrorBroadcastReceiverIllegalState => "Client Error Broadcast Receiver Illegal State",
             AeronErrorType::PublicationBackPressured => "Publication Back Pressured",
             AeronErrorType::PublicationAdminAction => "Publication Admin Action",
             AeronErrorType::PublicationClosed => "Publication Closed",
@@ -2020,6 +2032,208 @@ mod aeron_agent_runner_t_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = AeronAgentRunner::default();
+            }
+        });
+    }
+}
+#[derive(Clone)]
+pub struct AeronArchiveRecordingPositionKeyLayout {
+    inner: CResource<aeron_archive_recording_position_key_layout_t>,
+}
+impl core::fmt::Debug for AeronArchiveRecordingPositionKeyLayout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronArchiveRecordingPositionKeyLayout))
+                .field("inner", &"null")
+                .finish()
+        } else {
+            f.debug_struct(stringify!(AeronArchiveRecordingPositionKeyLayout))
+                .field("inner", &self.inner)
+                .field(stringify!(recording_id), &self.recording_id())
+                .field(stringify!(session_id), &self.session_id())
+                .field(stringify!(source_identity_length), &self.source_identity_length())
+                .finish()
+        }
+    }
+}
+impl AeronArchiveRecordingPositionKeyLayout {
+    #[inline]
+    pub fn new(recording_id: i64, session_id: i32, source_identity_length: i32) -> Result<Self, AeronCError> {
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = aeron_archive_recording_position_key_layout_t {
+                    recording_id: recording_id.into(),
+                    session_id: session_id.into(),
+                    source_identity_length: source_identity_length.into(),
+                };
+                let inner_ptr: *mut aeron_archive_recording_position_key_layout_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!(
+                    "creating zeroed empty resource on heap {}",
+                    stringify!(aeron_archive_recording_position_key_layout_t)
+                );
+                let inst: aeron_archive_recording_position_key_layout_t = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_archive_recording_position_key_layout_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_archive_recording_position_key_layout_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed().into()),
+        }
+    }
+    #[inline]
+    pub fn recording_id(&self) -> i64 {
+        self.recording_id.into()
+    }
+    #[inline]
+    pub fn session_id(&self) -> i32 {
+        self.session_id.into()
+    }
+    #[inline]
+    pub fn source_identity_length(&self) -> i32 {
+        self.source_identity_length.into()
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_archive_recording_position_key_layout_t {
+        self.inner.get()
+    }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
+    #[inline(always)]
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_archive_recording_position_key_layout_t {
+        &mut *self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_archive_recording_position_key_layout_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronArchiveRecordingPositionKeyLayout {
+    type Target = aeron_archive_recording_position_key_layout_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_archive_recording_position_key_layout_t> for AeronArchiveRecordingPositionKeyLayout {
+    #[inline]
+    fn from(value: *mut aeron_archive_recording_position_key_layout_t) -> Self {
+        AeronArchiveRecordingPositionKeyLayout {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronArchiveRecordingPositionKeyLayout> for *mut aeron_archive_recording_position_key_layout_t {
+    #[inline]
+    fn from(value: AeronArchiveRecordingPositionKeyLayout) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronArchiveRecordingPositionKeyLayout> for *mut aeron_archive_recording_position_key_layout_t {
+    #[inline]
+    fn from(value: &AeronArchiveRecordingPositionKeyLayout) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronArchiveRecordingPositionKeyLayout> for aeron_archive_recording_position_key_layout_t {
+    #[inline]
+    fn from(value: AeronArchiveRecordingPositionKeyLayout) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_archive_recording_position_key_layout_t> for AeronArchiveRecordingPositionKeyLayout {
+    #[inline]
+    fn from(value: *const aeron_archive_recording_position_key_layout_t) -> Self {
+        AeronArchiveRecordingPositionKeyLayout {
+            inner: CResource::Borrowed(value as *mut aeron_archive_recording_position_key_layout_t),
+        }
+    }
+}
+impl From<aeron_archive_recording_position_key_layout_t> for AeronArchiveRecordingPositionKeyLayout {
+    #[inline]
+    fn from(value: aeron_archive_recording_position_key_layout_t) -> Self {
+        AeronArchiveRecordingPositionKeyLayout {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for AeronArchiveRecordingPositionKeyLayout {
+    fn default() -> Self {
+        AeronArchiveRecordingPositionKeyLayout::new_zeroed_on_heap()
+    }
+}
+impl AeronArchiveRecordingPositionKeyLayout {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+        copy
+    }
+}
+#[cfg(test)]
+mod aeron_archive_recording_position_key_layout_t_allocation_tests {
+    use super::*;
+    use serial_test::file_serial;
+    #[test]
+    #[file_serial(global)]
+    fn test_new_on_stack() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronArchiveRecordingPositionKeyLayout::new_zeroed_on_stack();
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronArchiveRecordingPositionKeyLayout::default();
             }
         });
     }
@@ -18823,7 +19037,12 @@ impl core::fmt::Debug for AeronDriverContext {
                 .field(stringify!(publication_window_length), &self.publication_window_length())
                 .field(stringify!(socket_rcvbuf), &self.socket_rcvbuf())
                 .field(stringify!(socket_sndbuf), &self.socket_sndbuf())
+                .field(stringify!(socket_tos), &self.socket_tos())
                 .field(stringify!(send_to_sm_poll_ratio), &self.send_to_sm_poll_ratio())
+                .field(
+                    stringify!(receiver_poll_to_slow_work_ratio),
+                    &self.receiver_poll_to_slow_work_ratio(),
+                )
                 .field(stringify!(initial_window_length), &self.initial_window_length())
                 .field(stringify!(loss_report_length), &self.loss_report_length())
                 .field(stringify!(file_page_size), &self.file_page_size())
@@ -18848,15 +19067,37 @@ impl core::fmt::Debug for AeronDriverContext {
                 .field(stringify!(resource_free_limit), &self.resource_free_limit())
                 .field(stringify!(max_resend), &self.max_resend())
                 .field(stringify!(conductor_cpu_affinity_no), &self.conductor_cpu_affinity_no())
+                .field(
+                    stringify!(conductor_cpu_affinity_resolved),
+                    &self.conductor_cpu_affinity_resolved(),
+                )
                 .field(stringify!(receiver_cpu_affinity_no), &self.receiver_cpu_affinity_no())
+                .field(
+                    stringify!(receiver_cpu_affinity_resolved),
+                    &self.receiver_cpu_affinity_resolved(),
+                )
                 .field(stringify!(sender_cpu_affinity_no), &self.sender_cpu_affinity_no())
+                .field(
+                    stringify!(sender_cpu_affinity_resolved),
+                    &self.sender_cpu_affinity_resolved(),
+                )
                 .field(
                     stringify!(native_resource_agent_cpu_affinity_no),
                     &self.native_resource_agent_cpu_affinity_no(),
                 )
+                .field(
+                    stringify!(native_resource_agent_cpu_affinity_resolved),
+                    &self.native_resource_agent_cpu_affinity_resolved(),
+                )
                 .field(stringify!(stream_session_limit), &self.stream_session_limit())
-                .field(stringify!(cpuset_affinity), &self.cpuset_affinity())
-                .field(stringify!(cpuset_warnings_as_errors), &self.cpuset_warnings_as_errors())
+                .field(
+                    stringify!(thread_affinity_use_cpuset_offsets),
+                    &self.thread_affinity_use_cpuset_offsets(),
+                )
+                .field(
+                    stringify!(thread_affinity_fail_on_validation_errors),
+                    &self.thread_affinity_fail_on_validation_errors(),
+                )
                 .field(
                     stringify!(enable_experimental_features),
                     &self.enable_experimental_features(),
@@ -18911,6 +19152,14 @@ impl core::fmt::Debug for AeronDriverContext {
                 .field(
                     stringify!(native_resource_agent_idle_strategy_name),
                     &self.native_resource_agent_idle_strategy_name(),
+                )
+                .field(
+                    stringify!(udp_channel_transport_poller_iteration_threshold),
+                    &self.udp_channel_transport_poller_iteration_threshold(),
+                )
+                .field(
+                    stringify!(udp_channel_transport_poller_socket_poll_limit),
+                    &self.udp_channel_transport_poller_socket_poll_limit(),
                 )
                 .field(stringify!(next_receiver_id), &self.next_receiver_id())
                 .field(
@@ -19209,8 +19458,16 @@ impl AeronDriverContext {
         self.socket_sndbuf.into()
     }
     #[inline]
+    pub fn socket_tos(&self) -> i32 {
+        self.socket_tos.into()
+    }
+    #[inline]
     pub fn send_to_sm_poll_ratio(&self) -> usize {
         self.send_to_sm_poll_ratio.into()
+    }
+    #[inline]
+    pub fn receiver_poll_to_slow_work_ratio(&self) -> usize {
+        self.receiver_poll_to_slow_work_ratio.into()
     }
     #[inline]
     pub fn initial_window_length(&self) -> usize {
@@ -19265,28 +19522,44 @@ impl AeronDriverContext {
         self.conductor_cpu_affinity_no.into()
     }
     #[inline]
+    pub fn conductor_cpu_affinity_resolved(&self) -> i32 {
+        self.conductor_cpu_affinity_resolved.into()
+    }
+    #[inline]
     pub fn receiver_cpu_affinity_no(&self) -> i32 {
         self.receiver_cpu_affinity_no.into()
+    }
+    #[inline]
+    pub fn receiver_cpu_affinity_resolved(&self) -> i32 {
+        self.receiver_cpu_affinity_resolved.into()
     }
     #[inline]
     pub fn sender_cpu_affinity_no(&self) -> i32 {
         self.sender_cpu_affinity_no.into()
     }
     #[inline]
+    pub fn sender_cpu_affinity_resolved(&self) -> i32 {
+        self.sender_cpu_affinity_resolved.into()
+    }
+    #[inline]
     pub fn native_resource_agent_cpu_affinity_no(&self) -> i32 {
         self.native_resource_agent_cpu_affinity_no.into()
+    }
+    #[inline]
+    pub fn native_resource_agent_cpu_affinity_resolved(&self) -> i32 {
+        self.native_resource_agent_cpu_affinity_resolved.into()
     }
     #[inline]
     pub fn stream_session_limit(&self) -> i32 {
         self.stream_session_limit.into()
     }
     #[inline]
-    pub fn cpuset_affinity(&self) -> bool {
-        self.cpuset_affinity.into()
+    pub fn thread_affinity_use_cpuset_offsets(&self) -> bool {
+        self.thread_affinity_use_cpuset_offsets.into()
     }
     #[inline]
-    pub fn cpuset_warnings_as_errors(&self) -> bool {
-        self.cpuset_warnings_as_errors.into()
+    pub fn thread_affinity_fail_on_validation_errors(&self) -> bool {
+        self.thread_affinity_fail_on_validation_errors.into()
     }
     #[inline]
     pub fn enable_experimental_features(&self) -> bool {
@@ -19659,6 +19932,14 @@ impl AeronDriverContext {
     #[inline]
     pub fn udp_channel_incoming_interceptor_bindings(&self) -> AeronUdpChannelInterceptorBindings {
         self.udp_channel_incoming_interceptor_bindings.into()
+    }
+    #[inline]
+    pub fn udp_channel_transport_poller_iteration_threshold(&self) -> usize {
+        self.udp_channel_transport_poller_iteration_threshold.into()
+    }
+    #[inline]
+    pub fn udp_channel_transport_poller_socket_poll_limit(&self) -> i32 {
+        self.udp_channel_transport_poller_socket_poll_limit.into()
     }
     #[inline]
     pub fn next_receiver_id(&self) -> i64 {
@@ -20821,6 +21102,44 @@ impl AeronDriverContext {
         }
     }
     #[inline]
+    pub fn set_socket_tos(&self, value: i32) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_context_set_socket_tos),
+                [
+                    concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string(),
+                    format!("{} = {:?}", "value", value)
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_context_set_socket_tos(self.get_inner(), value.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn get_socket_tos(&self) -> i32 {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_context_get_socket_tos),
+                [concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string()].join(", ")
+            );
+            let result = aeron_driver_context_get_socket_tos(self.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
     pub fn set_send_to_status_poll_ratio(&self, value: usize) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -20853,6 +21172,44 @@ impl AeronDriverContext {
                 [concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string()].join(", ")
             );
             let result = aeron_driver_context_get_send_to_status_poll_ratio(self.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn set_receiver_poll_to_slow_work_ratio(&self, value: usize) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_context_set_receiver_poll_to_slow_work_ratio),
+                [
+                    concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string(),
+                    format!("{} = {:?}", "value", value)
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_context_set_receiver_poll_to_slow_work_ratio(self.get_inner(), value.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn get_receiver_poll_to_slow_work_ratio(&self) -> usize {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_context_get_receiver_poll_to_slow_work_ratio),
+                [concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string()].join(", ")
+            );
+            let result = aeron_driver_context_get_receiver_poll_to_slow_work_ratio(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -22909,6 +23266,86 @@ impl AeronDriverContext {
         }
     }
     #[inline]
+    pub fn set_udp_channel_transport_poller_iteration_threshold(&self, value: usize) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_context_set_udp_channel_transport_poller_iteration_threshold),
+                [
+                    concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string(),
+                    format!("{} = {:?}", "value", value)
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_context_set_udp_channel_transport_poller_iteration_threshold(
+                self.get_inner(),
+                value.into(),
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn get_udp_channel_transport_poller_iteration_threshold(&self) -> usize {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_context_get_udp_channel_transport_poller_iteration_threshold),
+                [concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string()].join(", ")
+            );
+            let result = aeron_driver_context_get_udp_channel_transport_poller_iteration_threshold(self.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn set_udp_channel_transport_poller_socket_poll_limit(&self, value: i32) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_context_set_udp_channel_transport_poller_socket_poll_limit),
+                [
+                    concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string(),
+                    format!("{} = {:?}", "value", value)
+                ]
+                .join(", ")
+            );
+            let result =
+                aeron_driver_context_set_udp_channel_transport_poller_socket_poll_limit(self.get_inner(), value.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    pub fn get_udp_channel_transport_poller_socket_poll_limit(&self) -> i32 {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_context_get_udp_channel_transport_poller_socket_poll_limit),
+                [concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string()].join(", ")
+            );
+            let result = aeron_driver_context_get_udp_channel_transport_poller_socket_poll_limit(self.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
     pub fn set_udp_channel_outgoing_interceptors(
         &self,
         value: &AeronUdpChannelInterceptorBindings,
@@ -24320,19 +24757,19 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn set_cpuset_affinity(&self, value: bool) -> Result<i32, AeronCError> {
+    pub fn set_thread_affinity_use_cpuset_offsets(&self, value: bool) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
-                stringify!(aeron_driver_context_set_cpuset_affinity),
+                stringify!(aeron_driver_context_set_thread_affinity_use_cpuset_offsets),
                 [
                     concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string(),
                     format!("{} = {:?}", "value", value)
                 ]
                 .join(", ")
             );
-            let result = aeron_driver_context_set_cpuset_affinity(self.get_inner(), value.into());
+            let result = aeron_driver_context_set_thread_affinity_use_cpuset_offsets(self.get_inner(), value.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -24343,34 +24780,35 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn get_cpuset_affinity(&self) -> bool {
+    pub fn get_thread_affinity_use_cpuset_offsets(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
-                stringify!(aeron_driver_context_get_cpuset_affinity),
+                stringify!(aeron_driver_context_get_thread_affinity_use_cpuset_offsets),
                 [concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string()].join(", ")
             );
-            let result = aeron_driver_context_get_cpuset_affinity(self.get_inner());
+            let result = aeron_driver_context_get_thread_affinity_use_cpuset_offsets(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
         }
     }
     #[inline]
-    pub fn set_cpuset_warnings_as_errors(&self, value: bool) -> Result<i32, AeronCError> {
+    pub fn set_thread_affinity_fail_on_validation_errors(&self, value: bool) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
-                stringify!(aeron_driver_context_set_cpuset_warnings_as_errors),
+                stringify!(aeron_driver_context_set_thread_affinity_fail_on_validation_errors),
                 [
                     concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string(),
                     format!("{} = {:?}", "value", value)
                 ]
                 .join(", ")
             );
-            let result = aeron_driver_context_set_cpuset_warnings_as_errors(self.get_inner(), value.into());
+            let result =
+                aeron_driver_context_set_thread_affinity_fail_on_validation_errors(self.get_inner(), value.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -24381,15 +24819,15 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn get_cpuset_warnings_as_errors(&self) -> bool {
+    pub fn get_thread_affinity_fail_on_validation_errors(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
-                stringify!(aeron_driver_context_get_cpuset_warnings_as_errors),
+                stringify!(aeron_driver_context_get_thread_affinity_fail_on_validation_errors),
                 [concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string()].join(", ")
             );
-            let result = aeron_driver_context_get_cpuset_warnings_as_errors(self.get_inner());
+            let result = aeron_driver_context_get_thread_affinity_fail_on_validation_errors(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -24879,15 +25317,15 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn aeron_driver_apply_cpuset_affinity(&self) -> Result<i32, AeronCError> {
+    pub fn aeron_driver_validate_and_apply_affinity_configuration(&self) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
                 "{}({})",
-                stringify!(aeron_driver_apply_cpuset_affinity),
+                stringify!(aeron_driver_validate_and_apply_affinity_configuration),
                 [concat!("context", ": ", stringify!(*mut aeron_driver_context_t)).to_string()].join(", ")
             );
-            let result = aeron_driver_apply_cpuset_affinity(self.get_inner());
+            let result = aeron_driver_validate_and_apply_affinity_configuration(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -28009,6 +28447,16 @@ impl core::fmt::Debug for AeronDriverReceiver {
                 .field(stringify!(receiver_proxy), &self.receiver_proxy())
                 .field(stringify!(data_paths), &self.data_paths())
                 .field(stringify!(re_resolution_deadline_ns), &self.re_resolution_deadline_ns())
+                .field(
+                    stringify!(slow_tick_work_deadline_ns),
+                    &self.slow_tick_work_deadline_ns(),
+                )
+                .field(
+                    stringify!(status_message_send_timeout_ns),
+                    &self.status_message_send_timeout_ns(),
+                )
+                .field(stringify!(duty_cycle_counter), &self.duty_cycle_counter())
+                .field(stringify!(duty_cycle_ratio), &self.duty_cycle_ratio())
                 .finish()
         }
     }
@@ -28027,6 +28475,10 @@ impl AeronDriverReceiver {
         recvmmsg_func: aeron_udp_channel_transport_recvmmsg_func_t,
         error_log: &AeronDistinctErrorLog,
         re_resolution_deadline_ns: i64,
+        slow_tick_work_deadline_ns: i64,
+        status_message_send_timeout_ns: i64,
+        duty_cycle_counter: usize,
+        duty_cycle_ratio: usize,
         errors_counter: &mut i64,
         invalid_frames_counter: &mut i64,
         total_bytes_received_counter: &mut i64,
@@ -28048,6 +28500,10 @@ impl AeronDriverReceiver {
                     recvmmsg_func: recvmmsg_func.into(),
                     error_log: error_log.into(),
                     re_resolution_deadline_ns: re_resolution_deadline_ns.into(),
+                    slow_tick_work_deadline_ns: slow_tick_work_deadline_ns.into(),
+                    status_message_send_timeout_ns: status_message_send_timeout_ns.into(),
+                    duty_cycle_counter: duty_cycle_counter.into(),
+                    duty_cycle_ratio: duty_cycle_ratio.into(),
                     errors_counter: errors_counter as *mut _,
                     invalid_frames_counter: invalid_frames_counter as *mut _,
                     total_bytes_received_counter: total_bytes_received_counter as *mut _,
@@ -28144,6 +28600,22 @@ impl AeronDriverReceiver {
     #[inline]
     pub fn re_resolution_deadline_ns(&self) -> i64 {
         self.re_resolution_deadline_ns.into()
+    }
+    #[inline]
+    pub fn slow_tick_work_deadline_ns(&self) -> i64 {
+        self.slow_tick_work_deadline_ns.into()
+    }
+    #[inline]
+    pub fn status_message_send_timeout_ns(&self) -> i64 {
+        self.status_message_send_timeout_ns.into()
+    }
+    #[inline]
+    pub fn duty_cycle_counter(&self) -> usize {
+        self.duty_cycle_counter.into()
+    }
+    #[inline]
+    pub fn duty_cycle_ratio(&self) -> usize {
+        self.duty_cycle_ratio.into()
     }
     #[inline]
     pub fn errors_counter(&self) -> &mut i64 {
@@ -29322,6 +29794,7 @@ impl AeronDriverSender {
         poller: aeron_udp_transport_poller_t,
         network_publications: aeron_driver_sender_stct_aeron_driver_sender_network_publications_stct,
         recv_buffers: aeron_driver_sender_stct_aeron_driver_sender_buffers_stct,
+        control_msgvec: [mmsghdr; 1usize],
         data_paths: AeronUdpChannelDataPaths,
         total_bytes_sent_counter: &mut i64,
         errors_counter: &mut i64,
@@ -29353,6 +29826,7 @@ impl AeronDriverSender {
                     poller: poller.into(),
                     network_publications: network_publications.into(),
                     recv_buffers: recv_buffers.into(),
+                    control_msgvec: control_msgvec.into(),
                     data_paths: data_paths.into(),
                     total_bytes_sent_counter: total_bytes_sent_counter as *mut _,
                     errors_counter: errors_counter as *mut _,
@@ -29438,6 +29912,10 @@ impl AeronDriverSender {
     #[inline]
     pub fn recv_buffers(&self) -> aeron_driver_sender_stct_aeron_driver_sender_buffers_stct {
         self.recv_buffers.into()
+    }
+    #[inline]
+    pub fn control_msgvec(&self) -> [mmsghdr; 1usize] {
+        self.control_msgvec.into()
     }
     #[inline]
     pub fn data_paths(&self) -> AeronUdpChannelDataPaths {
@@ -66539,6 +67017,7 @@ impl core::fmt::Debug for AeronUdpChannel {
                 .field(stringify!(is_multicast), &self.is_multicast())
                 .field(stringify!(socket_sndbuf_length), &self.socket_sndbuf_length())
                 .field(stringify!(socket_rcvbuf_length), &self.socket_rcvbuf_length())
+                .field(stringify!(socket_tos), &self.socket_tos())
                 .field(stringify!(receiver_window_length), &self.receiver_window_length())
                 .field(
                     stringify!(media_rcv_timestamp_offset),
@@ -66668,6 +67147,10 @@ impl AeronUdpChannel {
     #[inline]
     pub fn socket_rcvbuf_length(&self) -> usize {
         self.socket_rcvbuf_length.into()
+    }
+    #[inline]
+    pub fn socket_tos(&self) -> i32 {
+        self.socket_tos.into()
     }
     #[inline]
     pub fn receiver_window_length(&self) -> usize {
@@ -69943,11 +70426,34 @@ impl core::fmt::Debug for Mmsghdr {
         if self.inner.get().is_null() {
             f.debug_struct(stringify!(Mmsghdr)).field("inner", &"null").finish()
         } else {
-            f.debug_struct(stringify!(Mmsghdr)).field("inner", &self.inner).finish()
+            f.debug_struct(stringify!(Mmsghdr))
+                .field("inner", &self.inner)
+                .field(stringify!(msg_hdr), &self.msg_hdr())
+                .finish()
         }
     }
 }
 impl Mmsghdr {
+    #[inline]
+    pub fn new(msg_hdr: Msghdr, msg_len: ::std::os::raw::c_uint) -> Result<Self, AeronCError> {
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = mmsghdr {
+                    msg_hdr: msg_hdr.into(),
+                    msg_len: msg_len.into(),
+                };
+                let inner_ptr: *mut mmsghdr = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
+        };
+        Ok(result)
+    }
     #[inline]
     #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
     pub fn new_zeroed_on_heap() -> Self {
@@ -69977,6 +70483,14 @@ impl Mmsghdr {
         Self {
             inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed().into()),
         }
+    }
+    #[inline]
+    pub fn msg_hdr(&self) -> Msghdr {
+        self.msg_hdr.into()
+    }
+    #[inline]
+    pub fn msg_len(&self) -> ::std::os::raw::c_uint {
+        self.msg_len.into()
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut mmsghdr {
@@ -70046,6 +70560,27 @@ impl From<mmsghdr> for Mmsghdr {
         }
     }
 }
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for Mmsghdr {
+    fn default() -> Self {
+        Mmsghdr::new_zeroed_on_heap()
+    }
+}
+impl Mmsghdr {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+        copy
+    }
+}
 #[cfg(test)]
 mod mmsghdr_allocation_tests {
     use super::*;
@@ -70056,6 +70591,15 @@ mod mmsghdr_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = Mmsghdr::new_zeroed_on_stack();
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = Mmsghdr::default();
             }
         });
     }

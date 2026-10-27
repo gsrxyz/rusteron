@@ -919,6 +919,9 @@ pub enum AeronErrorType {
     ClientErrorClientTimeout,
     ClientErrorConductorServiceTimeout,
     ClientErrorBufferFull,
+    ClientErrorDriverBufferFull,
+    ClientErrorClientIllegalState,
+    ClientErrorBroadcastReceiverIllegalState,
     PublicationBackPressured,
     PublicationAdminAction,
     PublicationClosed,
@@ -940,6 +943,9 @@ impl AeronErrorType {
             AeronErrorType::ClientErrorClientTimeout => -1001,
             AeronErrorType::ClientErrorConductorServiceTimeout => -1002,
             AeronErrorType::ClientErrorBufferFull => -1003,
+            AeronErrorType::ClientErrorDriverBufferFull => -1004,
+            AeronErrorType::ClientErrorClientIllegalState => -1005,
+            AeronErrorType::ClientErrorBroadcastReceiverIllegalState => -1006,
             AeronErrorType::PublicationBackPressured => -2,
             AeronErrorType::PublicationAdminAction => -3,
             AeronErrorType::PublicationClosed => -4,
@@ -965,6 +971,9 @@ impl AeronErrorType {
             -1001 => AeronErrorType::ClientErrorClientTimeout,
             -1002 => AeronErrorType::ClientErrorConductorServiceTimeout,
             -1003 => AeronErrorType::ClientErrorBufferFull,
+            -1004 => AeronErrorType::ClientErrorDriverBufferFull,
+            -1005 => AeronErrorType::ClientErrorClientIllegalState,
+            -1006 => AeronErrorType::ClientErrorBroadcastReceiverIllegalState,
             -2 => AeronErrorType::PublicationBackPressured,
             -3 => AeronErrorType::PublicationAdminAction,
             -4 => AeronErrorType::PublicationClosed,
@@ -981,6 +990,9 @@ impl AeronErrorType {
             AeronErrorType::ClientErrorClientTimeout => "Client Error Client Timeout",
             AeronErrorType::ClientErrorConductorServiceTimeout => "Client Error Conductor Service Timeout",
             AeronErrorType::ClientErrorBufferFull => "Client Error Buffer Full",
+            AeronErrorType::ClientErrorDriverBufferFull => "Client Error Driver Buffer Full",
+            AeronErrorType::ClientErrorClientIllegalState => "Client Error Client Illegal State",
+            AeronErrorType::ClientErrorBroadcastReceiverIllegalState => "Client Error Broadcast Receiver Illegal State",
             AeronErrorType::PublicationBackPressured => "Publication Back Pressured",
             AeronErrorType::PublicationAdminAction => "Publication Admin Action",
             AeronErrorType::PublicationClosed => "Publication Closed",
@@ -4888,58 +4900,6 @@ impl AeronArchivePersistentSubscription {
         }
     }
     #[inline]
-    #[doc = "Retrieve the underlying `AeronArchivePersistentSubscriptionContext` used to configure the provided"]
-    #[doc = " `AeronArchivePersistentSubscription`."]
-    pub fn get_persistent_subscription_context(&self) -> AeronArchivePersistentSubscriptionContext {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_persistent_subscription_get_persistent_subscription_context),
-                [concat!(
-                    "persistent_subscription",
-                    ": ",
-                    stringify!(*mut aeron_archive_persistent_subscription_t)
-                )
-                .to_string()]
-                .join(", ")
-            );
-            let result = aeron_archive_persistent_subscription_get_persistent_subscription_context(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    #[doc = "Retrieve the underlying `AeronArchivePersistentSubscriptionContext` used to configure the provided"]
-    #[doc = " `AeronArchivePersistentSubscription`."]
-    #[doc = " \n"]
-    #[doc = " Additionally, calling this function transfers ownership of the returned `AeronArchivePersistentSubscriptionContext`"]
-    #[doc = " to the caller. i.e. it is now the caller's responsibility to close the context, which must be done after"]
-    #[doc = " the persistent subscription has been closed."]
-    #[doc = " This is useful when wrapping the C library in other, higher level languages."]
-    pub fn get_and_own_persistent_subscription_context(&self) -> AeronArchivePersistentSubscriptionContext {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_persistent_subscription_get_and_own_persistent_subscription_context),
-                [concat!(
-                    "persistent_subscription",
-                    ": ",
-                    stringify!(*mut aeron_archive_persistent_subscription_t)
-                )
-                .to_string()]
-                .join(", ")
-            );
-            let result =
-                aeron_archive_persistent_subscription_get_and_own_persistent_subscription_context(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
     #[doc = "Poll a persistent subscription for available messages."]
     #[doc = " \n"]
     #[doc = " Delivers assembled messages to the handler, so the handler shouldn't be a fragment assembler."]
@@ -7016,6 +6976,208 @@ mod aeron_archive_recording_descriptor_t_allocation_tests {
         });
     }
 }
+#[derive(Clone)]
+pub struct AeronArchiveRecordingPositionKeyLayout {
+    inner: CResource<aeron_archive_recording_position_key_layout_t>,
+}
+impl core::fmt::Debug for AeronArchiveRecordingPositionKeyLayout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.inner.get().is_null() {
+            f.debug_struct(stringify!(AeronArchiveRecordingPositionKeyLayout))
+                .field("inner", &"null")
+                .finish()
+        } else {
+            f.debug_struct(stringify!(AeronArchiveRecordingPositionKeyLayout))
+                .field("inner", &self.inner)
+                .field(stringify!(recording_id), &self.recording_id())
+                .field(stringify!(session_id), &self.session_id())
+                .field(stringify!(source_identity_length), &self.source_identity_length())
+                .finish()
+        }
+    }
+}
+impl AeronArchiveRecordingPositionKeyLayout {
+    #[inline]
+    pub fn new(recording_id: i64, session_id: i32, source_identity_length: i32) -> Result<Self, AeronCError> {
+        let r_constructor = ManagedCResource::new(
+            move |ctx_field| {
+                let inst = aeron_archive_recording_position_key_layout_t {
+                    recording_id: recording_id.into(),
+                    session_id: session_id.into(),
+                    source_identity_length: source_identity_length.into(),
+                };
+                let inner_ptr: *mut aeron_archive_recording_position_key_layout_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )?;
+        let result = Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(r_constructor)),
+        };
+        Ok(result)
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the heap"]
+    pub fn new_zeroed_on_heap() -> Self {
+        let resource = ManagedCResource::new(
+            move |ctx_field| {
+                #[cfg(feature = "extra-logging")]
+                log::info!(
+                    "creating zeroed empty resource on heap {}",
+                    stringify!(aeron_archive_recording_position_key_layout_t)
+                );
+                let inst: aeron_archive_recording_position_key_layout_t = unsafe { std::mem::zeroed() };
+                let inner_ptr: *mut aeron_archive_recording_position_key_layout_t = Box::into_raw(Box::new(inst));
+                unsafe { *ctx_field = inner_ptr };
+                0
+            },
+            None,
+            true,
+        )
+        .unwrap();
+        Self {
+            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
+        }
+    }
+    #[inline]
+    #[doc = r" creates zeroed struct where the underlying c struct is on the stack"]
+    #[doc = r" _(Use with care)_"]
+    pub fn new_zeroed_on_stack() -> Self {
+        #[cfg(feature = "extra-logging")]
+        log::debug!(
+            "creating zeroed empty resource on stack {}",
+            stringify!(aeron_archive_recording_position_key_layout_t)
+        );
+        Self {
+            inner: CResource::OwnedOnStack(std::mem::MaybeUninit::zeroed().into()),
+        }
+    }
+    #[inline]
+    pub fn recording_id(&self) -> i64 {
+        self.recording_id.into()
+    }
+    #[inline]
+    pub fn session_id(&self) -> i32 {
+        self.session_id.into()
+    }
+    #[inline]
+    pub fn source_identity_length(&self) -> i32 {
+        self.source_identity_length.into()
+    }
+    #[inline(always)]
+    pub fn get_inner(&self) -> *mut aeron_archive_recording_position_key_layout_t {
+        self.inner.get()
+    }
+    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
+    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
+    #[doc = r" access for the lifetime of the returned reference."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
+    #[doc = r" alive while the returned `&mut` is in use."]
+    #[inline(always)]
+    pub unsafe fn get_inner_mut(&self) -> &mut aeron_archive_recording_position_key_layout_t {
+        &mut *self.inner.get()
+    }
+    #[inline(always)]
+    pub fn get_inner_ref(&self) -> &aeron_archive_recording_position_key_layout_t {
+        unsafe { &*self.inner.get() }
+    }
+}
+impl std::ops::Deref for AeronArchiveRecordingPositionKeyLayout {
+    type Target = aeron_archive_recording_position_key_layout_t;
+    fn deref(&self) -> &Self::Target {
+        self.get_inner_ref()
+    }
+}
+impl From<*mut aeron_archive_recording_position_key_layout_t> for AeronArchiveRecordingPositionKeyLayout {
+    #[inline]
+    fn from(value: *mut aeron_archive_recording_position_key_layout_t) -> Self {
+        AeronArchiveRecordingPositionKeyLayout {
+            inner: CResource::Borrowed(value),
+        }
+    }
+}
+impl From<AeronArchiveRecordingPositionKeyLayout> for *mut aeron_archive_recording_position_key_layout_t {
+    #[inline]
+    fn from(value: AeronArchiveRecordingPositionKeyLayout) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronArchiveRecordingPositionKeyLayout> for *mut aeron_archive_recording_position_key_layout_t {
+    #[inline]
+    fn from(value: &AeronArchiveRecordingPositionKeyLayout) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronArchiveRecordingPositionKeyLayout> for aeron_archive_recording_position_key_layout_t {
+    #[inline]
+    fn from(value: AeronArchiveRecordingPositionKeyLayout) -> Self {
+        unsafe { *value.get_inner().clone() }
+    }
+}
+impl From<*const aeron_archive_recording_position_key_layout_t> for AeronArchiveRecordingPositionKeyLayout {
+    #[inline]
+    fn from(value: *const aeron_archive_recording_position_key_layout_t) -> Self {
+        AeronArchiveRecordingPositionKeyLayout {
+            inner: CResource::Borrowed(value as *mut aeron_archive_recording_position_key_layout_t),
+        }
+    }
+}
+impl From<aeron_archive_recording_position_key_layout_t> for AeronArchiveRecordingPositionKeyLayout {
+    #[inline]
+    fn from(value: aeron_archive_recording_position_key_layout_t) -> Self {
+        AeronArchiveRecordingPositionKeyLayout {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
+#[doc = r" This will create an instance where the struct is zeroed, use with care"]
+impl Default for AeronArchiveRecordingPositionKeyLayout {
+    fn default() -> Self {
+        AeronArchiveRecordingPositionKeyLayout::new_zeroed_on_heap()
+    }
+}
+impl AeronArchiveRecordingPositionKeyLayout {
+    #[doc = r" Regular clone just increases the reference count of underlying count."]
+    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r""]
+    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r""]
+    #[doc = r" Must be only used on structs which has no init/clean up methods."]
+    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
+    pub fn clone_struct(&self) -> Self {
+        let copy = Self::default();
+        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+        copy
+    }
+}
+#[cfg(test)]
+mod aeron_archive_recording_position_key_layout_t_allocation_tests {
+    use super::*;
+    use serial_test::file_serial;
+    #[test]
+    #[file_serial(global)]
+    fn test_new_on_stack() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronArchiveRecordingPositionKeyLayout::new_zeroed_on_stack();
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronArchiveRecordingPositionKeyLayout::default();
+            }
+        });
+    }
+}
 #[doc = "Struct containing the details of a recording signal."]
 #[derive(Clone)]
 pub struct AeronArchiveRecordingSignal {
@@ -8621,6 +8783,7 @@ impl core::fmt::Debug for AeronArchive {
                 )
                 .field(stringify!(archive_id), &self.archive_id())
                 .field(stringify!(is_in_callback), &self.is_in_callback())
+                .field(stringify!(fatal_error_code), &self.fatal_error_code())
                 .finish()
         }
     }
@@ -8698,6 +8861,10 @@ impl AeronArchive {
     #[inline]
     pub fn is_in_callback(&self) -> bool {
         self.is_in_callback.into()
+    }
+    #[inline]
+    pub fn fatal_error_code(&self) -> ::std::os::raw::c_int {
+        self.fatal_error_code.into()
     }
     #[inline]
     #[doc = "Retrieve the underlying `AeronArchiveContext` used to configure the provided `AeronArchive`."]
@@ -17916,9 +18083,14 @@ impl AeronCountersReader {
     #[inline]
     #[doc = "Find the active counter id for a stream based on the recording id."]
     #[doc = ""]
-    #[doc = "# Parameters\n \n - `recording_id` the recording id of an active recording"]
-    #[doc = " \n# Return\n the counter id if found, otherwise AERON_NULL_COUNTER_ID"]
-    pub fn aeron_archive_recording_pos_find_counter_id_by_recording_id(&self, recording_id: i64) -> i32 {
+    #[doc = "# Parameters\n \n - `recording_id`    the recording id of an active recording."]
+    #[doc = " \n - `archive_id`      the archive id of an active recording."]
+    #[doc = " \n# Return\n the counter id if found, otherwise AERON_NULL_COUNTER_ID. Never sets any errors."]
+    pub fn aeron_archive_recording_pos_find_counter_id_by_recording_id(
+        &self,
+        recording_id: i64,
+        archive_id: i64,
+    ) -> i32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -17926,12 +18098,16 @@ impl AeronCountersReader {
                 stringify!(aeron_archive_recording_pos_find_counter_id_by_recording_id),
                 [
                     concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
-                    format!("{} = {:?}", "recording_id", recording_id)
+                    format!("{} = {:?}", "recording_id", recording_id),
+                    format!("{} = {:?}", "archive_id", archive_id)
                 ]
                 .join(", ")
             );
-            let result =
-                aeron_archive_recording_pos_find_counter_id_by_recording_id(self.get_inner(), recording_id.into());
+            let result = aeron_archive_recording_pos_find_counter_id_by_recording_id(
+                self.get_inner(),
+                recording_id.into(),
+                archive_id.into(),
+            );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -17940,9 +18116,10 @@ impl AeronCountersReader {
     #[inline]
     #[doc = "Find the active counter id for a stream based on the session id."]
     #[doc = ""]
-    #[doc = "# Parameters\n \n - `session_id` the session id of an active recording"]
-    #[doc = " \n# Return\n the counter id if found, otherwise AERON_NULL_COUNTER_ID"]
-    pub fn aeron_archive_recording_pos_find_counter_id_by_session_id(&self, session_id: i32) -> i32 {
+    #[doc = "# Parameters\n \n - `session_id`      the session id of an active recording."]
+    #[doc = " \n - `archive_id`      the archive id to match on."]
+    #[doc = " \n# Return\n the counter id if found, otherwise AERON_NULL_COUNTER_ID. Never sets any errors."]
+    pub fn aeron_archive_recording_pos_find_counter_id_by_session_id(&self, session_id: i32, archive_id: i64) -> i32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -17950,11 +18127,16 @@ impl AeronCountersReader {
                 stringify!(aeron_archive_recording_pos_find_counter_id_by_session_id),
                 [
                     concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
-                    format!("{} = {:?}", "session_id", session_id)
+                    format!("{} = {:?}", "session_id", session_id),
+                    format!("{} = {:?}", "archive_id", archive_id)
                 ]
                 .join(", ")
             );
-            let result = aeron_archive_recording_pos_find_counter_id_by_session_id(self.get_inner(), session_id.into());
+            let result = aeron_archive_recording_pos_find_counter_id_by_session_id(
+                self.get_inner(),
+                session_id.into(),
+                archive_id.into(),
+            );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -17981,49 +18163,6 @@ impl AeronCountersReader {
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
-        }
-    }
-    #[inline]
-    #[doc = "Get the source identity for the recording."]
-    #[doc = " \n"]
-    #[doc = " See source_identity in `AeronImageConstants`."]
-    #[doc = ""]
-    #[doc = "\n \n # Parameters
-- `counter_id` the counter id of an active recording"]
-    #[doc = " \n - `dst` a destination buffer into which the source identity will be written"]
-    #[doc = " \n - `len_p` a pointer to a size_t that initially indicates the length of the dst buffer.  After the function return successfully, len_p will be set to the length of the source identity string in dst"]
-    pub fn aeron_archive_recording_pos_get_source_identity(
-        &self,
-        counter_id: i32,
-        dst: &std::ffi::CStr,
-    ) -> Result<usize, AeronCError> {
-        unsafe {
-            let mut mut_result: usize = Default::default();
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_recording_pos_get_source_identity),
-                [
-                    concat!("counters_reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
-                    format!("{} = {:?}", "counter_id", counter_id),
-                    concat!("dst", ": ", stringify!(*const ::std::os::raw::c_char)).to_string(),
-                    concat!("len_p", ": ", stringify!(*mut usize)).to_string()
-                ]
-                .join(", ")
-            );
-            let err_code = aeron_archive_recording_pos_get_source_identity(
-                self.get_inner(),
-                counter_id.into(),
-                dst.as_ptr(),
-                &mut mut_result,
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> err_code = {:?}, result = {:?}", err_code, mut_result);
-            if err_code < 0 {
-                return Err(AeronCError::from_code(err_code));
-            } else {
-                return Ok(mut_result);
-            }
         }
     }
     #[inline]

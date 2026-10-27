@@ -110,17 +110,19 @@ impl AeronDriverContext {
         self.set_shared_idle_strategy(kind.name_c())
     }
 
-    /// Reads this process's cgroup cpuset and spreads the driver's agents over it when
-    /// cpuset affinity is on (`AERON_DRIVER_CPUSET_AFFINITY` or [`Self::set_cpuset_affinity`]),
-    /// as `aeronmd` does; nothing otherwise. Call once, before the driver starts.
+    /// Validates and applies the driver's affinity configuration, as `aeronmd` does.
+    /// On Linux, configured affinities are CPU IDs unless cpuset offsets are enabled
+    /// (`AERON_THREAD_AFFINITY_USE_CPUSET_OFFSETS` or
+    /// [`Self::set_thread_affinity_use_cpuset_offsets`]).
+    /// Call once, before the driver starts.
     ///
     /// # Errors
     ///
-    /// Cpuset affinity is on but this is not Linux, or the cpuset could not be read or does
-    /// not suit the agents' configured affinities.
+    /// On Linux, affinity validation failed or the cpuset could not be read.
+    /// On other platforms this is a no-op, matching Aeron's standalone driver.
     pub fn apply_cgroup_cpuset_affinity(&self) -> Result<(), AeronCError> {
         // SAFETY: the context is live, and the driver has not started reading it.
-        let result = unsafe { aeron_driver_apply_cpuset_affinity(self.get_inner()) };
+        let result = unsafe { aeron_driver_validate_and_apply_affinity_configuration(self.get_inner()) };
         if result < 0 {
             return Err(AeronCError::from_code(result).capture_errmsg());
         }
@@ -289,7 +291,7 @@ mod tests {
         let patch = unsafe { crate::aeron_version_patch() };
 
         let aeron_version = format!("{}.{}.{}", major, minor, patch);
-        let cargo_version = "1.53.3";
+        let cargo_version = include_str!("../aeron/version.txt").trim().split('-').next().unwrap();
         assert_eq!(aeron_version, cargo_version);
     }
 
@@ -436,13 +438,37 @@ mod tests {
         AeronDriverContext::new()?.apply_cgroup_cpuset_affinity()
     }
 
-    /// Off Linux, Aeron refuses cpuset affinity rather than ignoring it.
+    #[test]
+    fn new_driver_configuration_round_trips() -> Result<(), AeronCError> {
+        let context = AeronDriverContext::new()?;
+        for tos in [-1, 0, 128, 255] {
+            context.set_socket_tos(tos)?;
+            assert_eq!(context.get_socket_tos(), tos);
+        }
+        for invalid in [-2, 256] {
+            assert!(context.set_socket_tos(invalid).is_err());
+            assert_eq!(context.get_socket_tos(), 255);
+        }
+        context.set_receiver_poll_to_slow_work_ratio(11)?;
+        assert_eq!(context.get_receiver_poll_to_slow_work_ratio(), 11);
+        context.set_udp_channel_transport_poller_iteration_threshold(6)?;
+        assert_eq!(context.get_udp_channel_transport_poller_iteration_threshold(), 6);
+        context.set_udp_channel_transport_poller_socket_poll_limit(8)?;
+        assert_eq!(context.get_udp_channel_transport_poller_socket_poll_limit(), 8);
+        context.set_thread_affinity_use_cpuset_offsets(true)?;
+        assert!(context.get_thread_affinity_use_cpuset_offsets());
+        context.set_thread_affinity_fail_on_validation_errors(true)?;
+        assert!(context.get_thread_affinity_fail_on_validation_errors());
+        Ok(())
+    }
+
+    /// Affinity configuration is a no-op off Linux, including cpuset offsets.
     #[test]
     #[cfg(not(target_os = "linux"))]
-    fn cgroup_cpuset_affinity_is_refused_off_linux() -> Result<(), AeronCError> {
+    fn cgroup_cpuset_affinity_is_a_no_op_off_linux() -> Result<(), AeronCError> {
         let context = AeronDriverContext::new()?;
-        context.set_cpuset_affinity(true)?;
-        assert!(context.apply_cgroup_cpuset_affinity().is_err());
+        context.set_thread_affinity_use_cpuset_offsets(true)?;
+        context.apply_cgroup_cpuset_affinity()?;
         Ok(())
     }
 
