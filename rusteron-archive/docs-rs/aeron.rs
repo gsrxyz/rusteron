@@ -2018,7 +2018,9 @@ impl AeronArchiveContext {
             );
             let result = aeron_archive_context_set_aeron(self.get_inner(), aeron.get_inner());
             if result >= 0 {
-                self.inner.add_dependency(aeron.clone());
+                if let Some(__inner) = self.inner.as_owned() {
+                    __inner.add_dependency(aeron.clone());
+                }
             }
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -3595,7 +3597,9 @@ impl AeronArchivePersistentSubscriptionContext {
             );
             let result = aeron_archive_persistent_subscription_context_set_aeron(self.get_inner(), aeron.get_inner());
             if result >= 0 {
-                self.inner.add_dependency(aeron.clone());
+                if let Some(__inner) = self.inner.as_owned() {
+                    __inner.add_dependency(aeron.clone());
+                }
             }
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -3671,7 +3675,9 @@ impl AeronArchivePersistentSubscriptionContext {
                 archive_context.get_inner(),
             );
             if result >= 0 {
-                self.inner.add_dependency(archive_context.clone());
+                if let Some(__inner) = self.inner.as_owned() {
+                    __inner.add_dependency(archive_context.clone());
+                }
             }
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -6384,7 +6390,7 @@ impl AeronArchiveRecordingDescriptorPoller {
     }
     #[inline]
     pub fn reset<
-        AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl: AeronArchiveRecordingDescriptorConsumerFuncCallback,
+        AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl: AeronArchiveRecordingDescriptorConsumerFuncCallback + 'static,
     >(
         &self,
         correlation_id: i64,
@@ -6435,71 +6441,11 @@ impl AeronArchiveRecordingDescriptorPoller {
                     .map(|m| m.as_raw())
                     .unwrap_or_else(|| std::ptr::null_mut()),
             );
-            if recording_descriptor_consumer.is_some() {
-                resume_caught_panic();
+            if let Some(__handler) = recording_descriptor_consumer {
+                if let Some(__inner) = self.inner.as_owned() {
+                    __inner.add_dependency(__handler.clone());
+                }
             }
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
-    #[doc = r""]
-    #[doc = r" # Panics"]
-    #[doc = r""]
-    #[doc = r" A panic in the closure is caught so the C call can finish, then passed to"]
-    #[doc = r" the caller once it returns"]
-    pub fn reset_fn<
-        AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl: FnMut(AeronArchiveRecordingDescriptor) -> (),
-    >(
-        &self,
-        correlation_id: i64,
-        record_count: i32,
-        mut recording_descriptor_consumer: AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl,
-    ) -> () {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_recording_descriptor_poller_reset),
-                [
-                    concat!(
-                        "poller",
-                        ": ",
-                        stringify!(*mut aeron_archive_recording_descriptor_poller_t)
-                    )
-                    .to_string(),
-                    format!("{} = {:?}", "correlation_id", correlation_id),
-                    format!("{} = {:?}", "record_count", record_count),
-                    concat!(
-                        "recording_descriptor_consumer",
-                        ": ",
-                        stringify!(aeron_archive_recording_descriptor_consumer_func_t)
-                    )
-                    .to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_archive_recording_descriptor_poller_reset(
-                self.get_inner(),
-                correlation_id.into(),
-                record_count.into(),
-                Some(
-                    aeron_archive_recording_descriptor_consumer_func_t_callback_for_once_closure_catch::<
-                        AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl,
-                    >,
-                ),
-                &mut recording_descriptor_consumer as *mut _ as *mut std::os::raw::c_void,
-            );
-            resume_caught_panic();
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -6521,6 +6467,7 @@ impl AeronArchiveRecordingDescriptorPoller {
                 .join(", ")
             );
             let result = aeron_archive_recording_descriptor_poller_poll(self.get_inner());
+            resume_caught_panic();
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {
@@ -7283,7 +7230,7 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
     }
     #[inline]
     pub fn reset<
-        AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl: AeronArchiveRecordingSubscriptionDescriptorConsumerFuncCallback,
+        AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl: AeronArchiveRecordingSubscriptionDescriptorConsumerFuncCallback + 'static,
     >(
         &self,
         correlation_id: i64,
@@ -7336,71 +7283,11 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
                     .map(|m| m.as_raw())
                     .unwrap_or_else(|| std::ptr::null_mut()),
             );
-            if recording_subscription_descriptor_consumer.is_some() {
-                resume_caught_panic();
+            if let Some(__handler) = recording_subscription_descriptor_consumer {
+                if let Some(__inner) = self.inner.as_owned() {
+                    __inner.add_dependency(__handler.clone());
+                }
             }
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
-    #[doc = r""]
-    #[doc = r" # Panics"]
-    #[doc = r""]
-    #[doc = r" A panic in the closure is caught so the C call can finish, then passed to"]
-    #[doc = r" the caller once it returns"]
-    pub fn reset_fn<
-        AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl: FnMut(AeronArchiveRecordingSubscriptionDescriptor) -> (),
-    >(
-        &self,
-        correlation_id: i64,
-        subscription_count: i32,
-        mut recording_subscription_descriptor_consumer : AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl,
-    ) -> () {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_recording_subscription_descriptor_poller_reset),
-                [
-                    concat!(
-                        "poller",
-                        ": ",
-                        stringify!(*mut aeron_archive_recording_subscription_descriptor_poller_t)
-                    )
-                    .to_string(),
-                    format!("{} = {:?}", "correlation_id", correlation_id),
-                    format!("{} = {:?}", "subscription_count", subscription_count),
-                    concat!(
-                        "recording_subscription_descriptor_consumer",
-                        ": ",
-                        stringify!(aeron_archive_recording_subscription_descriptor_consumer_func_t)
-                    )
-                    .to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_archive_recording_subscription_descriptor_poller_reset(
-                self.get_inner(),
-                correlation_id.into(),
-                subscription_count.into(),
-                Some(
-                    aeron_archive_recording_subscription_descriptor_consumer_func_t_callback_for_once_closure_catch::<
-                        AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl,
-                    >,
-                ),
-                &mut recording_subscription_descriptor_consumer as *mut _ as *mut std::os::raw::c_void,
-            );
-            resume_caught_panic();
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             result.into()
@@ -7422,6 +7309,7 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
                 .join(", ")
             );
             let result = aeron_archive_recording_subscription_descriptor_poller_poll(self.get_inner());
+            resume_caught_panic();
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
             if result < 0 {

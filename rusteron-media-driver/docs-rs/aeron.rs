@@ -23293,7 +23293,9 @@ impl AeronDriverContext {
             );
             let result = aeron_driver_context_set_conductor_duty_cycle_tracker(self.get_inner(), value.get_inner());
             if result >= 0 {
-                self.inner.add_dependency(value.clone());
+                if let Some(__inner) = self.inner.as_owned() {
+                    __inner.add_dependency(value.clone());
+                }
             }
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -23334,7 +23336,9 @@ impl AeronDriverContext {
             );
             let result = aeron_driver_context_set_sender_duty_cycle_tracker(self.get_inner(), value.get_inner());
             if result >= 0 {
-                self.inner.add_dependency(value.clone());
+                if let Some(__inner) = self.inner.as_owned() {
+                    __inner.add_dependency(value.clone());
+                }
             }
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -23375,7 +23379,9 @@ impl AeronDriverContext {
             );
             let result = aeron_driver_context_set_receiver_duty_cycle_tracker(self.get_inner(), value.get_inner());
             if result >= 0 {
-                self.inner.add_dependency(value.clone());
+                if let Some(__inner) = self.inner.as_owned() {
+                    __inner.add_dependency(value.clone());
+                }
             }
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -23416,7 +23422,9 @@ impl AeronDriverContext {
             );
             let result = aeron_driver_context_set_name_resolver_time_tracker(self.get_inner(), value.get_inner());
             if result >= 0 {
-                self.inner.add_dependency(value.clone());
+                if let Some(__inner) = self.inner.as_owned() {
+                    __inner.add_dependency(value.clone());
+                }
             }
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -23573,7 +23581,9 @@ impl AeronDriverContext {
             );
             let result = aeron_driver_context_set_sender_port_manager(self.get_inner(), value.get_inner());
             if result >= 0 {
-                self.inner.add_dependency(value.clone());
+                if let Some(__inner) = self.inner.as_owned() {
+                    __inner.add_dependency(value.clone());
+                }
             }
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -23614,7 +23624,9 @@ impl AeronDriverContext {
             );
             let result = aeron_driver_context_set_receiver_port_manager(self.get_inner(), value.get_inner());
             if result >= 0 {
-                self.inner.add_dependency(value.clone());
+                if let Some(__inner) = self.inner.as_owned() {
+                    __inner.add_dependency(value.clone());
+                }
             }
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);

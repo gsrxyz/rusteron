@@ -678,7 +678,10 @@ impl CWrapper {
                 let fn_arguments: Vec<TokenStream> = classified.signatures();
                 let mut arg_names: Vec<TokenStream> = classified.calls();
                 let retained_handler_registrations: Vec<TokenStream> = classified.registrations();
-                let resumes: Vec<TokenStream> = classified.resumes();
+                let mut resumes: Vec<TokenStream> = classified.resumes();
+                if crate::arg_classifier::fires_stored_consumer(&method.fn_name) {
+                    resumes.push(quote! { resume_caught_panic(); });
+                }
 
                 let mut converter = return_type_helper.handle_c_to_rs_return(quote! { result }, true, false);
 

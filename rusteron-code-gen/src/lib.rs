@@ -459,6 +459,18 @@ mod tests {
         assert!(body.contains("catch_panic (Default :: default ()"), "{body}");
     }
 
+    /// Precompiled builds reuse the committed bindings on every platform, so a macOS
+    /// `link_name` (`\u{1}_aeron_...`) would leave Linux with undefined symbols
+    #[test]
+    fn snapshots_have_no_platform_link_names() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for file in ["client.rs", "archive.rs", "media-driver.rs"] {
+            let path = root.join("bindings").join(file);
+            let bindings = std::fs::read_to_string(&path).unwrap();
+            assert!(!bindings.contains("#[link_name"), "{} has a link_name", path.display());
+        }
+    }
+
     /// Constructors take a separate code path from methods: assembler delegates must be
     /// caught (the poll raises them), not logged. Reads the committed snapshot, which the
     /// snapshot tests keep equal to the generated code

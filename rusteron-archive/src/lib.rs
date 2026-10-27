@@ -1500,6 +1500,31 @@ mod tests {
         test_result
     }
 
+    /// A borrowed context (e.g. from `get_archive_context()`) leaves the client's lifetime to its
+    /// owner, so `set_aeron` must not panic on it
+    #[test]
+    #[serial]
+    pub fn set_aeron_on_borrowed_context_does_not_panic() -> Result<(), Box<dyn error::Error>> {
+        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
+        EmbeddedArchiveMediaDriverProcess::kill_all_java_processes()?;
+        let (aeron, archive_context, media_driver, pub_error_frame_handler, error_handler) = start_aeron_archive()?;
+
+        let test_result: Result<(), Box<dyn error::Error>> = (|| {
+            let owned = AeronArchiveContext::new()?;
+            let borrowed = AeronArchiveContext::from(owned.get_inner());
+            borrowed.set_aeron(&aeron)?;
+            assert_eq!(owned.get_aeron().get_inner(), aeron.get_inner());
+            Ok(())
+        })();
+
+        drop(aeron);
+        drop(archive_context);
+        drop(media_driver);
+        drop(pub_error_frame_handler);
+        drop(error_handler);
+        test_result
+    }
+
     /// The context keeps every client passed to `set_aeron` alive, even after the caller drops
     /// theirs or a later call replaces it
     #[test]

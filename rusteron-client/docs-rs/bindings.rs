@@ -2068,7 +2068,6 @@ impl Default for aeron_subscription_constants_stct {
 pub type aeron_subscription_constants_t = aeron_subscription_constants_stct;
 unsafe extern "C-unwind" {
     #[doc = " Poll the images under the subscription for available message fragments.\n <p>\n Each fragment read will be a whole message if it is under MTU length. If larger than MTU then it will come\n as a series of fragments ordered within a session.\n <p>\n To assemble messages that span multiple fragments then use aeron_fragment_assembler_t.\n\n @param subscription to poll.\n @param handler for handling each message fragment as it is read.\n @param fragment_limit number of message fragments to limit when polling across multiple images.\n @return the number of fragments received or -1 for error."]
-    #[link_name = "\u{1}_aeron_subscription_poll"]
     pub fn aeron_subscription_poll(
         subscription: *mut aeron_subscription_t,
         handler: aeron_fragment_handler_t,
@@ -2078,7 +2077,6 @@ unsafe extern "C-unwind" {
 }
 unsafe extern "C-unwind" {
     #[doc = " Poll in a controlled manner the images under the subscription for available message fragments.\n Control is applied to fragments in the stream. If more fragments can be read on another stream\n they will even if BREAK or ABORT is returned from the fragment handler.\n <p>\n Each fragment read will be a whole message if it is under MTU length. If larger than MTU then it will come\n as a series of fragments ordered within a session.\n <p>\n To assemble messages that span multiple fragments then use aeron_controlled_fragment_assembler_t.\n\n @param subscription to poll.\n @param handler for handling each message fragment as it is read.\n @param fragment_limit number of message fragments to limit when polling across multiple images.\n @return the number of fragments received or -1 for error."]
-    #[link_name = "\u{1}_aeron_subscription_controlled_poll"]
     pub fn aeron_subscription_controlled_poll(
         subscription: *mut aeron_subscription_t,
         handler: aeron_controlled_fragment_handler_t,
@@ -2088,7 +2086,6 @@ unsafe extern "C-unwind" {
 }
 unsafe extern "C-unwind" {
     #[doc = " Poll the images under the subscription for available message fragments in blocks.\n <p>\n This method is useful for operations like bulk archiving and messaging indexing.\n\n @param subscription to poll.\n @param handler to receive a block of fragments from each image.\n @param block_length_limit for each image polled.\n @return the number of bytes consumed or -1 for error."]
-    #[link_name = "\u{1}_aeron_subscription_block_poll"]
     pub fn aeron_subscription_block_poll(
         subscription: *mut aeron_subscription_t,
         handler: aeron_block_handler_t,
@@ -2305,7 +2302,6 @@ unsafe extern "C" {
 }
 unsafe extern "C-unwind" {
     #[doc = " Poll for new messages in a stream. If new messages are found beyond the last consumed position then they\n will be delivered to the handler up to a limited number of fragments as specified.\n <p>\n Use a fragment assembler to assemble messages which span multiple fragments.\n\n @param image to poll.\n @param handler to which message fragments are delivered.\n @param clientd to pass to the handler.\n @param fragment_limit for the number of fragments to be consumed during one polling operation.\n @return the number of fragments that have been consumed or -1 for error."]
-    #[link_name = "\u{1}_aeron_image_poll"]
     pub fn aeron_image_poll(
         image: *mut aeron_image_t,
         handler: aeron_fragment_handler_t,
@@ -2315,7 +2311,6 @@ unsafe extern "C-unwind" {
 }
 unsafe extern "C-unwind" {
     #[doc = " Poll for new messages in a stream. If new messages are found beyond the last consumed position then they\n will be delivered to the handler up to a limited number of fragments as specified.\n <p>\n Use a controlled fragment assembler to assemble messages which span multiple fragments.\n\n @param image to poll.\n @param handler to which message fragments are delivered.\n @param clientd to pass to the handler.\n @param fragment_limit for the number of fragments to be consumed during one polling operation.\n @return the number of fragments that have been consumed or -1 for error."]
-    #[link_name = "\u{1}_aeron_image_controlled_poll"]
     pub fn aeron_image_controlled_poll(
         image: *mut aeron_image_t,
         handler: aeron_controlled_fragment_handler_t,
@@ -2325,7 +2320,6 @@ unsafe extern "C-unwind" {
 }
 unsafe extern "C-unwind" {
     #[doc = " Poll for new messages in a stream. If new messages are found beyond the last consumed position then they\n will be delivered to the handler up to a limited number of fragments as specified or the maximum position specified.\n <p>\n Use a fragment assembler to assemble messages which span multiple fragments.\n\n @param image to poll.\n @param handler to which message fragments are delivered.\n @param clientd to pass to the handler.\n @param limit_position to consume messages up to.\n @param fragment_limit for the number of fragments to be consumed during one polling operation.\n @return the number of fragments that have been consumed or -1 for error."]
-    #[link_name = "\u{1}_aeron_image_bounded_poll"]
     pub fn aeron_image_bounded_poll(
         image: *mut aeron_image_t,
         handler: aeron_fragment_handler_t,
@@ -2336,7 +2330,6 @@ unsafe extern "C-unwind" {
 }
 unsafe extern "C-unwind" {
     #[doc = " Poll for new messages in a stream. If new messages are found beyond the last consumed position then they\n will be delivered to the handler up to a limited number of fragments as specified or the maximum position specified.\n <p>\n Use a controlled fragment assembler to assemble messages which span multiple fragments.\n\n @param image to poll.\n @param handler to which message fragments are delivered.\n @param clientd to pass to the handler.\n @param limit_position to consume messages up to.\n @param fragment_limit for the number of fragments to be consumed during one polling operation.\n @return the number of fragments that have been consumed or -1 for error."]
-    #[link_name = "\u{1}_aeron_image_bounded_controlled_poll"]
     pub fn aeron_image_bounded_controlled_poll(
         image: *mut aeron_image_t,
         handler: aeron_controlled_fragment_handler_t,
@@ -2347,7 +2340,6 @@ unsafe extern "C-unwind" {
 }
 unsafe extern "C-unwind" {
     #[doc = " Poll for new messages in a stream. If new messages are found beyond the last consumed position then they\n will be delivered to the handler up to a limited number of bytes.\n <p>\n A scan will terminate if a padding frame is encountered. If first frame in a scan is padding then a block\n for the padding is notified. If the padding comes after the first frame in a scan then the scan terminates\n at the offset the padding frame begins. Padding frames are delivered singularly in a block.\n <p>\n Padding frames may be for a greater range than the limit offset but only the header needs to be valid so\n relevant length of the frame is data header length.\n\n @param image to poll.\n @param handler to which block is delivered.\n @param clientd to pass to the handler.\n @param block_length_limit up to which a block may be in length.\n @return the number of bytes that have been consumed or -1 for error."]
-    #[link_name = "\u{1}_aeron_image_block_poll"]
     pub fn aeron_image_block_poll(
         image: *mut aeron_image_t,
         handler: aeron_block_handler_t,

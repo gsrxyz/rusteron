@@ -433,7 +433,11 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
         .derive_eq(true)
         .derive_default(true)
         .derive_hash(true)
-        .derive_partialeq(true);
+        .derive_partialeq(true)
+        // Aeron is plain C, so there is no mangling to trust. Without this bindgen emits a
+        // macOS `#[link_name = "\u{1}_aeron_..."]` for every non-`C` ABI (the `C-unwind`
+        // overrides below), and the committed snapshots then fail to link on Linux
+        .trust_clang_mangling(false);
     if let Some(include) = config.extra_clang_include {
         // We need to include some of the headers from `aeron c client`, so update the include path here
         builder = builder.clang_arg(format!("-I{}", aeron_path.join(include).display()));
