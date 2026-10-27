@@ -1908,6 +1908,8 @@ mod tests {
         let mut expected_key = [0u8; AeronCountersReader::MAX_KEY_LENGTH];
         expected_key[..3].copy_from_slice(b"key");
         assert_eq!(reader.get_counter_key(counter_id)?, expected_key);
+        assert_eq!(reader.get_counter_key_str(counter_id)?, "key");
+        assert!(reader.get_counter_key_str(-1).is_err());
 
         // Keys are binary: zero bytes before non-zero ones must not cut the key short.
         let mut binary_key = Vec::from(0u64.to_le_bytes());
@@ -3958,7 +3960,8 @@ mod tests {
         let start = Instant::now();
         let mut leaked_counter = None;
         while start.elapsed() < Duration::from_secs(2) {
-            if let Some(counter) = counters.find_by_type_id(type_id, |key| key == key_buffer) {
+            // the reader passes the whole 112-byte key region, so match the prefix
+            if let Some(counter) = counters.find_by_type_id(type_id, |key| key.starts_with(&key_buffer)) {
                 leaked_counter = Some(counter);
                 break;
             }
@@ -4046,7 +4049,9 @@ mod tests {
 
             let counters = aeron.counters_reader();
             assert!(
-                counters.find_by_type_id(type_id, |key| key == key_buffer).is_none(),
+                counters
+                    .find_by_type_id(type_id, |key| key.starts_with(&key_buffer))
+                    .is_none(),
                 "explicit .cancel() should release the pending counter registration"
             );
         }

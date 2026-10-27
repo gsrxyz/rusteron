@@ -1518,14 +1518,13 @@ impl AeronCountersReader {
         }
     }
 
-    /// Length of every counter's key region: C's `AERON_COUNTER_MAX_KEY_LENGTH` (a `sizeof`,
-    /// which bindgen skips), Java's `CountersReader.MAX_KEY_LENGTH`.
+    /// Size of a counter key in bytes (112), same as Java's `CountersReader.MAX_KEY_LENGTH`
     pub const MAX_KEY_LENGTH: usize = unsafe { std::mem::zeroed::<aeron_counter_metadata_descriptor_t>() }.key.len();
 
-    /// Get the key for a counter: its whole key region, [`Self::MAX_KEY_LENGTH`] (112) bytes.
+    /// Get a counter's key: all [`Self::MAX_KEY_LENGTH`] bytes, zero padded
     ///
-    /// Keys are binary and their layout is type-specific (see `aeron_counters.h`), so zero bytes
-    /// can sit anywhere in one. Bytes past what the counter's type defines are zero.
+    /// This also succeeds for a freed counter. To check a counter is live, also check
+    /// [`Self::counter_state`] and [`Self::counter_type_id`]
     #[inline]
     pub fn get_counter_key(&self, counter_id: i32) -> Result<Vec<u8>, AeronCError> {
         let mut dst = Vec::with_capacity(Self::MAX_KEY_LENGTH);
@@ -1537,14 +1536,36 @@ impl AeronCountersReader {
     #[inline]
     pub fn get_counter_key_into(&self, counter_id: i32, dst: &mut Vec<u8>) -> Result<(), AeronCError> {
         dst.clear();
+        // SAFETY: copied out straight away
+        dst.extend_from_slice(unsafe { self.counter_key_bytes(counter_id)? });
+        Ok(())
+    }
+
+    /// Get a text key: the bytes up to the first zero, or all of them if there is none.
+    /// For keys set from a string, not binary keys like a recording id
+    pub fn get_counter_key_str(&self, counter_id: i32) -> Result<String, AeronCError> {
+        // SAFETY: copied into the returned `String` before returning
+        let key = unsafe { self.counter_key_bytes(counter_id)? };
+        let text = std::ffi::CStr::from_bytes_until_nul(key).map_or(key, std::ffi::CStr::to_bytes);
+        std::str::from_utf8(text)
+            .map(str::to_owned)
+            .map_err(|_| AeronCError::from_code(PARSE_CSTR_ERROR_CODE))
+    }
+
+    /// Borrow a counter's key in place, with no copy: all [`Self::MAX_KEY_LENGTH`] bytes
+    ///
+    /// # Safety
+    /// The slice points into driver memory. If the counter is freed while you hold it, the
+    /// driver can reuse the slot and change these bytes. Only use it while the counter stays
+    /// allocated, otherwise use [`Self::get_counter_key`]
+    pub unsafe fn counter_key_bytes(&self, counter_id: i32) -> Result<&[u8], AeronCError> {
         let mut key_ptr: *mut u8 = std::ptr::null_mut();
         unsafe {
             let result = bindings::aeron_counters_reader_metadata_key(self.get_inner(), counter_id, &mut key_ptr);
             if result < 0 || key_ptr.is_null() {
                 return Err(AeronCError::from_code(result));
             }
-            dst.extend_from_slice(std::slice::from_raw_parts(key_ptr, Self::MAX_KEY_LENGTH));
-            Ok(())
+            Ok(std::slice::from_raw_parts(key_ptr, Self::MAX_KEY_LENGTH))
         }
     }
 
