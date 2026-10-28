@@ -4,9 +4,9 @@ Main changes, newest first, grouped by published crate version. Release-only
 commits, build logs, and changes later reverted or superseded are omitted.
 Early history predating the available release tags is grouped separately.
 
-## Unreleased
+## 0.2.15
 
-- Updated Aeron to master at `8352de142d` (1.54.0-SNAPSHOT), including new errors, APIs, and regenerated bindings.
+- Updated Aeron to 1.54.0, including new errors, APIs, and regenerated bindings.
 - Included the upstream fix preventing tagged network subscriptions from reusing closed endpoints (`250f657364`).
 - Added archive-scoped recording-counter lookups and corrected source-identity buffer handling.
 - Updated driver affinity configuration and enabled destination removal by registration ID after the upstream fix.

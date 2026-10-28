@@ -10,7 +10,13 @@ use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::rc::Rc;
 use std::time::Instant;
 
-const TIMEOUT: Duration = Duration::from_secs(5);
+fn running_under_valgrind() -> bool {
+    std::env::var_os("RUSTERON_VALGRIND").is_some()
+}
+
+fn timeout() -> Duration {
+    Duration::from_secs(if running_under_valgrind() { 180 } else { 5 })
+}
 
 struct Ipc {
     // field order is drop order: client handles before the driver
@@ -23,6 +29,9 @@ struct Ipc {
 fn client(dir: &str) -> Aeron {
     let ctx = AeronContext::new().unwrap();
     ctx.set_dir(&dir.into_c_string()).unwrap();
+    if running_under_valgrind() {
+        ctx.set_driver_timeout_ms(180_000).unwrap();
+    }
     let aeron = Aeron::new(&ctx).unwrap();
     aeron.start().unwrap();
     aeron
@@ -30,12 +39,21 @@ fn client(dir: &str) -> Aeron {
 
 fn ipc(stream_id: i32) -> Ipc {
     rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
-    let driver = rusteron_media_driver::testing::EmbeddedDriver::launch().unwrap();
+    let driver = rusteron_media_driver::testing::EmbeddedDriver::launch_with(|ctx| {
+        if running_under_valgrind() {
+            ctx.set_client_liveness_timeout_ns(180_000_000_000)?;
+            ctx.set_image_liveness_timeout_ns(180_000_000_000)?;
+            ctx.set_publication_unblock_timeout_ns(185_000_000_000)?;
+            ctx.set_driver_timeout_ms(180_000)?;
+        }
+        Ok(())
+    })
+    .unwrap();
     let aeron = client(driver.dir());
     let subscription = aeron
-        .add_subscription(AERON_IPC_STREAM, stream_id, Handlers::NONE, Handlers::NONE, TIMEOUT)
+        .add_subscription(AERON_IPC_STREAM, stream_id, Handlers::NONE, Handlers::NONE, timeout())
         .unwrap();
-    let publication = aeron.add_publication(AERON_IPC_STREAM, stream_id, TIMEOUT).unwrap();
+    let publication = aeron.add_publication(AERON_IPC_STREAM, stream_id, timeout()).unwrap();
     wait(|| subscription.is_connected() && publication.is_connected());
     Ipc {
         publication,
@@ -45,10 +63,30 @@ fn ipc(stream_id: i32) -> Ipc {
     }
 }
 
+#[test]
+#[serial]
+fn ipc_timeouts_allow_instrumentation_overhead() {
+    let ipc = ipc(5030);
+    if running_under_valgrind() {
+        assert_eq!(timeout(), Duration::from_secs(180));
+        assert_eq!(ipc.driver.context().get_client_liveness_timeout_ns(), 180_000_000_000);
+        assert_eq!(ipc.driver.context().get_image_liveness_timeout_ns(), 180_000_000_000);
+        assert_eq!(
+            ipc.driver.context().get_publication_unblock_timeout_ns(),
+            185_000_000_000
+        );
+        assert_eq!(ipc.driver.context().get_driver_timeout_ms(), 180_000);
+    } else {
+        assert_eq!(timeout(), Duration::from_secs(5));
+        assert_eq!(ipc.driver.context().get_client_liveness_timeout_ns(), 10_000_000_000);
+    }
+}
+
 fn wait(mut done: impl FnMut() -> bool) {
     let start = Instant::now();
+    let timeout = timeout();
     while !done() {
-        assert!(start.elapsed() < TIMEOUT, "timed out");
+        assert!(start.elapsed() < timeout, "timed out");
         std::thread::sleep(Duration::from_millis(1));
     }
 }
@@ -68,11 +106,12 @@ fn value(buffer: &[u8]) -> u32 {
 /// not mistaken for the expected panic
 fn poll_until_panic(mut poll: impl FnMut()) -> Box<dyn Any + Send> {
     let start = Instant::now();
+    let timeout = timeout();
     loop {
         if let Err(payload) = catch_unwind(AssertUnwindSafe(&mut poll)) {
             return payload;
         }
-        assert!(start.elapsed() < TIMEOUT, "timed out waiting for the handler to panic");
+        assert!(start.elapsed() < timeout, "timed out waiting for the handler to panic");
         std::thread::sleep(Duration::from_millis(1));
     }
 }
@@ -272,11 +311,11 @@ fn only_the_panicking_image_redelivers() {
     let ipc = ipc(5006);
     let first_pub = ipc
         .aeron
-        .add_exclusive_publication(AERON_IPC_STREAM, 5006, TIMEOUT)
+        .add_exclusive_publication(AERON_IPC_STREAM, 5006, timeout())
         .unwrap();
     let second_pub = ipc
         .aeron
-        .add_exclusive_publication(AERON_IPC_STREAM, 5006, TIMEOUT)
+        .add_exclusive_publication(AERON_IPC_STREAM, 5006, timeout())
         .unwrap();
     wait(|| ipc.subscription.image_count().unwrap() >= 3);
     // the image a value came from is value / 100
@@ -444,9 +483,9 @@ fn panic_on_one_thread_does_not_affect_another() {
         std::thread::spawn(move || {
             let aeron = client(&dir);
             let subscription = aeron
-                .add_subscription(AERON_IPC_STREAM, stream_id, Handlers::NONE, Handlers::NONE, TIMEOUT)
+                .add_subscription(AERON_IPC_STREAM, stream_id, Handlers::NONE, Handlers::NONE, timeout())
                 .unwrap();
-            let publication = aeron.add_publication(AERON_IPC_STREAM, stream_id, TIMEOUT).unwrap();
+            let publication = aeron.add_publication(AERON_IPC_STREAM, stream_id, timeout()).unwrap();
             wait(|| subscription.is_connected());
             offer(&publication, 1..=100);
             if panic_first {
@@ -630,7 +669,7 @@ fn child_conductor_callback_panics() {
     });
     let subscription = ipc
         .aeron
-        .add_subscription(AERON_IPC_STREAM, 5023, Some(&on_available), Handlers::NONE, TIMEOUT)
+        .add_subscription(AERON_IPC_STREAM, 5023, Some(&on_available), Handlers::NONE, timeout())
         .unwrap();
     wait(|| FIRED.load(std::sync::atomic::Ordering::Acquire) && subscription.is_connected());
 
