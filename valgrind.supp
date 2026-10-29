@@ -856,3 +856,21 @@
    fun:start_thread
    fun:clone
 }
+
+# Aeron 1.54.0: driver conductor leaks the async UDP channel parse made when removing a
+# receive network destination (aeron_driver_conductor_on_remove_receive_network_destination).
+# Pure Aeron C bug, not a rusteron leak.
+{
+   aeron_driver_conductor_remove_receive_destination_parse_definite
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   fun:aeron_alloc
+   fun:aeron_udp_channel_do_initial_parse
+   fun:aeron_driver_conductor_on_remove_receive_network_destination
+   ...
+   fun:aeron_driver_main_do_work
+   ...
+   fun:start_thread
+   fun:clone
+}
