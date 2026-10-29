@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn string_into_keeps_only_valid_written_bytes() -> Result<(), Box<dyn error::Error>> {
-        let builder = AeronUriStringBuilder::new_zeroed_on_heap();
+        let builder = AeronUriStringBuilder::default();
         builder.init_new()?;
         let mut dst = String::with_capacity(64);
         // No media set, so sprint fails before writing anything.
@@ -4124,7 +4124,7 @@ mod tests {
 
     /// Builds a `control-mode=manual` (MDS/MDC) UDP channel string.
     fn manual_control_mode_channel() -> std::ffi::CString {
-        let builder = AeronUriStringBuilder::new_zeroed_on_heap();
+        let builder = AeronUriStringBuilder::default();
         builder.init_new().unwrap();
         builder
             .media(Media::Udp)

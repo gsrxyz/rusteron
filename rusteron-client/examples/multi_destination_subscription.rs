@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The MDS subscription: control-mode=manual means destinations are added explicitly.
     // Channels are built with the typed URI builder instead of format!-strings.
     let mds_channel = {
-        let builder = AeronUriStringBuilder::new_zeroed_on_heap();
+        let builder = AeronUriStringBuilder::default();
         builder.init_new()?;
         builder.media(Media::Udp)?.control_mode(ControlMode::Manual)?;
         builder.build(256)?

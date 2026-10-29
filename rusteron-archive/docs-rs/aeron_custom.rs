@@ -1020,7 +1020,7 @@ const PARSE_CSTR_ERROR_CODE: i32 = -132131;
 impl AeronUriStringBuilder {
     /// Fresh builder for an `aeron:ipc` channel.
     pub fn ipc() -> Result<Self, AeronCError> {
-        let builder = AeronUriStringBuilder::new_zeroed_on_heap();
+        let builder = AeronUriStringBuilder::default();
         builder.init_new()?;
         builder.media(Media::Ipc)?;
         Ok(builder)
@@ -1028,7 +1028,7 @@ impl AeronUriStringBuilder {
 
     /// Fresh builder for an `aeron:udp` channel with the given `endpoint` (`host:port`).
     pub fn udp(endpoint: &str) -> Result<Self, AeronCError> {
-        let builder = AeronUriStringBuilder::new_zeroed_on_heap();
+        let builder = AeronUriStringBuilder::default();
         builder.init_new()?;
         builder.media(Media::Udp)?.endpoint(endpoint)?;
         Ok(builder)
@@ -1038,7 +1038,7 @@ impl AeronUriStringBuilder {
     /// `control` endpoint and [`ControlMode`] (`Dynamic` for MDC publications,
     /// `Manual` for MDS subscriptions/publications, `Response` for response channels).
     pub fn udp_control(control: &str, mode: ControlMode) -> Result<Self, AeronCError> {
-        let builder = AeronUriStringBuilder::new_zeroed_on_heap();
+        let builder = AeronUriStringBuilder::default();
         builder.init_new()?;
         builder.media(Media::Udp)?.control(control)?.control_mode(mode)?;
         Ok(builder)
