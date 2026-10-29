@@ -19,6 +19,9 @@ if command -v cargo >/dev/null 2>&1; then
   export CARGO="$(command -v cargo)"
 fi
 export RUSTERON_VALGRIND=1
+for agent in CONDUCTOR SENDER RECEIVER SHAREDNETWORK SHARED; do
+  export "AERON_${agent}_IDLE_STRATEGY=yield"
+done
 unset CARGO_BUILD_TARGET || true
 unset CARGO_ENCODED_RUSTFLAGS || true
 export RUSTFLAGS="-C target-cpu=x86-64"
