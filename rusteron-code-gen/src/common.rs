@@ -13,6 +13,8 @@ use crate::AeronErrorType::Unknown;
 use std::backtrace::Backtrace;
 use std::cell::UnsafeCell;
 use std::fmt::Formatter;
+// unused here, but the generated code that includes this file uses it
+#[allow(unused_imports)]
 use std::mem::MaybeUninit;
 use std::ops::Deref;
 #[allow(unused_imports)]
@@ -49,20 +51,17 @@ pub enum CResource<T> {
 // `CResource<T>` deliberately does NOT implement `Send`/`Sync` here, not even
 // bounded on `T: Send`/`Sync`
 
-impl<T: Clone> Clone for CResource<T> {
+// No `T: Clone` bound: bindgen does not derive `Clone` for opaque (forward-declared) C structs
+// such as `aeron_t`, yet their handles must stay cloneable. Every `T` is a bindgen C struct,
+// and the non-opaque ones derive `Copy`, so a bitwise copy is what `clone` did before
+impl<T> Clone for CResource<T> {
     fn clone(&self) -> Self {
-        // SAFETY: each branch only dereferences pointers/references that are
-        // valid by construction. `OwnedOnStack` upholds the initialised-by-
-        // construction invariant documented on the variant, so `assume_init_ref`
-        // is sound.
-        unsafe {
-            match self {
-                CResource::OwnedOnHeap(r) => CResource::OwnedOnHeap(r.clone()),
-                CResource::OwnedOnStack(r) => {
-                    CResource::OwnedOnStack(MaybeUninit::new((*r.get()).assume_init_ref().clone()).into())
-                }
-                CResource::Borrowed(r) => CResource::Borrowed(r.clone()),
-            }
+        match self {
+            CResource::OwnedOnHeap(r) => CResource::OwnedOnHeap(r.clone()),
+            // SAFETY: reading a `MaybeUninit<T>` is always valid, and it never drops `T`, so the
+            // copy cannot cause a double drop
+            CResource::OwnedOnStack(r) => CResource::OwnedOnStack(unsafe { r.get().read() }.into()),
+            CResource::Borrowed(r) => CResource::Borrowed(*r),
         }
     }
 }

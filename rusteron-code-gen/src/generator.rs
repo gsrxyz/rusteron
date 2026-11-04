@@ -575,6 +575,9 @@ pub struct CWrapper {
     /// Method names manually implemented in aeron_custom.rs. The generator skips these
     /// to avoid duplicate definitions.
     pub skipped_methods: BTreeSet<String>,
+    /// The C struct is forward-declared only (bindgen's `_unused: [u8; 0]`), directly or via a
+    /// typedef. bindgen derives no `Copy`/`Clone` for it, and copying one by value copies nothing
+    pub opaque: bool,
 }
 
 /// Parse `aeron_custom.rs` source and return a map of `ClassName -> {method_names}`
@@ -3514,6 +3517,19 @@ pub fn generate_rust_code(
         )
     };
 
+    let copy_out_impl = if wrapper.opaque {
+        quote! {}
+    } else {
+        quote! {
+            impl From<#class_name> for #type_name {
+                #[inline]
+                fn from(value: #class_name) -> Self {
+                    unsafe { *value.get_inner().clone() }
+                }
+            }
+        }
+    };
+
     quote! {
         #warning_code
 
@@ -3591,12 +3607,7 @@ pub fn generate_rust_code(
             }
         }
 
-        impl From<#class_name> for #type_name {
-            #[inline]
-            fn from(value: #class_name) -> Self {
-                unsafe { *value.get_inner().clone() }
-            }
-        }
+        #copy_out_impl
 
         #(#additional_impls)*
 

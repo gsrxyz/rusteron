@@ -57,6 +57,18 @@ pub fn parse_bindings_with_custom(out: &PathBuf, extra_custom_code: &[&str]) -> 
         }
     }
 
+    // a typedef of an opaque struct under another name, e.g.
+    // `aeron_async_add_counter_t = aeron_client_registering_resource_stct`, is opaque too
+    for item in &items {
+        if let Item::Type(ty) = item
+            && let Some(target) = struct_typedef_target(&ty.ty)
+            && wrappers.get(&target).is_some_and(|w| w.opaque)
+            && let Some(w) = wrappers.get_mut(&ty.ident.to_string())
+        {
+            w.opaque = true;
+        }
+    }
+
     for item in &items {
         if let Item::ForeignMod(fm) = item {
             process_c_method(&mut wrappers, &mut methods, fm, &handler_names);
@@ -247,7 +259,7 @@ fn process_type(wrappers: &mut BTreeMap<String, CWrapper>, handlers: &mut Vec<CH
             if let Some(segment) = type_path.path.segments.last() {
                 if segment.ident.to_string() == "Option" {
                     if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
-                        if let Some(syn::GenericArgument::Type(syn::Type::BareFn(bare_fn))) = args.args.first() {
+                        if let Some(syn::GenericArgument::Type(syn::Type::FnPtr(bare_fn))) = args.args.first() {
                             let args: Vec<Arg> = bare_fn
                                 .inputs
                                 .iter()
@@ -316,13 +328,18 @@ fn is_client_data_arg(name: &str) -> bool {
 }
 
 fn is_struct_typedef(ty: &syn::Type) -> bool {
-    if let syn::Type::Path(type_path) = ty {
-        if let Some(segment) = type_path.path.segments.last() {
-            return segment.ident.to_string().ends_with("_stct");
-        }
-    }
+    struct_typedef_target(ty).is_some()
+}
 
-    false
+/// The wrapper type name (`_t`) of the struct a `type x_t = y_stct` typedef points at
+fn struct_typedef_target(ty: &syn::Type) -> Option<String> {
+    if let syn::Type::Path(type_path) = ty
+        && let Some(segment) = type_path.path.segments.last()
+    {
+        let ident = segment.ident.to_string();
+        return ident.strip_suffix("_stct").map(|base| format!("{base}_t"));
+    }
+    None
 }
 
 fn process_struct(wrappers: &mut BTreeMap<String, CWrapper>, s: &ItemStruct, handler_names: &BTreeSet<String>) {
@@ -357,6 +374,8 @@ fn process_struct(wrappers: &mut BTreeMap<String, CWrapper>, s: &ItemStruct, han
         ..Default::default()
     });
     w.docs.extend(docs);
+    // bindgen's marker for a forward-declared struct
+    w.opaque = fields.iter().any(|f| f.name == "_unused");
     w.fields = process_types(fields, Some(handler_names));
 }
 

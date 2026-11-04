@@ -4,6 +4,11 @@ Main changes, newest first, grouped by published crate version. Release-only
 commits, build logs, and changes later reverted or superseded are omitted.
 Early history predating the available release tags is grouped separately.
 
+## 0.2.18
+
+- Updated bindgen to 0.73, syn to 3 and proptest to 1.12. bindgen now mangles `C` and `C-unwind` functions alike, so the `trust_clang_mangling(false)` workaround is gone.
+- Breaking: forward-declared C structs (`aeron_stct`, `aeron_context_stct`, `aeron_publication_stct`, ...) no longer derive `Copy` or `Clone` (bindgen 0.73). Their wrappers stay `Clone`, but lose `From<Wrapper> for aeron_x_t`, which copied a zero-sized placeholder rather than the C struct. Use `get_inner()` for the pointer.
+
 ## 0.2.17
 
 - Breaking: callbacks receive wrapper arguments by reference (`&AeronHeader`, `&AeronImage`, `&AeronSubscription`, `&AeronArchiveRecordingDescriptor`, ...). C frees or reuses the struct when the callback returns, and the reference stops safe code keeping it past that point. Handler trait impls, `_fn` closures, fragment assemblers and `poll` handlers change from `header: AeronHeader` to `header: &AeronHeader` (#73).
