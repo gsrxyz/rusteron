@@ -314,7 +314,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err("no message received".into());
         }
         let fragments = subscription.poll_fn(
-            |msg: &[u8], header: AeronHeader| {
+            |msg: &[u8], header: &AeronHeader| {
                 println!("received {} bytes at position {}", msg.len(), header.position());
                 received = true;
             },

@@ -235,7 +235,7 @@ mod tests {
             live: usize,
         }
         impl AeronFragmentHandlerCallback for Tracker {
-            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: AeronHeader) {
+            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: &AeronHeader) {
                 if let Ok(s) = std::str::from_utf8(buffer) {
                     if s.starts_with("Historical-") {
                         self.historical += 1;
@@ -393,7 +393,7 @@ mod tests {
         }
 
         impl AeronFragmentHandlerCallback for RestartHandler {
-            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: AeronHeader) {
+            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: &AeronHeader) {
                 if let Ok(s) = std::str::from_utf8(buffer) {
                     if s.starts_with("BeforeRestart-") {
                         self.before_restart += 1;
@@ -520,7 +520,7 @@ mod tests {
         }
 
         impl AeronFragmentHandlerCallback for ThroughputHandler {
-            fn handle_aeron_fragment_handler(&mut self, _buffer: &[u8], _header: AeronHeader) {
+            fn handle_aeron_fragment_handler(&mut self, _buffer: &[u8], _header: &AeronHeader) {
                 self.count += 1;
             }
         }
@@ -636,7 +636,7 @@ mod tests {
         }
 
         impl AeronFragmentHandlerCallback for SizeVerificationHandler {
-            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: AeronHeader) {
+            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: &AeronHeader) {
                 self.received_sizes.push(buffer.len());
             }
         }
@@ -1182,7 +1182,7 @@ mod tests {
             received: Vec<u8>,
             count: usize,
         }
-        fn collect(c: &mut Collector, buf: &[u8], _hdr: AeronHeader) {
+        fn collect(c: &mut Collector, buf: &[u8], _hdr: &AeronHeader) {
             if c.count == 0 {
                 c.received = buf.to_vec();
             }
@@ -1277,7 +1277,7 @@ mod tests {
             received: Vec<u8>,
             count: usize,
         }
-        fn collect(c: &mut Collector, buf: &[u8], _hdr: AeronHeader) -> aeron_controlled_fragment_handler_action_t {
+        fn collect(c: &mut Collector, buf: &[u8], _hdr: &AeronHeader) -> aeron_controlled_fragment_handler_action_t {
             if c.count == 0 {
                 c.received = buf.to_vec();
             }

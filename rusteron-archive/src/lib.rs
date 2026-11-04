@@ -44,6 +44,35 @@ pub const PUBLICATION_ERROR: i64 = bindings::AERON_PUBLICATION_ERROR as i64;
 
 pub mod testing;
 
+/// A recording descriptor is borrowed from a C stack local that Aeron frees once the callback
+/// returns, so it cannot be kept, nor cloned and kept. Copying a field out is fine:
+///
+/// ```no_run
+/// # use rusteron_archive::*;
+/// # fn f(archive: &AeronArchive) -> Result<(), AeronArchiveError> {
+/// let (mut count, mut id) = (0, None);
+/// archive.list_recordings_fn(&mut count, 0, 10, |d| id = Some(d.recording_id))?;
+/// # Ok(()) }
+/// ```
+///
+/// ```compile_fail,E0521
+/// # use rusteron_archive::*;
+/// # fn f(archive: &AeronArchive) -> Result<(), AeronArchiveError> {
+/// let (mut count, mut kept) = (0, None);
+/// archive.list_recordings_fn(&mut count, 0, 10, |d| kept = Some(d))?;
+/// # Ok(()) }
+/// ```
+///
+/// ```compile_fail,E0521
+/// # use rusteron_archive::*;
+/// # fn f(archive: &AeronArchive) -> Result<(), AeronArchiveError> {
+/// let (mut count, mut kept) = (0, None);
+/// archive.list_recordings_fn(&mut count, 0, 10, |d| kept = Some(d.clone()))?;
+/// # Ok(()) }
+/// ```
+#[allow(dead_code)]
+mod callback_args_cannot_escape {}
+
 #[cfg(test)]
 pub mod persistent_subscription_integration;
 #[cfg(test)]
@@ -850,6 +879,17 @@ mod tests {
 
     use crate::testing::{EmbeddedArchiveMediaDriverProcess, valgrind_timeout};
 
+    // a pointer-free struct gets a safe `clone_struct` whose copy is independent of the source
+    #[test]
+    fn clone_struct_of_pointer_free_struct_is_independent() {
+        let signal = AeronArchiveRecordingSignal::default();
+        unsafe { signal.get_inner_mut().recording_id = 7 };
+        let copy = signal.clone_struct();
+        unsafe { signal.get_inner_mut().recording_id = 8 };
+        assert_eq!(copy.recording_id, 7);
+        assert_ne!(copy.get_inner(), signal.get_inner());
+    }
+
     #[test]
     fn archive_error_parse_extracts_error_code() {
         // exact shape emitted by aeron_archive_client.c
@@ -1636,7 +1676,7 @@ mod tests {
             context.set_aeron(&client)?;
             context.set_control_request_channel(&archive_context.get_control_request_channel().into_c_string())?;
             context.set_control_response_channel(&archive_context.get_control_response_channel().into_c_string())?;
-            context.set_recording_signal_consumer(Some(move |_signal: AeronArchiveRecordingSignal| {
+            context.set_recording_signal_consumer(Some(move |_signal: &AeronArchiveRecordingSignal| {
                 counted.fetch_add(1, Ordering::SeqCst);
             }))?;
             // the blocking connect drives the client's conductor itself
@@ -1780,7 +1820,7 @@ mod tests {
 
             let found = Rc::new(Cell::new(-1));
             let seen = Rc::clone(&found);
-            let consumer = Handler::new(move |d: AeronArchiveRecordingDescriptor| {
+            let consumer = Handler::new(move |d: &AeronArchiveRecordingDescriptor| {
                 if d.stream_id == STREAM_ID {
                     seen.set(d.recording_id);
                 }
@@ -1838,7 +1878,7 @@ mod tests {
 
             let found = Rc::new(Cell::new(-1));
             let seen = Rc::clone(&found);
-            let consumer = Handler::new(move |d: AeronArchiveRecordingSubscriptionDescriptor| {
+            let consumer = Handler::new(move |d: &AeronArchiveRecordingSubscriptionDescriptor| {
                 if d.stream_id == STREAM_ID {
                     seen.set(d.subscription_id());
                 }
@@ -2128,7 +2168,7 @@ mod tests {
                     i32::MAX,
                     channel,
                     stream_id,
-                    |d: AeronArchiveRecordingDescriptor| {
+                    |d: &AeronArchiveRecordingDescriptor| {
                         assert_eq!(d.stream_id, stream_id);
                         info!("found recording {:#?}", d);
                         info!(
@@ -2143,7 +2183,8 @@ mod tests {
                         }
 
                         // verify clone_struct works
-                        let copy = d.clone_struct();
+                        // SAFETY: `copy` is dropped within the callback and its strings are not read
+                        let copy = unsafe { d.clone_struct() };
                         assert_eq!(copy.deref(), d.deref());
                         assert_eq!(copy.recording_id, d.recording_id);
                         assert_eq!(copy.control_session_id, d.control_session_id);
@@ -2190,7 +2231,7 @@ mod tests {
                 }
 
                 impl AeronFragmentHandlerCallback for FragmentHandler {
-                    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: AeronHeader) {
+                    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: &AeronHeader) {
                         assert_eq!(buffer, "123456".as_bytes());
 
                         // Update count (using Cell for interior mutability)

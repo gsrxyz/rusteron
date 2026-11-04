@@ -76,7 +76,7 @@ Build tasks use [`just`](https://github.com/casey/just). Run `just` to list comm
 
 ### Cloneable Wrappers
 
-All wrapper types in **rusteron-archive** implement `Clone` and share the same underlying Aeron C resource. For shallow copies of raw structs, use `.clone_struct()`.
+Wrapper types in **rusteron-archive** implement `Clone` and share the same underlying Aeron C resource. The exceptions are structs Aeron only hands to callbacks, such as `AeronArchiveRecordingDescriptor`; see [Callback arguments are borrowed](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/README.md#callback-arguments-are-borrowed). For shallow copies of raw structs, use `.clone_struct()` (`unsafe` when the struct holds pointers such as strings).
 
 ### Mutable and Immutable APIs
 
@@ -99,7 +99,7 @@ For synchronous polling, pass a stack closure:
 archive_context.set_error_handler(Some(|code: i32, msg: &str| eprintln!("archive error {code}: {msg}")))?;
 
 // synchronous poll — note the fragment-limit argument
-subscription.poll_fn(|buf: &[u8], header: AeronHeader| println!("{} bytes", buf.len()), 10)?;
+subscription.poll_fn(|buf: &[u8], header: &AeronHeader| println!("{} bytes", buf.len()), 10)?;
 # Ok(()) }
 ```
 
@@ -258,7 +258,7 @@ If you prefer the shared assembler API (e.g. to reuse a collector across subscri
 # use rusteron_archive::*;
 # #[derive(Default)]
 # struct Collector { done: bool }
-# impl Collector { fn on_msg(&mut self, _msg: &[u8], _header: AeronHeader) { self.done = true; } }
+# impl Collector { fn on_msg(&mut self, _msg: &[u8], _header: &AeronHeader) { self.done = true; } }
 # fn snippet(ps: AeronArchivePersistentSubscription) -> Result<(), Box<dyn std::error::Error>> {
 let mut assembler = AeronFragmentClosureAssembler::new()?;
 let mut ctx = Collector::default();

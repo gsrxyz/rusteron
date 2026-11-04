@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // the image callback runs on the client conductor thread, so it only queues the new client
             let new_clients: Arc<Mutex<Vec<(i32, i64)>>> = Arc::default();
             let on_image_clients = new_clients.clone();
-            let image_handler = Handler::new(move |_subscription: AeronSubscription, image: AeronImage| {
+            let image_handler = Handler::new(move |_subscription: &AeronSubscription, image: &AeronImage| {
                 if let Ok(constants) = image.get_constants() {
                     on_image_clients
                         .lock()

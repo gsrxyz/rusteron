@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         received: u64,
     }
 
-    fn on_message(receiver: &mut Receiver, buf: &[u8], _header: AeronHeader) {
+    fn on_message(receiver: &mut Receiver, buf: &[u8], _header: &AeronHeader) {
         match buf[0] {
             TAG_HEADER => {
                 receiver.correlation_id = i64::from_le_bytes(buf[1..9].try_into().unwrap());

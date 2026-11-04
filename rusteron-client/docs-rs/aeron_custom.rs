@@ -1570,7 +1570,7 @@ impl Aeron {
 impl AeronFragmentHandlerCallback for AeronFragmentAssembler {
     const RESUMES_CAUGHT_PANIC: bool = true;
 
-    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: AeronHeader) -> () {
+    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader) -> () {
         unsafe {
             aeron_fragment_assembler_handler(
                 self.get_inner() as *mut _,
@@ -1588,7 +1588,7 @@ impl AeronControlledFragmentHandlerCallback for AeronControlledFragmentAssembler
     fn handle_aeron_controlled_fragment_handler(
         &mut self,
         buffer: &[u8],
-        header: AeronHeader,
+        header: &AeronHeader,
     ) -> aeron_controlled_fragment_handler_action_t {
         unsafe {
             aeron_controlled_fragment_assembler_handler(
@@ -1985,12 +1985,12 @@ impl<F: FnMut()> Drop for OnDrop<F> {
 }
 
 pub struct FnMutMessageHandler {
-    func: fn(*mut (), &[u8], AeronHeader),
+    func: fn(*mut (), &[u8], &AeronHeader),
     ctx: *mut (),
 }
 
 impl AeronFragmentHandlerCallback for FnMutMessageHandler {
-    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: AeronHeader) -> () {
+    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader) -> () {
         self.call(buffer, header);
     }
 }
@@ -2013,14 +2013,14 @@ impl FnMutMessageHandler {
     /// outlives every subsequent `call` (i.e. `ctx` is dropped only after this
     /// handler is retired or re-`set`). Calling `call` after `ctx` is dropped is
     /// use-after-free. `ctx` must also not be moved while borrowed.
-    pub fn set<T>(&mut self, ctx: &mut T, func: fn(&mut T, &[u8], AeronHeader)) -> &mut Self {
+    pub fn set<T>(&mut self, ctx: &mut T, func: fn(&mut T, &[u8], &AeronHeader)) -> &mut Self {
         self.func = Self::wrap::<T>(func);
         self.ctx = ctx as *mut T as *mut ();
         self
     }
 
     #[inline(always)]
-    pub fn call(&mut self, msg: &[u8], header: AeronHeader) {
+    pub fn call(&mut self, msg: &[u8], header: &AeronHeader) {
         (self.func)(self.ctx, msg, header);
     }
 
@@ -2036,12 +2036,12 @@ impl FnMutMessageHandler {
     }
 
     #[inline]
-    fn wrap<T>(f: fn(&mut T, &[u8], AeronHeader)) -> fn(*mut (), &[u8], AeronHeader) {
+    fn wrap<T>(f: fn(&mut T, &[u8], &AeronHeader)) -> fn(*mut (), &[u8], &AeronHeader) {
         // SAFETY: `fn(&mut T,…)` and `fn(*mut(),…)` have the same ABI/representation
         unsafe { std::mem::transmute(f) }
     }
 
-    fn noop(_: *mut (), _: &[u8], _: AeronHeader) {
+    fn noop(_: *mut (), _: &[u8], _: &AeronHeader) {
         // default no-op handler
     }
 }
@@ -2089,7 +2089,7 @@ impl AeronFragmentClosureAssembler {
         &mut self,
         pollable: &P,
         ctx: &mut T,
-        func: fn(&mut T, &[u8], AeronHeader),
+        func: fn(&mut T, &[u8], &AeronHeader),
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
         unsafe {
@@ -2103,7 +2103,7 @@ impl AeronFragmentClosureAssembler {
 }
 
 pub struct FnMutControlledMessageHandler {
-    func: fn(*mut (), &[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
+    func: fn(*mut (), &[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     ctx: *mut (),
 }
 
@@ -2127,7 +2127,7 @@ impl FnMutControlledMessageHandler {
     pub fn set<T>(
         &mut self,
         ctx: &mut T,
-        func: fn(&mut T, &[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
+        func: fn(&mut T, &[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     ) -> &mut Self {
         self.func = Self::wrap::<T>(func);
         self.ctx = ctx as *mut T as *mut ();
@@ -2135,7 +2135,7 @@ impl FnMutControlledMessageHandler {
     }
 
     #[inline(always)]
-    pub fn call(&mut self, msg: &[u8], header: AeronHeader) -> aeron_controlled_fragment_handler_action_t {
+    pub fn call(&mut self, msg: &[u8], header: &AeronHeader) -> aeron_controlled_fragment_handler_action_t {
         (self.func)(self.ctx, msg, header)
     }
 
@@ -2149,12 +2149,12 @@ impl FnMutControlledMessageHandler {
 
     #[inline]
     fn wrap<T>(
-        f: fn(&mut T, &[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
-    ) -> fn(*mut (), &[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t {
+        f: fn(&mut T, &[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t,
+    ) -> fn(*mut (), &[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t {
         unsafe { std::mem::transmute(f) }
     }
 
-    fn noop(_: *mut (), _: &[u8], _: AeronHeader) -> aeron_controlled_fragment_handler_action_t {
+    fn noop(_: *mut (), _: &[u8], _: &AeronHeader) -> aeron_controlled_fragment_handler_action_t {
         bindings::aeron_controlled_fragment_handler_action_en::AERON_ACTION_CONTINUE
     }
 }
@@ -2163,7 +2163,7 @@ impl AeronControlledFragmentHandlerCallback for FnMutControlledMessageHandler {
     fn handle_aeron_controlled_fragment_handler(
         &mut self,
         buffer: &[u8],
-        header: AeronHeader,
+        header: &AeronHeader,
     ) -> aeron_controlled_fragment_handler_action_t {
         self.call(buffer, header)
     }
@@ -2209,7 +2209,7 @@ impl AeronControlledFragmentClosureAssembler {
         &mut self,
         pollable: &P,
         ctx: &mut T,
-        func: fn(&mut T, &[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
+        func: fn(&mut T, &[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
         unsafe {

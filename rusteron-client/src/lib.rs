@@ -192,7 +192,7 @@ mod tests {
             }
         }
         impl AeronFragmentHandlerCallback for Delegate {
-            fn handle_aeron_fragment_handler(&mut self, _: &[u8], _: AeronHeader) {}
+            fn handle_aeron_fragment_handler(&mut self, _: &[u8], _: &AeronHeader) {}
         }
 
         let dropped = Arc::new(AtomicBool::new(false));
@@ -279,10 +279,10 @@ mod tests {
             }
         }
         impl AeronAvailableCounterCallback for Watched {
-            fn handle_aeron_on_available_counter(&mut self, _: AeronCountersReader, _: i64, _: i32) {}
+            fn handle_aeron_on_available_counter(&mut self, _: &AeronCountersReader, _: i64, _: i32) {}
         }
         impl AeronUnavailableCounterCallback for Watched {
-            fn handle_aeron_on_unavailable_counter(&mut self, _: AeronCountersReader, _: i64, _: i32) {}
+            fn handle_aeron_on_unavailable_counter(&mut self, _: &AeronCountersReader, _: i64, _: i32) {}
         }
 
         let media_driver_ctx = AeronDriverContext::new()?;
@@ -1462,7 +1462,7 @@ mod tests {
                 break Ok(());
             }
 
-            fn process_msg(ctx: &mut Context, buffer: &[u8], header: AeronHeader) {
+            fn process_msg(ctx: &mut Context, buffer: &[u8], header: &AeronHeader) {
                 ctx.count.fetch_add(1, Ordering::SeqCst);
 
                 let values = header.get_values().unwrap();
@@ -1624,7 +1624,7 @@ mod tests {
         }
 
         impl AeronFragmentHandlerCallback for FragmentHandler {
-            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: AeronHeader) {
+            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader) {
                 assert_eq!(STREAM_ID, header.get_values().unwrap().frame.stream_id);
                 let header = header.get_values().unwrap();
                 let frame = header.frame();
@@ -1710,7 +1710,7 @@ mod tests {
         impl AeronAvailableCounterCallback for AvailableCounterHandler {
             fn handle_aeron_on_available_counter(
                 &mut self,
-                counters_reader: AeronCountersReader,
+                counters_reader: &AeronCountersReader,
                 registration_id: i64,
                 counter_id: i32,
             ) -> () {
@@ -3254,7 +3254,7 @@ mod tests {
     }
 
     impl AeronAvailableImageCallback for CountingAvailableImageHandler {
-        fn handle_aeron_on_available_image(&mut self, _subscription: AeronSubscription, _image: AeronImage) {
+        fn handle_aeron_on_available_image(&mut self, _subscription: &AeronSubscription, _image: &AeronImage) {
             self.available.fetch_add(1, Ordering::SeqCst);
         }
     }
@@ -5072,7 +5072,7 @@ mod tests {
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
         let (aeron, driver, _error_handler) = setup_aeron_for_uaf_test();
 
-        let avail_handler = Handler::new(move |subscription: AeronSubscription, image: AeronImage| {
+        let avail_handler = Handler::new(move |subscription: &AeronSubscription, image: &AeronImage| {
             log::info!("Available image callback invoked");
         });
 
@@ -5122,7 +5122,7 @@ mod tests {
 
         const CYCLES: i32 = 5;
         for i in 0..CYCLES {
-            let handler = Handler::new(move |_subscription: AeronSubscription, _image: AeronImage| {});
+            let handler = Handler::new(move |_subscription: &AeronSubscription, _image: &AeronImage| {});
             let sub = aeron
                 .add_subscription(
                     AERON_IPC_STREAM,

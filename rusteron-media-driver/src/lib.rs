@@ -339,7 +339,7 @@ mod tests {
         impl AeronAvailableCounterCallback for Test {
             fn handle_aeron_on_available_counter(
                 &mut self,
-                counters_reader: AeronCountersReader,
+                counters_reader: &AeronCountersReader,
                 registration_id: i64,
                 counter_id: i32,
             ) -> () {

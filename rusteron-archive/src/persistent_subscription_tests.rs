@@ -187,7 +187,7 @@ mod tests {
         }
 
         impl AeronFragmentHandlerCallback for MessageHandler {
-            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: AeronHeader) {
+            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: &AeronHeader) {
                 self.count.set(self.count.get() + 1);
             }
         }
@@ -314,7 +314,7 @@ mod tests {
             live_count: usize,
         }
         impl AeronFragmentHandlerCallback for PhaseHandler {
-            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: AeronHeader) {
+            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: &AeronHeader) {
                 if let Ok(s) = std::str::from_utf8(buffer) {
                     if s.starts_with("Replay Message") {
                         self.replay_count += 1;
@@ -754,7 +754,7 @@ mod tests {
         }
 
         impl AeronFragmentHandlerCallback for VerificationHandler {
-            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: AeronHeader) {
+            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: &AeronHeader) {
                 if let Ok(s) = std::str::from_utf8(buffer) {
                     if let Some(colon_pos) = s.find(':') {
                         if let Ok(seq) = s[..colon_pos].parse::<u64>() {
@@ -1013,7 +1013,7 @@ mod tests {
             }
 
             impl AeronFragmentHandlerCallback for ConcurrentHandler {
-                fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: AeronHeader) {
+                fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: &AeronHeader) {
                     self.count.set(self.count.get() + 1);
                 }
             }

@@ -390,7 +390,7 @@ struct Recorder {
 }
 
 impl AeronFragmentHandlerCallback for Recorder {
-    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: AeronHeader) {
+    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: &AeronHeader) {
         let v = value(buffer);
         self.seen.push(v);
         if self.panic_on == Some(v) {
@@ -529,7 +529,7 @@ fn fragment_assembler_delegate_panic_resumes_from_poll() {
     let (seen, panic_on) = (Rc::default(), Rc::new(Cell::new(Some(2))));
     let mut delegate = recording_delegate(&seen, &panic_on);
     let (assembler, _delegate) =
-        Handler::with_fragment_assembler(move |buffer: &[u8], _: AeronHeader| delegate(buffer)).unwrap();
+        Handler::with_fragment_assembler(move |buffer: &[u8], _: &AeronHeader| delegate(buffer)).unwrap();
     offer(&ipc.publication, 1..=3);
 
     let payload = poll_until_panic(|| {
@@ -556,7 +556,7 @@ fn controlled_fragment_assembler_delegate_panic_redelivers() {
     let ipc = ipc(5024);
     let (seen, panic_on) = (Rc::default(), Rc::new(Cell::new(Some(2))));
     let mut delegate = recording_delegate(&seen, &panic_on);
-    let (assembler, _delegate) = Handler::with_controlled_fragment_assembler(move |buffer: &[u8], _: AeronHeader| {
+    let (assembler, _delegate) = Handler::with_controlled_fragment_assembler(move |buffer: &[u8], _: &AeronHeader| {
         delegate(buffer);
         aeron_controlled_fragment_handler_action_t::AERON_ACTION_CONTINUE
     })
@@ -663,7 +663,7 @@ fn conductor_callback_panic_with_broken_stderr_does_not_abort() {
 fn child_conductor_callback_panics() {
     static FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     let ipc = ipc(5023);
-    let on_available = Handler::new(|_: AeronSubscription, _: AeronImage| {
+    let on_available = Handler::new(|_: &AeronSubscription, _: &AeronImage| {
         FIRED.store(true, std::sync::atomic::Ordering::Release);
         boom()
     });

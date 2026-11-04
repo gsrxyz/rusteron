@@ -106,6 +106,16 @@ println!("{} errors", errors.load(Ordering::Relaxed));
 Registration methods that return a resource (e.g. `add_subscription` with image handlers) take
 `Option<&Handler<T>>` and clone it into the resource — same lifetime guarantee.
 
+### Callback arguments are borrowed
+
+Wrapper arguments (`&AeronHeader`, `&AeronImage`, `&AeronArchiveRecordingDescriptor`, ...) are
+borrowed for the call only: Aeron may free or reuse the struct once the callback returns, so the
+compiler stops you keeping them. Copy out the fields you need, e.g. `d.recording_id` or
+`d.original_channel().to_owned()`. Structs only ever handed to callbacks (header, recording
+descriptors and signal, publication error values) do not implement `Clone`; `clone_struct` copies
+the struct, and is `unsafe` when it has pointer fields such as strings, as those still point at
+the original memory.
+
 ### 2. Synchronous (`poll`, `controlled_poll`, log readers)
 
 Invoked only during the call, so they take a stack closure — zero allocation, may borrow
@@ -114,7 +124,7 @@ local state:
 ```rust,no_run
 # use rusteron_client::*;
 # fn snippet(subscription: &AeronSubscription) -> Result<(), AeronCError> {
-subscription.poll_fn(|buf: &[u8], header: AeronHeader| {
+subscription.poll_fn(|buf: &[u8], header: &AeronHeader| {
     println!("received {} bytes", buf.len());
 }, 10)?;
 # Ok(()) }
@@ -132,7 +142,7 @@ use rusteron_client::{AeronFragmentHandlerCallback, AeronHeader, Handler};
 
 struct OnMessage { bytes: u64 }
 impl AeronFragmentHandlerCallback for OnMessage {
-    fn handle_aeron_fragment_handler(&mut self, msg: &[u8], _header: AeronHeader) {
+    fn handle_aeron_fragment_handler(&mut self, msg: &[u8], _header: &AeronHeader) {
         self.bytes += msg.len() as u64; // msg is the whole reassembled message
     }
 }
@@ -154,7 +164,7 @@ the context):
 use rusteron_client::{AeronFragmentClosureAssembler, AeronHeader};
 
 struct Stats { bytes: u64 }
-fn on_msg(stats: &mut Stats, buf: &[u8], _hdr: AeronHeader) { stats.bytes += buf.len() as u64; }
+fn on_msg(stats: &mut Stats, buf: &[u8], _hdr: &AeronHeader) { stats.bytes += buf.len() as u64; }
 
 let mut assembler = AeronFragmentClosureAssembler::new()?;
 let mut stats = Stats { bytes: 0 };
@@ -225,7 +235,7 @@ loop {
 // The image can appear just after the offer succeeds, so poll until the message arrives.
 let mut received = false;
 while !received {
-    let fragments = subscription.poll_fn(|buf: &[u8], _hdr: AeronHeader| {
+    let fragments = subscription.poll_fn(|buf: &[u8], _hdr: &AeronHeader| {
         println!("got {} bytes", buf.len());
         received = true;
     }, 10)?;

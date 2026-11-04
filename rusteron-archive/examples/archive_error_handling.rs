@@ -72,7 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── 2. Recording signals: the archive announces recording lifecycle events ──
     struct SignalLogger(Arc<AtomicUsize>);
     impl AeronArchiveRecordingSignalConsumerFuncCallback for SignalLogger {
-        fn handle_aeron_archive_recording_signal_consumer_func(&mut self, signal: AeronArchiveRecordingSignal) {
+        fn handle_aeron_archive_recording_signal_consumer_func(&mut self, signal: &AeronArchiveRecordingSignal) {
             self.0.fetch_add(1, Ordering::SeqCst);
             println!("[recording signal] {:?}", signal.signal());
         }

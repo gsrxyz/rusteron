@@ -34,10 +34,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Image lifecycle handlers are per-subscription in the C API (unlike Java's
     // Context-level handlers). Each fires with the subscription + the new image.
-    let on_avail = Handler::new(|_sub: AeronSubscription, _image: AeronImage| {
+    let on_avail = Handler::new(|_sub: &AeronSubscription, _image: &AeronImage| {
         println!(">> available image");
     });
-    let on_unavail = Handler::new(|_sub: AeronSubscription, _image: AeronImage| {
+    let on_unavail = Handler::new(|_sub: &AeronSubscription, _image: &AeronImage| {
         println!("<< unavailable image");
     });
 

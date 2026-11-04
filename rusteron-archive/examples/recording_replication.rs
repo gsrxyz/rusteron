@@ -134,7 +134,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut found = None;
         dst.archive.list_recordings_fn(&mut count, 0, 100, |descriptor| {
             if descriptor.stop_position == stop_position {
-                found = Some(descriptor.clone_struct());
+                // SAFETY: only scalar fields of the copy are read after the callback returns
+                found = Some(unsafe { descriptor.clone_struct() });
             }
         })?;
         if let Some(descriptor) = found {

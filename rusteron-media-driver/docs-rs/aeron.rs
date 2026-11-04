@@ -199,15 +199,17 @@ impl Default for Addrinfo {
     }
 }
 impl Addrinfo {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -1999,15 +2001,17 @@ impl Default for AeronAgentRunner {
     }
 }
 impl AeronAgentRunner {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -2201,14 +2205,11 @@ impl Default for AeronArchiveRecordingPositionKeyLayout {
     }
 }
 impl AeronArchiveRecordingPositionKeyLayout {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -5038,14 +5039,11 @@ impl Default for AeronBroadcastDescriptor {
     }
 }
 impl AeronBroadcastDescriptor {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -5234,14 +5232,11 @@ impl Default for AeronBroadcastRecordDescriptor {
     }
 }
 impl AeronBroadcastRecordDescriptor {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -5501,15 +5496,17 @@ impl Default for AeronBroadcastTransmitter {
     }
 }
 impl AeronBroadcastTransmitter {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -5752,15 +5749,17 @@ impl Default for AeronBufferClaim {
     }
 }
 impl AeronBufferClaim {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -5947,14 +5946,11 @@ impl Default for AeronChannelEndpointStatusKeyLayout {
     }
 }
 impl AeronChannelEndpointStatusKeyLayout {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -6325,14 +6321,11 @@ impl Default for AeronClient {
     }
 }
 impl AeronClient {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -6515,14 +6508,11 @@ impl Default for AeronClientTimeout {
     }
 }
 impl AeronClientTimeout {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -7020,14 +7010,11 @@ impl Default for AeronCncConstants {
     }
 }
 impl AeronCncConstants {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -7296,14 +7283,11 @@ impl Default for AeronCncMetadata {
     }
 }
 impl AeronCncMetadata {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -9632,14 +9616,11 @@ impl Default for AeronCorrelatedCommand {
     }
 }
 impl AeronCorrelatedCommand {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -9828,14 +9809,11 @@ impl Default for AeronCounterCommand {
     }
 }
 impl AeronCounterCommand {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -10031,14 +10009,11 @@ impl Default for AeronCounterConstants {
     }
 }
 impl AeronCounterConstants {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -10227,14 +10202,11 @@ impl Default for AeronCounterLink {
     }
 }
 impl AeronCounterLink {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -10455,14 +10427,11 @@ impl Default for AeronCounterMetadataDescriptor {
     }
 }
 impl AeronCounterMetadataDescriptor {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -10888,14 +10857,11 @@ impl Default for AeronCounterUpdate {
     }
 }
 impl AeronCounterUpdate {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -11107,14 +11073,11 @@ impl Default for AeronCounterValueDescriptor {
     }
 }
 impl AeronCounterValueDescriptor {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -11711,15 +11674,17 @@ impl Default for AeronCountersManager {
     }
 }
 impl AeronCountersManager {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -11923,15 +11888,17 @@ impl Default for AeronCountersReaderBuffers {
     }
 }
 impl AeronCountersReaderBuffers {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -12762,14 +12729,11 @@ impl Default for AeronDataHeaderAsLongs {
     }
 }
 impl AeronDataHeaderAsLongs {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -12989,14 +12953,11 @@ impl Default for AeronDataHeader {
     }
 }
 impl AeronDataHeader {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -13202,14 +13163,11 @@ impl Default for AeronDataPacketDispatcherStreamInterest {
     }
 }
 impl AeronDataPacketDispatcherStreamInterest {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -13866,15 +13824,17 @@ impl Default for AeronDataPacketDispatcher {
     }
 }
 impl AeronDataPacketDispatcher {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -14156,15 +14116,17 @@ impl Default for AeronDeque {
     }
 }
 impl AeronDeque {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -14365,14 +14327,11 @@ impl Default for AeronDestinationByIdCommand {
     }
 }
 impl AeronDestinationByIdCommand {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -14571,14 +14530,11 @@ impl Default for AeronDestinationCommand {
     }
 }
 impl AeronDestinationCommand {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -14767,15 +14723,17 @@ impl Default for AeronDistinctErrorLogObservationList {
     }
 }
 impl AeronDistinctErrorLogObservationList {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -15054,15 +15012,17 @@ impl Default for AeronDistinctErrorLog {
     }
 }
 impl AeronDistinctErrorLog {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -15271,15 +15231,17 @@ impl Default for AeronDistinctObservation {
     }
 }
 impl AeronDistinctObservation {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -15635,15 +15597,17 @@ impl Default for AeronDriverConductorClientCommand {
     }
 }
 impl AeronDriverConductorClientCommand {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -15856,14 +15820,11 @@ impl Default for AeronDriverConductorDriverCommand {
     }
 }
 impl AeronDriverConductorDriverCommand {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -16382,15 +16343,17 @@ impl Default for AeronDriverConductorProxy {
     }
 }
 impl AeronDriverConductorProxy {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -18639,15 +18602,17 @@ impl Default for AeronDriverConductor {
     }
 }
 impl AeronDriverConductor {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -18838,15 +18803,17 @@ impl Default for AeronDriverContextBindingsClientdEntry {
     }
 }
 impl AeronDriverContextBindingsClientdEntry {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -25586,15 +25553,17 @@ impl Default for AeronDriverManagedResource {
     }
 }
 impl AeronDriverManagedResource {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -25783,14 +25752,11 @@ impl Default for AeronDriverNativeResourceAgentCommandResult {
     }
 }
 impl AeronDriverNativeResourceAgentCommandResult {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -25998,15 +25964,17 @@ impl Default for AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
     }
 }
 impl AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -26233,15 +26201,17 @@ impl Default for AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
     }
 }
 impl AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -26446,15 +26416,17 @@ impl Default for AeronDriverNativeResourceAgentProxyCmdParseChannel {
     }
 }
 impl AeronDriverNativeResourceAgentProxyCmdParseChannel {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -26659,15 +26631,17 @@ impl Default for AeronDriverNativeResourceAgentProxyCmdResolveAddress {
     }
 }
 impl AeronDriverNativeResourceAgentProxyCmdResolveAddress {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -27010,15 +26984,17 @@ impl Default for AeronDriverNativeResourceAgentProxy {
     }
 }
 impl AeronDriverNativeResourceAgentProxy {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -27422,15 +27398,17 @@ impl Default for AeronDriverNativeResourceAgent {
     }
 }
 impl AeronDriverNativeResourceAgent {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -27610,15 +27588,17 @@ impl Default for AeronDriverReceiverImageEntry {
     }
 }
 impl AeronDriverReceiverImageEntry {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -27844,15 +27824,17 @@ impl Default for AeronDriverReceiverPendingSetupEntry {
     }
 }
 impl AeronDriverReceiverPendingSetupEntry {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -29128,15 +29110,17 @@ impl Default for AeronDriverReceiver {
     }
 }
 impl AeronDriverReceiver {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -29318,15 +29302,17 @@ impl Default for AeronDriverSenderNetworkPublicationEntry {
     }
 }
 impl AeronDriverSenderNetworkPublicationEntry {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -29722,15 +29708,17 @@ impl Default for AeronDriverSenderProxy {
     }
 }
 impl AeronDriverSenderProxy {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -30434,15 +30422,17 @@ impl Default for AeronDriverSender {
     }
 }
 impl AeronDriverSender {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -31121,14 +31111,11 @@ impl Default for AeronDriverUriPublicationParams {
     }
 }
 impl AeronDriverUriPublicationParams {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -31398,14 +31385,11 @@ impl Default for AeronDriverUriSubscriptionParams {
     }
 }
 impl AeronDriverUriSubscriptionParams {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -31627,15 +31611,17 @@ impl Default for AeronDutyCycleStallTracker {
     }
 }
 impl AeronDutyCycleStallTracker {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -31850,15 +31836,17 @@ impl Default for AeronDutyCycleTracker {
     }
 }
 impl AeronDutyCycleTracker {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -32047,15 +32035,17 @@ impl Default for AeronEndOfLifeResource {
     }
 }
 impl AeronEndOfLifeResource {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -32281,14 +32271,11 @@ impl Default for AeronErrorHeader {
     }
 }
 impl AeronErrorHeader {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -32500,14 +32487,11 @@ impl Default for AeronErrorLogEntry {
     }
 }
 impl AeronErrorLogEntry {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -32709,14 +32693,11 @@ impl Default for AeronErrorResponse {
     }
 }
 impl AeronErrorResponse {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -33548,14 +33529,11 @@ impl Default for AeronFeedbackDelayGeneratorState {
     }
 }
 impl AeronFeedbackDelayGeneratorState {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -33741,14 +33719,11 @@ impl Default for AeronFlowControlMaxOptions {
     }
 }
 impl AeronFlowControlMaxOptions {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -33953,15 +33928,17 @@ impl Default for AeronFlowControlStrategySupplierFuncTableEntry {
     }
 }
 impl AeronFlowControlStrategySupplierFuncTableEntry {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -34449,15 +34426,17 @@ impl Default for AeronFlowControlTaggedOptions {
     }
 }
 impl AeronFlowControlTaggedOptions {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -34872,14 +34851,11 @@ impl Default for AeronFrameHeader {
     }
 }
 impl AeronFrameHeader {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -35068,14 +35044,11 @@ impl Default for AeronGetNextAvailableSessionIdCommand {
     }
 }
 impl AeronGetNextAvailableSessionIdCommand {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -35105,9 +35078,24 @@ mod aeron_get_next_available_session_id_command_t_allocation_tests {
         });
     }
 }
-#[derive(Clone)]
 pub struct AeronHeader {
     inner: CResource<aeron_header_t>,
+}
+impl AeronHeader {
+    #[doc = r" The old `Clone`: shares the underlying struct rather than copying it. If owned"]
+    #[doc = r" on heap this bumps the reference count; if borrowed, e.g. a callback argument,"]
+    #[doc = r" it copies the pointer."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" A callback argument is borrowed from memory Aeron frees or reuses when the"]
+    #[doc = r" callback returns, so the returned handle must not be used after that. Use"]
+    #[doc = r" `clone_struct` or copy the fields you need instead. For an owned value both"]
+    #[doc = r" handles share one struct, so writes through either are seen by both"]
+    pub unsafe fn clone_reference(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
 }
 impl core::fmt::Debug for AeronHeader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -35555,14 +35543,11 @@ impl Default for AeronHeaderValuesFrame {
     }
 }
 impl AeronHeaderValuesFrame {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -35761,14 +35746,11 @@ impl Default for AeronHeaderValues {
     }
 }
 impl AeronHeaderValues {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -35951,14 +35933,11 @@ impl Default for AeronHeartbeatTimestampKeyLayout {
     }
 }
 impl AeronHeartbeatTimestampKeyLayout {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -36399,14 +36378,11 @@ impl Default for AeronImageBuffersReady {
     }
 }
 impl AeronImageBuffersReady {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -36659,15 +36635,17 @@ impl Default for AeronImageConstants {
     }
 }
 impl AeronImageConstants {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -37296,14 +37274,11 @@ impl Default for AeronImageMessage {
     }
 }
 impl AeronImageMessage {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -37618,7 +37593,7 @@ impl AeronImage {
     #[doc = r""]
     #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
     #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
-    pub fn poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
+    pub fn poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader) -> ()>(
         &self,
         mut handler: AeronFragmentHandlerHandlerImpl,
         fragment_limit: usize,
@@ -37728,7 +37703,7 @@ impl AeronImage {
     #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
     #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn controlled_poll_fn<
-        AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
+        AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
         &self,
         mut handler: AeronControlledFragmentHandlerHandlerImpl,
@@ -37843,7 +37818,7 @@ impl AeronImage {
     #[doc = r""]
     #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
     #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
-    pub fn bounded_poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
+    pub fn bounded_poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader) -> ()>(
         &self,
         mut handler: AeronFragmentHandlerHandlerImpl,
         limit_position: i64,
@@ -37963,7 +37938,7 @@ impl AeronImage {
     #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
     #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn bounded_controlled_poll_fn<
-        AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
+        AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
         &self,
         mut handler: AeronControlledFragmentHandlerHandlerImpl,
@@ -38426,15 +38401,17 @@ impl Default for AeronInt64CounterMap {
     }
 }
 impl AeronInt64CounterMap {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -38651,15 +38628,17 @@ impl Default for AeronInt64ToPtrHashMap {
     }
 }
 impl AeronInt64ToPtrHashMap {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -38852,15 +38831,17 @@ impl Default for AeronInt64ToTaggedPtrEntry {
     }
 }
 impl AeronInt64ToTaggedPtrEntry {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -39078,15 +39059,17 @@ impl Default for AeronInt64ToTaggedPtrHashMap {
     }
 }
 impl AeronInt64ToTaggedPtrHashMap {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -39271,15 +39254,17 @@ impl Default for AeronIovec {
     }
 }
 impl AeronIovec {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -39496,15 +39481,17 @@ impl Default for AeronIpcChannelParams {
     }
 }
 impl AeronIpcChannelParams {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -39706,15 +39693,17 @@ impl Default for AeronIpcPublicationEntry {
     }
 }
 impl AeronIpcPublicationEntry {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -40317,15 +40306,17 @@ impl Default for AeronLingerResourceEntry {
     }
 }
 impl AeronLingerResourceEntry {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -40522,14 +40513,11 @@ impl Default for AeronLocalSockaddrKeyLayout {
     }
 }
 impl AeronLocalSockaddrKeyLayout {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -41132,14 +41120,11 @@ impl Default for AeronLogbufferMetadata {
     }
 }
 impl AeronLogbufferMetadata {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -41334,14 +41319,11 @@ impl Default for AeronLossDetectorGap {
     }
 }
 impl AeronLossDetectorGap {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -41725,15 +41707,17 @@ impl Default for AeronLossDetector {
     }
 }
 impl AeronLossDetector {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -41934,15 +41918,17 @@ impl Default for AeronLossGenerator {
     }
 }
 impl AeronLossGenerator {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -42167,14 +42153,11 @@ impl Default for AeronLossReporterEntry {
     }
 }
 impl AeronLossReporterEntry {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -42580,15 +42563,17 @@ impl Default for AeronLossReporter {
     }
 }
 impl AeronLossReporter {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -42781,15 +42766,17 @@ impl Default for AeronMappedBuffer {
     }
 }
 impl AeronMappedBuffer {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -43098,15 +43085,17 @@ impl Default for AeronMappedFile {
     }
 }
 impl AeronMappedFile {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -43391,14 +43380,11 @@ impl Default for AeronMappedRawLog {
     }
 }
 impl AeronMappedRawLog {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -43942,15 +43928,17 @@ impl Default for AeronMpscRb {
     }
 }
 impl AeronMpscRb {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -44169,14 +44157,11 @@ impl Default for AeronNakHeader {
     }
 }
 impl AeronNakHeader {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -44364,14 +44349,11 @@ impl Default for AeronNamedInterface {
     }
 }
 impl AeronNamedInterface {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -44574,15 +44556,17 @@ impl Default for AeronNetworkPublicationEntry {
     }
 }
 impl AeronNetworkPublicationEntry {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -45567,14 +45551,11 @@ impl Default for AeronNextAvailableSessionIdResponse {
     }
 }
 impl AeronNextAvailableSessionIdResponse {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -45775,15 +45756,17 @@ impl Default for AeronAvailableCounterPair {
     }
 }
 impl AeronAvailableCounterPair {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -45983,15 +45966,17 @@ impl Default for AeronCloseClientPair {
     }
 }
 impl AeronCloseClientPair {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -46191,15 +46176,17 @@ impl Default for AeronUnavailableCounterPair {
     }
 }
 impl AeronUnavailableCounterPair {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -46381,14 +46368,11 @@ impl Default for AeronOperationSucceeded {
     }
 }
 impl AeronOperationSucceeded {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -46577,14 +46561,11 @@ impl Default for AeronOptionHeader {
     }
 }
 impl AeronOptionHeader {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -46781,14 +46762,11 @@ impl Default for AeronParsedAddress {
     }
 }
 impl AeronParsedAddress {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -46991,14 +46969,11 @@ impl Default for AeronParsedInterface {
     }
 }
 impl AeronParsedInterface {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -47196,14 +47171,11 @@ impl Default for AeronPerThreadError {
     }
 }
 impl AeronPerThreadError {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -47418,15 +47390,17 @@ impl Default for AeronPortManager {
     }
 }
 impl AeronPortManager {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -47613,15 +47587,17 @@ impl Default for AeronPosition {
     }
 }
 impl AeronPosition {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -47850,14 +47826,11 @@ impl Default for AeronPublicationBuffersReady {
     }
 }
 impl AeronPublicationBuffersReady {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -48052,14 +48025,11 @@ impl Default for AeronPublicationCommand {
     }
 }
 impl AeronPublicationCommand {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -48339,15 +48309,17 @@ impl Default for AeronPublicationConstants {
     }
 }
 impl AeronPublicationConstants {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -48609,14 +48581,11 @@ impl Default for AeronPublicationError {
     }
 }
 impl AeronPublicationError {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -48646,9 +48615,24 @@ mod aeron_publication_error_t_allocation_tests {
         });
     }
 }
-#[derive(Clone)]
 pub struct AeronPublicationErrorValues {
     inner: CResource<aeron_publication_error_values_t>,
+}
+impl AeronPublicationErrorValues {
+    #[doc = r" The old `Clone`: shares the underlying struct rather than copying it. If owned"]
+    #[doc = r" on heap this bumps the reference count; if borrowed, e.g. a callback argument,"]
+    #[doc = r" it copies the pointer."]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" A callback argument is borrowed from memory Aeron frees or reuses when the"]
+    #[doc = r" callback returns, so the returned handle must not be used after that. Use"]
+    #[doc = r" `clone_struct` or copy the fields you need instead. For an owned value both"]
+    #[doc = r" handles share one struct, so writes through either are seen by both"]
+    pub unsafe fn clone_reference(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
 }
 impl core::fmt::Debug for AeronPublicationErrorValues {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -49059,15 +49043,17 @@ impl Default for AeronPublicationImageConnection {
     }
 }
 impl AeronPublicationImageConnection {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -49269,15 +49255,17 @@ impl Default for AeronPublicationImageEntry {
     }
 }
 impl AeronPublicationImageEntry {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -50266,15 +50254,17 @@ impl Default for AeronPublicationLink {
     }
 }
 impl AeronPublicationLink {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -51028,14 +51018,11 @@ impl Default for AeronRbDescriptor {
     }
 }
 impl AeronRbDescriptor {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -51224,14 +51211,11 @@ impl Default for AeronRbRecordDescriptor {
     }
 }
 impl AeronRbRecordDescriptor {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -51414,15 +51398,17 @@ impl Default for AeronReceiveChannelEndpointEntry {
     }
 }
 impl AeronReceiveChannelEndpointEntry {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -52791,15 +52777,17 @@ impl Default for AeronReceiveDestinationEntry {
     }
 }
 impl AeronReceiveDestinationEntry {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -53201,14 +53189,11 @@ impl Default for AeronRejectImageCommand {
     }
 }
 impl AeronRejectImageCommand {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -53397,14 +53382,11 @@ impl Default for AeronRemoveCounterCommand {
     }
 }
 impl AeronRemoveCounterCommand {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -53599,14 +53581,11 @@ impl Default for AeronRemovePublicationCommand {
     }
 }
 impl AeronRemovePublicationCommand {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -53795,14 +53774,11 @@ impl Default for AeronRemoveSubscriptionCommand {
     }
 }
 impl AeronRemoveSubscriptionCommand {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -54015,14 +53991,11 @@ impl Default for AeronResolutionHeaderIpv4 {
     }
 }
 impl AeronResolutionHeaderIpv4 {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -54235,14 +54208,11 @@ impl Default for AeronResolutionHeaderIpv6 {
     }
 }
 impl AeronResolutionHeaderIpv6 {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -54441,14 +54411,11 @@ impl Default for AeronResolutionHeader {
     }
 }
 impl AeronResolutionHeader {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -54654,14 +54621,11 @@ impl Default for AeronResponseSetupHeader {
     }
 }
 impl AeronResponseSetupHeader {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -54873,14 +54837,11 @@ impl Default for AeronRetransmitAction {
     }
 }
 impl AeronRetransmitAction {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -55290,15 +55251,17 @@ impl Default for AeronRetransmitHandler {
     }
 }
 impl AeronRetransmitHandler {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -55517,14 +55480,11 @@ impl Default for AeronRttmHeader {
     }
 }
 impl AeronRttmHeader {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -55707,15 +55667,17 @@ impl Default for AeronSendChannelEndpointEntry {
     }
 }
 impl AeronSendChannelEndpointEntry {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -56400,14 +56362,11 @@ impl Default for AeronSetupHeader {
     }
 }
 impl AeronSetupHeader {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -56658,15 +56617,17 @@ impl Default for AeronSpscConcurrentArrayQueue {
     }
 }
 impl AeronSpscConcurrentArrayQueue {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -57179,15 +57140,17 @@ impl Default for AeronSpscRb {
     }
 }
 impl AeronSpscRb {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -57381,14 +57344,11 @@ impl Default for AeronStaticCounterCommand {
     }
 }
 impl AeronStaticCounterCommand {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -57577,14 +57537,11 @@ impl Default for AeronStaticCounterResponse {
     }
 }
 impl AeronStaticCounterResponse {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -57835,14 +57792,11 @@ impl Default for AeronStatusMessageHeader {
     }
 }
 impl AeronStatusMessageHeader {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -58025,14 +57979,11 @@ impl Default for AeronStatusMessageOptionalHeader {
     }
 }
 impl AeronStatusMessageOptionalHeader {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -58231,15 +58182,17 @@ impl Default for AeronStrToPtrHashMapKey {
     }
 }
 impl AeronStrToPtrHashMapKey {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -58457,15 +58410,17 @@ impl Default for AeronStrToPtrHashMap {
     }
 }
 impl AeronStrToPtrHashMap {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -58676,14 +58631,11 @@ impl Default for AeronStreamPositionCounterKeyLayout {
     }
 }
 impl AeronStreamPositionCounterKeyLayout {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -58872,15 +58824,17 @@ impl Default for AeronSubscribableListEntry {
     }
 }
 impl AeronSubscribableListEntry {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -59217,15 +59171,17 @@ impl Default for AeronSubscribable {
     }
 }
 impl AeronSubscribable {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -59433,14 +59389,11 @@ impl Default for AeronSubscriptionCommand {
     }
 }
 impl AeronSubscriptionCommand {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -59665,15 +59618,17 @@ impl Default for AeronSubscriptionConstants {
     }
 }
 impl AeronSubscriptionConstants {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -59991,15 +59946,17 @@ impl Default for AeronSubscriptionLink {
     }
 }
 impl AeronSubscriptionLink {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -60190,14 +60147,11 @@ impl Default for AeronSubscriptionReady {
     }
 }
 impl AeronSubscriptionReady {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -60358,7 +60312,7 @@ impl AeronSubscription {
     #[doc = r""]
     #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
     #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
-    pub fn poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> ()>(
+    pub fn poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader) -> ()>(
         &self,
         mut handler: AeronFragmentHandlerHandlerImpl,
         fragment_limit: usize,
@@ -60474,7 +60428,7 @@ impl AeronSubscription {
     #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
     #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn controlled_poll_fn<
-        AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
+        AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t,
     >(
         &self,
         mut handler: AeronControlledFragmentHandlerHandlerImpl,
@@ -61240,15 +61194,17 @@ impl Default for AeronSystemCounter {
     }
 }
 impl AeronSystemCounter {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -61453,15 +61409,17 @@ impl Default for AeronSystemCounters {
     }
 }
 impl AeronSystemCounters {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -65044,14 +65002,11 @@ impl Default for AeronTerminateDriverCommand {
     }
 }
 impl AeronTerminateDriverCommand {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -65279,15 +65234,17 @@ impl Default for AeronTetherablePosition {
     }
 }
 impl AeronTetherablePosition {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -65475,15 +65432,17 @@ impl Default for AeronUdpChannelAsyncParse {
     }
 }
 impl AeronUdpChannelAsyncParse {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -65934,15 +65893,17 @@ impl Default for AeronUdpChannelDataPaths {
     }
 }
 impl AeronUdpChannelDataPaths {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -66164,15 +66125,17 @@ impl Default for AeronUdpChannelIncomingInterceptor {
     }
 }
 impl AeronUdpChannelIncomingInterceptor {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -66455,14 +66418,11 @@ impl Default for AeronUdpChannelInterceptorBindings {
     }
 }
 impl AeronUdpChannelInterceptorBindings {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -66685,15 +66645,17 @@ impl Default for AeronUdpChannelOutgoingInterceptor {
     }
 }
 impl AeronUdpChannelOutgoingInterceptor {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -66954,15 +66916,17 @@ impl Default for AeronUdpChannelParams {
     }
 }
 impl AeronUdpChannelParams {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -67525,15 +67489,17 @@ impl Default for AeronUdpDestinationEntry {
     }
 }
 impl AeronUdpDestinationEntry {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -68111,15 +68077,17 @@ impl Default for AeronUriParam {
     }
 }
 impl AeronUriParam {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -68511,15 +68479,17 @@ impl Default for AeronUriParams {
     }
 }
 impl AeronUriParams {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -69312,14 +69282,11 @@ impl Default for AeronUri {
     }
 }
 impl AeronUri {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -69658,14 +69625,11 @@ impl Default for AeronWildcardPortManager {
     }
 }
 impl AeronWildcardPortManager {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -70193,14 +70157,11 @@ impl Default for InAddr {
     }
 }
 impl InAddr {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -70380,15 +70341,17 @@ impl Default for Iovec {
     }
 }
 impl Iovec {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -70567,14 +70530,11 @@ impl Default for Mmsghdr {
     }
 }
 impl Mmsghdr {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -70789,15 +70749,17 @@ impl Default for Msghdr {
     }
 }
 impl Msghdr {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
     #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
-    pub fn clone_struct(&self) -> Self {
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
+    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
+    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
+    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
         copy
@@ -71013,14 +70975,11 @@ impl Default for Pollfd {
     }
 }
 impl Pollfd {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -71208,14 +71167,11 @@ impl Default for Sockaddr {
     }
 }
 impl Sockaddr {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -71660,14 +71616,11 @@ impl Default for Timespec {
     }
 }
 impl Timespec {
-    #[doc = r" Regular clone just increases the reference count of underlying count."]
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
-    #[doc = r""]
-    #[doc = r" NOTE: if the struct has references to other structs these will not be copied"]
+    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
+    #[doc = r" no pointers, so the copy is independent of the source."]
     #[doc = r""]
     #[doc = r" Must be only used on structs which has no init/clean up methods."]
     #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
-    #[doc = r" More intended for AeronArchiveRecordingDescriptor (note strings will not work as its a shallow copy)"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -71699,7 +71652,7 @@ mod timespec_allocation_tests {
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronFprintfHandlerCallback {
     fn handle_aeron_fprintf_handler(
         &mut self,
@@ -71925,7 +71878,7 @@ unsafe extern "C" fn aeron_fprintf_handler_t_callback_for_once_closure_catch<
 #[doc = "The error handler to be called when an error occurs."]
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronErrorHandlerCallback {
     fn handle_aeron_error_handler(&mut self, errcode: ::std::os::raw::c_int, message: &str) -> ();
 }
@@ -72092,13 +72045,13 @@ unsafe extern "C" fn aeron_error_handler_t_callback_for_once_closure_catch<
 #[doc = " <code>aeron_publication_error_values_copy</code> if they require the data to live longer than that."]
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronPublicationErrorFrameHandlerCallback {
-    fn handle_aeron_publication_error_frame_handler(&mut self, error_frame: AeronPublicationErrorValues) -> ();
+    fn handle_aeron_publication_error_frame_handler(&mut self, error_frame: &AeronPublicationErrorValues) -> ();
 }
 pub struct AeronPublicationErrorFrameHandlerLogger;
 impl AeronPublicationErrorFrameHandlerCallback for AeronPublicationErrorFrameHandlerLogger {
-    fn handle_aeron_publication_error_frame_handler(&mut self, error_frame: AeronPublicationErrorValues) -> () {
+    fn handle_aeron_publication_error_frame_handler(&mut self, error_frame: &AeronPublicationErrorValues) -> () {
         log::info!(
             "{}({}\n)",
             stringify!(handle_aeron_publication_error_frame_handler),
@@ -72111,9 +72064,9 @@ unsafe impl Send for AeronPublicationErrorFrameHandlerLogger {}
 unsafe impl Sync for AeronPublicationErrorFrameHandlerLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(AeronPublicationErrorValues) -> ()> AeronPublicationErrorFrameHandlerCallback for F {
+impl<F: FnMut(&AeronPublicationErrorValues) -> ()> AeronPublicationErrorFrameHandlerCallback for F {
     #[inline]
-    fn handle_aeron_publication_error_frame_handler(&mut self, error_frame: AeronPublicationErrorValues) -> () {
+    fn handle_aeron_publication_error_frame_handler(&mut self, error_frame: &AeronPublicationErrorValues) -> () {
         self(error_frame)
     }
 }
@@ -72121,13 +72074,13 @@ impl<F: FnMut(AeronPublicationErrorValues) -> ()> AeronPublicationErrorFrameHand
 #[doc = r" to share one callback instance across several registrations."]
 impl<T: AeronPublicationErrorFrameHandlerCallback> AeronPublicationErrorFrameHandlerCallback for Handler<T> {
     #[inline]
-    fn handle_aeron_publication_error_frame_handler(&mut self, error_frame: AeronPublicationErrorValues) -> () {
+    fn handle_aeron_publication_error_frame_handler(&mut self, error_frame: &AeronPublicationErrorValues) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_publication_error_frame_handler(error_frame)
     }
 }
 impl AeronPublicationErrorFrameHandlerCallback for NoHandler {
-    fn handle_aeron_publication_error_frame_handler(&mut self, error_frame: AeronPublicationErrorValues) -> () {
+    fn handle_aeron_publication_error_frame_handler(&mut self, error_frame: &AeronPublicationErrorValues) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
     }
 }
@@ -72162,7 +72115,7 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback<F: AeronPu
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     log_panic(stringify!(aeron_publication_error_frame_handler_t_callback), (), || {
-        closure.handle_aeron_publication_error_frame_handler(error_frame.into())
+        closure.handle_aeron_publication_error_frame_handler(&AeronPublicationErrorValues::from(error_frame))
     })
 }
 #[allow(dead_code)]
@@ -72198,7 +72151,7 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_catch<
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure.handle_aeron_publication_error_frame_handler(error_frame.into())
+        closure.handle_aeron_publication_error_frame_handler(&AeronPublicationErrorValues::from(error_frame))
     })
 }
 #[allow(dead_code)]
@@ -72206,7 +72159,7 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_catch<
 #[doc = " The data passed to this callback will only be valid for the lifetime of the callback. The user should use"]
 #[doc = " <code>aeron_publication_error_values_copy</code> if they require the data to live longer than that."]
 unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_for_once_closure_catch<
-    F: FnMut(AeronPublicationErrorValues) -> (),
+    F: FnMut(&AeronPublicationErrorValues) -> (),
 >(
     clientd: *mut ::std::os::raw::c_void,
     error_frame: *mut aeron_publication_error_values_t,
@@ -72233,12 +72186,12 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_for_once_c
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    catch_panic((), || closure(error_frame.into()))
+    catch_panic((), || closure(&AeronPublicationErrorValues::from(error_frame)))
 }
 #[doc = "Generalised notification callback."]
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronNotificationCallback {
     fn handle_aeron_notification(&mut self) -> ();
 }
@@ -72356,7 +72309,7 @@ unsafe extern "C" fn aeron_notification_t_callback_for_once_closure_catch<F: FnM
 #[doc = " @param correlation_id used by the publication"]
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronNewPublicationCallback {
     fn handle_aeron_on_new_publication(
         &mut self,
@@ -72605,7 +72558,7 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback_for_once_closure_catch<
 #[doc = " @param correlation_id used by the subscription"]
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronNewSubscriptionCallback {
     fn handle_aeron_on_new_subscription(&mut self, channel: &str, stream_id: i32, correlation_id: i64) -> ();
 }
@@ -72809,13 +72762,13 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback_for_once_closure_catch
 #[doc = " @param image that has become available."]
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronAvailableImageCallback {
-    fn handle_aeron_on_available_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> ();
+    fn handle_aeron_on_available_image(&mut self, subscription: &AeronSubscription, image: &AeronImage) -> ();
 }
 pub struct AeronAvailableImageLogger;
 impl AeronAvailableImageCallback for AeronAvailableImageLogger {
-    fn handle_aeron_on_available_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> () {
+    fn handle_aeron_on_available_image(&mut self, subscription: &AeronSubscription, image: &AeronImage) -> () {
         log::info!(
             "{}({}\n)",
             stringify!(handle_aeron_on_available_image),
@@ -72832,9 +72785,9 @@ unsafe impl Send for AeronAvailableImageLogger {}
 unsafe impl Sync for AeronAvailableImageLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(AeronSubscription, AeronImage) -> ()> AeronAvailableImageCallback for F {
+impl<F: FnMut(&AeronSubscription, &AeronImage) -> ()> AeronAvailableImageCallback for F {
     #[inline]
-    fn handle_aeron_on_available_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> () {
+    fn handle_aeron_on_available_image(&mut self, subscription: &AeronSubscription, image: &AeronImage) -> () {
         self(subscription, image)
     }
 }
@@ -72842,13 +72795,13 @@ impl<F: FnMut(AeronSubscription, AeronImage) -> ()> AeronAvailableImageCallback 
 #[doc = r" to share one callback instance across several registrations."]
 impl<T: AeronAvailableImageCallback> AeronAvailableImageCallback for Handler<T> {
     #[inline]
-    fn handle_aeron_on_available_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> () {
+    fn handle_aeron_on_available_image(&mut self, subscription: &AeronSubscription, image: &AeronImage) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_on_available_image(subscription, image)
     }
 }
 impl AeronAvailableImageCallback for NoHandler {
-    fn handle_aeron_on_available_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> () {
+    fn handle_aeron_on_available_image(&mut self, subscription: &AeronSubscription, image: &AeronImage) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
     }
 }
@@ -72884,7 +72837,7 @@ unsafe extern "C" fn aeron_on_available_image_t_callback<F: AeronAvailableImageC
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     log_panic(stringify!(aeron_on_available_image_t_callback), (), || {
-        closure.handle_aeron_on_available_image(subscription.into(), image.into())
+        closure.handle_aeron_on_available_image(&AeronSubscription::from(subscription), &AeronImage::from(image))
     })
 }
 #[allow(dead_code)]
@@ -72919,7 +72872,7 @@ unsafe extern "C" fn aeron_on_available_image_t_callback_catch<F: AeronAvailable
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure.handle_aeron_on_available_image(subscription.into(), image.into())
+        closure.handle_aeron_on_available_image(&AeronSubscription::from(subscription), &AeronImage::from(image))
     })
 }
 #[allow(dead_code)]
@@ -72929,7 +72882,7 @@ unsafe extern "C" fn aeron_on_available_image_t_callback_catch<F: AeronAvailable
 #[doc = " @param subscription that image is part of."]
 #[doc = " @param image that has become available."]
 unsafe extern "C" fn aeron_on_available_image_t_callback_for_once_closure_catch<
-    F: FnMut(AeronSubscription, AeronImage) -> (),
+    F: FnMut(&AeronSubscription, &AeronImage) -> (),
 >(
     clientd: *mut ::std::os::raw::c_void,
     subscription: *mut aeron_subscription_t,
@@ -72958,7 +72911,9 @@ unsafe extern "C" fn aeron_on_available_image_t_callback_for_once_closure_catch<
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    catch_panic((), || closure(subscription.into(), image.into()))
+    catch_panic((), || {
+        closure(&AeronSubscription::from(subscription), &AeronImage::from(image))
+    })
 }
 #[doc = "Function called by aeron_client_t to deliver notifications that an aeron_image_t has been removed from use and"]
 #[doc = " should not be used any longer."]
@@ -72968,13 +72923,13 @@ unsafe extern "C" fn aeron_on_available_image_t_callback_for_once_closure_catch<
 #[doc = " @param image that has become unavailable."]
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronUnavailableImageCallback {
-    fn handle_aeron_on_unavailable_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> ();
+    fn handle_aeron_on_unavailable_image(&mut self, subscription: &AeronSubscription, image: &AeronImage) -> ();
 }
 pub struct AeronUnavailableImageLogger;
 impl AeronUnavailableImageCallback for AeronUnavailableImageLogger {
-    fn handle_aeron_on_unavailable_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> () {
+    fn handle_aeron_on_unavailable_image(&mut self, subscription: &AeronSubscription, image: &AeronImage) -> () {
         log::info!(
             "{}({}\n)",
             stringify!(handle_aeron_on_unavailable_image),
@@ -72991,9 +72946,9 @@ unsafe impl Send for AeronUnavailableImageLogger {}
 unsafe impl Sync for AeronUnavailableImageLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(AeronSubscription, AeronImage) -> ()> AeronUnavailableImageCallback for F {
+impl<F: FnMut(&AeronSubscription, &AeronImage) -> ()> AeronUnavailableImageCallback for F {
     #[inline]
-    fn handle_aeron_on_unavailable_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> () {
+    fn handle_aeron_on_unavailable_image(&mut self, subscription: &AeronSubscription, image: &AeronImage) -> () {
         self(subscription, image)
     }
 }
@@ -73001,13 +72956,13 @@ impl<F: FnMut(AeronSubscription, AeronImage) -> ()> AeronUnavailableImageCallbac
 #[doc = r" to share one callback instance across several registrations."]
 impl<T: AeronUnavailableImageCallback> AeronUnavailableImageCallback for Handler<T> {
     #[inline]
-    fn handle_aeron_on_unavailable_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> () {
+    fn handle_aeron_on_unavailable_image(&mut self, subscription: &AeronSubscription, image: &AeronImage) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_on_unavailable_image(subscription, image)
     }
 }
 impl AeronUnavailableImageCallback for NoHandler {
-    fn handle_aeron_on_unavailable_image(&mut self, subscription: AeronSubscription, image: AeronImage) -> () {
+    fn handle_aeron_on_unavailable_image(&mut self, subscription: &AeronSubscription, image: &AeronImage) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
     }
 }
@@ -73044,7 +72999,7 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback<F: AeronUnavailableIm
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     log_panic(stringify!(aeron_on_unavailable_image_t_callback), (), || {
-        closure.handle_aeron_on_unavailable_image(subscription.into(), image.into())
+        closure.handle_aeron_on_unavailable_image(&AeronSubscription::from(subscription), &AeronImage::from(image))
     })
 }
 #[allow(dead_code)]
@@ -73080,7 +73035,7 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback_catch<F: AeronUnavail
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure.handle_aeron_on_unavailable_image(subscription.into(), image.into())
+        closure.handle_aeron_on_unavailable_image(&AeronSubscription::from(subscription), &AeronImage::from(image))
     })
 }
 #[allow(dead_code)]
@@ -73091,7 +73046,7 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback_catch<F: AeronUnavail
 #[doc = " @param subscription that image is part of."]
 #[doc = " @param image that has become unavailable."]
 unsafe extern "C" fn aeron_on_unavailable_image_t_callback_for_once_closure_catch<
-    F: FnMut(AeronSubscription, AeronImage) -> (),
+    F: FnMut(&AeronSubscription, &AeronImage) -> (),
 >(
     clientd: *mut ::std::os::raw::c_void,
     subscription: *mut aeron_subscription_t,
@@ -73120,7 +73075,9 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback_for_once_closure_catc
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    catch_panic((), || closure(subscription.into(), image.into()))
+    catch_panic((), || {
+        closure(&AeronSubscription::from(subscription), &AeronImage::from(image))
+    })
 }
 #[doc = "Function called by aeron_client_t to deliver notifications that a counter has been added to the driver."]
 #[doc = ""]
@@ -73130,11 +73087,11 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback_for_once_closure_catc
 #[doc = " @param counter_id of the counter."]
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronAvailableCounterCallback {
     fn handle_aeron_on_available_counter(
         &mut self,
-        counters_reader: AeronCountersReader,
+        counters_reader: &AeronCountersReader,
         registration_id: i64,
         counter_id: i32,
     ) -> ();
@@ -73143,7 +73100,7 @@ pub struct AeronAvailableCounterLogger;
 impl AeronAvailableCounterCallback for AeronAvailableCounterLogger {
     fn handle_aeron_on_available_counter(
         &mut self,
-        counters_reader: AeronCountersReader,
+        counters_reader: &AeronCountersReader,
         registration_id: i64,
         counter_id: i32,
     ) -> () {
@@ -73164,11 +73121,11 @@ unsafe impl Send for AeronAvailableCounterLogger {}
 unsafe impl Sync for AeronAvailableCounterLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(AeronCountersReader, i64, i32) -> ()> AeronAvailableCounterCallback for F {
+impl<F: FnMut(&AeronCountersReader, i64, i32) -> ()> AeronAvailableCounterCallback for F {
     #[inline]
     fn handle_aeron_on_available_counter(
         &mut self,
-        counters_reader: AeronCountersReader,
+        counters_reader: &AeronCountersReader,
         registration_id: i64,
         counter_id: i32,
     ) -> () {
@@ -73181,7 +73138,7 @@ impl<T: AeronAvailableCounterCallback> AeronAvailableCounterCallback for Handler
     #[inline]
     fn handle_aeron_on_available_counter(
         &mut self,
-        counters_reader: AeronCountersReader,
+        counters_reader: &AeronCountersReader,
         registration_id: i64,
         counter_id: i32,
     ) -> () {
@@ -73192,7 +73149,7 @@ impl<T: AeronAvailableCounterCallback> AeronAvailableCounterCallback for Handler
 impl AeronAvailableCounterCallback for NoHandler {
     fn handle_aeron_on_available_counter(
         &mut self,
-        counters_reader: AeronCountersReader,
+        counters_reader: &AeronCountersReader,
         registration_id: i64,
         counter_id: i32,
     ) -> () {
@@ -73234,7 +73191,11 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback<F: AeronAvailableCoun
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     log_panic(stringify!(aeron_on_available_counter_t_callback), (), || {
-        closure.handle_aeron_on_available_counter(counters_reader.into(), registration_id.into(), counter_id.into())
+        closure.handle_aeron_on_available_counter(
+            &AeronCountersReader::from(counters_reader),
+            registration_id.into(),
+            counter_id.into(),
+        )
     })
 }
 #[allow(dead_code)]
@@ -73272,7 +73233,11 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback_catch<F: AeronAvailab
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure.handle_aeron_on_available_counter(counters_reader.into(), registration_id.into(), counter_id.into())
+        closure.handle_aeron_on_available_counter(
+            &AeronCountersReader::from(counters_reader),
+            registration_id.into(),
+            counter_id.into(),
+        )
     })
 }
 #[allow(dead_code)]
@@ -73283,7 +73248,7 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback_catch<F: AeronAvailab
 #[doc = " @param registration_id of the counter."]
 #[doc = " @param counter_id of the counter."]
 unsafe extern "C" fn aeron_on_available_counter_t_callback_for_once_closure_catch<
-    F: FnMut(AeronCountersReader, i64, i32) -> (),
+    F: FnMut(&AeronCountersReader, i64, i32) -> (),
 >(
     clientd: *mut ::std::os::raw::c_void,
     counters_reader: *mut aeron_counters_reader_t,
@@ -73315,7 +73280,11 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback_for_once_closure_catc
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure(counters_reader.into(), registration_id.into(), counter_id.into())
+        closure(
+            &AeronCountersReader::from(counters_reader),
+            registration_id.into(),
+            counter_id.into(),
+        )
     })
 }
 #[doc = "Function called by aeron_client_t to deliver notifications that a counter has been removed from the driver."]
@@ -73326,11 +73295,11 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback_for_once_closure_catc
 #[doc = " @param counter_id of the counter."]
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronUnavailableCounterCallback {
     fn handle_aeron_on_unavailable_counter(
         &mut self,
-        counters_reader: AeronCountersReader,
+        counters_reader: &AeronCountersReader,
         registration_id: i64,
         counter_id: i32,
     ) -> ();
@@ -73339,7 +73308,7 @@ pub struct AeronUnavailableCounterLogger;
 impl AeronUnavailableCounterCallback for AeronUnavailableCounterLogger {
     fn handle_aeron_on_unavailable_counter(
         &mut self,
-        counters_reader: AeronCountersReader,
+        counters_reader: &AeronCountersReader,
         registration_id: i64,
         counter_id: i32,
     ) -> () {
@@ -73360,11 +73329,11 @@ unsafe impl Send for AeronUnavailableCounterLogger {}
 unsafe impl Sync for AeronUnavailableCounterLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(AeronCountersReader, i64, i32) -> ()> AeronUnavailableCounterCallback for F {
+impl<F: FnMut(&AeronCountersReader, i64, i32) -> ()> AeronUnavailableCounterCallback for F {
     #[inline]
     fn handle_aeron_on_unavailable_counter(
         &mut self,
-        counters_reader: AeronCountersReader,
+        counters_reader: &AeronCountersReader,
         registration_id: i64,
         counter_id: i32,
     ) -> () {
@@ -73377,7 +73346,7 @@ impl<T: AeronUnavailableCounterCallback> AeronUnavailableCounterCallback for Han
     #[inline]
     fn handle_aeron_on_unavailable_counter(
         &mut self,
-        counters_reader: AeronCountersReader,
+        counters_reader: &AeronCountersReader,
         registration_id: i64,
         counter_id: i32,
     ) -> () {
@@ -73388,7 +73357,7 @@ impl<T: AeronUnavailableCounterCallback> AeronUnavailableCounterCallback for Han
 impl AeronUnavailableCounterCallback for NoHandler {
     fn handle_aeron_on_unavailable_counter(
         &mut self,
-        counters_reader: AeronCountersReader,
+        counters_reader: &AeronCountersReader,
         registration_id: i64,
         counter_id: i32,
     ) -> () {
@@ -73430,7 +73399,11 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback<F: AeronUnavailable
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     log_panic(stringify!(aeron_on_unavailable_counter_t_callback), (), || {
-        closure.handle_aeron_on_unavailable_counter(counters_reader.into(), registration_id.into(), counter_id.into())
+        closure.handle_aeron_on_unavailable_counter(
+            &AeronCountersReader::from(counters_reader),
+            registration_id.into(),
+            counter_id.into(),
+        )
     })
 }
 #[allow(dead_code)]
@@ -73468,7 +73441,11 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback_catch<F: AeronUnava
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure.handle_aeron_on_unavailable_counter(counters_reader.into(), registration_id.into(), counter_id.into())
+        closure.handle_aeron_on_unavailable_counter(
+            &AeronCountersReader::from(counters_reader),
+            registration_id.into(),
+            counter_id.into(),
+        )
     })
 }
 #[allow(dead_code)]
@@ -73479,7 +73456,7 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback_catch<F: AeronUnava
 #[doc = " @param registration_id of the counter."]
 #[doc = " @param counter_id of the counter."]
 unsafe extern "C" fn aeron_on_unavailable_counter_t_callback_for_once_closure_catch<
-    F: FnMut(AeronCountersReader, i64, i32) -> (),
+    F: FnMut(&AeronCountersReader, i64, i32) -> (),
 >(
     clientd: *mut ::std::os::raw::c_void,
     counters_reader: *mut aeron_counters_reader_t,
@@ -73511,7 +73488,11 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback_for_once_closure_ca
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure(counters_reader.into(), registration_id.into(), counter_id.into())
+        closure(
+            &AeronCountersReader::from(counters_reader),
+            registration_id.into(),
+            counter_id.into(),
+        )
     })
 }
 #[doc = "Function called by aeron_client_t to deliver notifications that the client is closing."]
@@ -73519,7 +73500,7 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback_for_once_closure_ca
 #[doc = " @param clientd to be returned in the call."]
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronCloseClientCallback {
     fn handle_aeron_on_close_client(&mut self) -> ();
 }
@@ -73633,7 +73614,7 @@ unsafe extern "C" fn aeron_on_close_client_t_callback_for_once_closure_catch<F: 
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronAgentStartFuncCallback {
     fn handle_aeron_agent_on_start_func(&mut self, role_name: &str) -> ();
 }
@@ -73780,7 +73761,7 @@ unsafe extern "C" fn aeron_agent_on_start_func_t_callback_for_once_closure_catch
 #[doc = " @param clientd to be returned in the call"]
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronCountersReaderForeachCounterFuncCallback {
     fn handle_aeron_counters_reader_foreach_counter_func(
         &mut self,
@@ -74085,7 +74066,7 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback_for_o
 #[doc = " @param frame_length of the entire frame."]
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronReservedValueSupplierCallback {
     fn handle_aeron_reserved_value_supplier(&mut self, buffer: &mut [u8]) -> i64;
 }
@@ -74265,15 +74246,15 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback_for_once_closure_c
 #[doc = " @param header representing the meta data for the data."]
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronFragmentHandlerCallback {
     #[doc(hidden)]
     const RESUMES_CAUGHT_PANIC: bool = false;
-    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: AeronHeader) -> ();
+    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader) -> ();
 }
 pub struct AeronFragmentHandlerLogger;
 impl AeronFragmentHandlerCallback for AeronFragmentHandlerLogger {
-    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: AeronHeader) -> () {
+    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader) -> () {
         log::info!(
             "{}({}\n)",
             stringify!(handle_aeron_fragment_handler),
@@ -74290,9 +74271,9 @@ unsafe impl Send for AeronFragmentHandlerLogger {}
 unsafe impl Sync for AeronFragmentHandlerLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(&[u8], AeronHeader) -> ()> AeronFragmentHandlerCallback for F {
+impl<F: FnMut(&[u8], &AeronHeader) -> ()> AeronFragmentHandlerCallback for F {
     #[inline]
-    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: AeronHeader) -> () {
+    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader) -> () {
         self(buffer, header)
     }
 }
@@ -74301,13 +74282,13 @@ impl<F: FnMut(&[u8], AeronHeader) -> ()> AeronFragmentHandlerCallback for F {
 impl<T: AeronFragmentHandlerCallback> AeronFragmentHandlerCallback for Handler<T> {
     const RESUMES_CAUGHT_PANIC: bool = T::RESUMES_CAUGHT_PANIC;
     #[inline]
-    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: AeronHeader) -> () {
+    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_fragment_handler(buffer, header)
     }
 }
 impl AeronFragmentHandlerCallback for NoHandler {
-    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: AeronHeader) -> () {
+    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
     }
 }
@@ -74355,7 +74336,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback<F: AeronFragmentHa
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            header.into(),
+            &AeronHeader::from(header),
         )
     })
 }
@@ -74403,7 +74384,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_catch<F: AeronFrag
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            header.into(),
+            &AeronHeader::from(header),
         )
     })
 }
@@ -74418,7 +74399,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_catch<F: AeronFrag
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
 unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_catch<
-    F: FnMut(&[u8], AeronHeader) -> (),
+    F: FnMut(&[u8], &AeronHeader) -> (),
 >(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
@@ -74456,7 +74437,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_c
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            header.into(),
+            &AeronHeader::from(header),
         )
     })
 }
@@ -74503,7 +74484,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_unwind<F: AeronFra
         } else {
             std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
-        header.into(),
+        &AeronHeader::from(header),
     )
 }
 #[allow(dead_code)]
@@ -74517,7 +74498,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_unwind<F: AeronFra
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
 unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_unwind<
-    F: FnMut(&[u8], AeronHeader) -> (),
+    F: FnMut(&[u8], &AeronHeader) -> (),
 >(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
@@ -74554,7 +74535,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_u
         } else {
             std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
-        header.into(),
+        &AeronHeader::from(header),
     )
 }
 #[doc = "Callback for handling fragments of data being read from a log."]
@@ -74569,14 +74550,14 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_u
 #[doc = " @return The action to be taken with regard to the stream position after the callback."]
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronControlledFragmentHandlerCallback {
     #[doc(hidden)]
     const RESUMES_CAUGHT_PANIC: bool = false;
     fn handle_aeron_controlled_fragment_handler(
         &mut self,
         buffer: &[u8],
-        header: AeronHeader,
+        header: &AeronHeader,
     ) -> aeron_controlled_fragment_handler_action_t;
 }
 pub struct AeronControlledFragmentHandlerLogger;
@@ -74584,7 +74565,7 @@ impl AeronControlledFragmentHandlerCallback for AeronControlledFragmentHandlerLo
     fn handle_aeron_controlled_fragment_handler(
         &mut self,
         buffer: &[u8],
-        header: AeronHeader,
+        header: &AeronHeader,
     ) -> aeron_controlled_fragment_handler_action_t {
         log::info!(
             "{}({}\n)",
@@ -74602,14 +74583,14 @@ unsafe impl Send for AeronControlledFragmentHandlerLogger {}
 unsafe impl Sync for AeronControlledFragmentHandlerLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t> AeronControlledFragmentHandlerCallback
+impl<F: FnMut(&[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t> AeronControlledFragmentHandlerCallback
     for F
 {
     #[inline]
     fn handle_aeron_controlled_fragment_handler(
         &mut self,
         buffer: &[u8],
-        header: AeronHeader,
+        header: &AeronHeader,
     ) -> aeron_controlled_fragment_handler_action_t {
         self(buffer, header)
     }
@@ -74622,7 +74603,7 @@ impl<T: AeronControlledFragmentHandlerCallback> AeronControlledFragmentHandlerCa
     fn handle_aeron_controlled_fragment_handler(
         &mut self,
         buffer: &[u8],
-        header: AeronHeader,
+        header: &AeronHeader,
     ) -> aeron_controlled_fragment_handler_action_t {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_controlled_fragment_handler(buffer, header)
@@ -74632,7 +74613,7 @@ impl AeronControlledFragmentHandlerCallback for NoHandler {
     fn handle_aeron_controlled_fragment_handler(
         &mut self,
         buffer: &[u8],
-        header: AeronHeader,
+        header: &AeronHeader,
     ) -> aeron_controlled_fragment_handler_action_t {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
     }
@@ -74685,7 +74666,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback<F: Aero
                 } else {
                     std::slice::from_raw_parts(buffer, length.try_into().unwrap())
                 },
-                header.into(),
+                &AeronHeader::from(header),
             )
         },
     )
@@ -74740,7 +74721,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_catch<
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            header.into(),
+            &AeronHeader::from(header),
         )
     })
 }
@@ -74756,7 +74737,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_catch<
 #[doc = " @param header representing the meta data for the data."]
 #[doc = " @return The action to be taken with regard to the stream position after the callback."]
 unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_once_closure_catch<
-    F: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
+    F: FnMut(&[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t,
 >(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
@@ -74794,7 +74775,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_onc
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            header.into(),
+            &AeronHeader::from(header),
         )
     })
 }
@@ -74847,7 +74828,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_unwind<
         } else {
             std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
-        header.into(),
+        &AeronHeader::from(header),
     )
 }
 #[allow(dead_code)]
@@ -74862,7 +74843,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_unwind<
 #[doc = " @param header representing the meta data for the data."]
 #[doc = " @return The action to be taken with regard to the stream position after the callback."]
 unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_once_closure_unwind<
-    F: FnMut(&[u8], AeronHeader) -> aeron_controlled_fragment_handler_action_t,
+    F: FnMut(&[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t,
 >(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
@@ -74899,7 +74880,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_onc
         } else {
             std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
-        header.into(),
+        &AeronHeader::from(header),
     )
 }
 #[doc = "Callback for handling a block of messages being read from a log."]
@@ -74912,7 +74893,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_onc
 #[doc = " @param term_id of the stream containing this block of message fragments."]
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronBlockHandlerCallback {
     #[doc(hidden)]
     const RESUMES_CAUGHT_PANIC: bool = false;
@@ -75213,7 +75194,7 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_once_closure_unwi
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronErrorLogReaderFuncCallback {
     fn handle_aeron_error_log_reader_func(
         &mut self,
@@ -75487,7 +75468,7 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback_for_once_closure_cat
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronLossReporterReadEntryFuncCallback {
     fn handle_aeron_loss_reporter_read_entry_func(
         &mut self,
@@ -75865,7 +75846,7 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback_for_once_clo
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronIdleStrategyFuncCallback {
     fn handle_aeron_idle_strategy_func(&mut self, work_count: ::std::os::raw::c_int) -> ();
 }
@@ -75991,7 +75972,7 @@ unsafe extern "C" fn aeron_idle_strategy_func_t_callback_for_once_closure_catch<
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronUriParseCallbackCallback {
     fn handle_aeron_uri_parse_callback(&mut self, key: &str, value: &str) -> ::std::os::raw::c_int;
 }
@@ -76168,7 +76149,7 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback_for_once_closure_catch<
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronDriverTerminationValidatorFuncCallback {
     fn handle_aeron_driver_termination_validator_func(&mut self, buffer: &mut [u8]) -> bool;
 }
@@ -76336,7 +76317,7 @@ unsafe extern "C" fn aeron_driver_termination_validator_func_t_callback_for_once
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronDriverTerminationHookFuncCallback {
     fn handle_aeron_driver_termination_hook_func(&mut self) -> ();
 }
@@ -76448,7 +76429,7 @@ unsafe extern "C" fn aeron_driver_termination_hook_func_t_callback_for_once_clos
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronQueueDrainFuncCallback {
     fn handle_aeron_queue_drain_func(&mut self, item: *mut ::std::os::raw::c_void) -> ();
 }
@@ -76574,7 +76555,7 @@ unsafe extern "C" fn aeron_queue_drain_func_t_callback_for_once_closure_catch<
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronRbHandlerCallback {
     fn handle_aeron_rb_handler(&mut self, arg1: i32, arg2: *const ::std::os::raw::c_void, arg3: usize) -> ();
 }
@@ -76719,7 +76700,7 @@ unsafe extern "C" fn aeron_rb_handler_t_callback_for_once_closure_catch<
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronRbControlledHandlerCallback {
     fn handle_aeron_rb_controlled_handler(
         &mut self,
@@ -76895,7 +76876,7 @@ unsafe extern "C" fn aeron_rb_controlled_handler_t_callback_for_once_closure_cat
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronFlowControlStrategyIdleFuncCallback {
     fn handle_aeron_flow_control_strategy_on_idle_func(
         &mut self,
@@ -77103,12 +77084,12 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_idle_func_t_callback_for_onc
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronFlowControlStrategySmFuncCallback {
     fn handle_aeron_flow_control_strategy_on_sm_func(
         &mut self,
         sm: &[u8],
-        recv_addr: SockaddrStorage,
+        recv_addr: &SockaddrStorage,
         snd_lmt: i64,
         initial_term_id: i32,
         position_bits_to_shift: usize,
@@ -77120,7 +77101,7 @@ impl AeronFlowControlStrategySmFuncCallback for AeronFlowControlStrategySmFuncLo
     fn handle_aeron_flow_control_strategy_on_sm_func(
         &mut self,
         sm: &[u8],
-        recv_addr: SockaddrStorage,
+        recv_addr: &SockaddrStorage,
         snd_lmt: i64,
         initial_term_id: i32,
         position_bits_to_shift: usize,
@@ -77146,12 +77127,12 @@ unsafe impl Send for AeronFlowControlStrategySmFuncLogger {}
 unsafe impl Sync for AeronFlowControlStrategySmFuncLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(&[u8], SockaddrStorage, i64, i32, usize, i64) -> i64> AeronFlowControlStrategySmFuncCallback for F {
+impl<F: FnMut(&[u8], &SockaddrStorage, i64, i32, usize, i64) -> i64> AeronFlowControlStrategySmFuncCallback for F {
     #[inline]
     fn handle_aeron_flow_control_strategy_on_sm_func(
         &mut self,
         sm: &[u8],
-        recv_addr: SockaddrStorage,
+        recv_addr: &SockaddrStorage,
         snd_lmt: i64,
         initial_term_id: i32,
         position_bits_to_shift: usize,
@@ -77167,7 +77148,7 @@ impl<T: AeronFlowControlStrategySmFuncCallback> AeronFlowControlStrategySmFuncCa
     fn handle_aeron_flow_control_strategy_on_sm_func(
         &mut self,
         sm: &[u8],
-        recv_addr: SockaddrStorage,
+        recv_addr: &SockaddrStorage,
         snd_lmt: i64,
         initial_term_id: i32,
         position_bits_to_shift: usize,
@@ -77188,7 +77169,7 @@ impl AeronFlowControlStrategySmFuncCallback for NoHandler {
     fn handle_aeron_flow_control_strategy_on_sm_func(
         &mut self,
         sm: &[u8],
-        recv_addr: SockaddrStorage,
+        recv_addr: &SockaddrStorage,
         snd_lmt: i64,
         initial_term_id: i32,
         position_bits_to_shift: usize,
@@ -77246,7 +77227,7 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback<F: AeronF
                 } else {
                     std::slice::from_raw_parts(sm, length.try_into().unwrap())
                 },
-                recv_addr.into(),
+                &SockaddrStorage::from(recv_addr),
                 snd_lmt.into(),
                 initial_term_id.into(),
                 position_bits_to_shift.into(),
@@ -77303,7 +77284,7 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback_catch<
             } else {
                 std::slice::from_raw_parts(sm, length.try_into().unwrap())
             },
-            recv_addr.into(),
+            &SockaddrStorage::from(recv_addr),
             snd_lmt.into(),
             initial_term_id.into(),
             position_bits_to_shift.into(),
@@ -77313,7 +77294,7 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback_catch<
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback_for_once_closure_catch<
-    F: FnMut(&[u8], SockaddrStorage, i64, i32, usize, i64) -> i64,
+    F: FnMut(&[u8], &SockaddrStorage, i64, i32, usize, i64) -> i64,
 >(
     state: *mut ::std::os::raw::c_void,
     sm: *const u8,
@@ -77359,7 +77340,7 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback_for_once_
             } else {
                 std::slice::from_raw_parts(sm, length.try_into().unwrap())
             },
-            recv_addr.into(),
+            &SockaddrStorage::from(recv_addr),
             snd_lmt.into(),
             initial_term_id.into(),
             position_bits_to_shift.into(),
@@ -77369,7 +77350,7 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback_for_once_
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronFlowControlStrategySetupFuncCallback {
     fn handle_aeron_flow_control_strategy_on_setup_func(
         &mut self,
@@ -77615,12 +77596,12 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_setup_func_t_callback_for_on
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronFlowControlStrategyErrorFuncCallback {
     fn handle_aeron_flow_control_strategy_on_error_func(
         &mut self,
         error: &[u8],
-        recv_addr: SockaddrStorage,
+        recv_addr: &SockaddrStorage,
         now_ns: i64,
     ) -> ();
 }
@@ -77629,7 +77610,7 @@ impl AeronFlowControlStrategyErrorFuncCallback for AeronFlowControlStrategyError
     fn handle_aeron_flow_control_strategy_on_error_func(
         &mut self,
         error: &[u8],
-        recv_addr: SockaddrStorage,
+        recv_addr: &SockaddrStorage,
         now_ns: i64,
     ) -> () {
         log::info!(
@@ -77649,12 +77630,12 @@ unsafe impl Send for AeronFlowControlStrategyErrorFuncLogger {}
 unsafe impl Sync for AeronFlowControlStrategyErrorFuncLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(&[u8], SockaddrStorage, i64) -> ()> AeronFlowControlStrategyErrorFuncCallback for F {
+impl<F: FnMut(&[u8], &SockaddrStorage, i64) -> ()> AeronFlowControlStrategyErrorFuncCallback for F {
     #[inline]
     fn handle_aeron_flow_control_strategy_on_error_func(
         &mut self,
         error: &[u8],
-        recv_addr: SockaddrStorage,
+        recv_addr: &SockaddrStorage,
         now_ns: i64,
     ) -> () {
         self(error, recv_addr, now_ns)
@@ -77667,7 +77648,7 @@ impl<T: AeronFlowControlStrategyErrorFuncCallback> AeronFlowControlStrategyError
     fn handle_aeron_flow_control_strategy_on_error_func(
         &mut self,
         error: &[u8],
-        recv_addr: SockaddrStorage,
+        recv_addr: &SockaddrStorage,
         now_ns: i64,
     ) -> () {
         let inner = unsafe { &mut *self.inner.get() };
@@ -77678,7 +77659,7 @@ impl AeronFlowControlStrategyErrorFuncCallback for NoHandler {
     fn handle_aeron_flow_control_strategy_on_error_func(
         &mut self,
         error: &[u8],
-        recv_addr: SockaddrStorage,
+        recv_addr: &SockaddrStorage,
         now_ns: i64,
     ) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -77729,7 +77710,7 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback<
                 } else {
                     std::slice::from_raw_parts(error, length.try_into().unwrap())
                 },
-                recv_addr.into(),
+                &SockaddrStorage::from(recv_addr),
                 now_ns.into(),
             )
         },
@@ -77777,14 +77758,14 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback_catch<
             } else {
                 std::slice::from_raw_parts(error, length.try_into().unwrap())
             },
-            recv_addr.into(),
+            &SockaddrStorage::from(recv_addr),
             now_ns.into(),
         )
     })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback_for_once_closure_catch<
-    F: FnMut(&[u8], SockaddrStorage, i64) -> (),
+    F: FnMut(&[u8], &SockaddrStorage, i64) -> (),
 >(
     state: *mut ::std::os::raw::c_void,
     error: *const u8,
@@ -77824,19 +77805,19 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback_for_on
             } else {
                 std::slice::from_raw_parts(error, length.try_into().unwrap())
             },
-            recv_addr.into(),
+            &SockaddrStorage::from(recv_addr),
             now_ns.into(),
         )
     })
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronFlowControlStrategyTriggerSendSetupFuncCallback {
     fn handle_aeron_flow_control_strategy_on_trigger_send_setup_func(
         &mut self,
         sm: &[u8],
-        recv_addr: SockaddrStorage,
+        recv_addr: &SockaddrStorage,
         now_ns: i64,
     ) -> ();
 }
@@ -77845,7 +77826,7 @@ impl AeronFlowControlStrategyTriggerSendSetupFuncCallback for AeronFlowControlSt
     fn handle_aeron_flow_control_strategy_on_trigger_send_setup_func(
         &mut self,
         sm: &[u8],
-        recv_addr: SockaddrStorage,
+        recv_addr: &SockaddrStorage,
         now_ns: i64,
     ) -> () {
         log::info!(
@@ -77865,12 +77846,12 @@ unsafe impl Send for AeronFlowControlStrategyTriggerSendSetupFuncLogger {}
 unsafe impl Sync for AeronFlowControlStrategyTriggerSendSetupFuncLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(&[u8], SockaddrStorage, i64) -> ()> AeronFlowControlStrategyTriggerSendSetupFuncCallback for F {
+impl<F: FnMut(&[u8], &SockaddrStorage, i64) -> ()> AeronFlowControlStrategyTriggerSendSetupFuncCallback for F {
     #[inline]
     fn handle_aeron_flow_control_strategy_on_trigger_send_setup_func(
         &mut self,
         sm: &[u8],
-        recv_addr: SockaddrStorage,
+        recv_addr: &SockaddrStorage,
         now_ns: i64,
     ) -> () {
         self(sm, recv_addr, now_ns)
@@ -77885,7 +77866,7 @@ impl<T: AeronFlowControlStrategyTriggerSendSetupFuncCallback> AeronFlowControlSt
     fn handle_aeron_flow_control_strategy_on_trigger_send_setup_func(
         &mut self,
         sm: &[u8],
-        recv_addr: SockaddrStorage,
+        recv_addr: &SockaddrStorage,
         now_ns: i64,
     ) -> () {
         let inner = unsafe { &mut *self.inner.get() };
@@ -77896,7 +77877,7 @@ impl AeronFlowControlStrategyTriggerSendSetupFuncCallback for NoHandler {
     fn handle_aeron_flow_control_strategy_on_trigger_send_setup_func(
         &mut self,
         sm: &[u8],
-        recv_addr: SockaddrStorage,
+        recv_addr: &SockaddrStorage,
         now_ns: i64,
     ) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -77947,7 +77928,7 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_ca
                 } else {
                     std::slice::from_raw_parts(sm, length.try_into().unwrap())
                 },
-                recv_addr.into(),
+                &SockaddrStorage::from(recv_addr),
                 now_ns.into(),
             )
         },
@@ -77995,14 +77976,14 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_ca
             } else {
                 std::slice::from_raw_parts(sm, length.try_into().unwrap())
             },
-            recv_addr.into(),
+            &SockaddrStorage::from(recv_addr),
             now_ns.into(),
         )
     })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_callback_for_once_closure_catch<
-    F: FnMut(&[u8], SockaddrStorage, i64) -> (),
+    F: FnMut(&[u8], &SockaddrStorage, i64) -> (),
 >(
     state: *mut ::std::os::raw::c_void,
     sm: *const u8,
@@ -78042,14 +78023,14 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_ca
             } else {
                 std::slice::from_raw_parts(sm, length.try_into().unwrap())
             },
-            recv_addr.into(),
+            &SockaddrStorage::from(recv_addr),
             now_ns.into(),
         )
     })
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronFlowControlStrategyMaxRetransmissionLengthFuncCallback {
     fn handle_aeron_flow_control_strategy_max_retransmission_length_func(
         &mut self,
@@ -78271,7 +78252,7 @@ unsafe extern "C" fn aeron_flow_control_strategy_max_retransmission_length_func_
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronCongestionControlStrategyShouldMeasureRttFuncCallback {
     fn handle_aeron_congestion_control_strategy_should_measure_rtt_func(&mut self, now_ns: i64) -> bool;
 }
@@ -78415,7 +78396,7 @@ unsafe extern "C" fn aeron_congestion_control_strategy_should_measure_rtt_func_t
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronCongestionControlStrategyRttmSentFuncCallback {
     fn handle_aeron_congestion_control_strategy_on_rttm_sent_func(&mut self, now_ns: i64) -> ();
 }
@@ -78557,13 +78538,13 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_sent_func_t_callb
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronCongestionControlStrategyRttmFuncCallback {
     fn handle_aeron_congestion_control_strategy_on_rttm_func(
         &mut self,
         now_ns: i64,
         rtt_ns: i64,
-        source_address: SockaddrStorage,
+        source_address: &SockaddrStorage,
     ) -> ();
 }
 pub struct AeronCongestionControlStrategyRttmFuncLogger;
@@ -78572,7 +78553,7 @@ impl AeronCongestionControlStrategyRttmFuncCallback for AeronCongestionControlSt
         &mut self,
         now_ns: i64,
         rtt_ns: i64,
-        source_address: SockaddrStorage,
+        source_address: &SockaddrStorage,
     ) -> () {
         log::info!(
             "{}({}\n)",
@@ -78591,13 +78572,13 @@ unsafe impl Send for AeronCongestionControlStrategyRttmFuncLogger {}
 unsafe impl Sync for AeronCongestionControlStrategyRttmFuncLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(i64, i64, SockaddrStorage) -> ()> AeronCongestionControlStrategyRttmFuncCallback for F {
+impl<F: FnMut(i64, i64, &SockaddrStorage) -> ()> AeronCongestionControlStrategyRttmFuncCallback for F {
     #[inline]
     fn handle_aeron_congestion_control_strategy_on_rttm_func(
         &mut self,
         now_ns: i64,
         rtt_ns: i64,
-        source_address: SockaddrStorage,
+        source_address: &SockaddrStorage,
     ) -> () {
         self(now_ns, rtt_ns, source_address)
     }
@@ -78610,7 +78591,7 @@ impl<T: AeronCongestionControlStrategyRttmFuncCallback> AeronCongestionControlSt
         &mut self,
         now_ns: i64,
         rtt_ns: i64,
-        source_address: SockaddrStorage,
+        source_address: &SockaddrStorage,
     ) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_congestion_control_strategy_on_rttm_func(now_ns, rtt_ns, source_address)
@@ -78621,7 +78602,7 @@ impl AeronCongestionControlStrategyRttmFuncCallback for NoHandler {
         &mut self,
         now_ns: i64,
         rtt_ns: i64,
-        source_address: SockaddrStorage,
+        source_address: &SockaddrStorage,
     ) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
     }
@@ -78666,7 +78647,7 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback<
             closure.handle_aeron_congestion_control_strategy_on_rttm_func(
                 now_ns.into(),
                 rtt_ns.into(),
-                source_address.into(),
+                &SockaddrStorage::from(source_address),
             )
         },
     )
@@ -78708,13 +78689,13 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback_c
         closure.handle_aeron_congestion_control_strategy_on_rttm_func(
             now_ns.into(),
             rtt_ns.into(),
-            source_address.into(),
+            &SockaddrStorage::from(source_address),
         )
     })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback_for_once_closure_catch<
-    F: FnMut(i64, i64, SockaddrStorage) -> (),
+    F: FnMut(i64, i64, &SockaddrStorage) -> (),
 >(
     state: *mut ::std::os::raw::c_void,
     now_ns: i64,
@@ -78745,11 +78726,13 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback_f
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    catch_panic((), || closure(now_ns.into(), rtt_ns.into(), source_address.into()))
+    catch_panic((), || {
+        closure(now_ns.into(), rtt_ns.into(), &SockaddrStorage::from(source_address))
+    })
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronCongestionControlStrategyInitialWindowLengthFuncCallback {
     fn handle_aeron_congestion_control_strategy_initial_window_length_func(&mut self) -> i32;
 }
@@ -78878,7 +78861,7 @@ unsafe extern "C" fn aeron_congestion_control_strategy_initial_window_length_fun
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronCongestionControlStrategyMaxWindowLengthFuncCallback {
     fn handle_aeron_congestion_control_strategy_max_window_length_func(&mut self) -> i32;
 }
@@ -79007,7 +78990,7 @@ unsafe extern "C" fn aeron_congestion_control_strategy_max_window_length_func_t_
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronAgentDoWorkFuncCallback {
     fn handle_aeron_agent_do_work_func(&mut self) -> ::std::os::raw::c_int;
 }
@@ -79114,7 +79097,7 @@ unsafe extern "C" fn aeron_agent_do_work_func_t_callback_for_once_closure_catch<
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronAgentCloseFuncCallback {
     fn handle_aeron_agent_on_close_func(&mut self) -> ();
 }
@@ -79223,7 +79206,7 @@ unsafe extern "C" fn aeron_agent_on_close_func_t_callback_for_once_closure_catch
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronCountersReaderForeachMetadataFuncCallback {
     fn handle_aeron_counters_reader_foreach_metadata_func(
         &mut self,
@@ -79472,7 +79455,7 @@ unsafe extern "C" fn aeron_counters_reader_foreach_metadata_func_t_callback_for_
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronDutyCycleTrackerUpdateFuncCallback {
     fn handle_aeron_duty_cycle_tracker_update_func(&mut self, now_ns: i64) -> ();
 }
@@ -79606,7 +79589,7 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_update_func_t_callback_for_once_cl
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronDutyCycleTrackerMeasureAndUpdateFuncCallback {
     fn handle_aeron_duty_cycle_tracker_measure_and_update_func(&mut self, now_ns: i64) -> ();
 }
@@ -79748,7 +79731,7 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_measure_and_update_func_t_callback
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronInt64CounterMapForEachFuncCallback {
     fn handle_aeron_int64_counter_map_for_each_func(&mut self, key: i64, value: i64) -> ();
 }
@@ -79894,7 +79877,7 @@ unsafe extern "C" fn aeron_int64_counter_map_for_each_func_t_callback_for_once_c
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronInt64CounterMapPredicateFuncCallback {
     fn handle_aeron_int64_counter_map_predicate_func(&mut self, key: i64, value: i64) -> bool;
 }
@@ -80042,22 +80025,22 @@ unsafe extern "C" fn aeron_int64_counter_map_predicate_func_t_callback_for_once_
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronPortManagerGetManagedPortFuncCallback {
     fn handle_aeron_port_manager_get_managed_port_func(
         &mut self,
-        bind_addr_out: SockaddrStorage,
-        udp_channel: AeronUdpChannel,
-        bind_addr: SockaddrStorage,
+        bind_addr_out: &SockaddrStorage,
+        udp_channel: &AeronUdpChannel,
+        bind_addr: &SockaddrStorage,
     ) -> ::std::os::raw::c_int;
 }
 pub struct AeronPortManagerGetManagedPortFuncLogger;
 impl AeronPortManagerGetManagedPortFuncCallback for AeronPortManagerGetManagedPortFuncLogger {
     fn handle_aeron_port_manager_get_managed_port_func(
         &mut self,
-        bind_addr_out: SockaddrStorage,
-        udp_channel: AeronUdpChannel,
-        bind_addr: SockaddrStorage,
+        bind_addr_out: &SockaddrStorage,
+        udp_channel: &AeronUdpChannel,
+        bind_addr: &SockaddrStorage,
     ) -> ::std::os::raw::c_int {
         log::info!(
             "{}({}\n)",
@@ -80076,15 +80059,15 @@ unsafe impl Send for AeronPortManagerGetManagedPortFuncLogger {}
 unsafe impl Sync for AeronPortManagerGetManagedPortFuncLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(SockaddrStorage, AeronUdpChannel, SockaddrStorage) -> ::std::os::raw::c_int>
+impl<F: FnMut(&SockaddrStorage, &AeronUdpChannel, &SockaddrStorage) -> ::std::os::raw::c_int>
     AeronPortManagerGetManagedPortFuncCallback for F
 {
     #[inline]
     fn handle_aeron_port_manager_get_managed_port_func(
         &mut self,
-        bind_addr_out: SockaddrStorage,
-        udp_channel: AeronUdpChannel,
-        bind_addr: SockaddrStorage,
+        bind_addr_out: &SockaddrStorage,
+        udp_channel: &AeronUdpChannel,
+        bind_addr: &SockaddrStorage,
     ) -> ::std::os::raw::c_int {
         self(bind_addr_out, udp_channel, bind_addr)
     }
@@ -80095,9 +80078,9 @@ impl<T: AeronPortManagerGetManagedPortFuncCallback> AeronPortManagerGetManagedPo
     #[inline]
     fn handle_aeron_port_manager_get_managed_port_func(
         &mut self,
-        bind_addr_out: SockaddrStorage,
-        udp_channel: AeronUdpChannel,
-        bind_addr: SockaddrStorage,
+        bind_addr_out: &SockaddrStorage,
+        udp_channel: &AeronUdpChannel,
+        bind_addr: &SockaddrStorage,
     ) -> ::std::os::raw::c_int {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_port_manager_get_managed_port_func(bind_addr_out, udp_channel, bind_addr)
@@ -80106,9 +80089,9 @@ impl<T: AeronPortManagerGetManagedPortFuncCallback> AeronPortManagerGetManagedPo
 impl AeronPortManagerGetManagedPortFuncCallback for NoHandler {
     fn handle_aeron_port_manager_get_managed_port_func(
         &mut self,
-        bind_addr_out: SockaddrStorage,
-        udp_channel: AeronUdpChannel,
-        bind_addr: SockaddrStorage,
+        bind_addr_out: &SockaddrStorage,
+        udp_channel: &AeronUdpChannel,
+        bind_addr: &SockaddrStorage,
     ) -> ::std::os::raw::c_int {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
     }
@@ -80151,9 +80134,9 @@ unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback<
         Default::default(),
         || {
             closure.handle_aeron_port_manager_get_managed_port_func(
-                bind_addr_out.into(),
-                udp_channel.into(),
-                bind_addr.into(),
+                &SockaddrStorage::from(bind_addr_out),
+                &AeronUdpChannel::from(udp_channel),
+                &SockaddrStorage::from(bind_addr),
             )
         },
     )
@@ -80193,15 +80176,15 @@ unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback_catch<
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
     catch_panic(Default::default(), || {
         closure.handle_aeron_port_manager_get_managed_port_func(
-            bind_addr_out.into(),
-            udp_channel.into(),
-            bind_addr.into(),
+            &SockaddrStorage::from(bind_addr_out),
+            &AeronUdpChannel::from(udp_channel),
+            &SockaddrStorage::from(bind_addr),
         )
     })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback_for_once_closure_catch<
-    F: FnMut(SockaddrStorage, AeronUdpChannel, SockaddrStorage) -> ::std::os::raw::c_int,
+    F: FnMut(&SockaddrStorage, &AeronUdpChannel, &SockaddrStorage) -> ::std::os::raw::c_int,
 >(
     state: *mut ::std::os::raw::c_void,
     bind_addr_out: *mut sockaddr_storage,
@@ -80233,18 +80216,22 @@ unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback_for_onc
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
     catch_panic(Default::default(), || {
-        closure(bind_addr_out.into(), udp_channel.into(), bind_addr.into())
+        closure(
+            &SockaddrStorage::from(bind_addr_out),
+            &AeronUdpChannel::from(udp_channel),
+            &SockaddrStorage::from(bind_addr),
+        )
     })
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronPortManagerFreeManagedPortFuncCallback {
-    fn handle_aeron_port_manager_free_managed_port_func(&mut self, bind_addr: SockaddrStorage) -> ();
+    fn handle_aeron_port_manager_free_managed_port_func(&mut self, bind_addr: &SockaddrStorage) -> ();
 }
 pub struct AeronPortManagerFreeManagedPortFuncLogger;
 impl AeronPortManagerFreeManagedPortFuncCallback for AeronPortManagerFreeManagedPortFuncLogger {
-    fn handle_aeron_port_manager_free_managed_port_func(&mut self, bind_addr: SockaddrStorage) -> () {
+    fn handle_aeron_port_manager_free_managed_port_func(&mut self, bind_addr: &SockaddrStorage) -> () {
         log::info!(
             "{}({}\n)",
             stringify!(handle_aeron_port_manager_free_managed_port_func),
@@ -80257,9 +80244,9 @@ unsafe impl Send for AeronPortManagerFreeManagedPortFuncLogger {}
 unsafe impl Sync for AeronPortManagerFreeManagedPortFuncLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(SockaddrStorage) -> ()> AeronPortManagerFreeManagedPortFuncCallback for F {
+impl<F: FnMut(&SockaddrStorage) -> ()> AeronPortManagerFreeManagedPortFuncCallback for F {
     #[inline]
-    fn handle_aeron_port_manager_free_managed_port_func(&mut self, bind_addr: SockaddrStorage) -> () {
+    fn handle_aeron_port_manager_free_managed_port_func(&mut self, bind_addr: &SockaddrStorage) -> () {
         self(bind_addr)
     }
 }
@@ -80267,13 +80254,13 @@ impl<F: FnMut(SockaddrStorage) -> ()> AeronPortManagerFreeManagedPortFuncCallbac
 #[doc = r" to share one callback instance across several registrations."]
 impl<T: AeronPortManagerFreeManagedPortFuncCallback> AeronPortManagerFreeManagedPortFuncCallback for Handler<T> {
     #[inline]
-    fn handle_aeron_port_manager_free_managed_port_func(&mut self, bind_addr: SockaddrStorage) -> () {
+    fn handle_aeron_port_manager_free_managed_port_func(&mut self, bind_addr: &SockaddrStorage) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_port_manager_free_managed_port_func(bind_addr)
     }
 }
 impl AeronPortManagerFreeManagedPortFuncCallback for NoHandler {
-    fn handle_aeron_port_manager_free_managed_port_func(&mut self, bind_addr: SockaddrStorage) -> () {
+    fn handle_aeron_port_manager_free_managed_port_func(&mut self, bind_addr: &SockaddrStorage) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
     }
 }
@@ -80309,7 +80296,7 @@ unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback<
     log_panic(
         stringify!(aeron_port_manager_free_managed_port_func_t_callback),
         (),
-        || closure.handle_aeron_port_manager_free_managed_port_func(bind_addr.into()),
+        || closure.handle_aeron_port_manager_free_managed_port_func(&SockaddrStorage::from(bind_addr)),
     )
 }
 #[allow(dead_code)]
@@ -80342,12 +80329,12 @@ unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback_catch<
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
     catch_panic((), || {
-        closure.handle_aeron_port_manager_free_managed_port_func(bind_addr.into())
+        closure.handle_aeron_port_manager_free_managed_port_func(&SockaddrStorage::from(bind_addr))
     })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback_for_once_closure_catch<
-    F: FnMut(SockaddrStorage) -> (),
+    F: FnMut(&SockaddrStorage) -> (),
 >(
     state: *mut ::std::os::raw::c_void,
     bind_addr: *mut sockaddr_storage,
@@ -80374,11 +80361,11 @@ unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback_for_on
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(state as *mut F) };
-    catch_panic((), || closure(bind_addr.into()))
+    catch_panic((), || closure(&SockaddrStorage::from(bind_addr)))
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronEndOfLifeResourceFreeCallback {
     fn handle_aeron_end_of_life_resource_free(&mut self) -> bool;
 }
@@ -80492,7 +80479,7 @@ unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback_for_once_closure
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronSendChannelLossSupplierFuncCallback {
     fn handle_aeron_send_channel_loss_supplier_func(&mut self, endpoint: *mut aeron_send_channel_endpoint_stct) -> ();
 }
@@ -80628,7 +80615,7 @@ unsafe extern "C" fn aeron_send_channel_loss_supplier_func_t_callback_for_once_c
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronReceiveChannelLossSupplierFuncCallback {
     fn handle_aeron_receive_channel_loss_supplier_func(
         &mut self,
@@ -80783,7 +80770,7 @@ unsafe extern "C" fn aeron_receive_channel_loss_supplier_func_t_callback_for_onc
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronStrToPtrHashMapForEachFuncCallback {
     fn handle_aeron_str_to_ptr_hash_map_for_each_func(&mut self, key: &str, value: *mut ::std::os::raw::c_void) -> ();
 }
@@ -80977,7 +80964,7 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback_for_once
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronInt64ToPtrHashMapForEachFuncCallback {
     fn handle_aeron_int64_to_ptr_hash_map_for_each_func(&mut self, key: i64, value: *mut ::std::os::raw::c_void) -> ();
 }
@@ -81127,7 +81114,7 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_for_each_func_t_callback_for_on
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronInt64ToPtrHashMapPredicateFuncCallback {
     fn handle_aeron_int64_to_ptr_hash_map_predicate_func(
         &mut self,
@@ -81297,12 +81284,12 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_predicate_func_t_callback_for_o
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronUriHostnameResolverFuncCallback {
     fn handle_aeron_uri_hostname_resolver_func(
         &mut self,
         host: &str,
-        hints: Addrinfo,
+        hints: &Addrinfo,
         info: *mut *mut addrinfo,
     ) -> ::std::os::raw::c_int;
 }
@@ -81311,7 +81298,7 @@ impl AeronUriHostnameResolverFuncCallback for AeronUriHostnameResolverFuncLogger
     fn handle_aeron_uri_hostname_resolver_func(
         &mut self,
         host: &str,
-        hints: Addrinfo,
+        hints: &Addrinfo,
         info: *mut *mut addrinfo,
     ) -> ::std::os::raw::c_int {
         log::info!(
@@ -81331,12 +81318,14 @@ unsafe impl Send for AeronUriHostnameResolverFuncLogger {}
 unsafe impl Sync for AeronUriHostnameResolverFuncLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(&str, Addrinfo, *mut *mut addrinfo) -> ::std::os::raw::c_int> AeronUriHostnameResolverFuncCallback for F {
+impl<F: FnMut(&str, &Addrinfo, *mut *mut addrinfo) -> ::std::os::raw::c_int> AeronUriHostnameResolverFuncCallback
+    for F
+{
     #[inline]
     fn handle_aeron_uri_hostname_resolver_func(
         &mut self,
         host: &str,
-        hints: Addrinfo,
+        hints: &Addrinfo,
         info: *mut *mut addrinfo,
     ) -> ::std::os::raw::c_int {
         self(host, hints, info)
@@ -81349,7 +81338,7 @@ impl<T: AeronUriHostnameResolverFuncCallback> AeronUriHostnameResolverFuncCallba
     fn handle_aeron_uri_hostname_resolver_func(
         &mut self,
         host: &str,
-        hints: Addrinfo,
+        hints: &Addrinfo,
         info: *mut *mut addrinfo,
     ) -> ::std::os::raw::c_int {
         let inner = unsafe { &mut *self.inner.get() };
@@ -81360,7 +81349,7 @@ impl AeronUriHostnameResolverFuncCallback for NoHandler {
     fn handle_aeron_uri_hostname_resolver_func(
         &mut self,
         host: &str,
-        hints: Addrinfo,
+        hints: &Addrinfo,
         info: *mut *mut addrinfo,
     ) -> ::std::os::raw::c_int {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -81404,7 +81393,7 @@ unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback<F: AeronUriHost
                 } else {
                     unsafe { std::ffi::CStr::from_ptr(host).to_str().unwrap_or("") }
                 },
-                hints.into(),
+                &Addrinfo::from(hints),
                 info.into(),
             )
         },
@@ -81448,14 +81437,14 @@ unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback_catch<F: AeronU
             } else {
                 unsafe { std::ffi::CStr::from_ptr(host).to_str().unwrap_or("") }
             },
-            hints.into(),
+            &Addrinfo::from(hints),
             info.into(),
         )
     })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback_for_once_closure_catch<
-    F: FnMut(&str, Addrinfo, *mut *mut addrinfo) -> ::std::os::raw::c_int,
+    F: FnMut(&str, &Addrinfo, *mut *mut addrinfo) -> ::std::os::raw::c_int,
 >(
     clientd: *mut ::std::os::raw::c_void,
     host: *const ::std::os::raw::c_char,
@@ -81493,20 +81482,20 @@ unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback_for_once_closur
             } else {
                 unsafe { std::ffi::CStr::from_ptr(host).to_str().unwrap_or("") }
             },
-            hints.into(),
+            &Addrinfo::from(hints),
             info.into(),
         )
     })
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronIfaddrFuncCallback {
     fn handle_aeron_ifaddr_func(
         &mut self,
         name: &str,
-        addr: Sockaddr,
-        netmask: Sockaddr,
+        addr: &Sockaddr,
+        netmask: &Sockaddr,
         flags: ::std::os::raw::c_uint,
     ) -> ::std::os::raw::c_int;
 }
@@ -81515,8 +81504,8 @@ impl AeronIfaddrFuncCallback for AeronIfaddrFuncLogger {
     fn handle_aeron_ifaddr_func(
         &mut self,
         name: &str,
-        addr: Sockaddr,
-        netmask: Sockaddr,
+        addr: &Sockaddr,
+        netmask: &Sockaddr,
         flags: ::std::os::raw::c_uint,
     ) -> ::std::os::raw::c_int {
         log::info!(
@@ -81537,15 +81526,15 @@ unsafe impl Send for AeronIfaddrFuncLogger {}
 unsafe impl Sync for AeronIfaddrFuncLogger {}
 #[doc = r" Any closure with the matching signature is a callback: methods that retain it"]
 #[doc = r" heap-allocate it into a [`Handler`] owned by the registering resource."]
-impl<F: FnMut(&str, Sockaddr, Sockaddr, ::std::os::raw::c_uint) -> ::std::os::raw::c_int> AeronIfaddrFuncCallback
+impl<F: FnMut(&str, &Sockaddr, &Sockaddr, ::std::os::raw::c_uint) -> ::std::os::raw::c_int> AeronIfaddrFuncCallback
     for F
 {
     #[inline]
     fn handle_aeron_ifaddr_func(
         &mut self,
         name: &str,
-        addr: Sockaddr,
-        netmask: Sockaddr,
+        addr: &Sockaddr,
+        netmask: &Sockaddr,
         flags: ::std::os::raw::c_uint,
     ) -> ::std::os::raw::c_int {
         self(name, addr, netmask, flags)
@@ -81558,8 +81547,8 @@ impl<T: AeronIfaddrFuncCallback> AeronIfaddrFuncCallback for Handler<T> {
     fn handle_aeron_ifaddr_func(
         &mut self,
         name: &str,
-        addr: Sockaddr,
-        netmask: Sockaddr,
+        addr: &Sockaddr,
+        netmask: &Sockaddr,
         flags: ::std::os::raw::c_uint,
     ) -> ::std::os::raw::c_int {
         let inner = unsafe { &mut *self.inner.get() };
@@ -81570,8 +81559,8 @@ impl AeronIfaddrFuncCallback for NoHandler {
     fn handle_aeron_ifaddr_func(
         &mut self,
         name: &str,
-        addr: Sockaddr,
-        netmask: Sockaddr,
+        addr: &Sockaddr,
+        netmask: &Sockaddr,
         flags: ::std::os::raw::c_uint,
     ) -> ::std::os::raw::c_int {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -81614,8 +81603,8 @@ unsafe extern "C" fn aeron_ifaddr_func_t_callback<F: AeronIfaddrFuncCallback>(
             } else {
                 unsafe { std::ffi::CStr::from_ptr(name).to_str().unwrap_or("") }
             },
-            addr.into(),
-            netmask.into(),
+            &Sockaddr::from(addr),
+            &Sockaddr::from(netmask),
             flags.into(),
         )
     })
@@ -81657,15 +81646,15 @@ unsafe extern "C" fn aeron_ifaddr_func_t_callback_catch<F: AeronIfaddrFuncCallba
             } else {
                 unsafe { std::ffi::CStr::from_ptr(name).to_str().unwrap_or("") }
             },
-            addr.into(),
-            netmask.into(),
+            &Sockaddr::from(addr),
+            &Sockaddr::from(netmask),
             flags.into(),
         )
     })
 }
 #[allow(dead_code)]
 unsafe extern "C" fn aeron_ifaddr_func_t_callback_for_once_closure_catch<
-    F: FnMut(&str, Sockaddr, Sockaddr, ::std::os::raw::c_uint) -> ::std::os::raw::c_int,
+    F: FnMut(&str, &Sockaddr, &Sockaddr, ::std::os::raw::c_uint) -> ::std::os::raw::c_int,
 >(
     clientd: *mut ::std::os::raw::c_void,
     name: *const ::std::os::raw::c_char,
@@ -81705,15 +81694,15 @@ unsafe extern "C" fn aeron_ifaddr_func_t_callback_for_once_closure_catch<
             } else {
                 unsafe { std::ffi::CStr::from_ptr(name).to_str().unwrap_or("") }
             },
-            addr.into(),
-            netmask.into(),
+            &Sockaddr::from(addr),
+            &Sockaddr::from(netmask),
             flags.into(),
         )
     })
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronRetransmitHandlerResendFuncCallback {
     fn handle_aeron_retransmit_handler_resend_func(
         &mut self,
@@ -81895,7 +81884,7 @@ unsafe extern "C" fn aeron_retransmit_handler_resend_func_t_callback_for_once_cl
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronLossGeneratorShouldDropFrameSimpleFuncCallback {
     fn handle_aeron_loss_generator_should_drop_frame_simple_func(
         &mut self,
@@ -82098,7 +82087,7 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_simple_func_t_callba
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronLossGeneratorShouldDropFrameDetailedFuncCallback {
     fn handle_aeron_loss_generator_should_drop_frame_detailed_func(
         &mut self,
@@ -82368,7 +82357,7 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_detailed_func_t_call
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronInt64ToTaggedPtrHashMapForEachFuncCallback {
     fn handle_aeron_int64_to_tagged_ptr_hash_map_for_each_func(
         &mut self,
@@ -82552,7 +82541,7 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronInt64ToTaggedPtrHashMapPredicateFuncCallback {
     fn handle_aeron_int64_to_tagged_ptr_hash_map_predicate_func(
         &mut self,
@@ -82736,7 +82725,7 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callbac
 }
 #[doc = r""]
 #[doc = r""]
-#[doc = r" _(note you must copy any arguments that you use afterwards even those with static lifetimes)_"]
+#[doc = r" _(note wrapper arguments are borrowed for the call only; copy out any fields, including strings, you use afterwards)_"]
 pub trait AeronTermGapScannerGapDetectedFuncCallback {
     fn handle_aeron_term_gap_scanner_on_gap_detected_func(
         &mut self,
