@@ -1,19 +1,17 @@
 # rusteron-media-driver
 
-**rusteron-media-driver** is a Rust interface to the Aeron Media Driver, responsible for managing low-latency messaging infrastructure between producers and consumers. It's part of the [Rusteron](https://github.com/gsrxyz/rusteron) project and provides both standalone and embedded driver support.
+rusteron-media-driver is a Rust interface to the Aeron Media Driver, which manages low-latency messaging between producers and consumers. It is part of the [Rusteron](https://github.com/gsrxyz/rusteron) project and supports both standalone and embedded drivers.
 
-> For production deployments, we recommend using the Aeron **Java** or **C** media driver.  
-> The embedded version provided here is best suited for integration tests or lightweight environments.
+> For production deployments, we recommend the Aeron Java or C media driver.
+> The embedded version here is best suited to integration tests and lightweight environments.
 
 ---
 
 ## Sponsored by GSR
 
-**Rusteron** is proudly sponsored and maintained by [GSR](https://www.gsr.io), a global leader in algorithmic trading and market making in digital assets.
+Rusteron is sponsored and maintained by [GSR](https://www.gsr.io), a global leader in algorithmic trading and market making in digital assets.
 
-It powers mission-critical infrastructure in GSR's real-time trading stack and is now developed under the official GSR GitHub organization as part of our commitment to open-source excellence and community collaboration.
-
-We welcome contributions, feedback, and discussions. If you're interested in integrating or contributing, please open an issue or reach out directly.
+It runs in GSR's real-time trading stack and is developed under the GSR GitHub organisation. We welcome contributions, feedback and discussion. To integrate or contribute, open an issue or reach out directly.
 
 ---
 
@@ -56,11 +54,11 @@ rusteron-media-driver = { version = "0.2", features = ["static", "precompile-rus
 
 </details>
 
-Ensure the Aeron C libraries are properly installed and available on your system.
+Make sure the Aeron C libraries are installed and available on your system.
 
 ---
 
-## Usage Examples
+## Usage examples
 
 <details>
 <summary>Standard Media Driver</summary>
@@ -110,7 +108,7 @@ For a caller-built `AeronDriverContext`, `AeronDriver::launch_embedded_guard(ctx
 ## Building C against Aeron's headers
 
 Some driver extensions are C compiled against Aeron's own headers. The main one is a custom
-UDP transport, such as kernel bypass with DPDK or ef_vi: it fills in Aeron's
+UDP transport, such as kernel bypass with DPDK or ef_vi. It fills in Aeron's
 `aeron_udp_channel_transport_bindings_t` and is installed with
 `AeronDriverContext::set_udp_channel_transport_bindings`. That C must see the headers of the
 Aeron this crate builds, or the structs it fills in will not match the driver's, and those
@@ -136,12 +134,12 @@ fn main() {
 }
 ```
 
-The key has one cost: Cargo allows a single package per `links` name in a build, so two
+The key has one cost. Cargo allows a single package per `links` name in a build, so two
 semver-incompatible versions of `rusteron-media-driver` cannot share a dependency graph. The
 workspace crate [`links-test`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-media-driver/links-test) compiles a C file against these paths, so the
 export cannot break unnoticed.
 
-## Contributing & License
+## Contributing & license
 
 See the root [README](https://github.com/gsrxyz/rusteron#readme) and [CONTRIBUTING.md](https://github.com/gsrxyz/rusteron/blob/main/CONTRIBUTING.md). Build requirements are in [BUILD.md](https://github.com/gsrxyz/rusteron/blob/main/BUILD.md).
 Dual-licensed under MIT or Apache-2.0.
@@ -152,6 +150,6 @@ Dual-licensed under MIT or Apache-2.0.
 
 Special thanks to:
 
-* [@mimran1980](https://github.com/mimran1980), a core low-latency developer at GSR and the original creator of Rusteron - your work made this possible!
+* [@mimran1980](https://github.com/mimran1980), a core low-latency developer at GSR and the original creator of Rusteron. Your work made this possible.
 * [@bspeice](https://github.com/bspeice) for the original [`libaeron-sys`](https://github.com/bspeice/libaeron-sys)
-* The [Aeron](https://github.com/real-logic/aeron) community for open protocol excellence
+* The [Aeron](https://github.com/real-logic/aeron) community for the open protocol

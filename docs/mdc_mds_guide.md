@@ -1,4 +1,4 @@
-# Multi-Destination Subscription (MDC / MDS) Guide
+# Multi-destination subscription (MDC / MDS) guide
 
 Multi-Destination Connections (MDC) allow an Aeron publisher or subscriber to dynamically bind to multiple destination endpoints under a single publication or subscription handle. This is useful for:
 - Consuming redundant feeds (A/B feed arbitration).
@@ -6,7 +6,7 @@ Multi-Destination Connections (MDC) allow an Aeron publisher or subscriber to dy
 
 ---
 
-## Official Aeron Documentation
+## Official Aeron documentation
 For in-depth concepts, architectural details, and protocol mechanics:
 - [Aeron Wiki: Multi-Destination Connections](https://github.com/aeron-io/aeron/wiki/Multi-Destination-Connections)
 - [Aeron Wiki: C++ Programming Guide (MDC section)](https://github.com/aeron-io/aeron/wiki/Cpp-Programming-Guide#multi-destination-connections)
@@ -14,9 +14,9 @@ For in-depth concepts, architectural details, and protocol mechanics:
 
 ---
 
-## Rust `rusteron-client` Snippets
+## Rust `rusteron-client` snippets
 
-### 1. Manual MDS Subscriber (Programmatically Adding Destinations)
+### 1. Manual MDS subscriber (adding destinations programmatically)
 
 To programmatically control the destinations bound to a subscription, specify `control-mode=manual` on the channel URI.
 
@@ -50,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### 2. Removing Destinations Programmatically
+### 2. Removing destinations programmatically
 
 You can dynamically detach endpoints as network paths change or servers fail:
 
@@ -63,7 +63,7 @@ subscription.remove_destination(&cformat!("{destination_a}"), Duration::from_sec
 # Ok(()) }
 ```
 
-### 3. MDC Publication (Dynamic Control Mode)
+### 3. MDC publication (dynamic control mode)
 
 A publication with a control endpoint and `control-mode=dynamic` sends to every subscriber that registers with it. Each subscriber names its own endpoint and the publisher's control address:
 

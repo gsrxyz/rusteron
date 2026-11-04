@@ -7,7 +7,7 @@
 // point: "../rusteron-code-gen/src/build_common.rs" works in the monorepo but
 // the directory is "rusteron-code-gen-{version}" on crates.io.  By placing a
 // copy in each crate's own root we sidestep the versioned-dir problem
-// entirely — "build_common.rs" is always right next to build.rs.
+// entirely. "build_common.rs" is always right next to build.rs.
 
 use std::{env, fs, path::PathBuf};
 

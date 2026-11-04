@@ -184,7 +184,6 @@ impl EmbeddedArchiveMediaDriverProcess {
     ///
     /// This function cleans and recreates the Aeron and archive directories, configures the JVM to run
     /// the Aeron Archive Media Driver, and starts the process with the specified control channels.
-    /// It ensures that the environment is correctly prepared for Aeron communication.
     ///
     /// # Parameters
     /// - `aeron_dir`: The directory for the Aeron media driver to use for its IPC mechanisms.
@@ -372,7 +371,7 @@ impl Drop for EmbeddedArchiveMediaDriverProcess {
 ///
 /// The embedded archive media driver is a Java process, so the
 /// persistent-subscription tests use this to **skip themselves** when Java
-/// isn't installed — instead of being blanket `#[ignore]`d. With Java present
+/// isn't installed, instead of being blanket `#[ignore]`d. With Java present
 /// they run normally under `cargo test`; without it they no-op and pass.
 pub fn java_available() -> bool {
     Command::new("java")

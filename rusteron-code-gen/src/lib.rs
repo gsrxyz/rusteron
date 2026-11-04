@@ -29,7 +29,7 @@ pub const CUSTOM_AERON_CODE: &str = include_str!("./aeron_custom.rs");
 pub const CUSTOM_ARCHIVE_CODE: &str = include_str!("./aeron_custom_archive.rs");
 pub const COMMON_CODE: &str = include_str!("./common.rs");
 
-/// Minimal `AeronArchiveError` stub for the `archive` trybuild test only — the real
+/// Minimal `AeronArchiveError` stub for the `archive` trybuild test only. The real
 /// type (with typed codes, parsing, Display) lives in `aeron_custom_archive.rs` and is
 /// pulled into rusteron-archive via its build.rs. The trybuild test compiles generated
 /// code in isolation, so the real CUSTOM_ARCHIVE_CODE can't be used (it references
@@ -267,7 +267,7 @@ mod tests {
         // The generated aeron_archive_t methods reference AeronArchiveError, which in the
         // real crate is supplied by CUSTOM_ARCHIVE_CODE. That file also references
         // hand-written rusteron-archive/src/lib.rs types (e.g. AeronArchiveAsyncConnect),
-        // so it can't be compiled standalone here. Inject a minimal stub instead — the
+        // so it can't be compiled standalone here. Inject a minimal stub instead. The
         // trybuild test only checks generated signatures compile; the real type's
         // behaviour is covered by rusteron-archive's own tests.
         append_to_file(&file, TRYBUILD_ARCHIVE_ERROR_STUB).unwrap();
@@ -1028,6 +1028,6 @@ mod test {
     }
 
     // NOTE: test_drop_does_not_call_cleanup_if_check_for_is_closed_* removed
-    // because check_for_is_closed was deleted — the cleanup closure + Rc graph
+    // because check_for_is_closed was deleted. The cleanup closure + Rc graph
     // are now the sole teardown mechanism (see rusteron-code-gen/src/common.rs).
 }

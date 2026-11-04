@@ -1,8 +1,8 @@
 //! # Basic publisher
 //!
 //! Port of Aeron's `basic_publisher.c` / `BasicPublisher.java`: publish messages on a
-//! channel+stream until interrupted. Showcases the typed-offer retry pattern — retry the
-//! retryable errors (back-pressure / admin action / not-connected), stop on fatal ones.
+//! channel+stream until interrupted. Shows the typed-offer retry pattern. Retry the
+//! retryable errors (back-pressure / admin action / not-connected) and stop on fatal ones.
 //!
 //! Run standalone against [`basic_subscriber`]:
 //!

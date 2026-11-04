@@ -69,7 +69,7 @@ impl AeronArchiveErrorCode {
         }
     }
 
-    /// Resource-exhaustion codes — the operation can succeed later once capacity frees up
+    /// Resource-exhaustion codes. The operation can succeed later once capacity frees up
     /// (a replay/recording slot or storage). Everything else is a state/identity error:
     /// fix the request, don't retry it blindly.
     pub const fn is_resource_exhausted(&self) -> bool {
@@ -111,7 +111,7 @@ impl AeronArchiveError {
     /// thread-local error. Server responses embed `errorCode=N` in `aeron_errmsg()`;
     /// local client failures store their negative code in `aeron_errcode()`.
     ///
-    /// Unlike [`AeronCError::from_code`], this *does* read and copy the error text —
+    /// Unlike [`AeronCError::from_code`], this *does* read and copy the error text,
     /// preserving the archive's response details. Archive control operations are
     /// request/response calls, not hot-path loops, so the copy is acceptable there.
     #[cold]
@@ -296,8 +296,8 @@ impl AeronArchiveReplayParamsBuilder {
 
 /// [`AeronArchiveReplicationParams`] plus the string storage its C struct points into.
 ///
-/// The C params struct stores raw `char *` pointers, so the strings must outlive it —
-/// this wrapper owns them. Deref gives the params for `archive.replicate(...)`.
+/// The C params struct stores raw `char *` pointers, so the strings must outlive it,
+/// so this wrapper owns them. Deref gives the params for `archive.replicate(...)`.
 pub struct AeronArchiveReplicationParamsOwned {
     params: AeronArchiveReplicationParams,
     _credentials: AeronArchiveEncodedCredentials,
@@ -432,8 +432,8 @@ impl AeronArchive {
     /// Connect to an Aeron Archive in one call: context wiring, async connect, and a
     /// bounded blocking poll.
     ///
-    /// For tuned setups — error handlers, credentials, recording-signal consumers,
-    /// message timeouts — build the [`AeronArchiveContext`] yourself and use
+    /// To tune error handlers, credentials, recording-signal consumers or
+    /// message timeouts, build the [`AeronArchiveContext`] yourself and use
     /// [`AeronArchiveAsyncConnect`]. The context used here is retrievable afterwards via
     /// [`Self::get_archive_context`].
     pub fn connect(
@@ -498,10 +498,10 @@ impl AeronArchiveRecordingSignal {
 }
 
 /// Route a persistent subscription through [`AeronFragmentClosureAssembler`] for
-/// API consistency with [`AeronSubscription`]. Note: the C
+/// API consistency with [`AeronSubscription`]. The C
 /// `aeron_archive_persistent_subscription_poll` already reassembles fragments
 /// internally (via `aeron_image_fragment_assembler_handler`), so the delegate
-/// receives whole messages either way — the Rust assembler here is a pass-through.
+/// receives whole messages either way. The Rust assembler here is a pass-through.
 /// Prefer `ps.poll_fn(handler, limit)` directly unless you want the shared API.
 impl FragmentAssemblable for AeronArchivePersistentSubscription {
     #[inline]

@@ -252,7 +252,7 @@ mod tests {
         }
 
         impl AeronFragmentHandlerCallback for FragmentHandler {
-            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: AeronHeader) {
+            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: &AeronHeader) {
                 let received_seq = u64::from_le_bytes(buffer.try_into().unwrap());
                 if received_seq != self.expected_seq {
                     error!("Gap detected! Expected {} but got {}", self.expected_seq, received_seq);

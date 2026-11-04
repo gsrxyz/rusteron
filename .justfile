@@ -93,7 +93,7 @@ build-docker-samples:
 bench:
   cargo bench
 
-# The hot-path bench with cross-language LTO (Linux): needs clang, lld and llvm-ar of rustc's LLVM major
+# The hot-path bench with cross-language LTO (Linux). Needs clang, lld and llvm-ar of rustc's LLVM major
 bench-lto:
   #!/usr/bin/env bash
   set -euo pipefail
@@ -111,7 +111,7 @@ docs:
   cargo test  -p rusteron-client --doc --features multi-threaded
   cargo doc --workspace --no-deps --open
 
-# CANNOT USE MIRI due to ffi :(
+# CANNOT USE MIRI due to ffi
 #check-miri:
 #  rustup toolchain install nightly --component miri
 #  rustup run nightly cargo miri setup
@@ -142,7 +142,7 @@ test-valgrind: _build-valgrind-image
       rusteron-valgrind \
       /work/scripts/valgrind-run.sh
 
-# Generate suppression entries for any errors Valgrind finds — append output to valgrind.supp.
+# Generate suppression entries for any errors Valgrind finds. Append output to valgrind.supp.
 # Usage: just valgrind-gen-suppressions >> valgrind.supp
 valgrind-gen-suppressions: _build-valgrind-image
     docker run --rm --platform=linux/amd64 \

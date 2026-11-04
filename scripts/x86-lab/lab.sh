@@ -25,7 +25,7 @@ export PYTHONWARNINGS=ignore::SyntaxWarning COPYFILE_DISABLE=1
 
 # az 2.90 on Python 3.14 sometimes dies importing `requests` on two threads at once
 # (`_DeadlockError`) before it sends anything; the same call then succeeds. Only that
-# failure is retried. By path, not `command az`: bash 3.2 execs a command run through
+# failure is retried. By path, not `command az`, because bash 3.2 execs a command run through
 # `command` in place of a background subshell.
 az_bin=$(type -P az) || { echo "az is not on PATH" >&2; exit 1; }
 az() {
@@ -334,7 +334,7 @@ pair_keys() {
 
 main() {
     mkdir -p "$out"
-    # only on free credit: the subscription has no spending limit, so past the credit a card pays
+    # only on free credit. The subscription has no spending limit, so past the credit a card pays
     local credit
     credit=$(credit_left)
     if ! [[ $credit =~ ^[0-9]+(\.[0-9]+)?$ ]] || ! awk -v c="$credit" 'BEGIN { exit !(c > 10) }'; then

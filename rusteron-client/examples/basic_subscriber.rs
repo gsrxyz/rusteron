@@ -1,7 +1,7 @@
 //! # Basic subscriber
 //!
 //! Port of Aeron's `basic_subscriber.c` / `BasicSubscriber.java`: subscribe to a
-//! channel+stream and print fragments until interrupted. Showcases per-subscription
+//! channel+stream and print fragments until interrupted. Shows per-subscription
 //! image lifecycle handlers and the zero-allocation `poll_fn`.
 //!
 //! Run standalone against [`basic_publisher`]:
@@ -34,10 +34,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Image lifecycle handlers are per-subscription in the C API (unlike Java's
     // Context-level handlers). Each fires with the subscription + the new image.
-    let on_avail = Handler::new(|_sub: AeronSubscription, _image: AeronImage| {
+    let on_avail = Handler::new(|_sub: &AeronSubscription, _image: &AeronImage| {
         println!(">> available image");
     });
-    let on_unavail = Handler::new(|_sub: AeronSubscription, _image: AeronImage| {
+    let on_unavail = Handler::new(|_sub: &AeronSubscription, _image: &AeronImage| {
         println!("<< unavailable image");
     });
 

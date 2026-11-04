@@ -1,17 +1,17 @@
-## How to Build
+## How to build
 
-To build **rusteron-archive**, ensure the following are installed:
+To build rusteron-archive, ensure the following are installed:
 
 ### Requirements
 
-- **Rust**: Install via [rustup.rs](https://rustup.rs/)
+- Rust: install via [rustup.rs](https://rustup.rs/)
   ```bash
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
   ```
 
-* **Java 17+**: Required for Aeron C bindings.
+* Java 17+: required for Aeron C bindings.
 
-* **CMake & Clang**: Required to compile C bindings.
+* CMake and Clang: required to compile C bindings.
 
   ```bash
   sudo apt install cmake clang uuid-dev libbsd-dev -y
@@ -21,7 +21,7 @@ To build **rusteron-archive**, ensure the following are installed:
 
   Java, CMake and Clang are only needed to build Aeron C from source (the default). With `features = ["static", "precompile"]` (or `precompile-rustls`) prebuilt libraries are downloaded instead (macOS and Linux); Linux still needs `uuid-dev` and `libbsd-dev` to link.
 
-* **just** (optional): Command runner for build tasks.
+* just (optional): command runner for build tasks.
 
   ```bash
   cargo install just
@@ -31,14 +31,14 @@ To build **rusteron-archive**, ensure the following are installed:
 
 ### Installing Java 17
 
-**macOS** (via Homebrew):
+macOS (via Homebrew):
 
 ```bash
 brew install openjdk@17
 sudo ln -sfn $(brew --prefix openjdk@17)/libexec/openjdk.jdk /Library/Java/JavaVirtualMachines/openjdk-17.jdk
 ```
 
-**Linux**:
+Linux:
 
 * Ubuntu/Debian:
 
@@ -56,12 +56,12 @@ sudo ln -sfn $(brew --prefix openjdk@17)/libexec/openjdk.jdk /Library/Java/JavaV
   sudo pacman -S jdk-openjdk
   ```
 
-**Windows**:
+Windows:
 Install from [Adoptium](https://adoptium.net/) (Temurin 17). Ensure environment variables are set during installation.
 
 ---
 
-### Build Commands
+### Build commands
 
 With everything installed:
 
@@ -80,8 +80,7 @@ just test    # Run tests
 
 ### Troubleshooting
 
-**Missing Aeron files?**
-Initialize submodules:
+If Aeron files are missing, initialise the submodules:
 
 ```bash
 git submodule update --init --recursive

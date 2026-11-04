@@ -4,7 +4,7 @@
 //! message, pong echoes it back, and ping records the round trip in a histogram.
 //!
 //! Set `AERON_DIR` to use a running media driver; otherwise one is embedded. As in Aeron's
-//! `embedded-ping-pong` script, term buffers are non-sparse and the clients pre-touch them, the setting to use for latency-sensitive streams.
+//! `embedded-ping-pong` script, term buffers are non-sparse and the clients pre-touch them. Use this setting for latency-sensitive streams.
 //!
 //! ```bash
 //! cargo run --release --features examples --example embedded_ping_pong

@@ -1,10 +1,10 @@
-# Media Driver Configuration & Back-pressure Guide
+# Media Driver configuration and back-pressure guide
 
-Aeron is brokerless but requires a Media Driver to handle the transport protocol (UDP or IPC). Managing the Media Driver configuration and handling back-pressure correctly is essential for low-latency performance.
+Aeron is brokerless but requires a Media Driver to handle the transport protocol (UDP or IPC). Low-latency performance depends on configuring the Media Driver and handling back-pressure correctly.
 
 ---
 
-## Official Aeron Documentation
+## Official Aeron documentation
 For tuning guides, system properties, and thread models:
 - [Aeron Wiki: Configuration Options](https://github.com/aeron-io/aeron/wiki/Configuration-Options)
 - [Aeron Wiki: Monitoring and Debugging](https://github.com/aeron-io/aeron/wiki/Monitoring-and-Debugging)
@@ -13,9 +13,9 @@ For tuning guides, system properties, and thread models:
 
 ---
 
-## Rust Configuration & Tuning Snippets
+## Rust configuration and tuning snippets
 
-### 1. Launching an Embedded C Media Driver
+### 1. Launching an embedded C Media Driver
 
 With `rusteron-media-driver`, you can embed the C-based Media Driver directly in your Rust process:
 
@@ -42,9 +42,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For tests, `rusteron_media_driver::testing::EmbeddedDriver::launch_with(|ctx| { ctx.set_threading_mode(..)?; Ok(()) })` also picks a unique directory.
 
-### 2. Handling Publication Back-Pressure (`BACK_PRESSURED`)
+### 2. Handling publication back-pressure (`BACK_PRESSURED`)
 
-`offer` returns `Err(AeronOfferError::BackPressured)` when the publication has reached its publisher limit: the slowest subscriber (or the sender's flow control) has not consumed enough of the term buffer. `is_retryable()` is true for it, for `AdminAction` (term rotation) and for `NotConnected`; the other errors are fatal. The idiomatic pattern is to idle, then retry, up to your own deadline:
+`offer` returns `Err(AeronOfferError::BackPressured)` when the publication has reached its publisher limit, because the slowest subscriber (or the sender's flow control) has not consumed enough of the term buffer. `is_retryable()` is true for it, for `AdminAction` (term rotation) and for `NotConnected`; the other errors are fatal. The idiomatic pattern is to idle, then retry, up to your own deadline:
 
 ```rust,no_run
 use rusteron_client::{AeronPublication, BackoffIdleStrategy, IdleStrategy};

@@ -24,7 +24,7 @@ struct Counter {
 }
 
 impl AeronFragmentHandlerCallback for Counter {
-    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: AeronHeader) {
+    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader) {
         // count bad messages instead of asserting: a panic cannot unwind into C and aborts
         if buffer.len() != MESSAGE_LEN || buffer.iter().any(|&b| b != b'1') {
             self.bad += 1;

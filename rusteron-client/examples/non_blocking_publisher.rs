@@ -1,8 +1,8 @@
 //! # Non-blocking publisher (the production pattern)
 //!
-//! Companion to [`basic_publisher`], showing the **idiomatic non-blocking** way to add a
+//! Companion to [`basic_publisher`], showing the **non-blocking** way to add a
 //! publication. Every other example uses [`Aeron::add_publication`] / [`poll_blocking`] for
-//! brevity — those block the calling thread in a busy-poll loop, which is fine for a terse
+//! brevity. Those block the calling thread in a busy-poll loop, which is fine for a short
 //! example but **not** what you want in production.
 //!
 //! This example drives the async poller's [`poll()`](AeronAsyncAddPublication::poll) from a
@@ -53,8 +53,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if Instant::now() > deadline {
             return Err("timed out waiting for publication".into());
         }
-        // This is the point: while the publication is coming up we can service other work —
-        // other subscriptions, timers, a duty cycle, telemetry, etc. — instead of blocking.
+        // While the publication is coming up we can service other work instead of blocking,
+        // such as other subscriptions, timers, a duty cycle or telemetry
         do_other_work();
     };
     println!("publishing to {} on stream id {STREAM_ID}", CHANNEL.to_str()?);
@@ -80,8 +80,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Placeholder for whatever else your application does — servicing other subscriptions,
-/// timers, telemetry, etc. In a real app this is your main duty cycle.
+/// Placeholder for whatever else your application does, such as servicing other
+/// subscriptions, timers or telemetry. In a real app this is your main duty cycle
 fn do_other_work() {
     std::hint::spin_loop();
 }

@@ -2,17 +2,17 @@
 //!
 //! The patterns every archive application needs, in one place:
 //!
-//! 1. **Error handlers on both contexts** — without one, the client's default handler
+//! 1. **Error handlers on both contexts**. Without one, the client's default handler
 //!    prints and exits the process, and the archive context drops errors that arrive
 //!    during other calls.
-//! 2. **Recording signal consumer** — the archive's signals about each recording (START,
-//!    STOP, EXTEND, REPLICATE, MERGE, SYNC, DELETE, REPLICATE_END), delivered from
+//! 2. **Recording signal consumer**. The archive's signals about each recording (START,
+//!    STOP, EXTEND, REPLICATE, MERGE, SYNC, DELETE, REPLICATE_END) are delivered from
 //!    `archive.do_work()`.
-//! 3. **Typed control-session errors** — a blocking call returns the archive's refusal
+//! 3. **Typed control-session errors**. A blocking call returns the archive's refusal
 //!    as an `AeronArchiveError` (match on `e.code`); errors for requests no longer
 //!    awaited arrive later on the control channel, so drain them each cycle with
 //!    `archive.do_work()` (to the context's error handler) or `archive.poll_for_error()`.
-//! 4. **Archive down** — a request fails with a `Generic` code: `offer failed` once the
+//! 4. **Archive down**. A request fails with a `Generic` code: `offer failed` once the
 //!    control request publication sees the archive gone, or a response timeout
 //!    (`AERON_ARCHIVE_MESSAGE_TIMEOUT`, 10 s by default) before that. A lost archive shows
 //!    as `archive.get_control_response_subscription().is_connected()` turning false; then
@@ -72,7 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── 2. Recording signals: the archive announces recording lifecycle events ──
     struct SignalLogger(Arc<AtomicUsize>);
     impl AeronArchiveRecordingSignalConsumerFuncCallback for SignalLogger {
-        fn handle_aeron_archive_recording_signal_consumer_func(&mut self, signal: AeronArchiveRecordingSignal) {
+        fn handle_aeron_archive_recording_signal_consumer_func(&mut self, signal: &AeronArchiveRecordingSignal) {
             self.0.fetch_add(1, Ordering::SeqCst);
             println!("[recording signal] {:?}", signal.signal());
         }
@@ -103,8 +103,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop(publication);
 
     // ── 3. Control-session errors ──
-    // Ask the archive to replay a recording that does not exist: the blocking call
-    // returns the refusal, typed.
+    // Ask the archive to replay a recording that does not exist. The blocking call
+    // returns the refusal, typed
     let bogus_recording_id = 424242;
     let params = AeronArchiveReplayParams::builder().position(0).length(100).build()?;
     let replay_port = find_unused_udp_port(events_port + 1).expect("no free port");

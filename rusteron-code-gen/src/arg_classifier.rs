@@ -21,21 +21,21 @@ use syn::{Type, parse_str};
 /// (signature, FFI call, handler registration, and the `_fn` variant).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArgRole {
-    /// `*mut <own type>` — becomes `&self` / `self.get_inner()`.
+    /// `*mut <own type>`. Becomes `&self` / `self.get_inner()`.
     SelfPointer,
-    /// `*mut <other wrapper>` — `&OtherWrapper` param, `name.get_inner()` call.
+    /// `*mut <other wrapper>`. Becomes an `&OtherWrapper` param and a `name.get_inner()` call.
     WrapperPointer,
-    /// Callback invoked only during the FFI call — `Option<&Handler<T>>`, `_fn` capable.
+    /// Callback invoked only during the FFI call. Typed `Option<&Handler<T>>`, `_fn` capable.
     HandlerSync,
-    /// Callback the C client retains — borrow style (`Option<&Handler<T>>`), registered
+    /// Callback the C client retains. Borrow style (`Option<&Handler<T>>`), registered
     /// as a dependency of `self`.
     HandlerRetainedBorrowed,
-    /// Callback the C client retains — owned setter style (`Option<T>`), heap-allocated in
+    /// Callback the C client retains. Owned setter style (`Option<T>`), heap-allocated in
     /// a prelude, registered, and returned to the caller.
     HandlerRetainedOwned,
     /// clientd / length / merged arguments that emit nothing of their own.
     Absorbed,
-    /// Everything else — handled by the existing `ReturnType` conversions.
+    /// Everything else, handled by the existing `ReturnType` conversions.
     Plain,
 }
 
@@ -67,7 +67,7 @@ pub struct ClassifiedMethodArgs {
     pub args: Vec<ClassifiedArg>,
     /// The owned retained-handler argument, when this method is an owned setter.
     pub owned_retained: Option<Arg>,
-    /// Every handler argument is sync — a `_fn` stack-closure variant is sound.
+    /// Every handler argument is sync, so a `_fn` stack-closure variant is sound.
     pub once_capable: bool,
 }
 
@@ -297,7 +297,7 @@ fn classify_arg(
         return none;
     }
 
-    // plain arguments (strings, byte arrays, primitives, out-params) — the existing
+    // plain arguments (strings, byte arrays, primitives, out-params) use the existing
     // ReturnType conversions already concentrate this knowledge
     let name = arg.as_ident();
     let rt = ReturnType::new(arg.clone(), wrappers.clone());

@@ -26,12 +26,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     aeron.start()?;
 
     // the image passed here is valid only during the call; retain one from the subscription
-    let on_available = Handler::new(|_sub: AeronSubscription, image: AeronImage| {
+    let on_available = Handler::new(|_sub: &AeronSubscription, image: &AeronImage| {
         if let Ok(constants) = image.get_constants() {
             println!(">> image available: session {}", constants.session_id);
         }
     });
-    let on_unavailable = Handler::new(|_sub: AeronSubscription, image: AeronImage| {
+    let on_unavailable = Handler::new(|_sub: &AeronSubscription, image: &AeronImage| {
         println!("<< image unavailable at position {}", image.position());
     });
     let subscription = aeron

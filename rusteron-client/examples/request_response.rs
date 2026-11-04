@@ -5,7 +5,7 @@
 //! subscription registration id onto the request publication (`response-correlation-id=`);
 //! the server reads each client's requests from that client's own image and answers on a
 //! response publication keyed by the image's correlation id. No addressing logic in user
-//! code — the driver wires responses back to the right requester.
+//! code. The driver wires responses back to the right requester.
 //!
 //! ```bash
 //! cargo run --release --features "static precompile" --example request_response
@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // the image callback runs on the client conductor thread, so it only queues the new client
             let new_clients: Arc<Mutex<Vec<(i32, i64)>>> = Arc::default();
             let on_image_clients = new_clients.clone();
-            let image_handler = Handler::new(move |_subscription: AeronSubscription, image: AeronImage| {
+            let image_handler = Handler::new(move |_subscription: &AeronSubscription, image: &AeronImage| {
                 if let Ok(constants) = image.get_constants() {
                     on_image_clients
                         .lock()

@@ -1,28 +1,28 @@
-**Note:** These benchmarks are environment-sensitive; rerun them on your own hardware. Everything below was measured on 2026-10-09 on two Azure `Standard_D8s_v6` VMs (Intel Xeon Platinum 8573C, 4 cores × 2 SMT threads, 32 GiB) in one proximity placement group in North Central US, with accelerated networking (the MANA NIC). They ran Debian 13 with Linux 7.2.6 (the `trixie-backports` cloud kernel), Aeron 1.52.2 and rustc 1.95.0. UDP is measured between the two VMs, never over loopback. The archive-on-disk section comes from a later run (2026-10-10) on two `Standard_D8ds_v6` in West US 3.
+These benchmarks are environment-sensitive; rerun them on your own hardware. Everything below was measured on 2026-10-09 on two Azure `Standard_D8s_v6` VMs (Intel Xeon Platinum 8573C, 4 cores × 2 SMT threads, 32 GiB) in one proximity placement group in North Central US, with accelerated networking (the MANA NIC). They ran Debian 13 with Linux 7.2.6 (the `trixie-backports` cloud kernel), Aeron 1.52.2 and rustc 1.95.0. UDP is measured between the two VMs, never over loopback. The archive-on-disk section comes from a later run (2026-10-10) on two `Standard_D8ds_v6` in West US 3.
 
 # Intel D8s_v6 pair on Azure (2026-10-09)
 
 ## Summary
 
-- **UDP between the hosts:** a 32-byte round trip took 38 µs at p50 with a pinned, dedicated driver on the stock kernel. With CPU isolation and `net.core.busy_read`, it took 31 µs at p50 and 46 µs at p99.99, against 157 µs without busy polling.
-  - Putting the NIC's interrupts on the receiver's core did nearly as well (p99.99 49–57 µs). With the kernel tuned it gave the lowest max: 74 µs (62–84).
+- **UDP between the hosts.** A 32-byte round trip took 38 µs at p50 with a pinned, dedicated driver on the stock kernel. With CPU isolation and `net.core.busy_read`, it took 31 µs at p50 and 46 µs at p99.99, against 157 µs without busy polling.
+  - Putting the NIC's interrupts on the receiver's core did nearly as well (p99.99 49–57 µs). With the kernel tuned it gave the lowest max, 74 µs (62–84).
   - Without one of these two, p99.99 stayed at 120–160 µs in every kernel state. On the stock kernel neither helped; only on isolated CPUs did they cut the tail.
-- **UDP throughput** (32-byte messages):
+- UDP throughput (32-byte messages):
   - 2 MiB socket buffers and receiver window: 13 M msgs/s. Aeron's default 128 KiB gives 1.9 M.
   - MTU 9000, with Aeron's MTU at 8192: 28.5 M msgs/s.
   - Socket sizes made no difference to round-trip latency, with one message in flight.
-- **IPC on one host:** about 0.31 µs at p50 whatever is pinned.
+- **IPC on one host.** The p50 was about 0.31 µs whatever is pinned.
   - Isolation cut p99.99 from 2.5 to 0.8–1.0 µs, and most reps' max to 4–7 µs.
   - The client's other threads (its conductor) must stay off the ping and pong CPUs. On them, p99.99 stayed at 3.1–3.6 µs.
-- **Kernel tuning beyond isolation:**
-  - SMT off, `idle=poll`, no watchdogs and the rest of the tuned state took 3.7 µs off the cross-host p50 (38.6 → 34.9 µs). IPC didn't change.
+- Kernel tuning beyond isolation:
+  - SMT off, `idle=poll`, no watchdogs and the rest of the tuned state took 3.7 µs off the cross-host p50 (38.6 to 34.9 µs). IPC didn't change.
   - `mitigations=off` took off another 1 µs and lowered p99.99 from 156 to 121 µs, at a security cost.
-- **Java archive:** recording to tmpfs ran at 6.2 M msgs/s (1.6 GB/s, 256-byte messages). Confining the whole JVM to the housekeeping CPU cost 25%.
-- **Java archive on disk** (two D8ds_v6, 2026-10-10):
-  - At file sync level 0 the page cache absorbed bursts, and the disk set the sustained rate: 545 MB/s on local NVMe, and about the provisioned rate on Premium SSD v2 once the disks had been in use for a while. New ones were slower.
+- **Java archive.** Recording to tmpfs ran at 6.2 M msgs/s (1.6 GB/s, 256-byte messages). Confining the whole JVM to the housekeeping CPU cost 25%.
+- Java archive on disk (two D8ds_v6, 2026-10-10):
+  - At file sync level 0 the page cache absorbed bursts, and the disk set the sustained rate, at 545 MB/s on local NVMe, and about the provisioned rate on Premium SSD v2 once the disks had been in use for a while. New ones were slower.
   - A Premium SSD v2 at its included 125 MB/s took 30 s bursts of 400 MB/s at full rate once `vm.dirty_bytes` allowed 16 GiB of unwritten data. With Linux's defaults it throttled after 15 s.
   - Replays slowed to 59–246 MB/s while recording ran flat out at the disk's limit.
-- **Packet loss and distance** (2026-10-10):
+- Packet loss and distance (2026-10-10):
   - 0.1% UDP loss cut throughput by a third and 1% by 91%, though every lost packet was retransmitted.
   - A ping-pong that lost a packet waited about 100 ms for the driver's heartbeat.
   - Across regions (53 ms round trip), 2 MiB windows carried 18 MB/s and 16 MiB windows 119 MB/s. At 0.1% loss both fell to 10–13 MB/s.
@@ -37,7 +37,7 @@
   - Every busy-spinning thread is pinned to its own core.
   - On one host (IPC): ping on CPU 2, pong on 4; a SHARED driver, where tested, on 6.
   - Across hosts: the app thread (ping or pong) on 2, the driver's sender on 4 and its receiver on 6. The driver pins its own threads (`AERON_CONDUCTOR_CPU_AFFINITY` and the like).
-- **Kernel states**, applied one after the other to both VMs:
+- Kernel states, applied one after the other to both VMs:
 
 | State       | What it adds                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -64,19 +64,19 @@
 - **Validity checks.**
   - Azure can move a VM's traffic from the NIC's direct path (the VF) to its software path during host servicing. Every cross-host run recorded both hosts' VF packet counters and any "data path switched" messages. All 200 runs stayed on the VF.
   - The busy-polling runs recorded the kernel's busy-poll receive counter: about 180,000–270,000 per run on each host, so busy polling did run.
-  - Azure's scheduled-events service was queried at the start of each phase: 24 queries listed no events, and 20 returned nothing.
+  - Azure's scheduled-events service was queried at the start of each phase, and 24 queries listed no events while 20 returned nothing.
   - The clock source was `tsc` throughout.
 
 ## UDP round trip between the two hosts (µs)
 
 Variants:
 
-- **dedicated**: sender and receiver threads, each pinned with `noop` idle.
-- **defaults**: the same, with Aeron's default socket buffers and window.
-- **SHARED_NETWORK**: one `noop` thread does sending and receiving; the conductor stays on CPU 0.
-- **SHARED**: the whole driver is one `noop` thread on CPU 4.
-- **busy_read**: dedicated, with `net.core.busy_read=50`, and on the VF `napi_defer_hard_irqs=2` and `gro_flush_timeout=200000`, on both hosts.
-- **IRQs on receiver core**: dedicated, with the NIC queues' IRQs on CPU 6, where the receiver spins.
+- dedicated: sender and receiver threads, each pinned with `noop` idle.
+- defaults: the same, with Aeron's default socket buffers and window.
+- SHARED_NETWORK: one `noop` thread does sending and receiving; the conductor stays on CPU 0.
+- SHARED: the whole driver is one `noop` thread on CPU 4.
+- busy_read: dedicated, with `net.core.busy_read=50`, and on the VF `napi_defer_hard_irqs=2` and `gro_flush_timeout=200000`, on both hosts.
+- IRQs on receiver core: dedicated, with the NIC queues' IRQs on CPU 6, where the receiver spins.
 
 | state, variant                     | reps | p50                 | p99                 | p99.9               | p99.99                 | max                     |
 | ---------------------------------- | ---- | ------------------- | ------------------- | ------------------- | ---------------------- | ----------------------- |
@@ -105,19 +105,19 @@ Variants:
 | tuned-nomit, busy_read             | 5    | 31.01 (30.86–31.05) | 34.05 (33.82–34.62) | 36.83 (36.54–38.40) | 49.89 (41.47–57.53)    | 406.78 (57.85–509.69)   |
 | tuned-nomit, IRQs on receiver core | 5    | 32.99 (32.75–33.09) | 35.71 (34.91–36.64) | 39.62 (39.36–41.28) | 49.25 (48.06–49.76)    | 72.51 (67.20–79.36)     |
 
-- **Busy polling** (`busy_read`): on isolated cores, against dedicated without it, p50 fell from about 38 to 31 µs and p99.99 from about 157 to 44–50 µs. On the stock kernel the ranges overlap.
-- **NIC IRQs on the receiver core:**
+- Busy polling (`busy_read`): on isolated cores, against dedicated without it, p50 fell from about 38 to 31 µs and p99.99 from about 157 to 44–50 µs. On the stock kernel the ranges overlap.
+- NIC IRQs on the receiver core:
   - With isolation, p99.99 fell to 49–57 µs.
   - In the tuned states it gave the lowest max, 72–74 µs; dedicated alone gave 172–523 µs.
   - Against busy polling, the two can't be ranked: their p99.99 and max ranges overlap.
-- **The tuned state** cut the dedicated driver's p50 from 38.6 to 34.9 µs. **`mitigations=off`** cut it to 33.9 µs and its p99.99 from 156 to 121 µs.
-- **Driver threading:** SHARED, SHARED_NETWORK and dedicated were within about 2 µs of each other at p50 in every state.
-- **Socket buffer size:** no effect on round-trip latency.
-- **The lowest p50** was about 31 µs per round trip, with this NIC and the kernel network stack.
+- The tuned state cut the dedicated driver's p50 from 38.6 to 34.9 µs. `mitigations=off` cut it to 33.9 µs and its p99.99 from 156 to 121 µs.
+- **Driver threading.** SHARED, SHARED_NETWORK and dedicated were within about 2 µs of each other at p50 in every state.
+- **Socket buffer size.** No effect on round-trip latency.
+- The lowest p50 was about 31 µs per round trip, with this NIC and the kernel network stack.
 
 ### A second pair, with busy polling and IRQs combined (West US 3, 2026-10-10)
 
-Two `Standard_D8ds_v6` in one placement group in West US 3, isolated, with the same settings, plus one more variant: busy_read and the NIC IRQs on the receiver core together.
+Two `Standard_D8ds_v6` in one placement group in West US 3, isolated, with the same settings, plus one more variant, busy_read and the NIC IRQs on the receiver core together.
 
 | isolated, variant                   | reps | p50              | p99              | p99.9            | p99.99              | max                    |
 | ----------------------------------- | ---- | ---------------- | ---------------- | ---------------- | ------------------- | ---------------------- |
@@ -134,8 +134,8 @@ Two `Standard_D8ds_v6` in one placement group in West US 3, isolated, with the s
   - p50 matched the IRQs variant, and busy_read alone stayed the lowest.
   - p99.99 matched both.
   - The max matched the IRQs variant's 0.18 ms, against busy_read's 0.70 ms.
-- **The ranking held:** busy_read and IRQs on the receiver core cut p50 by 8.1 and 6.6 µs, and p99.99 by more than half.
-- **Throughput** (2 MiB windows): SHARED_NETWORK gave 11.15 (10.82–11.43) M msgs/s, the same as dedicated at 11.22 (10.94–11.35). SHARED gave 9.86 (9.48–10.38), 12% less.
+- **The ranking held.** In this pair, busy_read and IRQs on the receiver core cut p50 by 8.1 and 6.6 µs, and p99.99 by more than half.
+- Throughput (2 MiB windows): SHARED_NETWORK gave 11.15 (10.82–11.43) M msgs/s, the same as dedicated at 11.22 (10.94–11.35). SHARED gave 9.86 (9.48–10.38), 12% less.
 
 ## UDP throughput between the two hosts (M msgs/s, 32-byte messages)
 
@@ -148,22 +148,22 @@ Publisher on intel-a, subscriber on intel-b, both drivers dedicated with pinned 
 | 2 MiB, MTU 9000 with `AERON_MTU_LENGTH=8192`         | 28.48 (23.77–28.77) | 28.47 (28.16–28.75) | 28.73 (28.62–28.90) | 28.77 (28.44–28.80) |
 | 2 MiB, 16-message io vectors and sends               | 13.65 (9.46–14.32)  | 13.89 (13.43–13.96) | 13.36 (13.26–13.39) | 14.79 (14.74–15.12) |
 
-- **Receiver window:** with Aeron's defaults, the 128 KiB window caps a 32-byte stream at 1.9 M msgs/s. 2 MiB raised it 6.7×.
-- **Jumbo frames** doubled throughput again.
+- **Receiver window.** With Aeron's defaults, the 128 KiB window caps a 32-byte stream at 1.9 M msgs/s. 2 MiB raised it 6.7×.
+- Jumbo frames doubled throughput again.
   - Azure allows MTU 9000 only inside a VNet and directly peered VNets.
   - The run kept the default route at 1500, so traffic leaving the VNet still fit: `ip route replace <default route> mtu 1500`, then `ip link set eth0 mtu 9000`.
-- **Batching:** 16-message io vectors and sends (`AERON_SENDER_IO_VECTOR_CAPACITY`, `AERON_RECEIVER_IO_VECTOR_CAPACITY`, `AERON_NETWORK_PUBLICATION_MAX_MESSAGES_PER_SEND`, default 4) added 5–7% in the isolated and tuned states. On the stock kernel the ranges overlap.
+- **Batching.** 16-message io vectors and sends (`AERON_SENDER_IO_VECTOR_CAPACITY`, `AERON_RECEIVER_IO_VECTOR_CAPACITY`, `AERON_NETWORK_PUBLICATION_MAX_MESSAGES_PER_SEND`, default 4) added 5–7% in the isolated and tuned states. On the stock kernel the ranges overlap.
 
 ## Packet loss and distance (West US 3 and North Central US, 2026-10-10)
 
 The West US 3 pair above, isolated, plus a third VM, a `Standard_D8s_v6` in North Central US, reached over global VNet peering.
 
-- **Loss:** a share of the UDP packets arriving from the peer was dropped on both hosts, in nftables' input hook (`numgen random`), so neither end was told, as with loss on the wire.
-- **Settings:** both drivers dedicated, with pinned `noop` sender and receiver and 2 MiB windows.
-- **Throughput:** 32-byte messages for 8 s. Each run read the publisher's driver counters (AeronStat) and both hosts' drop counts.
-- **Round trips:** one 32-byte message in flight. Across regions they ran for 60 s, about 1,100 round trips, so p99.9 and above are not given there.
-- **Reps:** 3 in the same zone and 2 across regions. Ranges are given where reps differed. Cells without a range are medians, or the mean of two; across regions the max lists both reps.
-- **Provenance:** the run recorded commit `e2f315a`. The 1 ms status message pass was added to both hosts mid-run; it is in `83b9e2e`.
+- **Loss.** A share of the UDP packets arriving from the peer was dropped on both hosts, in nftables' input hook (`numgen random`), so neither end was told, as with loss on the wire.
+- **Settings.** Both drivers dedicated, with pinned `noop` sender and receiver and 2 MiB windows.
+- **Throughput.** 32-byte messages for 8 s. Each run read the publisher's driver counters (AeronStat) and both hosts' drop counts.
+- **Round trips.** One 32-byte message in flight. Across regions they ran for 60 s, about 1,100 round trips, so p99.9 and above are not given there.
+- **Reps.** 3 in the same zone and 2 across regions. Ranges are given where reps differed. Cells without a range are medians, or the mean of two; across regions the max lists both reps.
+- **Provenance.** The run recorded commit `e2f315a`. The 1 ms status message pass was added to both hosts mid-run; it is in `83b9e2e`.
 
 | link, loss           | throughput (M msgs/s)     | round trip p50 | p99     | p99.9   | max           | per throughput run: data packets lost, NAKs received, retransmits sent |
 | -------------------- | ------------------------- | -------------- | ------- | ------- | ------------- | ---------------------------------------------------------------------- |
@@ -174,7 +174,7 @@ The West US 3 pair above, isolated, plus a third VM, a `Standard_D8s_v6` in Nort
 | across regions, 0.1% | 0.29 (0.26–0.32), 9 MB/s  | 53.3 ms        | 53.4 ms |         | 53.0, 208 ms  | 86, 4,334, 507                                                         |
 | across regions, 1%   | 0.04 (0.04–0.04), 1 MB/s  | 53.0 ms        | 208 ms  |         | 208, 362 ms   | 130, 6,107, 714                                                        |
 
-- **Every lost data packet was NAKed and retransmitted**, so loss cost time, not data.
+- Every lost data packet was NAKed and retransmitted, so loss cost time, not data.
 - **In the same zone, each loss drew about one NAK and one retransmit. Across regions, each drew about 50 NAKs and 6 retransmits.**
   - The receiver repeats its NAK until the repair arrives.
   - The sender ignores a repeat for only 10 ms after it retransmits (`AERON_RETRANSMIT_UNICAST_LINGER`), a fifth of the 53 ms round trip. That would give the 6 retransmits.
@@ -182,11 +182,11 @@ The West US 3 pair above, isolated, plus a third VM, a `Standard_D8s_v6` in Nort
   - At 0.1% loss that put p99.9 at 102 ms, and at 1% p99.
   - A continuous stream doesn't wait like this, as the next packet shows the gap.
 - **Throughput fell a third at 0.1% loss and 91% at 1%.**
-  - The receiver's periodic status message every 1 ms instead of 200 (`AERON_RCV_STATUS_MESSAGE_TIMEOUT=1000000`) changed nothing: 7.58 and 0.99 M msgs/s. So lost status messages are not the cause.
+  - The receiver's periodic status message every 1 ms instead of 200 (`AERON_RCV_STATUS_MESSAGE_TIMEOUT=1000000`) changed nothing. Throughput was 7.58 and 0.99 M msgs/s. So lost status messages are not the cause.
   - What is, this run didn't find.
 - **Across regions, on a clean link, the window sets throughput.** 2 MiB over a 53 ms round trip gave 18 MB/s, under half the 40 MB/s that window allows per round trip.
 
-A later run measured wider windows across the same regions: 16 MiB socket buffers and initial window over 64 MiB terms, with `net.core.rmem_max`/`wmem_max` at 16 MiB. Each cell is the mean of two reps, which were within 0.06 M msgs/s of each other. Its 2 MiB rows matched the run above at 18, 10 and 1 MB/s.
+A later run measured wider windows across the same regions, using 16 MiB socket buffers and initial window over 64 MiB terms, with `net.core.rmem_max`/`wmem_max` at 16 MiB. Each cell is the mean of two reps, which were within 0.06 M msgs/s of each other. Its 2 MiB rows matched the run above at 18, 10 and 1 MB/s.
 
 | across regions, variant          | no loss                 | 0.1% loss     | 1% loss      |
 | -------------------------------- | ----------------------- | ------------- | ------------ |
@@ -194,13 +194,13 @@ A later run measured wider windows across the same regions: 16 MiB socket buffer
 | 16 MiB windows                   | 3.73 M msgs/s, 119 MB/s | 0.40, 13 MB/s | 0.04, 1 MB/s |
 | 2 MiB, status message every 1 ms | 0.56 M msgs/s, 18 MB/s  | 0.29, 9 MB/s  | 0.04, 1 MB/s |
 
-- **16 MiB windows carried 6.6 times as much on a clean link**, still about 38% of what that window allows per round trip.
-- **0.1% loss took almost all of that back**, and at 1% every variant carried 1 MB/s.
-- **A lost ping or echo across regions cost about 208 ms:** the 100 ms heartbeat plus about four one-way trips, for the gap, the NAK, the retransmit and the echo.
+- 16 MiB windows carried 6.6 times as much on a clean link, still about 38% of what that window allows per round trip.
+- 0.1% loss took almost all of that back, and at 1% every variant carried 1 MB/s.
+- **A lost ping or echo across regions cost about 208 ms.** That is the 100 ms heartbeat plus about four one-way trips, for the gap, the NAK, the retransmit and the echo.
 
 ## IPC on one host (µs, M msgs/s)
 
-The driver is dedicated with its default idle strategies, so no unpinned thread spins, except in the SHARED rows, where a `noop` SHARED driver has CPU 6 to itself. Rows are given per VM. The isolated, tuned and tuned-nomit states run only the variants that pin every busy thread: the kernel keeps unpinned work off isolated CPUs, so it would crowd onto CPU 0.
+The driver is dedicated with its default idle strategies, so no unpinned thread spins, except in the SHARED rows, where a `noop` SHARED driver has CPU 6 to itself. Rows are given per VM. The isolated, tuned and tuned-nomit states run only the variants that pin every busy thread. The kernel keeps unpinned work off isolated CPUs, so it would crowd onto CPU 0.
 
 | state, variant                                    | intel-a p50 | p99.99              | max                  | M msgs/s | intel-b p50 | p99.99             | max                   | M msgs/s |
 | ------------------------------------------------- | ----------- | ------------------- | -------------------- | -------- | ----------- | ------------------ | --------------------- | -------- |
@@ -220,11 +220,11 @@ The driver is dedicated with its default idle strategies, so no unpinned thread 
 
 Across every rep without the SHARED driver, p50 was 0.297–0.317 µs, p99 0.35–0.41 µs and p99.9 0.43–0.54 µs. With it, p50 was 0.33–0.43 µs, p99 0.44–0.63 µs and p99.9 0.47–1.45 µs. The full tables, with every percentile and range, are in the run's results folder (see [How to run](#how-to-run)).
 
-- **The median** didn't move with pinning or kernel state.
-- **Isolation** cut p99.99 from 2.5–2.8 to 0.8–1.0 µs on both VMs. Most isolated reps had a max of 4–7 µs, against 20–67 µs pinned; the occasional 55–65 µs outlier keeps the max ranges overlapping.
-- **The client's other threads**, its conductor among them, held p99.99 at 3.1–3.6 µs when they ran on the ping and pong CPUs, in every isolated or tuned state. Give them a CPU of their own.
+- The median didn't move with pinning or kernel state.
+- Isolation cut p99.99 from 2.5–2.8 to 0.8–1.0 µs on both VMs. Most isolated reps had a max of 4–7 µs, against 20–67 µs pinned; the occasional 55–65 µs outlier keeps the max ranges overlapping.
+- The client's other threads, its conductor among them, held p99.99 at 3.1–3.6 µs when they ran on the ping and pong CPUs, in every isolated or tuned state. Give them a CPU of their own.
 - **A SHARED driver costs IPC.** Its single spinning thread kept p50 at 0.36–0.42 µs and halved throughput.
-- **Tuning beyond isolation**, `mitigations=off` included, made no measurable difference to IPC.
+- Tuning beyond isolation, `mitigations=off` included, made no measurable difference to IPC.
 
 ## Java archive (intel-a)
 
@@ -237,13 +237,13 @@ An `ArchivingMediaDriver` (Java 21) runs with `-Xms1g -Xmx1g -XX:+AlwaysPreTouch
 | on CPU 0, archive-recorder thread on CPU 6 | 5    | 6.83 (6.59–6.93)     | 6.23 (6.00–6.27)    | 1595          | 0.322 / 1.93 / 9.10 / 43.4 (4 reps)                    |
 | as above, recorder `noop` idle             | 5    | 6.86 (6.75–6.90)     | 6.23 (6.16–6.27)    | 1594          | 0.322 / 1.93 / 11.0 / 22.9 (3 reps)                    |
 
-- **The recorded ping-pong ran on the archive's embedded Java driver**, not the C driver. Its p99 of about 1.9 µs, against 0.37 µs on the C driver without recording, combines the driver change with the recording, so neither cause is isolated.
-- **Placement:** confining the whole JVM to the housekeeping CPU cut recording throughput by 25%; pinning its recorder to a core of its own got it back. A busy-spinning recorder added nothing.
-- **Missing reps** were lost to a race in the benchmark itself, not the archive. The ping started once its publication was connected, but the archive's recording subscription also connects it. So ping sometimes sent before pong had subscribed, pong missed that first message, and both waited forever. Aeron's counters confirmed it: the ping stream at 64 bytes, recorded by the archive, and pong's subscription joined at 64. The benchmark now waits for pong's own subscription; locally that took the recorded ping-pong from 0 of 5 to 5 of 5.
+- The recorded ping-pong ran on the archive's embedded Java driver, not the C driver. Its p99 of about 1.9 µs, against 0.37 µs on the C driver without recording, combines the driver change with the recording, so neither cause is isolated.
+- **Placement.** Confining the whole JVM to the housekeeping CPU cut recording throughput by 25%; pinning its recorder to a core of its own got it back. A busy-spinning recorder added nothing.
+- Missing reps were lost to a race in the benchmark itself, not the archive. The ping started once its publication was connected, but the archive's recording subscription also connects it. So ping sometimes sent before pong had subscribed, pong missed that first message, and both waited forever. Aeron's counters confirmed it, showing the ping stream at 64 bytes, recorded by the archive, and pong's subscription joined at 64. The benchmark now waits for pong's own subscription; locally that took the recorded ping-pong from 0 of 5 to 5 of 5.
 
 ## Java archive on disk, under load (two D8ds_v6, 2026-10-10)
 
-A separate run on two `Standard_D8ds_v6` VMs: the same CPU as above, plus a 440 GiB local NVMe disk, in zone 1 of West US 3, on the stock kernel (Linux 7.2.6) with the pinned layout. Each VM recorded to three disks in turn, each formatted xfs and mounted `noatime`:
+A separate run used two `Standard_D8ds_v6` VMs, with the same CPU as above plus a 440 GiB local NVMe disk, in zone 1 of West US 3, on the stock kernel (Linux 7.2.6) with the pinned layout. Each VM recorded to three disks in turn, each formatted xfs and mounted `noatime`:
 
 | Disk                     | What it is                                                                 | Price                  |
 | ------------------------ | -------------------------------------------------------------------------- | ---------------------- |
@@ -253,8 +253,8 @@ A separate run on two `Standard_D8ds_v6` VMs: the same CPU as above, plus a 440 
 
 The VM caps its network disks together at 12,800 IOPS and 424 MB/s.
 
-- **The archive** is the C media driver with a standalone Java `Archive` (Java 21, `-Xms2g -Xmx2g -XX:+AlwaysPreTouch -XX:+UseParallelGC`) attached to it, with DEDICATED archive threading. Its recorder and replayer are pinned to the two threads of one core. File sync level 0 unless stated.
-- **The load** is `arcload`: 1 KiB messages, one exclusive publication per stream, each on its own thread, the threads spread over four CPUs.
+- The archive is the C media driver with a standalone Java `Archive` (Java 21, `-Xms2g -Xmx2g -XX:+AlwaysPreTouch -XX:+UseParallelGC`) attached to it, with DEDICATED archive threading. Its recorder and replayer are pinned to the two threads of one core. File sync level 0 unless stated.
+- The load is `arcload`: 1 KiB messages, one exclusive publication per stream, each on its own thread, the threads spread over four CPUs.
 - **Each figure is a single run.** Both hosts ran every test, so cells read intel-a / intel-b where the two differ.
 - **Provenance.** The run recorded commit `c6a21be` with `vm.sh` and `lab.sh` modified. Mid-run, both hosts got the fixes now in `e2f315a`, and the whole archive phase re-ran:
   - Sixteen publishers spinning on the housekeeping CPU had starved the driver's conductor, so `arcload` now pins each thread before it adds its publication.
@@ -278,8 +278,8 @@ The VM caps its network disks together at 12,800 IOPS and 424 MB/s.
   - About 1.5 hours later every disk delivered what was provisioned. A new 8 GiB file then wrote at 485–501 MB/s on the 400 MB/s disks (for the 17 s it took) and at 125–138 MB/s on the 125 MB/s ones.
   - By then the archive tests had written tens of GB to each disk, and xfs reuses freed blocks. The lab also formats each disk with plain `mkfs.xfs`, which discards the whole device (256 or 512 GiB) just before the first fio pass.
   - So this run can't tell apart a cost of writing each block the first time, that discard, a warm-up after creation, or a backend that just varies.
-- **Random 4 KiB writes** stayed below the provisioned 3,000 IOPS on intel-a's disks in both passes. The archive writes sequentially, so this did not affect it.
-- **A forced write** waits about 0.03 ms on local NVMe and about 0.8 ms on Premium SSD v2.
+- Random 4 KiB writes stayed below the provisioned 3,000 IOPS on intel-a's disks in both passes. The archive writes sequentially, so this did not affect it.
+- A forced write waits about 0.03 ms on local NVMe and about 0.8 ms on Premium SSD v2.
 
 ### Recording on the archive's host (IPC, 4 streams flat out for 60 s, MB/s)
 
@@ -289,10 +289,10 @@ The VM caps its network disks together at 12,800 IOPS and 424 MB/s.
 | Premium SSD v2 125 | 592 / 666           | 125 / 127          | 56 / 112        |
 | Premium SSD v2 400 | 693 / 1010          | 346 / 394          | 57 / 220        |
 
-- **At file sync level 0 the page cache takes the first seconds** at 0.6–1 GB/s. Once it reaches the kernel's limit on unwritten data, the disk sets the pace. Disk writes then waited about 240 ms each, a deep write-back queue, against 1–2 ms at level 1.
+- At file sync level 0 the page cache takes the first seconds at 0.6–1 GB/s. Once it reaches the kernel's limit on unwritten data, the disk sets the pace. Disk writes then waited about 240 ms each, a deep write-back queue, against 1–2 ms at level 1.
 - **The disk set the rate, not the stream count.** On local NVMe, 1, 4 and 16 streams all recorded at 542–552 MB/s (median). On the 400 MB/s disks, 16 streams reached 415 / 412 MB/s over the last 30 s.
-- **Level 1 cost nothing sustained on local NVMe**, but left no burst headroom. On Premium SSD v2 it cut recording to 56–220 MB/s, as each write waits for the network disk. These level 1 runs came early, while those disks were still slow.
-- **SHARED archive threading recorded at 545 / 543 MB/s** (4 streams, NVMe), the same as DEDICATED, since the disk was the limit.
+- Level 1 cost nothing sustained on local NVMe, but left no burst headroom. On Premium SSD v2 it cut recording to 56–220 MB/s, as each write waits for the network disk. These level 1 runs came early, while those disks were still slow.
+- SHARED archive threading recorded at 545 / 543 MB/s (4 streams, NVMe), the same as DEDICATED, since the disk was the limit.
 
 ### Bursts (file sync level 0, two 30 s bursts of 400 MB/s, 60 s apart)
 
@@ -309,7 +309,7 @@ The VM caps its network disks together at 12,800 IOPS and 424 MB/s.
 
 - **With Linux's defaults, the 125 MB/s disk throttled each burst after 15 s.** In the burst's 30 s the publishers sent 8.1 of their 11.7 million messages, 2.0–2.2 million of them late. 99.6% of offer attempts met back-pressure.
 - **With the large limits it took both bursts at full rate.** That pattern averages 133 MB/s, though, just above the disk's 125, so about 0.75 GB more would be left over each cycle until the limit is reached again.
-- **More unwritten data in memory is more data a host failure loses**, which file sync level 0 already accepts.
+- More unwritten data in memory is more data a host failure loses, which file sync level 0 already accepts.
 
 ### Replays (page cache dropped first, aggregate MB/s)
 
@@ -320,8 +320,8 @@ The VM caps its network disks together at 12,800 IOPS and 424 MB/s.
 | Premium SSD v2 400 | 365 / 128   | 365 / 141   | 178 / 155                                 |
 
 - **Each replay read back a whole recording of 1.1–1.3 GB.** The 16 replays on intel-b's 400 MB/s disk completed only 5 within 120 s.
-- **Replays starved while recording ran flat out at the disk's limit.** On local NVMe they fell from about 1 GB/s to 67–246 MB/s; on intel-a none of the 4 finished within 50 s. Why was not tested: level 0's deep write-back queue could hold the reads up, and the recorder and replayer also share one core's two threads.
-- **The first replayed fragment** arrived 230–290 ms after the request in nearly every run, whatever the disk. That was not investigated.
+- **Replays starved while recording ran flat out at the disk's limit.** On local NVMe they fell from about 1 GB/s to 67–246 MB/s; on intel-a none of the 4 finished within 50 s. The cause was not tested. Level 0's deep write-back queue could hold the reads up, and the recorder and replayer also share one core's two threads.
+- The first replayed fragment arrived 230–290 ms after the request in nearly every run, whatever the disk. That was not investigated.
 
 ### Recording across hosts (publishers on intel-a, the archive on intel-b, UDP, MB/s)
 
@@ -331,8 +331,8 @@ The VM caps its network disks together at 12,800 IOPS and 424 MB/s.
 | Premium SSD v2 125 | 128       | 127        |
 | Premium SSD v2 400 | 459       | 461        |
 
-- **The NVMe and 400 MB/s disks both stopped at 450–480 MB/s**, below the 545 MB/s recorded locally, so the UDP path (2 MiB windows, MTU 1500) probably set that limit. That was not explored further.
-- **Replays from intel-b's NVMe to intel-a over UDP** ran at 345, 502 and 485 MB/s for 1, 4 and 16 replays.
+- The NVMe and 400 MB/s disks both stopped at 450–480 MB/s, below the 545 MB/s recorded locally, so the UDP path (2 MiB windows, MTU 1500) probably set that limit. That was not explored further.
+- Replays from intel-b's NVMe to intel-a over UDP ran at 345, 502 and 485 MB/s for 1, 4 and 16 replays.
 
 ### Round trip across the hosts under recording load (West US 3 pair, isolated, µs)
 
@@ -350,17 +350,17 @@ The layout differs from the round-trip tables above, so compare only the rows he
 | 50% (243 MB/s) | 50.2 | 73.1 | 92.9  | 219.8  | 6226 |
 | 75% (364 MB/s) | 49.7 | 76.9 | 182.8 | 688.1  | 2552 |
 
-- **From 25% to 50% load**, p50 rose about 3 µs and p99 about 9 µs.
-- **At 75%**, p99.9 doubled and p99.99 more than tripled.
-- **The pinned run** before it measured 65.7 µs at p50 at 25% load, in the same layout. It lost its 50% and 75% runs to a harness bug, now fixed: each reused the last pong's ports, and that pong's image lingered in the archive's driver.
+- From 25% to 50% load, p50 rose about 3 µs and p99 about 9 µs.
+- At 75%, p99.9 doubled and p99.99 more than tripled.
+- The pinned run before it measured 65.7 µs at p50 at 25% load, in the same layout. It lost its 50% and 75% runs to a harness bug, now fixed. Each reused the last pong's ports, and that pong's image lingered in the archive's driver.
 
 ## Kubernetes pods (single VM, earlier run, 2026-10-09)
 
 These pods ran in an earlier run on one `Standard_D8s_v6`, on Linux 6.12 with k3s v1.36.5, measuring IPC only.
 
-- **Pod shape:** each pod had a driver container (a SHARED `noop` driver, or dedicated in `st-d3-a3`) and an app container (ping and pong), sharing a `HugePages-2Mi` `emptyDir`.
-- **Policies:** "def" pods ran under kubelet's default CPU manager; "st" pods ran under the static policy with `reserved-cpus=0`.
-- **Caveat:** in `st-d3-a3` the driver's threads were not pinned within its 3 CPUs. rusteron's `media_driver` didn't then apply `AERON_*_CPU_AFFINITY`; it does now.
+- **Pod shape.** Each pod had a driver container (a SHARED `noop` driver, or dedicated in `st-d3-a3`) and an app container (ping and pong), sharing a `HugePages-2Mi` `emptyDir`.
+- **Policies.** "def" pods ran under kubelet's default CPU manager; "st" pods ran under the static policy with `reserved-cpus=0`.
+- **Caveat.** In `st-d3-a3` the driver's threads were not pinned within its 3 CPUs. rusteron's `media_driver` didn't then apply `AERON_*_CPU_AFFINITY`; it does now.
 
 | pod                             | CPU requests, driver / app | throttled periods, driver / app | ping, pong CPUs         | p50 (µs) | p99.99 (µs) | max (µs)       | M msgs/s |
 | ------------------------------- | -------------------------- | ------------------------------- | ----------------------- | -------- | ----------- | -------------- | -------- |
@@ -373,12 +373,12 @@ These pods ran in an earlier run on one `Standard_D8s_v6`, on Linux 6.12 with k3
 | st-d3-a3                        | 3 / 3                      | no quota                        | 4, 5 (one core's twins) | 0.115    | 0.405       | 52.4 (16–84)   | 62.5     |
 | st-s1-a2.5                      | 1 / 2.5 (shared pool)      | no quota                        | 2, 4                    | 0.354    | 8.95        | 57.4 (30–68)   | 36.3     |
 
-- **The default policy's quota:** under it, a CPU limit is a quota per 100 ms.
-  - A driver container limited to 1 CPU was throttled in 23–55% of periods: its spinning thread uses the whole quota, and the driver's other threads push it over. IPC doesn't go through the driver, so that throttling barely shows here: `def-s1-a2.5`, the most throttled driver, had a max of 48 µs.
+- **The default policy's quota.** Under it, a CPU limit is a quota per 100 ms.
+  - A driver container limited to 1 CPU was throttled in 23–55% of periods, because its spinning thread uses the whole quota and the driver's other threads push it over. IPC doesn't go through the driver, so that throttling barely shows here. `def-s1-a2.5`, the most throttled driver, had a max of 48 µs.
   - The one pod that stalled for up to 1.8 ms, `def-s1-a2`, was also the one whose app container (ping, pong and the client's other threads in 2 CPUs) was throttled, in 28 of 512 periods. Its max ranged from 30 to 1812 µs, overlapping the other pods', so this isn't a firm difference.
   - One CPU of headroom (`def-s2-a3`), or no CPU limit (Burstable), removed all throttling.
-- **The static policy** gave each Guaranteed container whole CPUs to itself, with no quota at all (`cpu.max` read `max`). Kubernetes 1.36 drops the quota for exclusive CPUs.
-- **Placement:** kubelet chose where ping and pong landed.
+- The static policy gave each Guaranteed container whole CPUs to itself, with no quota at all (`cpu.max` read `max`). Kubernetes 1.36 drops the quota for exclusive CPUs.
+- **Placement.** The kubelet chose where ping and pong landed.
   - Ping and pong on one core's two SMT twins, with the client's other threads on a third CPU (`st-d3-a3`): 0.115 µs at p50 and 0.405 µs at p99.99.
   - On twins too, but sharing them with those threads (`st-s1-a2`): 0.287 µs.
   - On separate cores: 0.35–0.38 µs.
@@ -388,9 +388,9 @@ These pods ran in an earlier run on one `Standard_D8s_v6`, on Linux 6.12 with k3
 
 Each setting is marked with where its evidence comes from:
 
-- **[pod]:** the pod measurements above.
-- **[host]:** the host measurements in this file, carried over to pods.
-- **[untested]:** neither.
+- [pod]: the pod measurements above.
+- [host]: the host measurements in this file, carried over to pods.
+- [untested]: neither.
 
 The Kubernetes behaviour relied on here is documented in:
 
@@ -400,114 +400,114 @@ The Kubernetes behaviour relied on here is documented in:
 
 The host settings' sources are listed under [Tuning on x86-64 Linux](https://github.com/gsrxyz/rusteron/blob/main/docs/tuning_x86_64_linux.md) in the README.
 
-**The node**
+#### The node
 
-- **[pod] Huge pages:** set `vm.nr_hugepages` in `/etc/sysctl.d` on the node before kubelet starts, or kubelet does not report them.
+- **[pod] Huge pages.** Set `vm.nr_hugepages` in `/etc/sysctl.d` on the node before kubelet starts, or kubelet does not report them.
   - Earlier 4-vCPU runs found that 2 MiB pages for `AERON_DIR` cut Intel's IPC p99 from about 0.7 to 0.14 µs, and p99.99 from 1.05 to 0.4–0.6 µs.
   - They made no difference on AMD, and 1 GiB pages gained nothing over 2 MiB.
-- **[host] Socket buffer limits:** set `net.core.rmem_max` and `wmem_max` in `/etc/sysctl.d`, at least as large as the windows you configure. They are node-wide, not per pod, and a reboot undoes `sysctl -w`. A driver whose window exceeds its receive buffer refuses to start.
-- **[host] Busy reads for UDP:**
+- **[host] Socket buffer limits.** Set `net.core.rmem_max` and `wmem_max` in `/etc/sysctl.d`, at least as large as the windows you configure. They are node-wide, not per pod, and a reboot undoes `sysctl -w`. A driver whose window exceeds its receive buffer refuses to start.
+- [host] Busy reads for UDP:
   - Set `net.core.busy_read=50`, with `napi_defer_hard_irqs=2` and `gro_flush_timeout=200000` on the NIC's VF.
   - Or put the NIC's queue interrupts on the receiver's CPU. Choose one; together they gained nothing.
   - Both helped only on isolated CPUs.
-- **[host] Isolation of the CPUs kubelet hands out:** `isolcpus=nohz,domain,managed_irq,<CPUs> nohz_full=<CPUs> rcu_nocbs=<CPUs> irqaffinity=<reserved CPUs>`. On a host, isolation cut IPC p99.99 from 2.5 to 0.8–1.0 µs.
+- **[host] Isolation of the CPUs kubelet hands out.** Use `isolcpus=nohz,domain,managed_irq,<CPUs> nohz_full=<CPUs> rcu_nocbs=<CPUs> irqaffinity=<reserved CPUs>`. On a host, isolation cut IPC p99.99 from 2.5 to 0.8–1.0 µs.
   - **[untested] in pods.** The kernel doesn't balance load across isolated CPUs, so non-Guaranteed pods in kubelet's shared pool would pile up on them. Keep such nodes for Guaranteed pods.
-- **[host] A tuned kernel on top of isolation:**
+- [host] A tuned kernel on top of isolation:
   - The options were `nosmt idle=poll rcu_nocb_poll nowatchdog nmi_watchdog=0 nosoftlockup skew_tick=1 transparent_hugepage=never audit=0`.
   - They cut the UDP p50 from 38.6 to 34.9 µs, and left IPC unchanged.
   - With `idle=poll`, an idle CPU spins instead of entering a C-state.
-  - **[untested]** On AWS instance types that let the guest control C-states, AWS's `intel_idle.max_cstate=1 processor.max_cstate=1` is the milder alternative. Use one or the other (README: [On AWS](./README.md#tuning-on-x86-64-linux)).
-- **[host] Archive nodes:** `vm.dirty_bytes` and `vm.dirty_background_bytes` (see the archive section) are node-wide too.
+  - [untested] On AWS instance types that let the guest control C-states, AWS's `intel_idle.max_cstate=1 processor.max_cstate=1` is the milder alternative. Use one or the other (README: [On AWS](./README.md#tuning-on-x86-64-linux)).
+- **[host] Archive nodes.** `vm.dirty_bytes` and `vm.dirty_background_bytes` (see the archive section) are node-wide too.
 
-**Applying the node settings.** None of the settings above can go in a pod spec. `net.core.busy_read` isn't a namespaced sysctl, so `securityContext.sysctls` can't set it, and [Kubernetes](https://kubernetes.io/docs/tasks/administer-cluster/sysctl-cluster/) allows no `net.*` sysctls with `hostNetwork`. **[untested]** by platform:
+**Applying the node settings.** None of the settings above can go in a pod spec. `net.core.busy_read` isn't a namespaced sysctl, so `securityContext.sysctls` can't set it, and [Kubernetes](https://kubernetes.io/docs/tasks/administer-cluster/sysctl-cluster/) allows no `net.*` sysctls with `hostNetwork`. [untested] by platform:
 
-- **AKS:**
+- AKS:
   - [Custom node configuration](https://learn.microsoft.com/en-us/azure/aks/custom-node-configuration-reference) sets the socket buffer limits and transparent huge pages per node pool (`az aks nodepool add --linux-os-config`).
   - It doesn't cover `busy_read` or `vm.dirty_*`. Microsoft says "use a daemon set" beyond its subset.
   - It has no kernel command line field, so isolation and `idle=poll` need a custom node image.
   - Its kubelet configuration has `cpuManagerPolicy` and `topologyManagerPolicy`, but no `reservedSystemCPUs` or CPU manager policy options.
-- **EKS:**
+- EKS:
   - On Amazon Linux 2023, kubelet settings go in nodeadm's [`NodeConfig`](https://awslabs.github.io/amazon-eks-ami/nodeadm/doc/api/) through the [launch template's user data](https://docs.aws.amazon.com/eks/latest/userguide/launch-templates.html), as do the sysctl files.
   - Kernel options need a custom AMI.
   - Bottlerocket takes kernel options in [`settings.boot.kernel-parameters`](https://bottlerocket.dev/en/os/1.42.x/api/settings/boot/), with `reboot-to-reconcile = true`.
-- **OpenShift:**
+- OpenShift:
   - A [`PerformanceProfile`](https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/html/scalability_and_performance/cnf-provisioning-low-latency-workloads) sets the isolated and reserved CPUs, huge pages and extra kernel options.
   - CRI-O's pod annotations then turn off C-states, CFS quota, and load and IRQ balancing per pod; see the commented lines in the example below. containerd has no equivalent.
 
-**kubelet**
+#### kubelet
 
-- **[pod] The static CPU manager:** `cpu-manager-policy=static`, with `reserved-cpus` set to the housekeeping CPUs, the same ones as `irqaffinity`.
+- **[pod] The static CPU manager.** Use `cpu-manager-policy=static`, with `reserved-cpus` set to the housekeeping CPUs, the same ones as `irqaffinity`.
   - It gives every Guaranteed container whole CPUs to itself, with no CFS quota.
   - On k3s these go in `/etc/rancher/k3s/config.yaml` as `kubelet-arg`.
-  - kubelet refuses to start with a state file from another policy: stop it, delete `/var/lib/kubelet/cpu_manager_state`, then start it.
-- **[pod] Room for the pod:** other pods' CPU requests count against the allocatable CPUs.
-- **[untested] Whole cores with SMT on:** the static policy's `full-pcpus-only=true` option keeps a container's CPUs on whole cores, but rejects odd CPU requests. With `nosmt` it doesn't matter.
-- **[untested] Nothing on the reserved CPUs:**
+  - kubelet refuses to start with a state file from another policy. Stop it, delete `/var/lib/kubelet/cpu_manager_state`, then start it.
+- **[pod] Room for the pod.** Other pods' CPU requests count against the allocatable CPUs.
+- **[untested] Whole cores with SMT on.** The static policy's `full-pcpus-only=true` option keeps a container's CPUs on whole cores, but rejects odd CPU requests. With `nosmt` it doesn't matter.
+- [untested] Nothing on the reserved CPUs:
   - Without the [`strict-cpu-reservation`](https://kubernetes.io/docs/tasks/administer-cluster/cpu-management-policies/) option, pods in the shared pool also run on the reserved CPUs, which take the interrupts.
   - With it, only system daemons do. It is GA from Kubernetes 1.35.
   - Turning it on needs the same `cpu_manager_state` reset.
 
-**Pods**
+#### Pods
 
-- **[pod] Every container Guaranteed:** requests equal limits, in whole CPUs.
+- **[pod] Every container Guaranteed.** Requests equal limits, in whole CPUs.
   - Give one CPU to each busy-spinning thread, plus one for the conductor and the other threads. Every thread in a container shares its CPUs.
   - On a host, the client's conductor on the spinning CPUs held IPC p99.99 at 3.1–3.6 µs, against 0.7–1.0 µs.
-- **[pod] If the static policy is not available:** don't set a CPU limit equal to the spinning threads. Drivers limited that way were throttled in 23–55% of 100 ms periods. One more CPU, or no CPU limit, avoided it.
-- **[pod] Huge pages:** requests must equal limits.
+- **[pod] If the static policy is not available.** Don't set a CPU limit equal to the spinning threads. Drivers limited that way were throttled in 23–55% of 100 ms periods. One more CPU, or no CPU limit, avoided it.
+- **[pod] Huge pages.** Requests must equal limits.
   - Share one `emptyDir: {medium: HugePages-2Mi}` between the driver and app containers.
   - Set `AERON_PERFORM_STORAGE_CHECKS=false`, because kubelet mounts hugetlbfs without `size=`.
-- **[host] Term buffers and mappings:** set `AERON_TERM_BUFFER_SPARSE_FILE=false` on the driver and `AERON_CLIENT_PRE_TOUCH_MAPPED_MEMORY=true` on the clients.
+- **[host] Term buffers and mappings.** Set `AERON_TERM_BUFFER_SPARSE_FILE=false` on the driver and `AERON_CLIENT_PRE_TOUCH_MAPPED_MEMORY=true` on the clients.
 
-**Sharing `AERON_DIR`: one driver per pod, or one per node**
+#### Sharing `AERON_DIR`, with one driver per pod or one per node
 
 Aeron's IPC is memory-mapped files in `AERON_DIR`. The driver and every client must see the same directory, and anything that can mount it can read and publish on every stream and command the driver. Aeron's IPC has no authentication. So decide who may mount the directory, and give the driver and clients the same uid or gid.
 
-- **[pod] A driver in each pod:** run the driver as a container beside the app, sharing an `emptyDir: {medium: HugePages-2Mi}` as in the example below. This was the measured layout.
+- **[pod] A driver in each pod.** Run the driver as a container beside the app, sharing an `emptyDir: {medium: HugePages-2Mi}` as in the example below. This was the measured layout.
   - kubelet reserves and charges the huge pages to the pod.
   - The directory goes with the pod.
   - It needs no access to the host, so it passes the Pod Security Standards' baseline and restricted profiles.
-  - The cost is a driver's CPUs in every pod: 3 for a dedicated UDP driver.
-  - The pod's own `/dev/shm` can't replace the volume: it is usually capped at 64 MiB, while one IPC publication with Aeron's default 64 MiB terms needs about 192 MiB.
-- **[untested] One driver per node, shared by several app pods** (a DaemonSet, say): the pods must share a directory on the node.
-  - **`hostPath` for just that directory, on the node's hugetlbfs mount**, keeps the huge pages. The driver pod must request `hugepages-2Mi` covering all its log buffers: kubelet caps each pod's huge pages at its request, and a page fault beyond that kills the process with `SIGBUS`.
+  - The cost is a driver's CPUs in every pod, which is 3 for a dedicated UDP driver.
+  - The pod's own `/dev/shm` can't replace the volume, because it is usually capped at 64 MiB, while one IPC publication with Aeron's default 64 MiB terms needs about 192 MiB.
+- **[untested] One driver per node, shared by several app pods (a DaemonSet, say).** The pods must share a directory on the node.
+  - `hostPath` for just that directory, on the node's hugetlbfs mount, keeps the huge pages. The driver pod must request `hugepages-2Mi` covering all its log buffers, because kubelet caps each pod's huge pages at its request, and a page fault beyond that kills the process with `SIGBUS`.
     - With non-sparse term buffers the driver touches every page as it creates a log, so its clients should map pages that already exist. Whether a client pod with no huge-page request can still fault one in was not checked.
     - Size the mount (`size=`) or set `AERON_PERFORM_STORAGE_CHECKS=false`.
-  - **`hostPath` on the node's `/dev/shm`**, or **`hostIPC: true`**, which mounts the host's `/dev/shm` with containerd and CRI-O: either works, but `hostIPC` also hands the pod the host's whole IPC namespace, which Aeron doesn't use. System V shared memory, semaphores, message queues and every other file in `/dev/shm` come with it.
-    - **[host] Page size:** `/dev/shm` uses 4 KiB pages unless the node sets transparent huge pages for shared memory to `always` (`/sys/kernel/mm/transparent_hugepage/shmem_enabled`). In the earlier Intel runs, that matched hugetlbfs: IPC p99 0.14 µs, against 0.7 µs with 4 KiB pages.
-  - **Either way:**
+  - `hostPath` on the node's `/dev/shm`, or `hostIPC: true`, which mounts the host's `/dev/shm` with containerd and CRI-O. Either works, but `hostIPC` also hands the pod the host's whole IPC namespace, which Aeron doesn't use. System V shared memory, semaphores, message queues and every other file in `/dev/shm` come with it.
+    - **[host] Page size.** `/dev/shm` uses 4 KiB pages unless the node sets transparent huge pages for shared memory to `always` (`/sys/kernel/mm/transparent_hugepage/shmem_enabled`). In the earlier Intel runs, that matched hugetlbfs, with an IPC p99 of 0.14 µs against 0.7 µs with 4 KiB pages.
+  - Either way:
     - The baseline profile forbids `hostPath` and `hostIPC` (and `hostNetwork`), so the namespace needs the privileged profile or a policy exception.
     - Files on the node outlive the driver's pod; set `AERON_DIR_DELETE_ON_START=true` so a restarted driver clears what a crashed one left.
     - Pages in the host's tmpfs are charged to whichever container first touches them, not to a pod's request.
 
-**The driver container**
+#### The driver container
 
-- **[host] IPC only:** a dedicated driver with its default idle strategies spins nothing, and one CPU is enough. On a host, a SHARED `noop` driver cost IPC: p50 0.31 → 0.36–0.42 µs, and half the throughput.
-- **[host] UDP:** dedicated, with a `noop` sender and receiver each pinned, which is 3 CPUs with the conductor.
+- **[host] IPC only.** A dedicated driver with its default idle strategies spins nothing, and one CPU is enough. On a host, a SHARED `noop` driver cost IPC: p50 from 0.31 to 0.36–0.42 µs, and half the throughput.
+- **[host] UDP.** Use a dedicated driver with a `noop` sender and receiver each pinned, which is 3 CPUs with the conductor.
   - Short of CPUs, SHARED_NETWORK (2 CPUs) gave the same UDP latency and throughput.
   - SHARED gave 12% less throughput.
-- **[untested] in a pod: pinning inside the container.** Inside a container the CPU numbers aren't known in advance. Set `AERON_DRIVER_CPUSET_AFFINITY=true`, and Aeron reads the `AERON_*_CPU_AFFINITY` values as indexes into the container's cpuset: 0 for its first CPU, and so on.
+- **[untested] Pinning inside the container, in a pod.** Inside a container the CPU numbers aren't known in advance. Set `AERON_DRIVER_CPUSET_AFFINITY=true`, and Aeron reads the `AERON_*_CPU_AFFINITY` values as indexes into the container's cpuset, with 0 for its first CPU, and so on.
   - This needs cgroup v2. rusteron's `media_driver` applies it, as `aeronmd` does.
-  - It is checked in Aeron's code but not run in a pod: in the measured pods it wasn't applied yet.
+  - It is checked in Aeron's code but not run in a pod, because in the measured pods it wasn't applied yet.
 
-**The app container**
+#### The app container
 
-- **[host] Pinning:** pin each spinning thread to one of the container's CPUs, read from `/sys/fs/cgroup/cpuset.cpus.effective`. Leave one CPU for the client's conductor, or run the client with the conductor agent invoker.
-- **[pod] Placement:** kubelet picks the CPUs.
+- **[host] Pinning.** Pin each spinning thread to one of the container's CPUs, read from `/sys/fs/cgroup/cpuset.cpus.effective`. Leave one CPU for the client's conductor, or run the client with the conductor agent invoker.
+- **[pod] Placement.** The kubelet picks the CPUs.
   - Ping and pong on one core's two SMT threads, with the client's other threads on a third CPU, gave 0.115 µs at p50.
   - On separate cores they gave 0.35–0.38 µs.
 
-**Networking**
+#### Networking
 
-- **[untested] UDP from a pod.** The UDP results here used the host's network stack, and a CNI overlay adds its own path. For low-latency UDP between nodes, use `hostNetwork: true` and measure it. A VF can't be handed to a pod instead: the [SR-IOV device plugin's README](https://github.com/k8snetworkplumbingwg/sriov-network-device-plugin/blob/master/README.md) says the SR-IOV CNI "doesn't support running in a virtualized environment".
-- **[host] Windows:** 2 MiB socket buffers and receiver window lifted throughput 1.9 → 13 M msgs/s. Across regions, size the window to the round trip (16 MiB for 53 ms gave 119 MB/s).
-- **[host] Jumbo frames:** MTU 9000 with `AERON_MTU_LENGTH=8192` inside the VNet doubled throughput again.
-- **[host] Avoid packet loss** before anything else: 0.1% loss cost a third of the throughput, and a lost request or reply waited about 100 ms.
+- **[untested] UDP from a pod.** The UDP results here used the host's network stack, and a CNI overlay adds its own path. For low-latency UDP between nodes, use `hostNetwork: true` and measure it. A VF can't be handed to a pod instead, because the [SR-IOV device plugin's README](https://github.com/k8snetworkplumbingwg/sriov-network-device-plugin/blob/master/README.md) says the SR-IOV CNI "doesn't support running in a virtualized environment".
+- **[host] Windows.** 2 MiB socket buffers and receiver window lifted throughput from 1.9 to 13 M msgs/s. Across regions, size the window to the round trip (16 MiB for 53 ms gave 119 MB/s).
+- **[host] Jumbo frames.** MTU 9000 with `AERON_MTU_LENGTH=8192` inside the VNet doubled throughput again.
+- **[host] Avoid packet loss before anything else.** 0.1% loss cost a third of the throughput, and a lost request or reply waited about 100 ms.
 
-**An archive**
+#### An archive
 
-- **[untested] in a pod:**
+- [untested] in a pod:
   - Run the archive in its own Guaranteed container with at least 2 whole CPUs. On a host, confining the whole JVM to one CPU cost 25% of recording throughput; a core of its own for the recorder got it back.
-  - Put the archive directory on a volume sized for throughput: Premium SSD v2 on Azure, or local NVMe through a local persistent volume only if the archive is replicated elsewhere.
+  - Put the archive directory on a volume sized for throughput, such as Premium SSD v2 on Azure, or local NVMe through a local persistent volume only if the archive is replicated elsewhere.
   - Use file sync level 0, with the node's `vm.dirty_*` limits raised for bursts.
 
 The pods above used a SHARED `noop` driver. This example follows the recommendations instead, with a dedicated driver in the pod for UDP on the host's network. It has not itself been run. `hostNetwork` puts it outside the baseline profile too:
@@ -577,19 +577,19 @@ spec:
 
 ## Hot paths: in-place header reads and cross-language LTO (2026-10-11)
 
-Per-operation cost of the client's hot paths, from `rusteron-client/benches/hot_path.rs`: an
+Per-operation cost of the client's hot paths, from `rusteron-client/benches/hot_path.rs`, using an
 embedded driver over IPC, a 32-byte payload, and header reads timed as the slope from 0 to 4
 reads per fragment with every result kept alive. Each figure is the median of 3 runs of each
 build, interleaved. Spreads were within about 2%. Two machines:
 
-- **Mac:** Apple M4, macOS, Rust 1.95.0.
-- **Linux:** a Debian arm64 Docker VM on the same M4, Rust 1.98.1, rustc's generic CPU. The
+- Mac: Apple M4, macOS, Rust 1.95.0.
+- Linux: a Debian arm64 Docker VM on the same M4, Rust 1.98.1, rustc's generic CPU. The
   absolute numbers are indicative only, but the builds ran side by side, so the differences hold.
 
 The LTO builds link a separate crate that depends on rusteron, as an application would, with
 `lto = "fat"`, `codegen-units = 1` and Aeron C compiled by clang 22 with `-flto`.
 
-**One header field read** (`header.session_id()` and the others), ns per read:
+One header field read (`header.session_id()` and the others), ns per read:
 
 | Build                                             | Mac  | Linux |
 | ------------------------------------------------- | ---- | ----- |
@@ -602,7 +602,7 @@ Reading the frame in place is what removes the cost, on every build. Cross-langu
 `aeron_header_values` and drops its zeroing and copy, but its null checks, error path and the
 wrapper's branches remain.
 
-**Publish and receive**, ns per operation (Linux; header reads in place in all three):
+Publish and receive, ns per operation (Linux; header reads in place in all three):
 
 | Build                             | `offer` | `try_claim` + `commit` | `poll` per fragment |
 | --------------------------------- | ------- | ---------------------- | ------------------- |
@@ -610,20 +610,20 @@ wrapper's branches remain.
 | Aeron C built by clang 22, no LTO | 6.55    | 6.41                   | 1.65                |
 | clang 22, cross-language LTO      | 5.81    | 5.56                   | 0.99                |
 
-On Linux the whole `poll` path inlines: `aeron_subscription_poll`, `aeron_image_poll`, the
+On Linux the whole `poll` path inlines. `aeron_subscription_poll`, `aeron_image_poll`, the
 fragment trampoline and the closure become one loop, with no indirect call per fragment.
 `commit` inlines anyway (LLVM cost 10); `try_claim` inlines only because this bench called it from
 one place (see [Inlining every publish call](#inlining-every-publish-call)). `offer` stays a call, being too
 large for LLVM's inliner, and about half of its gain comes from building Aeron with clang rather
 than gcc. On the Mac only
-the claim path inlined (`offer` 6.16 → 5.85 ns, `try_claim` + `commit` 5.75 → 5.29 ns, `poll`
+the claim path inlined (`offer` 6.16 to 5.85 ns, `try_claim` + `commit` 5.75 to 5.29 ns, `poll`
 unchanged), and macOS is not a supported setup (see below).
 
-Other build settings made no difference beyond noise on the Mac: Rust `lto = "thin"` against
+Other build settings made no difference beyond noise on the Mac, namely Rust `lto = "thin"` against
 `"fat"`, and `panic = "abort"`. C `-flto=thin` beside Rust's fat LTO inlined nothing.
 
 The generated `get_constants` and `get_values` getters now let Aeron fill uninitialised memory
-instead of zeroing the struct first, as Aeron writes every field on success: on the Mac,
+instead of zeroing the struct first, as Aeron writes every field on success. On the Mac,
 `publication.get_constants()` went from 10.62 to 8.20 ns and `subscription.get_constants()` from
 6.09 to 5.26 ns. Neither is called per message.
 
@@ -632,7 +632,7 @@ on Linux.
 
 ### Inlining every publish call
 
-LLVM inlines a call when the callee's cost, by its own model, is below a threshold: 250 at `-O3`,
+LLVM inlines a call when the callee's cost, by its own model, is below a threshold, which is 250 at `-O3`,
 525 for a call it estimates as hot ("locally hot": run at least 60 times as often as its function's
 entry, typically inside a loop), with a 15000 bonus when the call is the only one to that function
 in the whole program. The bench above called each publish function from one place,
@@ -651,14 +651,14 @@ then give, on the Linux VM, for the timed loops:
 | `aeron_exclusive_publication_offer`            | 1010          | no                           | yes                                         |
 | `aeron_exclusive_publication_offerv`           | 1085          | no                           | yes                                         |
 
-Nothing else blocks them: no `noinline` or `cold` attributes, no feature mismatch once C targets
+Nothing else blocks them. There are no `noinline` or `cold` attributes, no feature mismatch once C targets
 rustc's CPU, and no interposition, since LTO makes every symbol of the executable internal. The
 cost comes from the error paths (two variadic `aeron_err_set` calls with formatted arguments),
 term rotation and back-pressure status, all inlined into each function.
 
-Raising the general threshold does not work: `-inline-threshold=325` left the loop threshold at
+Raising the general threshold does not work. `-inline-threshold=325` left the loop threshold at
 525, and `-inline-threshold=1000` pushed `aeron_subscription_poll` out of line. The locally hot
-threshold changes only call sites LLVM estimates as hot, so it never pushes `poll` out: on the
+threshold changes only call sites LLVM estimates as hot, so it never pushes `poll` out. On the
 Linux VM `poll` stays inlined, and on the Mac, where LTO alone left it a call (1.62 ns), the flag
 inlines it too (0.97 ns). At a call site that is not hot, `aeron_subscription_poll` (335) is over
 the normal threshold of 250 and stays a call whatever the flag. An x86 run of a downstream
@@ -684,7 +684,7 @@ build, gcc included, so the VM numbers cannot show its gain.
 
 ### Turning on cross-language LTO (Linux)
 
-Only the final binary can turn it on: rusteron's own build settings do not reach crates that
+Only the final binary can turn it on, because rusteron's own build settings do not reach crates that
 depend on it.
 
 1. Install clang, lld and llvm-ar with the same LLVM major version as rustc. Rust 1.98.1 uses
@@ -756,7 +756,7 @@ depend on it.
 
 C uses full LTO (`-flto`) to match Rust's `lto = "fat"`. With Rust `lto = "thin"`, set
 `RUSTERON_C_LTO=thin`. The `precompile` libraries are native code and cannot take part (the build
-warns). macOS is not supported: rust-lld cannot read the macOS SDK, Apple's linker rejects
+warns). macOS is not supported because rust-lld cannot read the macOS SDK, Apple's linker rejects
 rustc's LTO flags, and clang marks Apple-silicon code with CPU features rustc does not, which
 blocks inlining.
 
@@ -769,15 +769,16 @@ just bench-lto                                                     # cross-langu
 
 ## What else was checked
 
-**No effect inside an Azure Hyper-V guest, or not used in Aeron's path:**
+No effect inside an Azure Hyper-V guest, or not used in Aeron's path:
 
 - Interrupt coalescing (`ethtool -C`): MANA has no coalescing control. On AWS, [AWS recommends](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ena-improve-network-latency-linux.html) turning the ENA NIC's off for latency (`ethtool -C <interface> adaptive-rx off rx-usecs 0 tx-usecs 0`); not measured here.
 - GRO and LRO: plain UDP sockets are never merged.
 - `net.core.busy_poll`: Aeron's receiver calls `recvmmsg` directly, never `poll`, so only `busy_read` matters.
-- Limiting C-states (`intel_idle.max_cstate`, `processor.max_cstate`): the Hyper-V guest has no cpuidle driver (every run recorded `none`), so there are no C-states to limit; `idle=poll` keeps idle CPUs spinning instead. `haltpoll` needs KVM. On AWS instance types that let the guest control C-states, [AWS recommends](https://docs.aws.amazon.com/linux/al2/ug/processor_state_control.html) `intel_idle.max_cstate=1 processor.max_cstate=1`; not measured here.- `tsc=reliable`: Hyper-V already marks the TSC reliable, and `tsc` was the clock source.
+- Limiting C-states (`intel_idle.max_cstate`, `processor.max_cstate`): the Hyper-V guest has no cpuidle driver (every run recorded `none`), so there are no C-states to limit; `idle=poll` keeps idle CPUs spinning instead. `haltpoll` needs KVM. On AWS instance types that let the guest control C-states, [AWS recommends](https://docs.aws.amazon.com/linux/al2/ug/processor_state_control.html) `intel_idle.max_cstate=1 processor.max_cstate=1`; not measured here.
+- `tsc=reliable`: Hyper-V already marks the TSC reliable, and `tsc` was the clock source.
 - `mlockall`: there is no swap, and Aeron's memory is pre-touched.
 
-**Not done, with the reason:**
+Not done, with the reason:
 
 - `SCHED_FIFO` for the busy-spinning threads: it gains nothing on isolated cores and risks starving kernel threads.
 - NIC IRQs on a quiet core of their own: once SMT is off, a D8s_v6 has no spare core.
@@ -796,9 +797,9 @@ scripts/x86-lab/lab.sh
 
 The settings recommended elsewhere but not yet measured, against the tuned state:
 
-- **The kernel options:** add `tune8x bench8-tunedx xhost8-tunedx`. That is the tuned kernel plus tuned's `network-latency` RCU options, timers kept in place, and the writeback workqueue and RCU's offload kthreads on the housekeeping CPU.
-- **The send batch:** every `xhost8-*` phase also runs `ded-threads-msgs2`, which sends at most 2 messages per sender cycle.
-- **Drops:** every `xhost8-*` phase records the ping host's UDP drop counters before and after in `drops8.txt`.
+- **The kernel options.** Add `tune8x bench8-tunedx xhost8-tunedx`. That is the tuned kernel plus tuned's `network-latency` RCU options, timers kept in place, and the writeback workqueue and RCU's offload kthreads on the housekeeping CPU.
+- **The send batch.** Every `xhost8-*` phase also runs `ded-threads-msgs2`, which sends at most 2 messages per sender cycle.
+- **Drops.** Every `xhost8-*` phase records the ping host's UDP drop counters before and after in `drops8.txt`.
 
 The archive under load, with three disks on each VM:
 

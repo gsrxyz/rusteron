@@ -44,6 +44,51 @@ pub const PUBLICATION_ERROR: i64 = bindings::AERON_PUBLICATION_ERROR as i64;
 
 pub mod testing;
 
+/// A recording descriptor is borrowed from a C stack local that Aeron frees once the callback
+/// returns, so it cannot be kept, nor cloned or rewrapped and kept. Copying a field out is fine:
+///
+/// ```no_run
+/// # use rusteron_archive::*;
+/// # fn f(archive: &AeronArchive) -> Result<(), AeronArchiveError> {
+/// let (mut count, mut id) = (0, None);
+/// archive.list_recordings_fn(&mut count, 0, 10, |d| id = Some(d.recording_id))?;
+/// # Ok(()) }
+/// ```
+///
+/// ```compile_fail,E0521
+/// # use rusteron_archive::*;
+/// # fn f(archive: &AeronArchive) -> Result<(), AeronArchiveError> {
+/// let (mut count, mut kept) = (0, None);
+/// archive.list_recordings_fn(&mut count, 0, 10, |d| kept = Some(d))?;
+/// # Ok(()) }
+/// ```
+///
+/// ```compile_fail,E0521
+/// # use rusteron_archive::*;
+/// # fn f(archive: &AeronArchive) -> Result<(), AeronArchiveError> {
+/// let (mut count, mut kept) = (0, None);
+/// archive.list_recordings_fn(&mut count, 0, 10, |d| kept = Some(d.clone()))?;
+/// # Ok(()) }
+/// ```
+///
+/// ```compile_fail,E0308
+/// # use rusteron_archive::*;
+/// # fn f(archive: &AeronArchive) -> Result<(), AeronArchiveError> {
+/// let (mut count, mut kept) = (0, None);
+/// archive.list_recordings_fn(&mut count, 0, 10, |d| kept = Some(AeronArchiveRecordingDescriptor::from(d.get_inner())))?;
+/// # Ok(()) }
+/// ```
+///
+/// ```compile_fail,E0308
+/// # use rusteron_archive::*;
+/// # fn f(archive: &AeronArchive) -> Result<(), AeronArchiveError> {
+/// let (mut count, mut kept) = (0, None);
+/// archive.list_recordings_fn(&mut count, 0, 10, |d| kept = Some(AeronArchiveRecordingDescriptor::from(**d)))?;
+/// # Ok(()) }
+/// ```
+#[allow(dead_code)]
+mod callback_args_cannot_escape {}
+
 #[cfg(test)]
 pub mod persistent_subscription_integration;
 #[cfg(test)]
@@ -485,8 +530,8 @@ impl AeronArchivePersistentSubscription {
     /// the callback pointers + `clientd`) and kept alive for the subscription's
     /// lifetime; it is freed once the subscription is closed.
     ///
-    /// The context is consumed and owned by the subscription from this point on —
-    /// it will be closed when the subscription is closed, so it must not be used
+    /// The context is consumed and owned by the subscription from this point on.
+    /// It will be closed when the subscription is closed, so it must not be used
     /// afterwards. The context's Aeron client and archive context must outlive the
     /// subscription; [`PersistentSubscriptionBuilder::build`] keeps them open. Creating it
     /// points the archive context at that client; without one, it makes its own and closes
@@ -557,8 +602,8 @@ impl AeronArchivePersistentSubscription {
             }
         };
 
-        // Reclaim via a dependency, not the cleanup closure — the generated
-        // close() bypasses the closure, but a field always drops.
+        // Reclaim via a dependency, not the cleanup closure. The generated
+        // close() bypasses the closure, but a field always drops
         if let Some(hb) = holder_box {
             resource.add_dependency(hb);
         }
@@ -625,7 +670,7 @@ pub trait PersistentSubscriptionListener: 'static {
     /// Called for **both** non-terminal and terminal errors. Non-terminal errors
     /// (timeouts, transient resource unavailability) are retried automatically.
     /// A terminal failure flips [`AeronArchivePersistentSubscription::has_failed`]
-    /// to true — check it in the poll loop and read the reason with
+    /// to true. Check it in the poll loop and read the reason with
     /// [`AeronArchivePersistentSubscription::get_failure_reason`].
     fn on_error(&self, error_code: i32, error_message: &str) {}
 }
@@ -849,6 +894,28 @@ mod tests {
     use log::{error, info};
 
     use crate::testing::{EmbeddedArchiveMediaDriverProcess, valgrind_timeout};
+
+    // a pointer-free struct gets a safe `clone_struct` whose copy is independent of the source
+    #[test]
+    fn clone_struct_of_pointer_free_struct_is_independent() {
+        let signal = AeronArchiveRecordingSignal::default();
+        unsafe { signal.get_inner_mut().recording_id = 7 };
+        let copy = signal.clone_struct();
+        unsafe { signal.get_inner_mut().recording_id = 8 };
+        assert_eq!(copy.recording_id, 7);
+        assert_ne!(copy.get_inner(), signal.get_inner());
+    }
+
+    // `clone_reference` shares the struct rather than copying it
+    #[test]
+    fn clone_reference_shares_the_struct() {
+        let signal = AeronArchiveRecordingSignal::default();
+        // SAFETY: `signal` is owned on heap and outlives `shared`
+        let shared = unsafe { signal.clone_reference() };
+        unsafe { signal.get_inner_mut().recording_id = 7 };
+        assert_eq!(shared.recording_id, 7);
+        assert_eq!(shared.get_inner(), signal.get_inner());
+    }
 
     #[test]
     fn archive_error_parse_extracts_error_code() {
@@ -1125,7 +1192,7 @@ mod tests {
 
         builder.init_new()?;
         builder
-            .media(Media::Udp)? // very important to set media else set_initial_position will give an error of -1
+            .media(Media::Udp)? // must set media, else set_initial_position will give an error of -1
             .mtu_length(1024 * 64)?
             .set_initial_position(127424949617280, 1182294755, 65536)?;
         let uri = builder.build(1024)?;
@@ -1550,8 +1617,8 @@ mod tests {
         }
     }
 
-    /// Deep-graph close: closing a *clone* of the archive client defers the C close —
-    /// the original stays fully usable (control session intact, error polling clean).
+    /// Deep-graph close: closing a *clone* of the archive client defers the C close.
+    /// The original stays fully usable (control session intact, error polling clean).
     #[test]
     #[serial]
     pub fn archive_clone_close_defers_and_original_remains_usable() -> Result<(), Box<dyn error::Error>> {
@@ -1636,7 +1703,7 @@ mod tests {
             context.set_aeron(&client)?;
             context.set_control_request_channel(&archive_context.get_control_request_channel().into_c_string())?;
             context.set_control_response_channel(&archive_context.get_control_response_channel().into_c_string())?;
-            context.set_recording_signal_consumer(Some(move |_signal: AeronArchiveRecordingSignal| {
+            context.set_recording_signal_consumer(Some(move |_signal: &AeronArchiveRecordingSignal| {
                 counted.fetch_add(1, Ordering::SeqCst);
             }))?;
             // the blocking connect drives the client's conductor itself
@@ -1780,7 +1847,7 @@ mod tests {
 
             let found = Rc::new(Cell::new(-1));
             let seen = Rc::clone(&found);
-            let consumer = Handler::new(move |d: AeronArchiveRecordingDescriptor| {
+            let consumer = Handler::new(move |d: &AeronArchiveRecordingDescriptor| {
                 if d.stream_id == STREAM_ID {
                     seen.set(d.recording_id);
                 }
@@ -1838,7 +1905,7 @@ mod tests {
 
             let found = Rc::new(Cell::new(-1));
             let seen = Rc::clone(&found);
-            let consumer = Handler::new(move |d: AeronArchiveRecordingSubscriptionDescriptor| {
+            let consumer = Handler::new(move |d: &AeronArchiveRecordingSubscriptionDescriptor| {
                 if d.stream_id == STREAM_ID {
                     seen.set(d.subscription_id());
                 }
@@ -2128,7 +2195,7 @@ mod tests {
                     i32::MAX,
                     channel,
                     stream_id,
-                    |d: AeronArchiveRecordingDescriptor| {
+                    |d: &AeronArchiveRecordingDescriptor| {
                         assert_eq!(d.stream_id, stream_id);
                         info!("found recording {:#?}", d);
                         info!(
@@ -2143,7 +2210,8 @@ mod tests {
                         }
 
                         // verify clone_struct works
-                        let copy = d.clone_struct();
+                        // SAFETY: `copy` is dropped within the callback and its strings are not read
+                        let copy = unsafe { d.clone_struct() };
                         assert_eq!(copy.deref(), d.deref());
                         assert_eq!(copy.recording_id, d.recording_id);
                         assert_eq!(copy.control_session_id, d.control_session_id);
@@ -2190,7 +2258,7 @@ mod tests {
                 }
 
                 impl AeronFragmentHandlerCallback for FragmentHandler {
-                    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: AeronHeader) {
+                    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: &AeronHeader) {
                         assert_eq!(buffer, "123456".as_bytes());
 
                         // Update count (using Cell for interior mutability)
@@ -2326,7 +2394,7 @@ mod tests {
                     break;
                 }
                 Err(e) if attempt < max_retries - 1 => {
-                    // Check if error is about CLOSING state - retry with backoff
+                    // Retry with backoff if the error is about the CLOSING state
                     let error_msg = e.to_string();
                     if error_msg.contains("CLOSING") || error_msg.contains("temporarily unavailable") {
                         std::thread::sleep(retry_delay);
@@ -2445,7 +2513,7 @@ mod tests {
         drop(publication);
         // recording_id is just a u64, not a resource handle
 
-        // Call close_now on the archive — must not segfault or double-free
+        // Call close_now on the archive. It must not segfault or double-free
         unsafe {
             assert!(
                 archive.close_now().is_ok(),

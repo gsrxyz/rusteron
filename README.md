@@ -5,32 +5,33 @@
 [![API Docs](https://docs.rs/rusteron-archive/badge.svg)](https://docs.rs/rusteron-archive/)
 [![github API Docs](https://custom-icon-badges.demolab.com/badge/githubdocs-blue.svg?logo=log\&logoSource=feather)](https://gsrxyz.github.io/rusteron)
 
-> **Rusteron** is a thin, high-performance Rust wrapper over the [Aeron](https://github.com/real-logic/aeron) C API.
-> It exposes low-level C bindings with minimal abstraction, optimized for production use in latency-sensitive environments.
+> Rusteron is a thin, high-performance Rust wrapper over the [Aeron](https://github.com/real-logic/aeron) C API.
+> Rusteron is a thin, high-performance Rust wrapper over the [Aeron](https://github.com/real-logic/aeron) C API.
+> It exposes low-level C bindings with minimal abstraction, optimised for production use in latency-sensitive environments.
 
 ---
 
 ## Sponsored by GSR
 
-**Rusteron** is proudly sponsored and maintained by [GSR](https://www.gsr.io), a global leader in algorithmic trading and market making in digital assets.
+Rusteron is sponsored and maintained by [GSR](https://www.gsr.io), a global leader in algorithmic trading and market making in digital assets.
 
-It powers mission-critical infrastructure in GSR's real-time trading stack and is now developed under the official GSR GitHub organization as part of our commitment to open-source excellence and community collaboration.
+It runs in GSR's real-time trading stack and is developed under the GSR GitHub organisation.
 
 We welcome contributions, feedback, and discussions. If you're interested in integrating or contributing, please open an issue or reach out directly.
 
 ---
 
-## Project Overview
+## Project overview
 
-This project builds on a fork of [`libaeron-sys`](https://github.com/bspeice/libaeron-sys), offering Rust access to Aeron’s native C API. The API is **not fully idiomatic**, but is auto-generated for consistency and reliability. This tradeoff supports:
+This project builds on a fork of [`libaeron-sys`](https://github.com/bspeice/libaeron-sys), giving Rust access to Aeron's native C API. The API is not fully idiomatic, but is auto-generated for consistency and reliability. This tradeoff supports:
 
 * Performance-sensitive trading environments
 * Minimal runtime overhead
 * Low maintenance costs
 
-**Why generated bindings**: the main advantage of generating the bindings from the Aeron C headers is that the API is always complete and matches the Aeron documentation. Every C function and setting is available under a predictable name, with no wrapper lagging behind an Aeron release. Hand-written bindings can look nicer, but they are hard to maintain, and when something breaks you cannot tell whether the fault is in the wrapper or in Aeron itself. Because the generated code is a thin pass-through to the C API, a problem can be reproduced against Aeron directly, and Aeron's own docs, samples and issue tracker apply as-is. Aeron is specialised, and rusteron is aimed mainly at people who already know low-latency development and want the real Aeron API rather than an abstraction over it. As with any low-level API, that power cuts both ways: rusteron guards against the common mistakes, but it is still possible to shoot yourself in the foot if the API is misused, so it pays to know how Aeron expects each call to be used.
+**Why generated bindings.** The main advantage of generating the bindings from the Aeron C headers is that the API is always complete and matches the Aeron documentation. Every C function and setting is available under a predictable name, with no wrapper lagging behind an Aeron release. Hand-written bindings can look nicer, but they are hard to maintain, and when something breaks you cannot tell whether the fault is in the wrapper or in Aeron itself. Because the generated code is a thin pass-through to the C API, a problem can be reproduced against Aeron directly, and Aeron's own docs, samples and issue tracker apply as-is. Aeron is specialised, and rusteron is aimed mainly at people who already know low-latency development and want the real Aeron API rather than an abstraction over it. As with any low-level API, that power cuts both ways. Rusteron guards against the common mistakes, but misuse can still cause bugs, so learn how Aeron expects each call to be used.
 
-**Lifecycle**: since 0.2, closing or dropping owned handles in any order is safe. `aeron.close()` is deferred while any publication, subscription, counter or clone is alive, and those handles stay usable until the last one drops (see [Resource Lifecycle](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/README.md#resource-lifecycle--close)). The remaining sharp edges:
+**Lifecycle.** Since 0.2, closing or dropping owned handles in any order is safe. `aeron.close()` is deferred while any publication, subscription, counter or clone is alive, and those handles stay usable until the last one drops (see [Resource Lifecycle](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/README.md#resource-lifecycle--close)). The remaining sharp edges:
 - `unsafe close_now()` frees children immediately.
 - Borrowed handles do not keep their owner alive. For example, an `Aeron` from `archive_context.get_aeron()` or a descriptor poller from `AeronArchive` must not outlive the context or archive it came from.
 - A buffer claim (`try_claim` / `try_claim_owned`) must be committed or aborted before its publication closes.
@@ -43,34 +44,34 @@ Aeron calls your Rust code from C. A Rust panic is handled one of three ways, pi
 
 | Callback | Runs on | What happens to the panic | What happens to the message |
 |---|---|---|---|
-| Fragment, controlled or block handler given to a subscription, image or replay-merge `poll` (and the `_fn` variants) | your thread, inside `poll` | **Unwinds** straight through C to the caller of `poll`, with its original payload | Nothing lost. Everything from the start of that poll (or the last `COMMIT`) up to the panicking fragment is delivered again on the next poll, so handlers must tolerate redelivery. Order is kept within each image; on a subscription with several images the next poll may start at a different image |
-| Fragment assembler delegate (`Handler::with_fragment_assembler`, `AeronFragmentClosureAssembler`) | your thread, inside `poll` | **Caught**, the assembler finishes its bookkeeping, then the `poll` raises it on return | The panicking message is not delivered again; the rest of that poll still is |
-| Controlled fragment assembler delegate | your thread, inside `poll` | **Caught**, then raised by the `poll` | The delegate returns `ABORT`, so the panicking message is delivered again on the next poll |
-| Persistent subscription handler and listener (`on_live_joined`, `on_live_left`, `on_error`) | your thread, inside the persistent `poll` | **Caught**, then raised by the `poll` | The panicking fragment is not delivered again |
-| Recording descriptor poller consumer (stored by `reset`, only on an owned poller: pollers from `AeronArchive` are borrowed, so `reset` returns an error) | your thread, inside the poller's `poll` | **Caught**, then raised by the poller's `poll` | The poller moves on, so that descriptor is not delivered again |
-| `for_each_image` visitor | your thread | **Caught**, C releases the image list, then `for_each_image` raises it | The remaining images are still visited |
-| Reserved-value supplier (`offer_with_reserved_value`) | your thread, inside `offer` | **Caught**, then the `offer` raises it on return | The message is still published, with reserved value `0` |
-| Other callbacks that run during the call (`aeron_cnc_error_log_read`, counters `foreach`, loss report, URI parse, ...) | your thread | **Caught**, C sees a default return value, then the wrapper raises it on return | Depends on the C function; it sees `0` / null / `()` from the panicking call |
-| Callbacks C keeps and fires later: available / unavailable image, error handler, new publication / subscription / counter, client close, archive and driver callbacks | usually the conductor thread | **Logged** with `log::error!` and `eprintln!` (`<callback> panicked inside an Aeron callback, continuing: <message>`), and the client carries on | That one event is dropped; later events still arrive |
+| Fragment, controlled or block handler given to a subscription, image or replay-merge `poll` (and the `_fn` variants) | your thread, inside `poll` | Unwinds straight through C to the caller of `poll`, with its original payload | Nothing lost. Everything from the start of that poll (or the last `COMMIT`) up to the panicking fragment is delivered again on the next poll, so handlers must tolerate redelivery. Order is kept within each image; on a subscription with several images the next poll may start at a different image |
+| Fragment assembler delegate (`Handler::with_fragment_assembler`, `AeronFragmentClosureAssembler`) | your thread, inside `poll` | Caught, the assembler finishes its bookkeeping, then the `poll` raises it on return | The panicking message is not delivered again; the rest of that poll still is |
+| Controlled fragment assembler delegate | your thread, inside `poll` | Caught, then raised by the `poll` | The delegate returns `ABORT`, so the panicking message is delivered again on the next poll |
+| Persistent subscription handler and listener (`on_live_joined`, `on_live_left`, `on_error`) | your thread, inside the persistent `poll` | Caught, then raised by the `poll` | The panicking fragment is not delivered again |
+| Recording descriptor poller consumer (stored by `reset`, only on an owned poller: pollers from `AeronArchive` are borrowed, so `reset` returns an error) | your thread, inside the poller's `poll` | Caught, then raised by the poller's `poll` | The poller moves on, so that descriptor is not delivered again |
+| `for_each_image` visitor | your thread | Caught, C releases the image list, then `for_each_image` raises it | The remaining images are still visited |
+| Reserved-value supplier (`offer_with_reserved_value`) | your thread, inside `offer` | Caught, then the `offer` raises it on return | The message is still published, with reserved value `0` |
+| Other callbacks that run during the call (`aeron_cnc_error_log_read`, counters `foreach`, loss report, URI parse, ...) | your thread | Caught, C sees a default return value, then the wrapper raises it on return | Depends on the C function; it sees `0` / null / `()` from the panicking call |
+| Callbacks C keeps and fires later: available / unavailable image, error handler, new publication / subscription / counter, client close, archive and driver callbacks | usually the conductor thread | Logged with `log::error!` and `eprintln!` (`<callback> panicked inside an Aeron callback, continuing: <message>`), and the client carries on | That one event is dropped; later events still arrive |
 
-**Why it works this way**
+Why it works this way:
 
 - Aeron C has no cleanup code for an exception passing through it. Unwinding through a C function is only safe when C holds no state between calling the handler and returning. An audit of the Aeron C source found that holds for the 9 poll functions listed in `UNWIND_POLL_FNS` (`rusteron-code-gen/src/generator.rs`): they commit the read position only after the handler returns, so an unwind just skips the commit and the fragments come back. These functions and their handler types are `extern "C-unwind"`, and Aeron C is built with `-fexceptions` so the unwinder can pass through its frames. This path adds no `catch_unwind` and no check to the poll loop.
-- Everywhere else C does hold state across the call: the assembler's reassembly buffer, the image list refcount in `for_each_image`, the claimed term space in `offer`, the persistent subscription's state machine. Unwinding there would leak or corrupt it. So the trampoline catches the panic, returns a value C understands (`()`, `0`, null, `ABORT` for controlled handlers), lets C finish normally, and the Rust wrapper raises the panic once C has returned. You still get the panic, and Aeron's state stays valid.
+- Everywhere else C does hold state across the call, such as the assembler's reassembly buffer, the image list refcount in `for_each_image`, the claimed term space in `offer` and the persistent subscription's state machine. Unwinding there would leak or corrupt it. So the trampoline catches the panic, returns a value C understands (`()`, `0`, null, `ABORT` for controlled handlers), lets C finish normally, and the Rust wrapper raises the panic once C has returned. You still get the panic, and Aeron's state stays valid.
 - A callback C keeps and fires later, usually on the conductor thread, has no Rust caller to raise the panic to. Aborting the whole process for a bug in, say, an available-image handler is worse than losing that one event, so it is logged and the client continues.
 - Before this, a panic in any callback except a poll handler aborted the process (since Rust 1.81 a panic cannot cross an `extern "C"` function).
 
-**Edge cases**
+Edge cases:
 
 - Only the first caught panic on a thread is kept until it is raised; a later one is reported by the panic hook and dropped.
 - A caught panic is raised at the next resume point on the same thread. If you drive the image fragment assemblers through the raw bindings, or wrap an assembler in your own handler type, the panic waits until the next call that raises a caught panic. The same applies to a persistent subscription listener when the persistent `poll` is given no fragment handler.
 - With `use_conductor_agent_invoker`, conductor callbacks run inside your `invoke` call, but are still logged rather than raised.
-- Raw bindings: a handler you pass to one of the poll functions must be declared `unsafe extern "C-unwind" fn` (the compiler rejects `extern "C"`). Any other raw callback must not panic; Rust aborts at the `extern "C"` boundary.
-- Want the old behaviour, where any panic stops the process? Set `panic = "abort"` in your Cargo profile. Every panic then aborts immediately, before any of the above runs.
+- For raw bindings, a handler you pass to one of the poll functions must be declared `unsafe extern "C-unwind" fn` (the compiler rejects `extern "C"`). Any other raw callback must not panic; Rust aborts at the `extern "C"` boundary.
+- To get the old behaviour, where any panic stops the process, set `panic = "abort"` in your Cargo profile. Every panic then aborts immediately, before any of the above runs.
 
 ---
 
-## Module Overview
+## Module overview
 
 | Module                                                                                            | Description                                                                |
 | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
@@ -80,7 +81,7 @@ Aeron calls your Rust code from C. A Rust panic is handled one of three ways, pi
 | [`rusteron-media-driver`](https://github.com/gsrxyz/rusteron/tree/main/rusteron-media-driver)     | Rust interface for launching an embedded or standalone Aeron Media Driver. |
 | [`rusteron-docker-samples`](https://github.com/gsrxyz/rusteron/tree/main/rusteron-docker-samples) | Sample Docker setups for media driver + pub/sub flows. Not prod-ready.     |
 
-Note: `rusteron-archive` includes `rusteron-client`, so you do **not** need both as dependencies.
+`rusteron-archive` includes `rusteron-client`, so you do not need both as dependencies.
 
 ---
 
@@ -88,28 +89,28 @@ Note: `rusteron-archive` includes `rusteron-client`, so you do **not** need both
 
 Choose the module and linking style appropriate for your project.
 
-**Dynamic library:**
+Dynamic library:
 
 ```toml
 [dependencies]
 rusteron-client = "0.2"
 ```
 
-**Static library:**
+Static library:
 
 ```toml
 [dependencies]
 rusteron-client = { version = "0.2", features = ["static"] }
 ```
 
-**Precompiled static libs (macOS and Linux, no cmake or Java needed):**
+Precompiled static libs (macOS and Linux, no cmake or Java needed):
 
 ```toml
 [dependencies]
 rusteron-client = { version = "0.2", features = ["static", "precompile"] }
 ```
 
-**Precompiled static libs with rustls downloader (macOS and Linux):**
+Precompiled static libs with rustls downloader (macOS and Linux):
 
 ```toml
 [dependencies]
@@ -132,15 +133,15 @@ build and UDP were not varied.
 
 ### Cross-language LTO (Linux)
 
-A static build can let LLVM inline Aeron's C into the Rust that calls it: `try_claim` +
+A static build can let LLVM inline Aeron's C into the Rust that calls it. `try_claim` +
 `commit` and the fragment handler collapse into their callers instead of crossing an FFI call
 (and, for `poll`, an indirect call per fragment). Only the final binary can turn it on, since
 rusteron's own build settings do not reach crates that depend on it.
 
-1. Install clang, lld and llvm-ar with **the same LLVM major version as rustc** (`rustc -vV`
+1. Install clang, lld and llvm-ar with the same LLVM major version as rustc (`rustc -vV`
    prints `LLVM version: 22.x`). From [apt.llvm.org](https://apt.llvm.org):
    `wget https://apt.llvm.org/llvm.sh && sudo bash llvm.sh 22 && sudo apt install lld-22`.
-   Upgrade them together with Rust: rustc's LLVM cannot read bitcode from another major, and
+   Upgrade them together with Rust, because rustc's LLVM cannot read bitcode from another major, and
    the build stops with the fix when they differ.
 2. Link Aeron statically and use fat LTO in the final binary's `Cargo.toml`:
 
@@ -164,7 +165,7 @@ rusteron's own build settings do not reach crates that depend on it.
    CC = "clang-22"
    ```
 
-   `-Clinker-plugin-lto` is the switch: rusteron's build script sees it and compiles Aeron C
+   `-Clinker-plugin-lto` is the switch. Rusteron's build script sees it and compiles Aeron C
    to LLVM bitcode with `$CC` (or `RUSTERON_CLANG`), for the CPU named by `-Ctarget-cpu`.
    C and Rust must target the same CPU, or LLVM refuses to inline across them. `CC` also
    covers other C dependencies, which the `cc` crate compiles to bitcode under the same flag.
@@ -184,24 +185,24 @@ rusteron's own build settings do not reach crates that depend on it.
    Whether larger functions such as `offer`, `offerv` and `try_claim` inline is left to LLVM's
    default cost model, so they may stay calls. To see the decision at each call site, link
    with LLVM's remarks (`-Clink-arg=-Wl,--opt-remarks-filename,remarks.yaml
-   -Clink-arg=-Wl,--opt-remarks-passes,inline`): each call site is listed as inlined or as
+   -Clink-arg=-Wl,--opt-remarks-passes,inline`). Each call site is listed as inlined or as
    "too costly".
 
 The `precompile` libraries are native code and cannot take part (the build warns). macOS is not
-supported: rust-lld cannot read the macOS SDK, Apple's linker needs a matching `libLTO.dylib`
+supported because rust-lld cannot read the macOS SDK, Apple's linker needs a matching `libLTO.dylib`
 and rejects rustc's LTO flags, and clang marks Apple-silicon code with CPU features that rustc
 does not, which blocks inlining.
 
 ### Multi-threaded (`Send` and `Sync`) handles
 
-By default every handle uses `Rc` and is neither `Send` nor `Sync`: it stays on the thread
+By default every handle uses `Rc` and is neither `Send` nor `Sync`. It stays on the thread
 whose client created it. A publication or subscription holds an `Rc` clone of its `Aeron`
 client, so moving it to another thread would race the client's reference count. To work on
 another thread, give that thread a client of its own (`Aeron::connect_dir`), or enable
-`multi-threaded`, which swaps `Rc` → `Arc`:
-- **`Send`:** the client, and publication, exclusive publication, subscription, counter and
+`multi-threaded`, which swaps `Rc` for `Arc`:
+- `Send`: the client, and publication, exclusive publication, subscription, counter and
   counters-reader handles, may move to another thread.
-- **`Sync`:** `&Handle` may be shared across threads for the ops Aeron C documents as
+- `Sync`: `&Handle` may be shared across threads for the ops Aeron C documents as
   thread-safe (`offer` / `try_claim` / `position` / `is_connected`).
 
 ```toml
@@ -224,19 +225,19 @@ std::thread::scope(|s| -> Result<(), AeronOfferError> {
 # Ok(()) }
 ```
 
-> **The flag only lifts the Rust-side barrier — it does not make the underlying Aeron
+> **The flag only lifts the Rust-side barrier. It does not make the underlying Aeron
 > object thread-safe.** Sharing is correct only for objects Aeron C documents as
 > thread-safe for concurrent use, e.g. `AeronPublication` (`ConcurrentPublication`),
 > `AeronCounter`, and `Aeron` itself. `AeronSubscription` is documented by Aeron as
-> **not** threadsafe and must not be shared between subscribers. Under `multi-threaded`
+> not threadsafe and must not be shared between subscribers. Under `multi-threaded`
 > it gains only `Send`, never `Sync`, so it can be moved to one other thread but never
 > accessed concurrently from several. `AeronExclusivePublication` is single-producer by
-> design and likewise gains only `Send`. It is the caller's responsibility to
+> design and likewise gains only `Send`. The caller must
 > check the thread-safety of each object before sharing `&Handle`.
 
 ---
 
-## Documentation & Guides
+## Documentation and guides
 
 For detailed guides and code snippets on Aeron features in Rust, see:
 - [Multi-Destination Subscription (MDC / MDS) Guide](https://github.com/gsrxyz/rusteron/blob/main/docs/mdc_mds_guide.md)
@@ -254,7 +255,7 @@ Build tasks use [`just`](https://github.com/casey/just). Run `just` to list comm
 
 ---
 
-## Example: Pub/Sub
+## Example: pub/sub
 
 <details>
 <summary>Expand for usage example</summary>
@@ -279,7 +280,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
 
-    // c"..." literals are compile-time &'static CStr — zero runtime cost.
+    // c"..." literals are compile-time &'static CStr, zero runtime cost
     let channel = c"aeron:ipc";
     let publication = aeron
         .async_add_publication(channel, 123)?
@@ -314,7 +315,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err("no message received".into());
         }
         let fragments = subscription.poll_fn(
-            |msg: &[u8], header: AeronHeader| {
+            |msg: &[u8], header: &AeronHeader| {
                 println!("received {} bytes at position {}", msg.len(), header.position());
                 received = true;
             },
@@ -326,7 +327,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-> **`poll_blocking` / `add_*(.., timeout)` are for example brevity only** — they block the
+> **`poll_blocking` / `add_*(.., timeout)` are for example brevity only.** They block the
 > calling thread in a busy-poll loop. In production, drive the async poller's `poll()` from
 > your own event loop. See
 > [`rusteron-client/examples/non_blocking_publisher.rs`](rusteron-client/examples/non_blocking_publisher.rs)
@@ -350,10 +351,10 @@ Recommended three-tier pattern, cheapest first:
 ```rust,no_run
 # use rusteron_client::*;
 # fn snippet(aeron: &Aeron, port: u16, endpoint: &str, reconnect_attempts: usize) -> Result<(), AeronCError> {
-// 1. Constant channels: c"..." literals — compile-time &'static CStr, zero runtime cost.
+// 1. Constant channels: c"..." literals are compile-time &'static CStr, zero runtime cost.
 aeron.async_add_publication(c"aeron:ipc", 10)?;
 
-// 2. Dynamic URIs: cformat! — ONE named heap allocation (format + CString in one step).
+// 2. Dynamic URIs: cformat! gives ONE named heap allocation (format + CString in one step).
 let uri = cformat!("aeron:udp?endpoint=localhost:{port}");
 aeron.async_add_publication(&uri, 10)?;
 
@@ -369,17 +370,17 @@ for _ in 0..reconnect_attempts {
 
 ## What's new in 0.2
 
-0.2 is a breaking release: deferred close, reference-counted handlers, typed errors and more. See [What's new in 0.2](https://github.com/gsrxyz/rusteron/blob/main/docs/whats_new_0.2.md).
+0.2 is a breaking release. It adds deferred close, reference-counted handlers, typed errors and more. See [What's new in 0.2](https://github.com/gsrxyz/rusteron/blob/main/docs/whats_new_0.2.md).
 
 ## Migrating from 0.1.168 to 0.2
 
-Old → new for every renamed/changed API: [Migrating from 0.1.168 to 0.2](https://github.com/gsrxyz/rusteron/blob/main/docs/migrating_0.1.168_to_0.2.md).
+For old and new names of every renamed or changed API, see [Migrating from 0.1.168 to 0.2](https://github.com/gsrxyz/rusteron/blob/main/docs/migrating_0.1.168_to_0.2.md).
 
 ---
 
 ## Tuning on x86-64 Linux
 
-Measured settings for latency and throughput on x86-64 Linux (socket buffers, MTU, CPU isolation, busy reads, huge pages, archive disks): [Tuning on x86-64 Linux](https://github.com/gsrxyz/rusteron/blob/main/docs/tuning_x86_64_linux.md).
+For measured settings for latency and throughput on x86-64 Linux (socket buffers, MTU, CPU isolation, busy reads, huge pages, archive disks), see [Tuning on x86-64 Linux](https://github.com/gsrxyz/rusteron/blob/main/docs/tuning_x86_64_linux.md).
 
 ---
 
@@ -391,13 +392,13 @@ For latency and throughput benchmarks, refer to [BENCHMARKS.md](https://github.c
 
 ## Contributing
 
-Contributions are more than welcome! Please:
+Contributions are welcome. Please:
 
 * Submit bug reports, ideas, or improvements via GitHub Issues
 * Propose changes via pull requests
 * Read our [CONTRIBUTING.md](https://github.com/gsrxyz/rusteron/blob/main/CONTRIBUTING.md)
 
-We’re especially looking for help with:
+We are especially looking for help with:
 
 * API design reviews
 * Safety and idiomatic improvements
@@ -411,10 +412,10 @@ Licensed under either [MIT License](https://opensource.org/licenses/MIT) or [Apa
 
 ---
 
-## Acknowledgments
+## Acknowledgements
 
 Special thanks to:
 
-* [@mimran1980](https://github.com/mimran1980), a core low-latency developer at GSR and the original creator of Rusteron - your work made this possible!
+* [@mimran1980](https://github.com/mimran1980), a core low-latency developer at GSR and the original creator of Rusteron. Your work made this possible.
 * [@bspeice](https://github.com/bspeice) for the original [`libaeron-sys`](https://github.com/bspeice/libaeron-sys)
-* The [Aeron](https://github.com/real-logic/aeron) community for open protocol excellence
+* The [Aeron](https://github.com/real-logic/aeron) community for the open protocol

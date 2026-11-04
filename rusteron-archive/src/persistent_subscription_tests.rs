@@ -1,6 +1,6 @@
-//! # Comprehensive Persistent Subscription Tests
+//! # Persistent Subscription Tests
 //!
-//! This module contains comprehensive unit tests for Aeron persistent subscriptions covering:
+//! This module contains unit tests for Aeron persistent subscriptions covering:
 //! 1) Live source subscriptions
 //! 2) Replay to live transitions
 //! 3) Persistent connection recovery
@@ -12,7 +12,7 @@
 //! ## Running Tests
 //!
 //! These tests need a running Aeron Archive, which is a **Java** process.
-//! They are *not* `#[ignore]`d — instead each test calls `skip_unless_java!()`,
+//! They are *not* `#[ignore]`d. Each test calls `skip_unless_java!()`,
 //! so it runs automatically when `java` is on `PATH` and skips (passes) when it
 //! isn't. No special flags required.
 //!
@@ -187,7 +187,7 @@ mod tests {
         }
 
         impl AeronFragmentHandlerCallback for MessageHandler {
-            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: AeronHeader) {
+            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: &AeronHeader) {
                 self.count.set(self.count.get() + 1);
             }
         }
@@ -252,7 +252,7 @@ mod tests {
             .expect("failed to connect to archive");
 
         info!("=== Replay then live consumption ===");
-        // The seamless replay-merge-to-live transition is covered by
+        // The replay-merge-to-live transition is covered by
         // `test_simple_replay_merge` in lib.rs; this verifies the two phases
         // (replay of history, then live consumption) on a recorded IPC stream.
 
@@ -314,7 +314,7 @@ mod tests {
             live_count: usize,
         }
         impl AeronFragmentHandlerCallback for PhaseHandler {
-            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: AeronHeader) {
+            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: &AeronHeader) {
                 if let Ok(s) = std::str::from_utf8(buffer) {
                     if s.starts_with("Replay Message") {
                         self.replay_count += 1;
@@ -754,7 +754,7 @@ mod tests {
         }
 
         impl AeronFragmentHandlerCallback for VerificationHandler {
-            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: AeronHeader) {
+            fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: &AeronHeader) {
                 if let Ok(s) = std::str::from_utf8(buffer) {
                     if let Some(colon_pos) = s.find(':') {
                         if let Ok(seq) = s[..colon_pos].parse::<u64>() {
@@ -877,7 +877,7 @@ mod tests {
         // Should succeed to create subscription
         let async_sub = subscription_result?;
 
-        // A subscription to a stream with no publisher is valid in Aeron — it simply
+        // A subscription to a stream with no publisher is valid in Aeron. It simply
         // never receives an image. poll_blocking resolves the async connector once
         // the subscription is registered (not on image availability), so verify the
         // no-image condition directly after giving the driver a moment.
@@ -1013,7 +1013,7 @@ mod tests {
             }
 
             impl AeronFragmentHandlerCallback for ConcurrentHandler {
-                fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: AeronHeader) {
+                fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: &AeronHeader) {
                     self.count.set(self.count.get() + 1);
                 }
             }
@@ -1098,7 +1098,7 @@ mod tests {
     /// This exercises the `ListenerHolder` wiring (a `Box<dyn
     /// PersistentSubscriptionListener>` behind a stable thin pointer handed to C),
     /// proving the C callbacks dereference a valid fat pointer and invoke the
-    /// Rust trait methods — no vtable corruption, no segfault. Drives a recorded
+    /// Rust trait methods without vtable corruption or a segfault. Drives a recorded
     /// IPC stream through replay -> live and asserts `on_live_joined` fires.
     #[test]
     #[serial]
@@ -1402,7 +1402,7 @@ mod tests {
     }
 
     /// Resilience: when the live image is lost the persistent subscription falls
-    /// back to replay, and when the stream returns it rejoins live — so
+    /// back to replay, and when the stream returns it rejoins live, so
     /// `on_live_joined` fires a second time. Mirrors Aeron's
     /// `aeron_archive_persistent_subscription_resilience_test` fallback+recover
     /// scenario. Aeron's test injects frame loss via a loss generator (not
@@ -1522,8 +1522,8 @@ mod tests {
         // Phase 3: restore the live stream -> PS rejoins live (on_live_joined again).
         // Since Aeron ≥ 1.52.0 the rejoin may be rejected when the new publication
         // starts at position 0 while the PS has already processed higher positions
-        // from replay.  Both outcomes (successful rejoin or position-validation
-        // error) are valid — the PS must not crash or deadlock.
+        // from replay. Both outcomes (successful rejoin or position-validation
+        // error) are valid. The PS must not crash or deadlock.
         publication = aeron_archive
             .async_add_exclusive_publication(&live_channel.into_c_string(), stream_id)?
             .poll_blocking(Duration::from_secs(5))?;

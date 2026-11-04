@@ -1,17 +1,15 @@
-# Containerized Aeron Example with Podman and Kubernetes
+# Containerised Aeron example with Podman and Kubernetes
 
-This repository provides a minimal setup for containerizing and orchestrating Aeron-based components using **Docker**, **Podman**, and **Kubernetes**.  
-While not production-ready, it serves as a clean starting point for development, testing, and integration of Aeron-based workflows.
+This repository provides a minimal setup for containerising and orchestrating Aeron-based components with Docker, Podman and Kubernetes.
+It is not production-ready, but it is a starting point for developing and testing Aeron-based workflows.
 
 ---
 
 ## Sponsored by GSR
 
-**Rusteron** is proudly sponsored and maintained by [GSR](https://www.gsr.io), a global leader in algorithmic trading and market making in digital assets.
+Rusteron is sponsored and maintained by [GSR](https://www.gsr.io), a global leader in algorithmic trading and market making in digital assets.
 
-It powers mission-critical infrastructure in GSR's real-time trading stack and is now developed under the official GSR GitHub organization as part of our commitment to open-source excellence and community collaboration.
-
-We welcome contributions, feedback, and discussions. If you're interested in integrating or contributing, please open an issue or reach out directly.
+It runs in GSR's real-time trading stack and is developed under the GSR GitHub organisation. We welcome contributions, feedback and discussion. To integrate or contribute, open an issue or reach out directly.
 
 ---
 
@@ -19,39 +17,39 @@ We welcome contributions, feedback, and discussions. If you're interested in int
 
 The setup includes:
 
-1. **Aeron Media Driver** – A containerized Aeron Archive Media Driver.
-2. **Ticker Writer** – Publishes simulated Binance ticker data and archives it.
-3. **Ticker Reader** – Reads from both the archive and live channel, publishing periodic stats.
+1. Aeron Media Driver: a containerised Aeron Archive Media Driver.
+2. Ticker Writer: publishes simulated Binance ticker data and archives it.
+3. Ticker Reader: reads from both the archive and the live channel and publishes periodic stats.
 
-Together, these components demonstrate a minimal end-to-end Aeron pipeline using shared memory and volumes.
+Together, these components form a minimal end-to-end Aeron pipeline using shared memory and volumes.
 
 ---
 
-## Quick Start for Local Testing
+## Quick start for local testing
 
 ### Prerequisites
 
-* **Podman** or **Docker** installed for image building and container runtime.
-* **Kubernetes** (optional) for orchestration. If using Docker Desktop, ensure Kubernetes is enabled.
+* Podman or Docker, for building images and running containers.
+* Kubernetes (optional), for orchestration. If you use Docker Desktop, enable Kubernetes.
 
-### Podman (Recommended for Local Testing)
+### Podman (recommended for local testing)
 
-Podman is preferred for its simplicity and lack of daemon dependency.
+Podman is preferred because it is simple and needs no daemon.
 
-1. **Build Podman Images**
+1. Build Podman images
    ```bash
    just podman-build
    # Builds all container images using Podman.
    ```
 
-2. **Deploy Locally with Podman**
+2. Deploy locally with Podman
 
    ```bash
    just podman-deploy
    # Launches the Aeron media driver, writer, and reader using pod definitions.
    ```
 
-3. **Stop and Clean Up**
+3. Stop and clean up
 
    ```bash
    just podman-stop
@@ -60,25 +58,25 @@ Podman is preferred for its simplicity and lack of daemon dependency.
 
 ---
 
-### Kubernetes Deployment (Alternative)
+### Kubernetes deployment (alternative)
 
 If you have a Kubernetes cluster available (e.g. via Docker Desktop or Minikube), you can use the provided manifests.
 
-1. **Build Docker Images**
+1. Build Docker images
 
    ```bash
    just docker-build
    # Builds all required images using Docker (for Kubernetes use).
    ```
 
-2. **Deploy to Kubernetes**
+2. Deploy to Kubernetes
 
    ```bash
    just k8s-deploy
    # Applies the Kubernetes manifests to your current cluster context.
    ```
 
-3. **Clean Up**
+3. Clean up
 
    ```bash
    just k8s-clean
@@ -87,23 +85,23 @@ If you have a Kubernetes cluster available (e.g. via Docker Desktop or Minikube)
 
 ---
 
-## Key Features Demonstrated
+## Key features demonstrated
 
-* **Shared Memory (`/dev/shm`)**: Enables zero-copy Aeron message passing between containers.
-* **Shared Volumes (`/data`)**: Used for persistent archive storage between writer and reader.
-* **Configurable Task Automation**: Easily build, deploy, and clean with `just` recipes.
-* **Minimal Real-Time Feed Simulation**: Simulated publisher/reader interaction using Aeron archive APIs.
+* Shared memory (`/dev/shm`) allows zero-copy Aeron message passing between containers.
+* Shared volumes (`/data`) hold the persistent archive storage used by the writer and reader.
+* `just` recipes build, deploy and clean up.
+* A simulated publisher and reader interact through the Aeron archive APIs.
 
-> This example is designed for experimentation and learning. For production use, additional security, orchestration policies, monitoring, and failover logic are required.
+> This example is for experimentation and learning. Production use needs additional security, orchestration policies, monitoring and failover logic.
 
 ---
 
-## License & Acknowledgments
+## License & acknowledgments
 
 Dual-licensed under MIT or Apache-2.0. See the root [README](https://github.com/gsrxyz/rusteron#readme).
 
 Special thanks to:
 
-* [@mimran1980](https://github.com/mimran1980), a core low-latency developer at GSR and the original creator of Rusteron - your work made this possible!
+* [@mimran1980](https://github.com/mimran1980), a core low-latency developer at GSR and the original creator of Rusteron. Your work made this possible.
 * [@bspeice](https://github.com/bspeice) for the original [`libaeron-sys`](https://github.com/bspeice/libaeron-sys)
-* The [Aeron](https://github.com/real-logic/aeron) community for open protocol excellence
+* The [Aeron](https://github.com/real-logic/aeron) community for the open protocol
