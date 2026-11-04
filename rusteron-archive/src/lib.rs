@@ -45,7 +45,7 @@ pub const PUBLICATION_ERROR: i64 = bindings::AERON_PUBLICATION_ERROR as i64;
 pub mod testing;
 
 /// A recording descriptor is borrowed from a C stack local that Aeron frees once the callback
-/// returns, so it cannot be kept, nor cloned and kept. Copying a field out is fine:
+/// returns, so it cannot be kept, nor cloned or rewrapped and kept. Copying a field out is fine:
 ///
 /// ```no_run
 /// # use rusteron_archive::*;
@@ -68,6 +68,22 @@ pub mod testing;
 /// # fn f(archive: &AeronArchive) -> Result<(), AeronArchiveError> {
 /// let (mut count, mut kept) = (0, None);
 /// archive.list_recordings_fn(&mut count, 0, 10, |d| kept = Some(d.clone()))?;
+/// # Ok(()) }
+/// ```
+///
+/// ```compile_fail,E0308
+/// # use rusteron_archive::*;
+/// # fn f(archive: &AeronArchive) -> Result<(), AeronArchiveError> {
+/// let (mut count, mut kept) = (0, None);
+/// archive.list_recordings_fn(&mut count, 0, 10, |d| kept = Some(AeronArchiveRecordingDescriptor::from(d.get_inner())))?;
+/// # Ok(()) }
+/// ```
+///
+/// ```compile_fail,E0308
+/// # use rusteron_archive::*;
+/// # fn f(archive: &AeronArchive) -> Result<(), AeronArchiveError> {
+/// let (mut count, mut kept) = (0, None);
+/// archive.list_recordings_fn(&mut count, 0, 10, |d| kept = Some(AeronArchiveRecordingDescriptor::from(**d)))?;
 /// # Ok(()) }
 /// ```
 #[allow(dead_code)]
@@ -888,6 +904,17 @@ mod tests {
         unsafe { signal.get_inner_mut().recording_id = 8 };
         assert_eq!(copy.recording_id, 7);
         assert_ne!(copy.get_inner(), signal.get_inner());
+    }
+
+    // `clone_reference` shares the struct rather than copying it
+    #[test]
+    fn clone_reference_shares_the_struct() {
+        let signal = AeronArchiveRecordingSignal::default();
+        // SAFETY: `signal` is owned on heap and outlives `shared`
+        let shared = unsafe { signal.clone_reference() };
+        unsafe { signal.get_inner_mut().recording_id = 7 };
+        assert_eq!(shared.recording_id, 7);
+        assert_eq!(shared.get_inner(), signal.get_inner());
     }
 
     #[test]

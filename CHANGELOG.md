@@ -4,6 +4,12 @@ Main changes, newest first, grouped by published crate version. Release-only
 commits, build logs, and changes later reverted or superseded are omitted.
 Early history predating the available release tags is grouped separately.
 
+## 0.2.17
+
+- Breaking: callbacks receive wrapper arguments by reference (`&AeronHeader`, `&AeronImage`, `&AeronSubscription`, `&AeronArchiveRecordingDescriptor`, ...). C frees or reuses the struct when the callback returns, and the reference stops safe code keeping it past that point. Handler trait impls, `_fn` closures, fragment assemblers and `poll` handlers change from `header: AeronHeader` to `header: &AeronHeader` (#73).
+- Breaking: structs Aeron only passes to callbacks (`AeronHeader`, `AeronArchiveRecordingDescriptor`, `AeronArchiveRecordingSubscriptionDescriptor`, `AeronArchiveRecordingSignal`, `AeronPublicationErrorValues`) no longer implement `Clone`, `From<*mut T>`, `From<*const T>` or `From<T>`. Copy the fields you need out, or use `unsafe fn from_ptr` / `unsafe fn clone_reference` within the callback (#73).
+- Breaking: `clone_struct` is `unsafe` on structs with pointer fields, such as the recording descriptor's channel strings, because the copy still points at the source's memory. It stays safe on structs without pointers (#73).
+
 ## 0.2.16
 
 - Added `AeronArchiveRecordingDescriptorPoller::new` and `AeronArchiveRecordingSubscriptionDescriptorPoller::new`, so recordings can be listed without blocking. The archive's own pollers are borrowed and refuse `reset`.

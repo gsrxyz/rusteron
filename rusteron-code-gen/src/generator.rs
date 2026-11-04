@@ -163,6 +163,11 @@ impl Arg {
     pub fn is_c_void(&self) -> bool {
         self.c_type == Self::C_VOID
     }
+
+    /// The type without pointers or qualifiers, e.g. `aeron_header_t` for `* mut aeron_header_t`
+    pub fn base_type(&self) -> &str {
+        self.c_type.split_whitespace().last().unwrap_or(&self.c_type)
+    }
 }
 
 impl Deref for Arg {
@@ -248,15 +253,12 @@ impl ReturnType {
             }
         }
 
-        if self.original.is_single_mut_pointer() {
-            let type_name = self.original.split(" ").last().unwrap();
-            if let Some(wrapper) = self.wrappers.get(type_name) {
-                let new_type = parse_str::<Type>(&wrapper.class_name).expect("Invalid class name in wrapper");
-                if use_ref_for_cwrapper {
-                    return quote! { &#new_type };
-                } else {
-                    return quote! { #new_type };
-                }
+        if let Some(wrapper) = self.pointee_wrapper() {
+            let new_type = parse_str::<Type>(&wrapper.class_name).expect("Invalid class name in wrapper");
+            if use_ref_for_cwrapper {
+                return quote! { &#new_type };
+            } else {
+                return quote! { #new_type };
             }
         }
         if let Some(wrapper) = self.wrappers.get(&self.original.c_type) {
@@ -283,20 +285,26 @@ impl ReturnType {
         quote! { #return_type }
     }
 
-    /// If this callback argument is a pointer to a C struct we have a Rust wrapper for, returns
-    /// that wrapper type, e.g. `aeron_header_t *header` gives `AeronHeader`. Anything else, such
-    /// as an `int64_t` or a `const char *`, gives `None`
-    fn callback_wrapper_class(&self) -> Option<Type> {
-        if !matches!(self.original.processing, ArgProcessing::Default) || !self.original.is_single_mut_pointer() {
+    /// If this is a pointer to a C struct we have a Rust wrapper for, returns that wrapper, e.g.
+    /// `aeron_header_t *header` gives `AeronHeader`. Anything else, such as an `int64_t` or a
+    /// `const char *`, gives `None`
+    fn pointee_wrapper(&self) -> Option<&CWrapper> {
+        if !self.original.is_single_mut_pointer() {
             return None;
         }
-        let type_name = self.original.split(" ").last()?;
-        let wrapper = self.wrappers.get(type_name)?;
-        Some(parse_str::<Type>(&wrapper.class_name).expect("Invalid class name in wrapper"))
+        self.wrappers.get(self.original.base_type())
+    }
+
+    /// [`Self::pointee_wrapper`] for a callback argument, skipping handler and string/buffer args
+    fn callback_wrapper(&self) -> Option<&CWrapper> {
+        if !matches!(self.original.processing, ArgProcessing::Default) {
+            return None;
+        }
+        self.pointee_wrapper()
     }
 
     /// The Rust type a callback gets for this argument. Structs come in as `&Wrapper`, everything
-    /// else as before.
+    /// else as before
     ///
     /// Why: when C calls a callback with a struct, that struct only lives until the callback
     /// returns. Often it is a local variable in the C function, and its strings are freed right
@@ -313,18 +321,23 @@ impl ReturnType {
     /// reference cannot outlive the callback. Copy out the fields you need instead, e.g.
     /// `d.recording_id` or `d.original_channel().to_owned()`
     pub fn get_callback_arg_type(&self) -> TokenStream {
-        match self.callback_wrapper_class() {
-            Some(class) => quote! { &#class },
-            None => self.get_new_return_type(false, false),
-        }
+        // `true` only for wrappers: it would also turn `&str` into `&CStr`
+        self.get_new_return_type(false, self.callback_wrapper().is_some())
     }
 
     /// Turns the raw C argument into the type from [`Self::get_callback_arg_type`]. For a struct
-    /// pointer `header` this gives `&AeronHeader::from(header)`
-    pub fn handle_c_to_rs_callback_arg(&self, arg: TokenStream) -> TokenStream {
-        match self.callback_wrapper_class() {
-            Some(class) => quote! { &#class::from(#arg) },
-            None => self.handle_c_to_rs_return(arg, false, false),
+    /// pointer `header` this gives `&AeronHeader::from_ptr(header)` when [`is_callback_only`] (no
+    /// safe `From` there) and `&AeronImage::from(image)` otherwise
+    pub fn handle_c_to_rs_callback_arg(&self, arg: TokenStream, handlers: &[CHandler]) -> TokenStream {
+        let Some(wrapper) = self.callback_wrapper() else {
+            return self.handle_c_to_rs_return(arg, false, false);
+        };
+        let class = parse_str::<Type>(&wrapper.class_name).expect("Invalid class name in wrapper");
+        if is_callback_only(&wrapper.type_name, &self.wrappers, handlers) {
+            // SAFETY: C keeps the struct alive for the whole callback, and the `&` stops it leaving
+            quote! { &unsafe { #class::from_ptr(#arg) } }
+        } else {
+            quote! { &#class::from(#arg) }
         }
     }
 
@@ -1566,9 +1579,7 @@ impl CWrapper {
                     let rtype = arg.as_type();
 
                     // check if I need to make copy of object for reference counting
-                    let fields = if arg.is_single_mut_pointer()
-                        && wrappers.contains_key(arg.c_type.split_whitespace().last().unwrap())
-                    {
+                    let fields = if arg.is_single_mut_pointer() && wrappers.contains_key(arg.base_type()) {
                         let arg_copy = format_ident!("{}_copy", arg.name);
                         quote! {
                             let #arg_copy = #arg_name.clone();
@@ -1634,9 +1645,7 @@ impl CWrapper {
                 } else {
                     let arg_name = arg.as_ident();
                     let rtype = arg.as_type();
-                    if arg.is_single_mut_pointer()
-                        && wrappers.contains_key(arg.c_type.split_whitespace().last().unwrap())
-                    {
+                    if arg.is_single_mut_pointer() && wrappers.contains_key(arg.base_type()) {
                         let return_type = ReturnType::new(arg.clone(), wrappers.clone());
                         let return_type = return_type.get_new_return_type(false, false);
 
@@ -1671,9 +1680,7 @@ impl CWrapper {
                 } else {
                     let arg_name = arg.as_ident();
                     let rtype = arg.as_type();
-                    if arg.is_single_mut_pointer()
-                        && wrappers.contains_key(arg.c_type.split_whitespace().last().unwrap())
-                    {
+                    if arg.is_single_mut_pointer() && wrappers.contains_key(arg.base_type()) {
                         let arg_f = format_ident!("_{}", &arg.name);
                         let arg_copy = format_ident!("{}_copy", &arg.name);
                         if set_none {
@@ -2041,7 +2048,7 @@ fn generate_stateless_handler_code(handler: &CHandler) -> TokenStream {
             let arg_name = format_ident!("arg_{}", i);
 
             let fn_mut_arg = if arg.is_single_mut_pointer() && arg.is_primitive() {
-                let owned_type: Type = parse_str(arg.c_type.split_whitespace().last().unwrap()).unwrap();
+                let owned_type: Type = parse_str(arg.base_type()).unwrap();
                 quote! { #owned_type }
             } else {
                 quote! { #type_name }
@@ -2050,7 +2057,7 @@ fn generate_stateless_handler_code(handler: &CHandler) -> TokenStream {
             let trait_arg = if type_name.is_empty() {
                 quote! {}
             } else if arg.is_single_mut_pointer() && arg.is_primitive() {
-                let owned_type: Type = parse_str(arg.c_type.split_whitespace().last().unwrap()).unwrap();
+                let owned_type: Type = parse_str(arg.base_type()).unwrap();
                 quote! { #arg_name: #owned_type }
             } else {
                 quote! { #arg_name: #type_name }
@@ -2116,7 +2123,7 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
                 let return_type = ReturnType::new(arg.clone(), bindings.wrappers.clone());
                 let type_name = return_type.get_callback_arg_type();
                 if arg.is_single_mut_pointer() && arg.is_primitive() {
-                    let owned_type: Type = parse_str(arg.c_type.split_whitespace().last().unwrap()).unwrap();
+                    let owned_type: Type = parse_str(arg.base_type()).unwrap();
                     quote! { #owned_type }
                 } else {
                     quote! { #type_name }
@@ -2197,7 +2204,7 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
                 None
             } else {
                 let return_type = ReturnType::new(arg.clone(), bindings.wrappers.clone());
-                Some(return_type.handle_c_to_rs_callback_arg(quote! {#arg_name}))
+                Some(return_type.handle_c_to_rs_callback_arg(quote! {#arg_name}, &bindings.handlers))
             }
         })
         .filter(|t| !t.is_empty())
@@ -2270,7 +2277,7 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
             let return_type = ReturnType::new(arg.clone(), bindings.wrappers.clone());
             let type_name = return_type.get_callback_arg_type();
             if arg.is_single_mut_pointer() && arg.is_primitive() {
-                let owned_type: Type = parse_str(arg.c_type.split_whitespace().last().unwrap()).unwrap();
+                let owned_type: Type = parse_str(arg.base_type()).unwrap();
                 return Some(quote! { #owned_type });
             } else {
                 return Some(quote! {
@@ -2474,7 +2481,7 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
 }
 
 /// True if the only way to get this struct is as a callback argument. Such wrappers get no
-/// `Clone`.
+/// `Clone` and no safe `From` from a pointer or struct value
 ///
 /// Why: a callback argument points at C memory that is gone once the callback returns. `Clone`
 /// on it copies the pointer, not the data, so this would compile and then read freed memory:
@@ -2486,7 +2493,7 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
 /// ```
 ///
 /// Without `Clone`, `d.clone()` only clones the `&` reference, which cannot leave the callback,
-/// so the compiler rejects this.
+/// so the compiler rejects this. `From(d.get_inner())` and `From(**d)` would be the same escape
 ///
 /// A struct counts as callback only when all of these hold:
 /// - some callback takes a pointer to it, e.g. `aeron_archive_recording_descriptor_t *`
@@ -2496,16 +2503,112 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
 ///   `AeronArchiveReplicationParams::new` call `.clone()` on those to keep them alive, and that
 ///   must stay a real `Clone`
 fn is_callback_only(type_name: &str, wrappers: &BTreeMap<String, CWrapper>, handlers: &[CHandler]) -> bool {
-    let points_to = |a: &Arg| a.is_any_pointer() && a.c_type.split_whitespace().last() == Some(type_name);
-    let is_input = |a: &Arg| points_to(a) && !a.is_double_mut_pointer();
-    let in_callback = handlers.iter().flat_map(|h| &h.args).any(is_input);
+    let points_to = |a: &Arg| a.is_any_pointer() && a.base_type() == type_name;
+    let takes_existing = |a: &Arg| points_to(a) && !a.is_double_mut_pointer();
+    let in_callback = handlers.iter().flat_map(|h| &h.args).any(takes_existing);
     let produced = wrappers.values().flat_map(|w| &w.methods).any(|m| {
         let outputs =
             points_to(&m.return_type) || m.arguments.iter().any(|a| points_to(a) && a.is_double_mut_pointer());
-        outputs && !m.arguments.iter().any(is_input)
+        outputs && !m.arguments.iter().any(takes_existing)
     });
     let held = wrappers.values().flat_map(|w| &w.fields).any(points_to);
     in_callback && !produced && !held
+}
+
+#[cfg(test)]
+mod is_callback_only_tests {
+    use super::*;
+
+    fn arg(c_type: &str) -> Arg {
+        Arg {
+            name: "a".into(),
+            c_type: c_type.into(),
+            processing: ArgProcessing::Default,
+        }
+    }
+
+    fn method(return_type: &str, arguments: &[&str]) -> Method {
+        Method {
+            fn_name: String::new(),
+            struct_method_name: String::new(),
+            return_type: arg(return_type),
+            arguments: arguments.iter().map(|a| arg(a)).collect(),
+            docs: BTreeSet::new(),
+        }
+    }
+
+    fn handler(args: &[&str]) -> CHandler {
+        CHandler {
+            type_name: String::new(),
+            args: args.iter().map(|a| arg(a)).collect(),
+            return_type: arg("()"),
+            docs: BTreeSet::new(),
+            fn_mut_signature: quote! {},
+            closure_type_name: quote! {},
+        }
+    }
+
+    // one case per rule, modelled on the real Aeron structs
+    #[test]
+    fn applies_each_rule() {
+        let wrapper = |fields: &[&str], methods: Vec<Method>| CWrapper {
+            fields: fields.iter().map(|f| arg(f)).collect(),
+            methods,
+            ..Default::default()
+        };
+        let wrappers = BTreeMap::from([
+            ("aeron_header_t".into(), wrapper(&[], vec![])),
+            // a copy needs an existing value, so it does not hand out a new one
+            (
+                "aeron_publication_error_values_t".into(),
+                wrapper(
+                    &[],
+                    vec![method(
+                        "i32",
+                        &[
+                            "* mut * mut aeron_publication_error_values_t",
+                            "* mut aeron_publication_error_values_t",
+                        ],
+                    )],
+                ),
+            ),
+            (
+                "aeron_image_t".into(),
+                wrapper(&[], vec![method("* mut aeron_image_t", &["* mut aeron_t"])]),
+            ),
+            (
+                "aeron_counter_t".into(),
+                wrapper(&[], vec![method("i32", &["* mut * mut aeron_counter_t"])]),
+            ),
+            ("aeron_archive_encoded_credentials_t".into(), wrapper(&[], vec![])),
+            (
+                "aeron_archive_replication_params_t".into(),
+                wrapper(&["* mut aeron_archive_encoded_credentials_t"], vec![]),
+            ),
+        ]);
+        let handlers = [
+            handler(&[
+                "* mut aeron_header_t",
+                "* mut aeron_publication_error_values_t",
+                "* mut aeron_image_t",
+            ]),
+            handler(&["* mut aeron_counter_t", "* mut aeron_archive_encoded_credentials_t"]),
+        ];
+        let callback_only = |t| is_callback_only(t, &wrappers, &handlers);
+
+        assert!(callback_only("aeron_header_t"));
+        assert!(callback_only("aeron_publication_error_values_t"));
+        assert!(!callback_only("aeron_image_t"), "returned by a function");
+        assert!(!callback_only("aeron_counter_t"), "written to a `**` out-param");
+        assert!(
+            !callback_only("aeron_archive_encoded_credentials_t"),
+            "held by another struct"
+        );
+        assert!(
+            !callback_only("aeron_archive_replication_params_t"),
+            "not a callback argument"
+        );
+    }
 }
 
 pub fn generate_rust_code(
@@ -3286,39 +3389,39 @@ pub fn generate_rust_code(
             //     }
             // };
 
-            // a shallow copy is only self-contained when the struct holds no pointers
-            let clone_struct = if wrapper.fields.iter().any(|f| f.is_any_pointer()) {
-                quote! {
-                    /// `clone_struct` shallow copies the content of the underlying struct on heap.
-                    ///
-                    /// Must be only used on structs which has no init/clean up methods.
-                    /// So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription
-                    ///
-                    /// # Safety
-                    /// Scalar fields are copied, but pointer fields (strings, buffers, other structs)
-                    /// still point at the source's memory. Do not read them, including via `Debug`,
-                    /// once that memory is freed; for a callback argument that is when the callback
-                    /// returns. Copy strings out with `.to_owned()` instead
-                    pub unsafe fn clone_struct(&self) -> Self {
-                        let copy = Self::default();
-                        // SAFETY: `copy` was created just above and is not aliased yet.
-                        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
-                        copy
-                    }
-                }
+            // a shallow copy only stands on its own when the struct holds no pointers
+            let (unsafety, copy_docs) = if wrapper.fields.iter().any(|f| f.is_any_pointer()) {
+                (
+                    quote! { unsafe },
+                    quote! {
+                        ///
+                        /// # Safety
+                        /// Number fields are copied, but pointer fields (strings, buffers, other
+                        /// structs) still point at the source's memory. Do not read them, including
+                        /// via `Debug`, once that memory is freed. For a callback argument that is
+                        /// when the callback returns. Copy strings out with `.to_owned()` instead
+                    },
+                )
             } else {
-                quote! {
-                    /// `clone_struct` copies the content of the underlying struct on heap; it holds
-                    /// no pointers, so the copy is independent of the source.
-                    ///
-                    /// Must be only used on structs which has no init/clean up methods.
-                    /// So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription
-                    pub fn clone_struct(&self) -> Self {
-                        let copy = Self::default();
-                        // SAFETY: `copy` was created just above and is not aliased yet.
-                        unsafe { copy.get_inner_mut().clone_from(self.deref()) };
-                        copy
-                    }
+                (
+                    quote! {},
+                    quote! {
+                        ///
+                        /// The struct holds no pointers, so the copy does not depend on the source
+                    },
+                )
+            };
+            let clone_struct = quote! {
+                /// Copies the underlying struct into a new heap allocation
+                ///
+                /// Only for plain data structs with no init or clean-up functions, so not for
+                /// Aeron, AeronContext, AeronPublication or AeronSubscription
+                #copy_docs
+                pub #unsafety fn clone_struct(&self) -> Self {
+                    let copy = Self::default();
+                    // SAFETY: `copy` was created just above and is not aliased yet
+                    unsafe { copy.get_inner_mut().clone_from(self.deref()) };
+                    copy
                 }
             };
 
@@ -3338,32 +3441,75 @@ pub fn generate_rust_code(
             quote! {}
         };
 
-    let callback_only = is_callback_only(&wrapper.type_name, wrappers, closure_handlers);
-    let derive_clone = if callback_only {
-        quote! {}
-    } else {
-        quote! { #[derive(Clone)] }
-    };
-    // ponytail: callback-only types have no constructor fields; one gaining them fails to compile here
-    let clone_reference = if callback_only {
-        quote! {
-            impl #class_name {
-                /// The old `Clone`: shares the underlying struct rather than copying it. If owned
-                /// on heap this bumps the reference count; if borrowed, e.g. a callback argument,
-                /// it copies the pointer.
-                ///
-                /// # Safety
-                /// A callback argument is borrowed from memory Aeron frees or reuses when the
-                /// callback returns, so the returned handle must not be used after that. Use
-                /// `clone_struct` or copy the fields you need instead. For an owned value both
-                /// handles share one struct, so writes through either are seen by both
-                pub unsafe fn clone_reference(&self) -> Self {
-                    Self { inner: self.inner.clone() }
+    // Every safe way to build a handle from a pointer or a struct copy is left out for callback-only
+    // types: `Clone`, `From<*mut T>` (via `d.get_inner()`) and `From<T>` (via `**d`) would each let
+    // a callback argument outlive the callback. Unsafe `from_ptr` and `clone_reference` take their
+    // place
+    let (derive_clone, wrap_impls) = if is_callback_only(&wrapper.type_name, wrappers, closure_handlers) {
+        (
+            quote! {},
+            // callback-only types have no constructor fields; one gaining them fails to compile here
+            quote! {
+                impl #class_name {
+                    /// Wraps a pointer to a struct Aeron passes to a callback, without copying it
+                    ///
+                    /// # Safety
+                    /// `ptr` must point at a valid struct for as long as the result is used. For a
+                    /// callback argument that is until the callback returns
+                    #[inline]
+                    pub unsafe fn from_ptr(ptr: *mut #type_name) -> Self {
+                        Self { inner: CResource::Borrowed(ptr) }
+                    }
+
+                    /// Returns a second handle to the same underlying struct, without copying it.
+                    /// If owned on heap both handles share it; if borrowed, e.g. a callback
+                    /// argument, both point at the same C memory
+                    ///
+                    /// # Safety
+                    /// A callback argument lives in memory Aeron frees or reuses when the callback
+                    /// returns, so do not use the returned handle after that. Copy out the fields
+                    /// you need instead
+                    pub unsafe fn clone_reference(&self) -> Self {
+                        Self { inner: self.inner.clone() }
+                    }
                 }
-            }
-        }
+            },
+        )
     } else {
-        quote! {}
+        (
+            quote! { #[derive(Clone)] },
+            quote! {
+                impl From<*mut #type_name> for #class_name {
+                    #[inline]
+                    fn from(value: *mut #type_name) -> Self {
+                        #class_name {
+                            inner: CResource::Borrowed(value),
+                            #(#new_ref_set_none)*
+                        }
+                    }
+                }
+
+                impl From<*const #type_name> for #class_name {
+                    #[inline]
+                    fn from(value: *const #type_name) -> Self {
+                        #class_name {
+                            inner: CResource::Borrowed(value as *mut #type_name),
+                            #(#new_ref_set_none)*
+                        }
+                    }
+                }
+
+                impl From<#type_name> for #class_name {
+                    #[inline]
+                    fn from(value: #type_name) -> Self {
+                        #class_name {
+                            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+                            #(#new_ref_set_none)*
+                        }
+                    }
+                }
+            },
+        )
     };
 
     quote! {
@@ -3375,8 +3521,6 @@ pub fn generate_rust_code(
             inner: CResource<#type_name>,
             #(#constructor_fields)*
         }
-
-        #clone_reference
 
         impl core::fmt::Debug for  #class_name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3429,15 +3573,7 @@ pub fn generate_rust_code(
             }
         }
 
-        impl From<*mut #type_name> for #class_name {
-            #[inline]
-            fn from(value: *mut #type_name) -> Self {
-                #class_name {
-                    inner: CResource::Borrowed(value),
-                    #(#new_ref_set_none)*
-                }
-            }
-        }
+        #wrap_impls
 
         impl From<#class_name> for *mut #type_name {
             #[inline]
@@ -3457,26 +3593,6 @@ pub fn generate_rust_code(
             #[inline]
             fn from(value: #class_name) -> Self {
                 unsafe { *value.get_inner().clone() }
-            }
-        }
-
-        impl From<*const #type_name> for #class_name {
-            #[inline]
-            fn from(value: *const #type_name) -> Self {
-                #class_name {
-                    inner: CResource::Borrowed(value as *mut #type_name),
-                    #(#new_ref_set_none)*
-                }
-            }
-        }
-
-        impl From<#type_name> for #class_name {
-            #[inline]
-            fn from(value: #type_name) -> Self {
-                #class_name {
-                    inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-                    #(#new_ref_set_none)*
-                }
             }
         }
 

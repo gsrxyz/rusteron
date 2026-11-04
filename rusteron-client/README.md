@@ -112,9 +112,11 @@ Wrapper arguments (`&AeronHeader`, `&AeronImage`, `&AeronArchiveRecordingDescrip
 borrowed for the call only: Aeron may free or reuse the struct once the callback returns, so the
 compiler stops you keeping them. Copy out the fields you need, e.g. `d.recording_id` or
 `d.original_channel().to_owned()`. Structs only ever handed to callbacks (header, recording
-descriptors and signal, publication error values) do not implement `Clone`; `clone_struct` copies
-the struct, and is `unsafe` when it has pointer fields such as strings, as those still point at
-the original memory.
+descriptors and signal, publication error values) do not implement `Clone` or `From` a raw pointer
+or struct value. Their `unsafe fn from_ptr` and `unsafe fn clone_reference` cover the rare case
+where you need a second handle and can promise it is not used after the callback. `clone_struct`
+copies the struct, and is `unsafe` when it has pointer fields such as strings, as those still point
+at the original memory.
 
 ### 2. Synchronous (`poll`, `controlled_poll`, log readers)
 

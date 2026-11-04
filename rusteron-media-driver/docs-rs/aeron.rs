@@ -158,6 +158,22 @@ impl From<*mut addrinfo> for Addrinfo {
         }
     }
 }
+impl From<*const addrinfo> for Addrinfo {
+    #[inline]
+    fn from(value: *const addrinfo) -> Self {
+        Addrinfo {
+            inner: CResource::Borrowed(value as *mut addrinfo),
+        }
+    }
+}
+impl From<addrinfo> for Addrinfo {
+    #[inline]
+    fn from(value: addrinfo) -> Self {
+        Addrinfo {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<Addrinfo> for *mut addrinfo {
     #[inline]
     fn from(value: Addrinfo) -> Self {
@@ -176,22 +192,6 @@ impl From<Addrinfo> for addrinfo {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const addrinfo> for Addrinfo {
-    #[inline]
-    fn from(value: *const addrinfo) -> Self {
-        Addrinfo {
-            inner: CResource::Borrowed(value as *mut addrinfo),
-        }
-    }
-}
-impl From<addrinfo> for Addrinfo {
-    #[inline]
-    fn from(value: addrinfo) -> Self {
-        Addrinfo {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for Addrinfo {
     fn default() -> Self {
@@ -199,16 +199,16 @@ impl Default for Addrinfo {
     }
 }
 impl Addrinfo {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -1960,6 +1960,22 @@ impl From<*mut aeron_agent_runner_t> for AeronAgentRunner {
         }
     }
 }
+impl From<*const aeron_agent_runner_t> for AeronAgentRunner {
+    #[inline]
+    fn from(value: *const aeron_agent_runner_t) -> Self {
+        AeronAgentRunner {
+            inner: CResource::Borrowed(value as *mut aeron_agent_runner_t),
+        }
+    }
+}
+impl From<aeron_agent_runner_t> for AeronAgentRunner {
+    #[inline]
+    fn from(value: aeron_agent_runner_t) -> Self {
+        AeronAgentRunner {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronAgentRunner> for *mut aeron_agent_runner_t {
     #[inline]
     fn from(value: AeronAgentRunner) -> Self {
@@ -1978,22 +1994,6 @@ impl From<AeronAgentRunner> for aeron_agent_runner_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_agent_runner_t> for AeronAgentRunner {
-    #[inline]
-    fn from(value: *const aeron_agent_runner_t) -> Self {
-        AeronAgentRunner {
-            inner: CResource::Borrowed(value as *mut aeron_agent_runner_t),
-        }
-    }
-}
-impl From<aeron_agent_runner_t> for AeronAgentRunner {
-    #[inline]
-    fn from(value: aeron_agent_runner_t) -> Self {
-        AeronAgentRunner {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronAgentRunner {
     fn default() -> Self {
@@ -2001,16 +2001,16 @@ impl Default for AeronAgentRunner {
     }
 }
 impl AeronAgentRunner {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -2164,6 +2164,22 @@ impl From<*mut aeron_archive_recording_position_key_layout_t> for AeronArchiveRe
         }
     }
 }
+impl From<*const aeron_archive_recording_position_key_layout_t> for AeronArchiveRecordingPositionKeyLayout {
+    #[inline]
+    fn from(value: *const aeron_archive_recording_position_key_layout_t) -> Self {
+        AeronArchiveRecordingPositionKeyLayout {
+            inner: CResource::Borrowed(value as *mut aeron_archive_recording_position_key_layout_t),
+        }
+    }
+}
+impl From<aeron_archive_recording_position_key_layout_t> for AeronArchiveRecordingPositionKeyLayout {
+    #[inline]
+    fn from(value: aeron_archive_recording_position_key_layout_t) -> Self {
+        AeronArchiveRecordingPositionKeyLayout {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronArchiveRecordingPositionKeyLayout> for *mut aeron_archive_recording_position_key_layout_t {
     #[inline]
     fn from(value: AeronArchiveRecordingPositionKeyLayout) -> Self {
@@ -2182,22 +2198,6 @@ impl From<AeronArchiveRecordingPositionKeyLayout> for aeron_archive_recording_po
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_archive_recording_position_key_layout_t> for AeronArchiveRecordingPositionKeyLayout {
-    #[inline]
-    fn from(value: *const aeron_archive_recording_position_key_layout_t) -> Self {
-        AeronArchiveRecordingPositionKeyLayout {
-            inner: CResource::Borrowed(value as *mut aeron_archive_recording_position_key_layout_t),
-        }
-    }
-}
-impl From<aeron_archive_recording_position_key_layout_t> for AeronArchiveRecordingPositionKeyLayout {
-    #[inline]
-    fn from(value: aeron_archive_recording_position_key_layout_t) -> Self {
-        AeronArchiveRecordingPositionKeyLayout {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronArchiveRecordingPositionKeyLayout {
     fn default() -> Self {
@@ -2205,11 +2205,12 @@ impl Default for AeronArchiveRecordingPositionKeyLayout {
     }
 }
 impl AeronArchiveRecordingPositionKeyLayout {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -2346,6 +2347,22 @@ impl From<*mut aeron_async_add_counter_t> for AeronAsyncAddCounter {
         }
     }
 }
+impl From<*const aeron_async_add_counter_t> for AeronAsyncAddCounter {
+    #[inline]
+    fn from(value: *const aeron_async_add_counter_t) -> Self {
+        AeronAsyncAddCounter {
+            inner: CResource::Borrowed(value as *mut aeron_async_add_counter_t),
+        }
+    }
+}
+impl From<aeron_async_add_counter_t> for AeronAsyncAddCounter {
+    #[inline]
+    fn from(value: aeron_async_add_counter_t) -> Self {
+        AeronAsyncAddCounter {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronAsyncAddCounter> for *mut aeron_async_add_counter_t {
     #[inline]
     fn from(value: AeronAsyncAddCounter) -> Self {
@@ -2362,22 +2379,6 @@ impl From<AeronAsyncAddCounter> for aeron_async_add_counter_t {
     #[inline]
     fn from(value: AeronAsyncAddCounter) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_async_add_counter_t> for AeronAsyncAddCounter {
-    #[inline]
-    fn from(value: *const aeron_async_add_counter_t) -> Self {
-        AeronAsyncAddCounter {
-            inner: CResource::Borrowed(value as *mut aeron_async_add_counter_t),
-        }
-    }
-}
-impl From<aeron_async_add_counter_t> for AeronAsyncAddCounter {
-    #[inline]
-    fn from(value: aeron_async_add_counter_t) -> Self {
-        AeronAsyncAddCounter {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 impl AeronCounter {
@@ -2753,6 +2754,22 @@ impl From<*mut aeron_async_add_exclusive_publication_t> for AeronAsyncAddExclusi
         }
     }
 }
+impl From<*const aeron_async_add_exclusive_publication_t> for AeronAsyncAddExclusivePublication {
+    #[inline]
+    fn from(value: *const aeron_async_add_exclusive_publication_t) -> Self {
+        AeronAsyncAddExclusivePublication {
+            inner: CResource::Borrowed(value as *mut aeron_async_add_exclusive_publication_t),
+        }
+    }
+}
+impl From<aeron_async_add_exclusive_publication_t> for AeronAsyncAddExclusivePublication {
+    #[inline]
+    fn from(value: aeron_async_add_exclusive_publication_t) -> Self {
+        AeronAsyncAddExclusivePublication {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronAsyncAddExclusivePublication> for *mut aeron_async_add_exclusive_publication_t {
     #[inline]
     fn from(value: AeronAsyncAddExclusivePublication) -> Self {
@@ -2769,22 +2786,6 @@ impl From<AeronAsyncAddExclusivePublication> for aeron_async_add_exclusive_publi
     #[inline]
     fn from(value: AeronAsyncAddExclusivePublication) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_async_add_exclusive_publication_t> for AeronAsyncAddExclusivePublication {
-    #[inline]
-    fn from(value: *const aeron_async_add_exclusive_publication_t) -> Self {
-        AeronAsyncAddExclusivePublication {
-            inner: CResource::Borrowed(value as *mut aeron_async_add_exclusive_publication_t),
-        }
-    }
-}
-impl From<aeron_async_add_exclusive_publication_t> for AeronAsyncAddExclusivePublication {
-    #[inline]
-    fn from(value: aeron_async_add_exclusive_publication_t) -> Self {
-        AeronAsyncAddExclusivePublication {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 impl AeronExclusivePublication {
@@ -3154,6 +3155,22 @@ impl From<*mut aeron_async_add_publication_t> for AeronAsyncAddPublication {
         }
     }
 }
+impl From<*const aeron_async_add_publication_t> for AeronAsyncAddPublication {
+    #[inline]
+    fn from(value: *const aeron_async_add_publication_t) -> Self {
+        AeronAsyncAddPublication {
+            inner: CResource::Borrowed(value as *mut aeron_async_add_publication_t),
+        }
+    }
+}
+impl From<aeron_async_add_publication_t> for AeronAsyncAddPublication {
+    #[inline]
+    fn from(value: aeron_async_add_publication_t) -> Self {
+        AeronAsyncAddPublication {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronAsyncAddPublication> for *mut aeron_async_add_publication_t {
     #[inline]
     fn from(value: AeronAsyncAddPublication) -> Self {
@@ -3170,22 +3187,6 @@ impl From<AeronAsyncAddPublication> for aeron_async_add_publication_t {
     #[inline]
     fn from(value: AeronAsyncAddPublication) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_async_add_publication_t> for AeronAsyncAddPublication {
-    #[inline]
-    fn from(value: *const aeron_async_add_publication_t) -> Self {
-        AeronAsyncAddPublication {
-            inner: CResource::Borrowed(value as *mut aeron_async_add_publication_t),
-        }
-    }
-}
-impl From<aeron_async_add_publication_t> for AeronAsyncAddPublication {
-    #[inline]
-    fn from(value: aeron_async_add_publication_t) -> Self {
-        AeronAsyncAddPublication {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 impl AeronPublication {
@@ -3551,6 +3552,22 @@ impl From<*mut aeron_async_add_subscription_t> for AeronAsyncAddSubscription {
         }
     }
 }
+impl From<*const aeron_async_add_subscription_t> for AeronAsyncAddSubscription {
+    #[inline]
+    fn from(value: *const aeron_async_add_subscription_t) -> Self {
+        AeronAsyncAddSubscription {
+            inner: CResource::Borrowed(value as *mut aeron_async_add_subscription_t),
+        }
+    }
+}
+impl From<aeron_async_add_subscription_t> for AeronAsyncAddSubscription {
+    #[inline]
+    fn from(value: aeron_async_add_subscription_t) -> Self {
+        AeronAsyncAddSubscription {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronAsyncAddSubscription> for *mut aeron_async_add_subscription_t {
     #[inline]
     fn from(value: AeronAsyncAddSubscription) -> Self {
@@ -3567,22 +3584,6 @@ impl From<AeronAsyncAddSubscription> for aeron_async_add_subscription_t {
     #[inline]
     fn from(value: AeronAsyncAddSubscription) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_async_add_subscription_t> for AeronAsyncAddSubscription {
-    #[inline]
-    fn from(value: *const aeron_async_add_subscription_t) -> Self {
-        AeronAsyncAddSubscription {
-            inner: CResource::Borrowed(value as *mut aeron_async_add_subscription_t),
-        }
-    }
-}
-impl From<aeron_async_add_subscription_t> for AeronAsyncAddSubscription {
-    #[inline]
-    fn from(value: aeron_async_add_subscription_t) -> Self {
-        AeronAsyncAddSubscription {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 impl AeronSubscription {
@@ -4007,6 +4008,22 @@ impl From<*mut aeron_async_destination_by_id_t> for AeronAsyncDestinationById {
         }
     }
 }
+impl From<*const aeron_async_destination_by_id_t> for AeronAsyncDestinationById {
+    #[inline]
+    fn from(value: *const aeron_async_destination_by_id_t) -> Self {
+        AeronAsyncDestinationById {
+            inner: CResource::Borrowed(value as *mut aeron_async_destination_by_id_t),
+        }
+    }
+}
+impl From<aeron_async_destination_by_id_t> for AeronAsyncDestinationById {
+    #[inline]
+    fn from(value: aeron_async_destination_by_id_t) -> Self {
+        AeronAsyncDestinationById {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronAsyncDestinationById> for *mut aeron_async_destination_by_id_t {
     #[inline]
     fn from(value: AeronAsyncDestinationById) -> Self {
@@ -4023,22 +4040,6 @@ impl From<AeronAsyncDestinationById> for aeron_async_destination_by_id_t {
     #[inline]
     fn from(value: AeronAsyncDestinationById) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_async_destination_by_id_t> for AeronAsyncDestinationById {
-    #[inline]
-    fn from(value: *const aeron_async_destination_by_id_t) -> Self {
-        AeronAsyncDestinationById {
-            inner: CResource::Borrowed(value as *mut aeron_async_destination_by_id_t),
-        }
-    }
-}
-impl From<aeron_async_destination_by_id_t> for AeronAsyncDestinationById {
-    #[inline]
-    fn from(value: aeron_async_destination_by_id_t) -> Self {
-        AeronAsyncDestinationById {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[cfg(test)]
@@ -4539,6 +4540,22 @@ impl From<*mut aeron_async_destination_t> for AeronAsyncDestination {
         }
     }
 }
+impl From<*const aeron_async_destination_t> for AeronAsyncDestination {
+    #[inline]
+    fn from(value: *const aeron_async_destination_t) -> Self {
+        AeronAsyncDestination {
+            inner: CResource::Borrowed(value as *mut aeron_async_destination_t),
+        }
+    }
+}
+impl From<aeron_async_destination_t> for AeronAsyncDestination {
+    #[inline]
+    fn from(value: aeron_async_destination_t) -> Self {
+        AeronAsyncDestination {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronAsyncDestination> for *mut aeron_async_destination_t {
     #[inline]
     fn from(value: AeronAsyncDestination) -> Self {
@@ -4555,22 +4572,6 @@ impl From<AeronAsyncDestination> for aeron_async_destination_t {
     #[inline]
     fn from(value: AeronAsyncDestination) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_async_destination_t> for AeronAsyncDestination {
-    #[inline]
-    fn from(value: *const aeron_async_destination_t) -> Self {
-        AeronAsyncDestination {
-            inner: CResource::Borrowed(value as *mut aeron_async_destination_t),
-        }
-    }
-}
-impl From<aeron_async_destination_t> for AeronAsyncDestination {
-    #[inline]
-    fn from(value: aeron_async_destination_t) -> Self {
-        AeronAsyncDestination {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -4694,6 +4695,22 @@ impl From<*mut aeron_async_get_next_available_session_id_t> for AeronAsyncGetNex
         }
     }
 }
+impl From<*const aeron_async_get_next_available_session_id_t> for AeronAsyncGetNextAvailableSessionId {
+    #[inline]
+    fn from(value: *const aeron_async_get_next_available_session_id_t) -> Self {
+        AeronAsyncGetNextAvailableSessionId {
+            inner: CResource::Borrowed(value as *mut aeron_async_get_next_available_session_id_t),
+        }
+    }
+}
+impl From<aeron_async_get_next_available_session_id_t> for AeronAsyncGetNextAvailableSessionId {
+    #[inline]
+    fn from(value: aeron_async_get_next_available_session_id_t) -> Self {
+        AeronAsyncGetNextAvailableSessionId {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronAsyncGetNextAvailableSessionId> for *mut aeron_async_get_next_available_session_id_t {
     #[inline]
     fn from(value: AeronAsyncGetNextAvailableSessionId) -> Self {
@@ -4710,22 +4727,6 @@ impl From<AeronAsyncGetNextAvailableSessionId> for aeron_async_get_next_availabl
     #[inline]
     fn from(value: AeronAsyncGetNextAvailableSessionId) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_async_get_next_available_session_id_t> for AeronAsyncGetNextAvailableSessionId {
-    #[inline]
-    fn from(value: *const aeron_async_get_next_available_session_id_t) -> Self {
-        AeronAsyncGetNextAvailableSessionId {
-            inner: CResource::Borrowed(value as *mut aeron_async_get_next_available_session_id_t),
-        }
-    }
-}
-impl From<aeron_async_get_next_available_session_id_t> for AeronAsyncGetNextAvailableSessionId {
-    #[inline]
-    fn from(value: aeron_async_get_next_available_session_id_t) -> Self {
-        AeronAsyncGetNextAvailableSessionId {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -4816,6 +4817,22 @@ impl From<*mut aeron_atomic_counter_t> for AeronAtomicCounter {
         }
     }
 }
+impl From<*const aeron_atomic_counter_t> for AeronAtomicCounter {
+    #[inline]
+    fn from(value: *const aeron_atomic_counter_t) -> Self {
+        AeronAtomicCounter {
+            inner: CResource::Borrowed(value as *mut aeron_atomic_counter_t),
+        }
+    }
+}
+impl From<aeron_atomic_counter_t> for AeronAtomicCounter {
+    #[inline]
+    fn from(value: aeron_atomic_counter_t) -> Self {
+        AeronAtomicCounter {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronAtomicCounter> for *mut aeron_atomic_counter_t {
     #[inline]
     fn from(value: AeronAtomicCounter) -> Self {
@@ -4832,22 +4849,6 @@ impl From<AeronAtomicCounter> for aeron_atomic_counter_t {
     #[inline]
     fn from(value: AeronAtomicCounter) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_atomic_counter_t> for AeronAtomicCounter {
-    #[inline]
-    fn from(value: *const aeron_atomic_counter_t) -> Self {
-        AeronAtomicCounter {
-            inner: CResource::Borrowed(value as *mut aeron_atomic_counter_t),
-        }
-    }
-}
-impl From<aeron_atomic_counter_t> for AeronAtomicCounter {
-    #[inline]
-    fn from(value: aeron_atomic_counter_t) -> Self {
-        AeronAtomicCounter {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[cfg(test)]
@@ -4998,6 +4999,22 @@ impl From<*mut aeron_broadcast_descriptor_t> for AeronBroadcastDescriptor {
         }
     }
 }
+impl From<*const aeron_broadcast_descriptor_t> for AeronBroadcastDescriptor {
+    #[inline]
+    fn from(value: *const aeron_broadcast_descriptor_t) -> Self {
+        AeronBroadcastDescriptor {
+            inner: CResource::Borrowed(value as *mut aeron_broadcast_descriptor_t),
+        }
+    }
+}
+impl From<aeron_broadcast_descriptor_t> for AeronBroadcastDescriptor {
+    #[inline]
+    fn from(value: aeron_broadcast_descriptor_t) -> Self {
+        AeronBroadcastDescriptor {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronBroadcastDescriptor> for *mut aeron_broadcast_descriptor_t {
     #[inline]
     fn from(value: AeronBroadcastDescriptor) -> Self {
@@ -5016,22 +5033,6 @@ impl From<AeronBroadcastDescriptor> for aeron_broadcast_descriptor_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_broadcast_descriptor_t> for AeronBroadcastDescriptor {
-    #[inline]
-    fn from(value: *const aeron_broadcast_descriptor_t) -> Self {
-        AeronBroadcastDescriptor {
-            inner: CResource::Borrowed(value as *mut aeron_broadcast_descriptor_t),
-        }
-    }
-}
-impl From<aeron_broadcast_descriptor_t> for AeronBroadcastDescriptor {
-    #[inline]
-    fn from(value: aeron_broadcast_descriptor_t) -> Self {
-        AeronBroadcastDescriptor {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronBroadcastDescriptor {
     fn default() -> Self {
@@ -5039,11 +5040,12 @@ impl Default for AeronBroadcastDescriptor {
     }
 }
 impl AeronBroadcastDescriptor {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -5191,6 +5193,22 @@ impl From<*mut aeron_broadcast_record_descriptor_t> for AeronBroadcastRecordDesc
         }
     }
 }
+impl From<*const aeron_broadcast_record_descriptor_t> for AeronBroadcastRecordDescriptor {
+    #[inline]
+    fn from(value: *const aeron_broadcast_record_descriptor_t) -> Self {
+        AeronBroadcastRecordDescriptor {
+            inner: CResource::Borrowed(value as *mut aeron_broadcast_record_descriptor_t),
+        }
+    }
+}
+impl From<aeron_broadcast_record_descriptor_t> for AeronBroadcastRecordDescriptor {
+    #[inline]
+    fn from(value: aeron_broadcast_record_descriptor_t) -> Self {
+        AeronBroadcastRecordDescriptor {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronBroadcastRecordDescriptor> for *mut aeron_broadcast_record_descriptor_t {
     #[inline]
     fn from(value: AeronBroadcastRecordDescriptor) -> Self {
@@ -5209,22 +5227,6 @@ impl From<AeronBroadcastRecordDescriptor> for aeron_broadcast_record_descriptor_
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_broadcast_record_descriptor_t> for AeronBroadcastRecordDescriptor {
-    #[inline]
-    fn from(value: *const aeron_broadcast_record_descriptor_t) -> Self {
-        AeronBroadcastRecordDescriptor {
-            inner: CResource::Borrowed(value as *mut aeron_broadcast_record_descriptor_t),
-        }
-    }
-}
-impl From<aeron_broadcast_record_descriptor_t> for AeronBroadcastRecordDescriptor {
-    #[inline]
-    fn from(value: aeron_broadcast_record_descriptor_t) -> Self {
-        AeronBroadcastRecordDescriptor {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronBroadcastRecordDescriptor {
     fn default() -> Self {
@@ -5232,11 +5234,12 @@ impl Default for AeronBroadcastRecordDescriptor {
     }
 }
 impl AeronBroadcastRecordDescriptor {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -5455,6 +5458,22 @@ impl From<*mut aeron_broadcast_transmitter_t> for AeronBroadcastTransmitter {
         }
     }
 }
+impl From<*const aeron_broadcast_transmitter_t> for AeronBroadcastTransmitter {
+    #[inline]
+    fn from(value: *const aeron_broadcast_transmitter_t) -> Self {
+        AeronBroadcastTransmitter {
+            inner: CResource::Borrowed(value as *mut aeron_broadcast_transmitter_t),
+        }
+    }
+}
+impl From<aeron_broadcast_transmitter_t> for AeronBroadcastTransmitter {
+    #[inline]
+    fn from(value: aeron_broadcast_transmitter_t) -> Self {
+        AeronBroadcastTransmitter {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronBroadcastTransmitter> for *mut aeron_broadcast_transmitter_t {
     #[inline]
     fn from(value: AeronBroadcastTransmitter) -> Self {
@@ -5473,22 +5492,6 @@ impl From<AeronBroadcastTransmitter> for aeron_broadcast_transmitter_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_broadcast_transmitter_t> for AeronBroadcastTransmitter {
-    #[inline]
-    fn from(value: *const aeron_broadcast_transmitter_t) -> Self {
-        AeronBroadcastTransmitter {
-            inner: CResource::Borrowed(value as *mut aeron_broadcast_transmitter_t),
-        }
-    }
-}
-impl From<aeron_broadcast_transmitter_t> for AeronBroadcastTransmitter {
-    #[inline]
-    fn from(value: aeron_broadcast_transmitter_t) -> Self {
-        AeronBroadcastTransmitter {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronBroadcastTransmitter {
     fn default() -> Self {
@@ -5496,16 +5499,16 @@ impl Default for AeronBroadcastTransmitter {
     }
 }
 impl AeronBroadcastTransmitter {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -5708,6 +5711,22 @@ impl From<*mut aeron_buffer_claim_t> for AeronBufferClaim {
         }
     }
 }
+impl From<*const aeron_buffer_claim_t> for AeronBufferClaim {
+    #[inline]
+    fn from(value: *const aeron_buffer_claim_t) -> Self {
+        AeronBufferClaim {
+            inner: CResource::Borrowed(value as *mut aeron_buffer_claim_t),
+        }
+    }
+}
+impl From<aeron_buffer_claim_t> for AeronBufferClaim {
+    #[inline]
+    fn from(value: aeron_buffer_claim_t) -> Self {
+        AeronBufferClaim {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronBufferClaim> for *mut aeron_buffer_claim_t {
     #[inline]
     fn from(value: AeronBufferClaim) -> Self {
@@ -5726,22 +5745,6 @@ impl From<AeronBufferClaim> for aeron_buffer_claim_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_buffer_claim_t> for AeronBufferClaim {
-    #[inline]
-    fn from(value: *const aeron_buffer_claim_t) -> Self {
-        AeronBufferClaim {
-            inner: CResource::Borrowed(value as *mut aeron_buffer_claim_t),
-        }
-    }
-}
-impl From<aeron_buffer_claim_t> for AeronBufferClaim {
-    #[inline]
-    fn from(value: aeron_buffer_claim_t) -> Self {
-        AeronBufferClaim {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronBufferClaim {
     fn default() -> Self {
@@ -5749,16 +5752,16 @@ impl Default for AeronBufferClaim {
     }
 }
 impl AeronBufferClaim {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -5905,6 +5908,22 @@ impl From<*mut aeron_channel_endpoint_status_key_layout_t> for AeronChannelEndpo
         }
     }
 }
+impl From<*const aeron_channel_endpoint_status_key_layout_t> for AeronChannelEndpointStatusKeyLayout {
+    #[inline]
+    fn from(value: *const aeron_channel_endpoint_status_key_layout_t) -> Self {
+        AeronChannelEndpointStatusKeyLayout {
+            inner: CResource::Borrowed(value as *mut aeron_channel_endpoint_status_key_layout_t),
+        }
+    }
+}
+impl From<aeron_channel_endpoint_status_key_layout_t> for AeronChannelEndpointStatusKeyLayout {
+    #[inline]
+    fn from(value: aeron_channel_endpoint_status_key_layout_t) -> Self {
+        AeronChannelEndpointStatusKeyLayout {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronChannelEndpointStatusKeyLayout> for *mut aeron_channel_endpoint_status_key_layout_t {
     #[inline]
     fn from(value: AeronChannelEndpointStatusKeyLayout) -> Self {
@@ -5923,22 +5942,6 @@ impl From<AeronChannelEndpointStatusKeyLayout> for aeron_channel_endpoint_status
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_channel_endpoint_status_key_layout_t> for AeronChannelEndpointStatusKeyLayout {
-    #[inline]
-    fn from(value: *const aeron_channel_endpoint_status_key_layout_t) -> Self {
-        AeronChannelEndpointStatusKeyLayout {
-            inner: CResource::Borrowed(value as *mut aeron_channel_endpoint_status_key_layout_t),
-        }
-    }
-}
-impl From<aeron_channel_endpoint_status_key_layout_t> for AeronChannelEndpointStatusKeyLayout {
-    #[inline]
-    fn from(value: aeron_channel_endpoint_status_key_layout_t) -> Self {
-        AeronChannelEndpointStatusKeyLayout {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronChannelEndpointStatusKeyLayout {
     fn default() -> Self {
@@ -5946,11 +5949,12 @@ impl Default for AeronChannelEndpointStatusKeyLayout {
     }
 }
 impl AeronChannelEndpointStatusKeyLayout {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -6068,6 +6072,22 @@ impl From<*mut aeron_client_registering_resource_t> for AeronClientRegisteringRe
         }
     }
 }
+impl From<*const aeron_client_registering_resource_t> for AeronClientRegisteringResource {
+    #[inline]
+    fn from(value: *const aeron_client_registering_resource_t) -> Self {
+        AeronClientRegisteringResource {
+            inner: CResource::Borrowed(value as *mut aeron_client_registering_resource_t),
+        }
+    }
+}
+impl From<aeron_client_registering_resource_t> for AeronClientRegisteringResource {
+    #[inline]
+    fn from(value: aeron_client_registering_resource_t) -> Self {
+        AeronClientRegisteringResource {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronClientRegisteringResource> for *mut aeron_client_registering_resource_t {
     #[inline]
     fn from(value: AeronClientRegisteringResource) -> Self {
@@ -6084,22 +6104,6 @@ impl From<AeronClientRegisteringResource> for aeron_client_registering_resource_
     #[inline]
     fn from(value: AeronClientRegisteringResource) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_client_registering_resource_t> for AeronClientRegisteringResource {
-    #[inline]
-    fn from(value: *const aeron_client_registering_resource_t) -> Self {
-        AeronClientRegisteringResource {
-            inner: CResource::Borrowed(value as *mut aeron_client_registering_resource_t),
-        }
-    }
-}
-impl From<aeron_client_registering_resource_t> for AeronClientRegisteringResource {
-    #[inline]
-    fn from(value: aeron_client_registering_resource_t) -> Self {
-        AeronClientRegisteringResource {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[cfg(test)]
@@ -6280,6 +6284,22 @@ impl From<*mut aeron_client_t> for AeronClient {
         }
     }
 }
+impl From<*const aeron_client_t> for AeronClient {
+    #[inline]
+    fn from(value: *const aeron_client_t) -> Self {
+        AeronClient {
+            inner: CResource::Borrowed(value as *mut aeron_client_t),
+        }
+    }
+}
+impl From<aeron_client_t> for AeronClient {
+    #[inline]
+    fn from(value: aeron_client_t) -> Self {
+        AeronClient {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronClient> for *mut aeron_client_t {
     #[inline]
     fn from(value: AeronClient) -> Self {
@@ -6298,22 +6318,6 @@ impl From<AeronClient> for aeron_client_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_client_t> for AeronClient {
-    #[inline]
-    fn from(value: *const aeron_client_t) -> Self {
-        AeronClient {
-            inner: CResource::Borrowed(value as *mut aeron_client_t),
-        }
-    }
-}
-impl From<aeron_client_t> for AeronClient {
-    #[inline]
-    fn from(value: aeron_client_t) -> Self {
-        AeronClient {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronClient {
     fn default() -> Self {
@@ -6321,11 +6325,12 @@ impl Default for AeronClient {
     }
 }
 impl AeronClient {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -6467,6 +6472,22 @@ impl From<*mut aeron_client_timeout_t> for AeronClientTimeout {
         }
     }
 }
+impl From<*const aeron_client_timeout_t> for AeronClientTimeout {
+    #[inline]
+    fn from(value: *const aeron_client_timeout_t) -> Self {
+        AeronClientTimeout {
+            inner: CResource::Borrowed(value as *mut aeron_client_timeout_t),
+        }
+    }
+}
+impl From<aeron_client_timeout_t> for AeronClientTimeout {
+    #[inline]
+    fn from(value: aeron_client_timeout_t) -> Self {
+        AeronClientTimeout {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronClientTimeout> for *mut aeron_client_timeout_t {
     #[inline]
     fn from(value: AeronClientTimeout) -> Self {
@@ -6485,22 +6506,6 @@ impl From<AeronClientTimeout> for aeron_client_timeout_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_client_timeout_t> for AeronClientTimeout {
-    #[inline]
-    fn from(value: *const aeron_client_timeout_t) -> Self {
-        AeronClientTimeout {
-            inner: CResource::Borrowed(value as *mut aeron_client_timeout_t),
-        }
-    }
-}
-impl From<aeron_client_timeout_t> for AeronClientTimeout {
-    #[inline]
-    fn from(value: aeron_client_timeout_t) -> Self {
-        AeronClientTimeout {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronClientTimeout {
     fn default() -> Self {
@@ -6508,11 +6513,12 @@ impl Default for AeronClientTimeout {
     }
 }
 impl AeronClientTimeout {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -6752,6 +6758,22 @@ impl From<*mut aeron_clock_cache_t> for AeronClockCache {
         }
     }
 }
+impl From<*const aeron_clock_cache_t> for AeronClockCache {
+    #[inline]
+    fn from(value: *const aeron_clock_cache_t) -> Self {
+        AeronClockCache {
+            inner: CResource::Borrowed(value as *mut aeron_clock_cache_t),
+        }
+    }
+}
+impl From<aeron_clock_cache_t> for AeronClockCache {
+    #[inline]
+    fn from(value: aeron_clock_cache_t) -> Self {
+        AeronClockCache {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronClockCache> for *mut aeron_clock_cache_t {
     #[inline]
     fn from(value: AeronClockCache) -> Self {
@@ -6768,22 +6790,6 @@ impl From<AeronClockCache> for aeron_clock_cache_t {
     #[inline]
     fn from(value: AeronClockCache) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_clock_cache_t> for AeronClockCache {
-    #[inline]
-    fn from(value: *const aeron_clock_cache_t) -> Self {
-        AeronClockCache {
-            inner: CResource::Borrowed(value as *mut aeron_clock_cache_t),
-        }
-    }
-}
-impl From<aeron_clock_cache_t> for AeronClockCache {
-    #[inline]
-    fn from(value: aeron_clock_cache_t) -> Self {
-        AeronClockCache {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -6969,6 +6975,22 @@ impl From<*mut aeron_cnc_constants_t> for AeronCncConstants {
         }
     }
 }
+impl From<*const aeron_cnc_constants_t> for AeronCncConstants {
+    #[inline]
+    fn from(value: *const aeron_cnc_constants_t) -> Self {
+        AeronCncConstants {
+            inner: CResource::Borrowed(value as *mut aeron_cnc_constants_t),
+        }
+    }
+}
+impl From<aeron_cnc_constants_t> for AeronCncConstants {
+    #[inline]
+    fn from(value: aeron_cnc_constants_t) -> Self {
+        AeronCncConstants {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronCncConstants> for *mut aeron_cnc_constants_t {
     #[inline]
     fn from(value: AeronCncConstants) -> Self {
@@ -6987,22 +7009,6 @@ impl From<AeronCncConstants> for aeron_cnc_constants_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_cnc_constants_t> for AeronCncConstants {
-    #[inline]
-    fn from(value: *const aeron_cnc_constants_t) -> Self {
-        AeronCncConstants {
-            inner: CResource::Borrowed(value as *mut aeron_cnc_constants_t),
-        }
-    }
-}
-impl From<aeron_cnc_constants_t> for AeronCncConstants {
-    #[inline]
-    fn from(value: aeron_cnc_constants_t) -> Self {
-        AeronCncConstants {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronCncConstants {
     fn default() -> Self {
@@ -7010,11 +7016,12 @@ impl Default for AeronCncConstants {
     }
 }
 impl AeronCncConstants {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -7242,6 +7249,22 @@ impl From<*mut aeron_cnc_metadata_t> for AeronCncMetadata {
         }
     }
 }
+impl From<*const aeron_cnc_metadata_t> for AeronCncMetadata {
+    #[inline]
+    fn from(value: *const aeron_cnc_metadata_t) -> Self {
+        AeronCncMetadata {
+            inner: CResource::Borrowed(value as *mut aeron_cnc_metadata_t),
+        }
+    }
+}
+impl From<aeron_cnc_metadata_t> for AeronCncMetadata {
+    #[inline]
+    fn from(value: aeron_cnc_metadata_t) -> Self {
+        AeronCncMetadata {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronCncMetadata> for *mut aeron_cnc_metadata_t {
     #[inline]
     fn from(value: AeronCncMetadata) -> Self {
@@ -7260,22 +7283,6 @@ impl From<AeronCncMetadata> for aeron_cnc_metadata_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_cnc_metadata_t> for AeronCncMetadata {
-    #[inline]
-    fn from(value: *const aeron_cnc_metadata_t) -> Self {
-        AeronCncMetadata {
-            inner: CResource::Borrowed(value as *mut aeron_cnc_metadata_t),
-        }
-    }
-}
-impl From<aeron_cnc_metadata_t> for AeronCncMetadata {
-    #[inline]
-    fn from(value: aeron_cnc_metadata_t) -> Self {
-        AeronCncMetadata {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronCncMetadata {
     fn default() -> Self {
@@ -7283,11 +7290,12 @@ impl Default for AeronCncMetadata {
     }
 }
 impl AeronCncMetadata {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -7719,6 +7727,22 @@ impl From<*mut aeron_cnc_t> for AeronCnc {
         }
     }
 }
+impl From<*const aeron_cnc_t> for AeronCnc {
+    #[inline]
+    fn from(value: *const aeron_cnc_t) -> Self {
+        AeronCnc {
+            inner: CResource::Borrowed(value as *mut aeron_cnc_t),
+        }
+    }
+}
+impl From<aeron_cnc_t> for AeronCnc {
+    #[inline]
+    fn from(value: aeron_cnc_t) -> Self {
+        AeronCnc {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronCnc> for *mut aeron_cnc_t {
     #[inline]
     fn from(value: AeronCnc) -> Self {
@@ -7735,22 +7759,6 @@ impl From<AeronCnc> for aeron_cnc_t {
     #[inline]
     fn from(value: AeronCnc) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_cnc_t> for AeronCnc {
-    #[inline]
-    fn from(value: *const aeron_cnc_t) -> Self {
-        AeronCnc {
-            inner: CResource::Borrowed(value as *mut aeron_cnc_t),
-        }
-    }
-}
-impl From<aeron_cnc_t> for AeronCnc {
-    #[inline]
-    fn from(value: aeron_cnc_t) -> Self {
-        AeronCnc {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -7888,6 +7896,22 @@ impl From<*mut aeron_congestion_control_strategy_t> for AeronCongestionControlSt
         }
     }
 }
+impl From<*const aeron_congestion_control_strategy_t> for AeronCongestionControlStrategy {
+    #[inline]
+    fn from(value: *const aeron_congestion_control_strategy_t) -> Self {
+        AeronCongestionControlStrategy {
+            inner: CResource::Borrowed(value as *mut aeron_congestion_control_strategy_t),
+        }
+    }
+}
+impl From<aeron_congestion_control_strategy_t> for AeronCongestionControlStrategy {
+    #[inline]
+    fn from(value: aeron_congestion_control_strategy_t) -> Self {
+        AeronCongestionControlStrategy {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronCongestionControlStrategy> for *mut aeron_congestion_control_strategy_t {
     #[inline]
     fn from(value: AeronCongestionControlStrategy) -> Self {
@@ -7904,22 +7928,6 @@ impl From<AeronCongestionControlStrategy> for aeron_congestion_control_strategy_
     #[inline]
     fn from(value: AeronCongestionControlStrategy) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_congestion_control_strategy_t> for AeronCongestionControlStrategy {
-    #[inline]
-    fn from(value: *const aeron_congestion_control_strategy_t) -> Self {
-        AeronCongestionControlStrategy {
-            inner: CResource::Borrowed(value as *mut aeron_congestion_control_strategy_t),
-        }
-    }
-}
-impl From<aeron_congestion_control_strategy_t> for AeronCongestionControlStrategy {
-    #[inline]
-    fn from(value: aeron_congestion_control_strategy_t) -> Self {
-        AeronCongestionControlStrategy {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -9171,6 +9179,22 @@ impl From<*mut aeron_context_t> for AeronContext {
         }
     }
 }
+impl From<*const aeron_context_t> for AeronContext {
+    #[inline]
+    fn from(value: *const aeron_context_t) -> Self {
+        AeronContext {
+            inner: CResource::Borrowed(value as *mut aeron_context_t),
+        }
+    }
+}
+impl From<aeron_context_t> for AeronContext {
+    #[inline]
+    fn from(value: aeron_context_t) -> Self {
+        AeronContext {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronContext> for *mut aeron_context_t {
     #[inline]
     fn from(value: AeronContext) -> Self {
@@ -9187,22 +9211,6 @@ impl From<AeronContext> for aeron_context_t {
     #[inline]
     fn from(value: AeronContext) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_context_t> for AeronContext {
-    #[inline]
-    fn from(value: *const aeron_context_t) -> Self {
-        AeronContext {
-            inner: CResource::Borrowed(value as *mut aeron_context_t),
-        }
-    }
-}
-impl From<aeron_context_t> for AeronContext {
-    #[inline]
-    fn from(value: aeron_context_t) -> Self {
-        AeronContext {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -9423,6 +9431,22 @@ impl From<*mut aeron_controlled_fragment_assembler_t> for AeronControlledFragmen
         }
     }
 }
+impl From<*const aeron_controlled_fragment_assembler_t> for AeronControlledFragmentAssembler {
+    #[inline]
+    fn from(value: *const aeron_controlled_fragment_assembler_t) -> Self {
+        AeronControlledFragmentAssembler {
+            inner: CResource::Borrowed(value as *mut aeron_controlled_fragment_assembler_t),
+        }
+    }
+}
+impl From<aeron_controlled_fragment_assembler_t> for AeronControlledFragmentAssembler {
+    #[inline]
+    fn from(value: aeron_controlled_fragment_assembler_t) -> Self {
+        AeronControlledFragmentAssembler {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronControlledFragmentAssembler> for *mut aeron_controlled_fragment_assembler_t {
     #[inline]
     fn from(value: AeronControlledFragmentAssembler) -> Self {
@@ -9439,22 +9463,6 @@ impl From<AeronControlledFragmentAssembler> for aeron_controlled_fragment_assemb
     #[inline]
     fn from(value: AeronControlledFragmentAssembler) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_controlled_fragment_assembler_t> for AeronControlledFragmentAssembler {
-    #[inline]
-    fn from(value: *const aeron_controlled_fragment_assembler_t) -> Self {
-        AeronControlledFragmentAssembler {
-            inner: CResource::Borrowed(value as *mut aeron_controlled_fragment_assembler_t),
-        }
-    }
-}
-impl From<aeron_controlled_fragment_assembler_t> for AeronControlledFragmentAssembler {
-    #[inline]
-    fn from(value: aeron_controlled_fragment_assembler_t) -> Self {
-        AeronControlledFragmentAssembler {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -9575,6 +9583,22 @@ impl From<*mut aeron_correlated_command_t> for AeronCorrelatedCommand {
         }
     }
 }
+impl From<*const aeron_correlated_command_t> for AeronCorrelatedCommand {
+    #[inline]
+    fn from(value: *const aeron_correlated_command_t) -> Self {
+        AeronCorrelatedCommand {
+            inner: CResource::Borrowed(value as *mut aeron_correlated_command_t),
+        }
+    }
+}
+impl From<aeron_correlated_command_t> for AeronCorrelatedCommand {
+    #[inline]
+    fn from(value: aeron_correlated_command_t) -> Self {
+        AeronCorrelatedCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronCorrelatedCommand> for *mut aeron_correlated_command_t {
     #[inline]
     fn from(value: AeronCorrelatedCommand) -> Self {
@@ -9593,22 +9617,6 @@ impl From<AeronCorrelatedCommand> for aeron_correlated_command_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_correlated_command_t> for AeronCorrelatedCommand {
-    #[inline]
-    fn from(value: *const aeron_correlated_command_t) -> Self {
-        AeronCorrelatedCommand {
-            inner: CResource::Borrowed(value as *mut aeron_correlated_command_t),
-        }
-    }
-}
-impl From<aeron_correlated_command_t> for AeronCorrelatedCommand {
-    #[inline]
-    fn from(value: aeron_correlated_command_t) -> Self {
-        AeronCorrelatedCommand {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronCorrelatedCommand {
     fn default() -> Self {
@@ -9616,11 +9624,12 @@ impl Default for AeronCorrelatedCommand {
     }
 }
 impl AeronCorrelatedCommand {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -9768,6 +9777,22 @@ impl From<*mut aeron_counter_command_t> for AeronCounterCommand {
         }
     }
 }
+impl From<*const aeron_counter_command_t> for AeronCounterCommand {
+    #[inline]
+    fn from(value: *const aeron_counter_command_t) -> Self {
+        AeronCounterCommand {
+            inner: CResource::Borrowed(value as *mut aeron_counter_command_t),
+        }
+    }
+}
+impl From<aeron_counter_command_t> for AeronCounterCommand {
+    #[inline]
+    fn from(value: aeron_counter_command_t) -> Self {
+        AeronCounterCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronCounterCommand> for *mut aeron_counter_command_t {
     #[inline]
     fn from(value: AeronCounterCommand) -> Self {
@@ -9786,22 +9811,6 @@ impl From<AeronCounterCommand> for aeron_counter_command_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_counter_command_t> for AeronCounterCommand {
-    #[inline]
-    fn from(value: *const aeron_counter_command_t) -> Self {
-        AeronCounterCommand {
-            inner: CResource::Borrowed(value as *mut aeron_counter_command_t),
-        }
-    }
-}
-impl From<aeron_counter_command_t> for AeronCounterCommand {
-    #[inline]
-    fn from(value: aeron_counter_command_t) -> Self {
-        AeronCounterCommand {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronCounterCommand {
     fn default() -> Self {
@@ -9809,11 +9818,12 @@ impl Default for AeronCounterCommand {
     }
 }
 impl AeronCounterCommand {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -9968,6 +9978,22 @@ impl From<*mut aeron_counter_constants_t> for AeronCounterConstants {
         }
     }
 }
+impl From<*const aeron_counter_constants_t> for AeronCounterConstants {
+    #[inline]
+    fn from(value: *const aeron_counter_constants_t) -> Self {
+        AeronCounterConstants {
+            inner: CResource::Borrowed(value as *mut aeron_counter_constants_t),
+        }
+    }
+}
+impl From<aeron_counter_constants_t> for AeronCounterConstants {
+    #[inline]
+    fn from(value: aeron_counter_constants_t) -> Self {
+        AeronCounterConstants {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronCounterConstants> for *mut aeron_counter_constants_t {
     #[inline]
     fn from(value: AeronCounterConstants) -> Self {
@@ -9986,22 +10012,6 @@ impl From<AeronCounterConstants> for aeron_counter_constants_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_counter_constants_t> for AeronCounterConstants {
-    #[inline]
-    fn from(value: *const aeron_counter_constants_t) -> Self {
-        AeronCounterConstants {
-            inner: CResource::Borrowed(value as *mut aeron_counter_constants_t),
-        }
-    }
-}
-impl From<aeron_counter_constants_t> for AeronCounterConstants {
-    #[inline]
-    fn from(value: aeron_counter_constants_t) -> Self {
-        AeronCounterConstants {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronCounterConstants {
     fn default() -> Self {
@@ -10009,11 +10019,12 @@ impl Default for AeronCounterConstants {
     }
 }
 impl AeronCounterConstants {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -10161,6 +10172,22 @@ impl From<*mut aeron_counter_link_t> for AeronCounterLink {
         }
     }
 }
+impl From<*const aeron_counter_link_t> for AeronCounterLink {
+    #[inline]
+    fn from(value: *const aeron_counter_link_t) -> Self {
+        AeronCounterLink {
+            inner: CResource::Borrowed(value as *mut aeron_counter_link_t),
+        }
+    }
+}
+impl From<aeron_counter_link_t> for AeronCounterLink {
+    #[inline]
+    fn from(value: aeron_counter_link_t) -> Self {
+        AeronCounterLink {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronCounterLink> for *mut aeron_counter_link_t {
     #[inline]
     fn from(value: AeronCounterLink) -> Self {
@@ -10179,22 +10206,6 @@ impl From<AeronCounterLink> for aeron_counter_link_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_counter_link_t> for AeronCounterLink {
-    #[inline]
-    fn from(value: *const aeron_counter_link_t) -> Self {
-        AeronCounterLink {
-            inner: CResource::Borrowed(value as *mut aeron_counter_link_t),
-        }
-    }
-}
-impl From<aeron_counter_link_t> for AeronCounterLink {
-    #[inline]
-    fn from(value: aeron_counter_link_t) -> Self {
-        AeronCounterLink {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronCounterLink {
     fn default() -> Self {
@@ -10202,11 +10213,12 @@ impl Default for AeronCounterLink {
     }
 }
 impl AeronCounterLink {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -10386,6 +10398,22 @@ impl From<*mut aeron_counter_metadata_descriptor_t> for AeronCounterMetadataDesc
         }
     }
 }
+impl From<*const aeron_counter_metadata_descriptor_t> for AeronCounterMetadataDescriptor {
+    #[inline]
+    fn from(value: *const aeron_counter_metadata_descriptor_t) -> Self {
+        AeronCounterMetadataDescriptor {
+            inner: CResource::Borrowed(value as *mut aeron_counter_metadata_descriptor_t),
+        }
+    }
+}
+impl From<aeron_counter_metadata_descriptor_t> for AeronCounterMetadataDescriptor {
+    #[inline]
+    fn from(value: aeron_counter_metadata_descriptor_t) -> Self {
+        AeronCounterMetadataDescriptor {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronCounterMetadataDescriptor> for *mut aeron_counter_metadata_descriptor_t {
     #[inline]
     fn from(value: AeronCounterMetadataDescriptor) -> Self {
@@ -10404,22 +10432,6 @@ impl From<AeronCounterMetadataDescriptor> for aeron_counter_metadata_descriptor_
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_counter_metadata_descriptor_t> for AeronCounterMetadataDescriptor {
-    #[inline]
-    fn from(value: *const aeron_counter_metadata_descriptor_t) -> Self {
-        AeronCounterMetadataDescriptor {
-            inner: CResource::Borrowed(value as *mut aeron_counter_metadata_descriptor_t),
-        }
-    }
-}
-impl From<aeron_counter_metadata_descriptor_t> for AeronCounterMetadataDescriptor {
-    #[inline]
-    fn from(value: aeron_counter_metadata_descriptor_t) -> Self {
-        AeronCounterMetadataDescriptor {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronCounterMetadataDescriptor {
     fn default() -> Self {
@@ -10427,11 +10439,12 @@ impl Default for AeronCounterMetadataDescriptor {
     }
 }
 impl AeronCounterMetadataDescriptor {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -10621,6 +10634,22 @@ impl From<*mut aeron_counter_t> for AeronCounter {
         }
     }
 }
+impl From<*const aeron_counter_t> for AeronCounter {
+    #[inline]
+    fn from(value: *const aeron_counter_t) -> Self {
+        AeronCounter {
+            inner: CResource::Borrowed(value as *mut aeron_counter_t),
+        }
+    }
+}
+impl From<aeron_counter_t> for AeronCounter {
+    #[inline]
+    fn from(value: aeron_counter_t) -> Self {
+        AeronCounter {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronCounter> for *mut aeron_counter_t {
     #[inline]
     fn from(value: AeronCounter) -> Self {
@@ -10637,22 +10666,6 @@ impl From<AeronCounter> for aeron_counter_t {
     #[inline]
     fn from(value: AeronCounter) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_counter_t> for AeronCounter {
-    #[inline]
-    fn from(value: *const aeron_counter_t) -> Self {
-        AeronCounter {
-            inner: CResource::Borrowed(value as *mut aeron_counter_t),
-        }
-    }
-}
-impl From<aeron_counter_t> for AeronCounter {
-    #[inline]
-    fn from(value: aeron_counter_t) -> Self {
-        AeronCounter {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 impl AeronCounter {
@@ -10816,6 +10829,22 @@ impl From<*mut aeron_counter_update_t> for AeronCounterUpdate {
         }
     }
 }
+impl From<*const aeron_counter_update_t> for AeronCounterUpdate {
+    #[inline]
+    fn from(value: *const aeron_counter_update_t) -> Self {
+        AeronCounterUpdate {
+            inner: CResource::Borrowed(value as *mut aeron_counter_update_t),
+        }
+    }
+}
+impl From<aeron_counter_update_t> for AeronCounterUpdate {
+    #[inline]
+    fn from(value: aeron_counter_update_t) -> Self {
+        AeronCounterUpdate {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronCounterUpdate> for *mut aeron_counter_update_t {
     #[inline]
     fn from(value: AeronCounterUpdate) -> Self {
@@ -10834,22 +10863,6 @@ impl From<AeronCounterUpdate> for aeron_counter_update_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_counter_update_t> for AeronCounterUpdate {
-    #[inline]
-    fn from(value: *const aeron_counter_update_t) -> Self {
-        AeronCounterUpdate {
-            inner: CResource::Borrowed(value as *mut aeron_counter_update_t),
-        }
-    }
-}
-impl From<aeron_counter_update_t> for AeronCounterUpdate {
-    #[inline]
-    fn from(value: aeron_counter_update_t) -> Self {
-        AeronCounterUpdate {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronCounterUpdate {
     fn default() -> Self {
@@ -10857,11 +10870,12 @@ impl Default for AeronCounterUpdate {
     }
 }
 impl AeronCounterUpdate {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -11032,6 +11046,22 @@ impl From<*mut aeron_counter_value_descriptor_t> for AeronCounterValueDescriptor
         }
     }
 }
+impl From<*const aeron_counter_value_descriptor_t> for AeronCounterValueDescriptor {
+    #[inline]
+    fn from(value: *const aeron_counter_value_descriptor_t) -> Self {
+        AeronCounterValueDescriptor {
+            inner: CResource::Borrowed(value as *mut aeron_counter_value_descriptor_t),
+        }
+    }
+}
+impl From<aeron_counter_value_descriptor_t> for AeronCounterValueDescriptor {
+    #[inline]
+    fn from(value: aeron_counter_value_descriptor_t) -> Self {
+        AeronCounterValueDescriptor {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronCounterValueDescriptor> for *mut aeron_counter_value_descriptor_t {
     #[inline]
     fn from(value: AeronCounterValueDescriptor) -> Self {
@@ -11050,22 +11080,6 @@ impl From<AeronCounterValueDescriptor> for aeron_counter_value_descriptor_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_counter_value_descriptor_t> for AeronCounterValueDescriptor {
-    #[inline]
-    fn from(value: *const aeron_counter_value_descriptor_t) -> Self {
-        AeronCounterValueDescriptor {
-            inner: CResource::Borrowed(value as *mut aeron_counter_value_descriptor_t),
-        }
-    }
-}
-impl From<aeron_counter_value_descriptor_t> for AeronCounterValueDescriptor {
-    #[inline]
-    fn from(value: aeron_counter_value_descriptor_t) -> Self {
-        AeronCounterValueDescriptor {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronCounterValueDescriptor {
     fn default() -> Self {
@@ -11073,11 +11087,12 @@ impl Default for AeronCounterValueDescriptor {
     }
 }
 impl AeronCounterValueDescriptor {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -11633,6 +11648,22 @@ impl From<*mut aeron_counters_manager_t> for AeronCountersManager {
         }
     }
 }
+impl From<*const aeron_counters_manager_t> for AeronCountersManager {
+    #[inline]
+    fn from(value: *const aeron_counters_manager_t) -> Self {
+        AeronCountersManager {
+            inner: CResource::Borrowed(value as *mut aeron_counters_manager_t),
+        }
+    }
+}
+impl From<aeron_counters_manager_t> for AeronCountersManager {
+    #[inline]
+    fn from(value: aeron_counters_manager_t) -> Self {
+        AeronCountersManager {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronCountersManager> for *mut aeron_counters_manager_t {
     #[inline]
     fn from(value: AeronCountersManager) -> Self {
@@ -11651,22 +11682,6 @@ impl From<AeronCountersManager> for aeron_counters_manager_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_counters_manager_t> for AeronCountersManager {
-    #[inline]
-    fn from(value: *const aeron_counters_manager_t) -> Self {
-        AeronCountersManager {
-            inner: CResource::Borrowed(value as *mut aeron_counters_manager_t),
-        }
-    }
-}
-impl From<aeron_counters_manager_t> for AeronCountersManager {
-    #[inline]
-    fn from(value: aeron_counters_manager_t) -> Self {
-        AeronCountersManager {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronCountersManager {
     fn default() -> Self {
@@ -11674,16 +11689,16 @@ impl Default for AeronCountersManager {
     }
 }
 impl AeronCountersManager {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -11847,6 +11862,22 @@ impl From<*mut aeron_counters_reader_buffers_t> for AeronCountersReaderBuffers {
         }
     }
 }
+impl From<*const aeron_counters_reader_buffers_t> for AeronCountersReaderBuffers {
+    #[inline]
+    fn from(value: *const aeron_counters_reader_buffers_t) -> Self {
+        AeronCountersReaderBuffers {
+            inner: CResource::Borrowed(value as *mut aeron_counters_reader_buffers_t),
+        }
+    }
+}
+impl From<aeron_counters_reader_buffers_t> for AeronCountersReaderBuffers {
+    #[inline]
+    fn from(value: aeron_counters_reader_buffers_t) -> Self {
+        AeronCountersReaderBuffers {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronCountersReaderBuffers> for *mut aeron_counters_reader_buffers_t {
     #[inline]
     fn from(value: AeronCountersReaderBuffers) -> Self {
@@ -11865,22 +11896,6 @@ impl From<AeronCountersReaderBuffers> for aeron_counters_reader_buffers_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_counters_reader_buffers_t> for AeronCountersReaderBuffers {
-    #[inline]
-    fn from(value: *const aeron_counters_reader_buffers_t) -> Self {
-        AeronCountersReaderBuffers {
-            inner: CResource::Borrowed(value as *mut aeron_counters_reader_buffers_t),
-        }
-    }
-}
-impl From<aeron_counters_reader_buffers_t> for AeronCountersReaderBuffers {
-    #[inline]
-    fn from(value: aeron_counters_reader_buffers_t) -> Self {
-        AeronCountersReaderBuffers {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronCountersReaderBuffers {
     fn default() -> Self {
@@ -11888,16 +11903,16 @@ impl Default for AeronCountersReaderBuffers {
     }
 }
 impl AeronCountersReaderBuffers {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -12545,6 +12560,22 @@ impl From<*mut aeron_counters_reader_t> for AeronCountersReader {
         }
     }
 }
+impl From<*const aeron_counters_reader_t> for AeronCountersReader {
+    #[inline]
+    fn from(value: *const aeron_counters_reader_t) -> Self {
+        AeronCountersReader {
+            inner: CResource::Borrowed(value as *mut aeron_counters_reader_t),
+        }
+    }
+}
+impl From<aeron_counters_reader_t> for AeronCountersReader {
+    #[inline]
+    fn from(value: aeron_counters_reader_t) -> Self {
+        AeronCountersReader {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronCountersReader> for *mut aeron_counters_reader_t {
     #[inline]
     fn from(value: AeronCountersReader) -> Self {
@@ -12561,22 +12592,6 @@ impl From<AeronCountersReader> for aeron_counters_reader_t {
     #[inline]
     fn from(value: AeronCountersReader) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_counters_reader_t> for AeronCountersReader {
-    #[inline]
-    fn from(value: *const aeron_counters_reader_t) -> Self {
-        AeronCountersReader {
-            inner: CResource::Borrowed(value as *mut aeron_counters_reader_t),
-        }
-    }
-}
-impl From<aeron_counters_reader_t> for AeronCountersReader {
-    #[inline]
-    fn from(value: aeron_counters_reader_t) -> Self {
-        AeronCountersReader {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -12688,6 +12703,22 @@ impl From<*mut aeron_data_header_as_longs_t> for AeronDataHeaderAsLongs {
         }
     }
 }
+impl From<*const aeron_data_header_as_longs_t> for AeronDataHeaderAsLongs {
+    #[inline]
+    fn from(value: *const aeron_data_header_as_longs_t) -> Self {
+        AeronDataHeaderAsLongs {
+            inner: CResource::Borrowed(value as *mut aeron_data_header_as_longs_t),
+        }
+    }
+}
+impl From<aeron_data_header_as_longs_t> for AeronDataHeaderAsLongs {
+    #[inline]
+    fn from(value: aeron_data_header_as_longs_t) -> Self {
+        AeronDataHeaderAsLongs {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDataHeaderAsLongs> for *mut aeron_data_header_as_longs_t {
     #[inline]
     fn from(value: AeronDataHeaderAsLongs) -> Self {
@@ -12706,22 +12737,6 @@ impl From<AeronDataHeaderAsLongs> for aeron_data_header_as_longs_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_data_header_as_longs_t> for AeronDataHeaderAsLongs {
-    #[inline]
-    fn from(value: *const aeron_data_header_as_longs_t) -> Self {
-        AeronDataHeaderAsLongs {
-            inner: CResource::Borrowed(value as *mut aeron_data_header_as_longs_t),
-        }
-    }
-}
-impl From<aeron_data_header_as_longs_t> for AeronDataHeaderAsLongs {
-    #[inline]
-    fn from(value: aeron_data_header_as_longs_t) -> Self {
-        AeronDataHeaderAsLongs {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDataHeaderAsLongs {
     fn default() -> Self {
@@ -12729,11 +12744,12 @@ impl Default for AeronDataHeaderAsLongs {
     }
 }
 impl AeronDataHeaderAsLongs {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -12912,6 +12928,22 @@ impl From<*mut aeron_data_header_t> for AeronDataHeader {
         }
     }
 }
+impl From<*const aeron_data_header_t> for AeronDataHeader {
+    #[inline]
+    fn from(value: *const aeron_data_header_t) -> Self {
+        AeronDataHeader {
+            inner: CResource::Borrowed(value as *mut aeron_data_header_t),
+        }
+    }
+}
+impl From<aeron_data_header_t> for AeronDataHeader {
+    #[inline]
+    fn from(value: aeron_data_header_t) -> Self {
+        AeronDataHeader {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDataHeader> for *mut aeron_data_header_t {
     #[inline]
     fn from(value: AeronDataHeader) -> Self {
@@ -12930,22 +12962,6 @@ impl From<AeronDataHeader> for aeron_data_header_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_data_header_t> for AeronDataHeader {
-    #[inline]
-    fn from(value: *const aeron_data_header_t) -> Self {
-        AeronDataHeader {
-            inner: CResource::Borrowed(value as *mut aeron_data_header_t),
-        }
-    }
-}
-impl From<aeron_data_header_t> for AeronDataHeader {
-    #[inline]
-    fn from(value: aeron_data_header_t) -> Self {
-        AeronDataHeader {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDataHeader {
     fn default() -> Self {
@@ -12953,11 +12969,12 @@ impl Default for AeronDataHeader {
     }
 }
 impl AeronDataHeader {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -13122,6 +13139,22 @@ impl From<*mut aeron_data_packet_dispatcher_stream_interest_t> for AeronDataPack
         }
     }
 }
+impl From<*const aeron_data_packet_dispatcher_stream_interest_t> for AeronDataPacketDispatcherStreamInterest {
+    #[inline]
+    fn from(value: *const aeron_data_packet_dispatcher_stream_interest_t) -> Self {
+        AeronDataPacketDispatcherStreamInterest {
+            inner: CResource::Borrowed(value as *mut aeron_data_packet_dispatcher_stream_interest_t),
+        }
+    }
+}
+impl From<aeron_data_packet_dispatcher_stream_interest_t> for AeronDataPacketDispatcherStreamInterest {
+    #[inline]
+    fn from(value: aeron_data_packet_dispatcher_stream_interest_t) -> Self {
+        AeronDataPacketDispatcherStreamInterest {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDataPacketDispatcherStreamInterest> for *mut aeron_data_packet_dispatcher_stream_interest_t {
     #[inline]
     fn from(value: AeronDataPacketDispatcherStreamInterest) -> Self {
@@ -13140,22 +13173,6 @@ impl From<AeronDataPacketDispatcherStreamInterest> for aeron_data_packet_dispatc
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_data_packet_dispatcher_stream_interest_t> for AeronDataPacketDispatcherStreamInterest {
-    #[inline]
-    fn from(value: *const aeron_data_packet_dispatcher_stream_interest_t) -> Self {
-        AeronDataPacketDispatcherStreamInterest {
-            inner: CResource::Borrowed(value as *mut aeron_data_packet_dispatcher_stream_interest_t),
-        }
-    }
-}
-impl From<aeron_data_packet_dispatcher_stream_interest_t> for AeronDataPacketDispatcherStreamInterest {
-    #[inline]
-    fn from(value: aeron_data_packet_dispatcher_stream_interest_t) -> Self {
-        AeronDataPacketDispatcherStreamInterest {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDataPacketDispatcherStreamInterest {
     fn default() -> Self {
@@ -13163,11 +13180,12 @@ impl Default for AeronDataPacketDispatcherStreamInterest {
     }
 }
 impl AeronDataPacketDispatcherStreamInterest {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -13783,6 +13801,22 @@ impl From<*mut aeron_data_packet_dispatcher_t> for AeronDataPacketDispatcher {
         }
     }
 }
+impl From<*const aeron_data_packet_dispatcher_t> for AeronDataPacketDispatcher {
+    #[inline]
+    fn from(value: *const aeron_data_packet_dispatcher_t) -> Self {
+        AeronDataPacketDispatcher {
+            inner: CResource::Borrowed(value as *mut aeron_data_packet_dispatcher_t),
+        }
+    }
+}
+impl From<aeron_data_packet_dispatcher_t> for AeronDataPacketDispatcher {
+    #[inline]
+    fn from(value: aeron_data_packet_dispatcher_t) -> Self {
+        AeronDataPacketDispatcher {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDataPacketDispatcher> for *mut aeron_data_packet_dispatcher_t {
     #[inline]
     fn from(value: AeronDataPacketDispatcher) -> Self {
@@ -13801,22 +13835,6 @@ impl From<AeronDataPacketDispatcher> for aeron_data_packet_dispatcher_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_data_packet_dispatcher_t> for AeronDataPacketDispatcher {
-    #[inline]
-    fn from(value: *const aeron_data_packet_dispatcher_t) -> Self {
-        AeronDataPacketDispatcher {
-            inner: CResource::Borrowed(value as *mut aeron_data_packet_dispatcher_t),
-        }
-    }
-}
-impl From<aeron_data_packet_dispatcher_t> for AeronDataPacketDispatcher {
-    #[inline]
-    fn from(value: aeron_data_packet_dispatcher_t) -> Self {
-        AeronDataPacketDispatcher {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDataPacketDispatcher {
     fn default() -> Self {
@@ -13824,16 +13842,16 @@ impl Default for AeronDataPacketDispatcher {
     }
 }
 impl AeronDataPacketDispatcher {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -14075,6 +14093,22 @@ impl From<*mut aeron_deque_t> for AeronDeque {
         }
     }
 }
+impl From<*const aeron_deque_t> for AeronDeque {
+    #[inline]
+    fn from(value: *const aeron_deque_t) -> Self {
+        AeronDeque {
+            inner: CResource::Borrowed(value as *mut aeron_deque_t),
+        }
+    }
+}
+impl From<aeron_deque_t> for AeronDeque {
+    #[inline]
+    fn from(value: aeron_deque_t) -> Self {
+        AeronDeque {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDeque> for *mut aeron_deque_t {
     #[inline]
     fn from(value: AeronDeque) -> Self {
@@ -14093,22 +14127,6 @@ impl From<AeronDeque> for aeron_deque_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_deque_t> for AeronDeque {
-    #[inline]
-    fn from(value: *const aeron_deque_t) -> Self {
-        AeronDeque {
-            inner: CResource::Borrowed(value as *mut aeron_deque_t),
-        }
-    }
-}
-impl From<aeron_deque_t> for AeronDeque {
-    #[inline]
-    fn from(value: aeron_deque_t) -> Self {
-        AeronDeque {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDeque {
     fn default() -> Self {
@@ -14116,16 +14134,16 @@ impl Default for AeronDeque {
     }
 }
 impl AeronDeque {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -14286,6 +14304,22 @@ impl From<*mut aeron_destination_by_id_command_t> for AeronDestinationByIdComman
         }
     }
 }
+impl From<*const aeron_destination_by_id_command_t> for AeronDestinationByIdCommand {
+    #[inline]
+    fn from(value: *const aeron_destination_by_id_command_t) -> Self {
+        AeronDestinationByIdCommand {
+            inner: CResource::Borrowed(value as *mut aeron_destination_by_id_command_t),
+        }
+    }
+}
+impl From<aeron_destination_by_id_command_t> for AeronDestinationByIdCommand {
+    #[inline]
+    fn from(value: aeron_destination_by_id_command_t) -> Self {
+        AeronDestinationByIdCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDestinationByIdCommand> for *mut aeron_destination_by_id_command_t {
     #[inline]
     fn from(value: AeronDestinationByIdCommand) -> Self {
@@ -14304,22 +14338,6 @@ impl From<AeronDestinationByIdCommand> for aeron_destination_by_id_command_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_destination_by_id_command_t> for AeronDestinationByIdCommand {
-    #[inline]
-    fn from(value: *const aeron_destination_by_id_command_t) -> Self {
-        AeronDestinationByIdCommand {
-            inner: CResource::Borrowed(value as *mut aeron_destination_by_id_command_t),
-        }
-    }
-}
-impl From<aeron_destination_by_id_command_t> for AeronDestinationByIdCommand {
-    #[inline]
-    fn from(value: aeron_destination_by_id_command_t) -> Self {
-        AeronDestinationByIdCommand {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDestinationByIdCommand {
     fn default() -> Self {
@@ -14327,11 +14345,12 @@ impl Default for AeronDestinationByIdCommand {
     }
 }
 impl AeronDestinationByIdCommand {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -14489,6 +14508,22 @@ impl From<*mut aeron_destination_command_t> for AeronDestinationCommand {
         }
     }
 }
+impl From<*const aeron_destination_command_t> for AeronDestinationCommand {
+    #[inline]
+    fn from(value: *const aeron_destination_command_t) -> Self {
+        AeronDestinationCommand {
+            inner: CResource::Borrowed(value as *mut aeron_destination_command_t),
+        }
+    }
+}
+impl From<aeron_destination_command_t> for AeronDestinationCommand {
+    #[inline]
+    fn from(value: aeron_destination_command_t) -> Self {
+        AeronDestinationCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDestinationCommand> for *mut aeron_destination_command_t {
     #[inline]
     fn from(value: AeronDestinationCommand) -> Self {
@@ -14507,22 +14542,6 @@ impl From<AeronDestinationCommand> for aeron_destination_command_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_destination_command_t> for AeronDestinationCommand {
-    #[inline]
-    fn from(value: *const aeron_destination_command_t) -> Self {
-        AeronDestinationCommand {
-            inner: CResource::Borrowed(value as *mut aeron_destination_command_t),
-        }
-    }
-}
-impl From<aeron_destination_command_t> for AeronDestinationCommand {
-    #[inline]
-    fn from(value: aeron_destination_command_t) -> Self {
-        AeronDestinationCommand {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDestinationCommand {
     fn default() -> Self {
@@ -14530,11 +14549,12 @@ impl Default for AeronDestinationCommand {
     }
 }
 impl AeronDestinationCommand {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -14682,6 +14702,22 @@ impl From<*mut aeron_distinct_error_log_observation_list_t> for AeronDistinctErr
         }
     }
 }
+impl From<*const aeron_distinct_error_log_observation_list_t> for AeronDistinctErrorLogObservationList {
+    #[inline]
+    fn from(value: *const aeron_distinct_error_log_observation_list_t) -> Self {
+        AeronDistinctErrorLogObservationList {
+            inner: CResource::Borrowed(value as *mut aeron_distinct_error_log_observation_list_t),
+        }
+    }
+}
+impl From<aeron_distinct_error_log_observation_list_t> for AeronDistinctErrorLogObservationList {
+    #[inline]
+    fn from(value: aeron_distinct_error_log_observation_list_t) -> Self {
+        AeronDistinctErrorLogObservationList {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDistinctErrorLogObservationList> for *mut aeron_distinct_error_log_observation_list_t {
     #[inline]
     fn from(value: AeronDistinctErrorLogObservationList) -> Self {
@@ -14700,22 +14736,6 @@ impl From<AeronDistinctErrorLogObservationList> for aeron_distinct_error_log_obs
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_distinct_error_log_observation_list_t> for AeronDistinctErrorLogObservationList {
-    #[inline]
-    fn from(value: *const aeron_distinct_error_log_observation_list_t) -> Self {
-        AeronDistinctErrorLogObservationList {
-            inner: CResource::Borrowed(value as *mut aeron_distinct_error_log_observation_list_t),
-        }
-    }
-}
-impl From<aeron_distinct_error_log_observation_list_t> for AeronDistinctErrorLogObservationList {
-    #[inline]
-    fn from(value: aeron_distinct_error_log_observation_list_t) -> Self {
-        AeronDistinctErrorLogObservationList {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDistinctErrorLogObservationList {
     fn default() -> Self {
@@ -14723,16 +14743,16 @@ impl Default for AeronDistinctErrorLogObservationList {
     }
 }
 impl AeronDistinctErrorLogObservationList {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -14971,6 +14991,22 @@ impl From<*mut aeron_distinct_error_log_t> for AeronDistinctErrorLog {
         }
     }
 }
+impl From<*const aeron_distinct_error_log_t> for AeronDistinctErrorLog {
+    #[inline]
+    fn from(value: *const aeron_distinct_error_log_t) -> Self {
+        AeronDistinctErrorLog {
+            inner: CResource::Borrowed(value as *mut aeron_distinct_error_log_t),
+        }
+    }
+}
+impl From<aeron_distinct_error_log_t> for AeronDistinctErrorLog {
+    #[inline]
+    fn from(value: aeron_distinct_error_log_t) -> Self {
+        AeronDistinctErrorLog {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDistinctErrorLog> for *mut aeron_distinct_error_log_t {
     #[inline]
     fn from(value: AeronDistinctErrorLog) -> Self {
@@ -14989,22 +15025,6 @@ impl From<AeronDistinctErrorLog> for aeron_distinct_error_log_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_distinct_error_log_t> for AeronDistinctErrorLog {
-    #[inline]
-    fn from(value: *const aeron_distinct_error_log_t) -> Self {
-        AeronDistinctErrorLog {
-            inner: CResource::Borrowed(value as *mut aeron_distinct_error_log_t),
-        }
-    }
-}
-impl From<aeron_distinct_error_log_t> for AeronDistinctErrorLog {
-    #[inline]
-    fn from(value: aeron_distinct_error_log_t) -> Self {
-        AeronDistinctErrorLog {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDistinctErrorLog {
     fn default() -> Self {
@@ -15012,16 +15032,16 @@ impl Default for AeronDistinctErrorLog {
     }
 }
 impl AeronDistinctErrorLog {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -15190,6 +15210,22 @@ impl From<*mut aeron_distinct_observation_t> for AeronDistinctObservation {
         }
     }
 }
+impl From<*const aeron_distinct_observation_t> for AeronDistinctObservation {
+    #[inline]
+    fn from(value: *const aeron_distinct_observation_t) -> Self {
+        AeronDistinctObservation {
+            inner: CResource::Borrowed(value as *mut aeron_distinct_observation_t),
+        }
+    }
+}
+impl From<aeron_distinct_observation_t> for AeronDistinctObservation {
+    #[inline]
+    fn from(value: aeron_distinct_observation_t) -> Self {
+        AeronDistinctObservation {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDistinctObservation> for *mut aeron_distinct_observation_t {
     #[inline]
     fn from(value: AeronDistinctObservation) -> Self {
@@ -15208,22 +15244,6 @@ impl From<AeronDistinctObservation> for aeron_distinct_observation_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_distinct_observation_t> for AeronDistinctObservation {
-    #[inline]
-    fn from(value: *const aeron_distinct_observation_t) -> Self {
-        AeronDistinctObservation {
-            inner: CResource::Borrowed(value as *mut aeron_distinct_observation_t),
-        }
-    }
-}
-impl From<aeron_distinct_observation_t> for AeronDistinctObservation {
-    #[inline]
-    fn from(value: aeron_distinct_observation_t) -> Self {
-        AeronDistinctObservation {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDistinctObservation {
     fn default() -> Self {
@@ -15231,16 +15251,16 @@ impl Default for AeronDistinctObservation {
     }
 }
 impl AeronDistinctObservation {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -15358,6 +15378,22 @@ impl From<*mut aeron_dl_loaded_libs_state_t> for AeronDlLoadedLibsState {
         }
     }
 }
+impl From<*const aeron_dl_loaded_libs_state_t> for AeronDlLoadedLibsState {
+    #[inline]
+    fn from(value: *const aeron_dl_loaded_libs_state_t) -> Self {
+        AeronDlLoadedLibsState {
+            inner: CResource::Borrowed(value as *mut aeron_dl_loaded_libs_state_t),
+        }
+    }
+}
+impl From<aeron_dl_loaded_libs_state_t> for AeronDlLoadedLibsState {
+    #[inline]
+    fn from(value: aeron_dl_loaded_libs_state_t) -> Self {
+        AeronDlLoadedLibsState {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDlLoadedLibsState> for *mut aeron_dl_loaded_libs_state_t {
     #[inline]
     fn from(value: AeronDlLoadedLibsState) -> Self {
@@ -15374,22 +15410,6 @@ impl From<AeronDlLoadedLibsState> for aeron_dl_loaded_libs_state_t {
     #[inline]
     fn from(value: AeronDlLoadedLibsState) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_dl_loaded_libs_state_t> for AeronDlLoadedLibsState {
-    #[inline]
-    fn from(value: *const aeron_dl_loaded_libs_state_t) -> Self {
-        AeronDlLoadedLibsState {
-            inner: CResource::Borrowed(value as *mut aeron_dl_loaded_libs_state_t),
-        }
-    }
-}
-impl From<aeron_dl_loaded_libs_state_t> for AeronDlLoadedLibsState {
-    #[inline]
-    fn from(value: aeron_dl_loaded_libs_state_t) -> Self {
-        AeronDlLoadedLibsState {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[cfg(test)]
@@ -15556,6 +15576,22 @@ impl From<*mut aeron_driver_conductor_client_command_t> for AeronDriverConductor
         }
     }
 }
+impl From<*const aeron_driver_conductor_client_command_t> for AeronDriverConductorClientCommand {
+    #[inline]
+    fn from(value: *const aeron_driver_conductor_client_command_t) -> Self {
+        AeronDriverConductorClientCommand {
+            inner: CResource::Borrowed(value as *mut aeron_driver_conductor_client_command_t),
+        }
+    }
+}
+impl From<aeron_driver_conductor_client_command_t> for AeronDriverConductorClientCommand {
+    #[inline]
+    fn from(value: aeron_driver_conductor_client_command_t) -> Self {
+        AeronDriverConductorClientCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverConductorClientCommand> for *mut aeron_driver_conductor_client_command_t {
     #[inline]
     fn from(value: AeronDriverConductorClientCommand) -> Self {
@@ -15574,22 +15610,6 @@ impl From<AeronDriverConductorClientCommand> for aeron_driver_conductor_client_c
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_conductor_client_command_t> for AeronDriverConductorClientCommand {
-    #[inline]
-    fn from(value: *const aeron_driver_conductor_client_command_t) -> Self {
-        AeronDriverConductorClientCommand {
-            inner: CResource::Borrowed(value as *mut aeron_driver_conductor_client_command_t),
-        }
-    }
-}
-impl From<aeron_driver_conductor_client_command_t> for AeronDriverConductorClientCommand {
-    #[inline]
-    fn from(value: aeron_driver_conductor_client_command_t) -> Self {
-        AeronDriverConductorClientCommand {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverConductorClientCommand {
     fn default() -> Self {
@@ -15597,16 +15617,16 @@ impl Default for AeronDriverConductorClientCommand {
     }
 }
 impl AeronDriverConductorClientCommand {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -15779,6 +15799,22 @@ impl From<*mut aeron_driver_conductor_driver_command_t> for AeronDriverConductor
         }
     }
 }
+impl From<*const aeron_driver_conductor_driver_command_t> for AeronDriverConductorDriverCommand {
+    #[inline]
+    fn from(value: *const aeron_driver_conductor_driver_command_t) -> Self {
+        AeronDriverConductorDriverCommand {
+            inner: CResource::Borrowed(value as *mut aeron_driver_conductor_driver_command_t),
+        }
+    }
+}
+impl From<aeron_driver_conductor_driver_command_t> for AeronDriverConductorDriverCommand {
+    #[inline]
+    fn from(value: aeron_driver_conductor_driver_command_t) -> Self {
+        AeronDriverConductorDriverCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverConductorDriverCommand> for *mut aeron_driver_conductor_driver_command_t {
     #[inline]
     fn from(value: AeronDriverConductorDriverCommand) -> Self {
@@ -15797,22 +15833,6 @@ impl From<AeronDriverConductorDriverCommand> for aeron_driver_conductor_driver_c
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_conductor_driver_command_t> for AeronDriverConductorDriverCommand {
-    #[inline]
-    fn from(value: *const aeron_driver_conductor_driver_command_t) -> Self {
-        AeronDriverConductorDriverCommand {
-            inner: CResource::Borrowed(value as *mut aeron_driver_conductor_driver_command_t),
-        }
-    }
-}
-impl From<aeron_driver_conductor_driver_command_t> for AeronDriverConductorDriverCommand {
-    #[inline]
-    fn from(value: aeron_driver_conductor_driver_command_t) -> Self {
-        AeronDriverConductorDriverCommand {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverConductorDriverCommand {
     fn default() -> Self {
@@ -15820,11 +15840,12 @@ impl Default for AeronDriverConductorDriverCommand {
     }
 }
 impl AeronDriverConductorDriverCommand {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -16302,6 +16323,22 @@ impl From<*mut aeron_driver_conductor_proxy_t> for AeronDriverConductorProxy {
         }
     }
 }
+impl From<*const aeron_driver_conductor_proxy_t> for AeronDriverConductorProxy {
+    #[inline]
+    fn from(value: *const aeron_driver_conductor_proxy_t) -> Self {
+        AeronDriverConductorProxy {
+            inner: CResource::Borrowed(value as *mut aeron_driver_conductor_proxy_t),
+        }
+    }
+}
+impl From<aeron_driver_conductor_proxy_t> for AeronDriverConductorProxy {
+    #[inline]
+    fn from(value: aeron_driver_conductor_proxy_t) -> Self {
+        AeronDriverConductorProxy {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverConductorProxy> for *mut aeron_driver_conductor_proxy_t {
     #[inline]
     fn from(value: AeronDriverConductorProxy) -> Self {
@@ -16320,22 +16357,6 @@ impl From<AeronDriverConductorProxy> for aeron_driver_conductor_proxy_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_conductor_proxy_t> for AeronDriverConductorProxy {
-    #[inline]
-    fn from(value: *const aeron_driver_conductor_proxy_t) -> Self {
-        AeronDriverConductorProxy {
-            inner: CResource::Borrowed(value as *mut aeron_driver_conductor_proxy_t),
-        }
-    }
-}
-impl From<aeron_driver_conductor_proxy_t> for AeronDriverConductorProxy {
-    #[inline]
-    fn from(value: aeron_driver_conductor_proxy_t) -> Self {
-        AeronDriverConductorProxy {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverConductorProxy {
     fn default() -> Self {
@@ -16343,16 +16364,16 @@ impl Default for AeronDriverConductorProxy {
     }
 }
 impl AeronDriverConductorProxy {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -18561,6 +18582,22 @@ impl From<*mut aeron_driver_conductor_t> for AeronDriverConductor {
         }
     }
 }
+impl From<*const aeron_driver_conductor_t> for AeronDriverConductor {
+    #[inline]
+    fn from(value: *const aeron_driver_conductor_t) -> Self {
+        AeronDriverConductor {
+            inner: CResource::Borrowed(value as *mut aeron_driver_conductor_t),
+        }
+    }
+}
+impl From<aeron_driver_conductor_t> for AeronDriverConductor {
+    #[inline]
+    fn from(value: aeron_driver_conductor_t) -> Self {
+        AeronDriverConductor {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverConductor> for *mut aeron_driver_conductor_t {
     #[inline]
     fn from(value: AeronDriverConductor) -> Self {
@@ -18579,22 +18616,6 @@ impl From<AeronDriverConductor> for aeron_driver_conductor_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_conductor_t> for AeronDriverConductor {
-    #[inline]
-    fn from(value: *const aeron_driver_conductor_t) -> Self {
-        AeronDriverConductor {
-            inner: CResource::Borrowed(value as *mut aeron_driver_conductor_t),
-        }
-    }
-}
-impl From<aeron_driver_conductor_t> for AeronDriverConductor {
-    #[inline]
-    fn from(value: aeron_driver_conductor_t) -> Self {
-        AeronDriverConductor {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverConductor {
     fn default() -> Self {
@@ -18602,16 +18623,16 @@ impl Default for AeronDriverConductor {
     }
 }
 impl AeronDriverConductor {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -18762,6 +18783,22 @@ impl From<*mut aeron_driver_context_bindings_clientd_entry_t> for AeronDriverCon
         }
     }
 }
+impl From<*const aeron_driver_context_bindings_clientd_entry_t> for AeronDriverContextBindingsClientdEntry {
+    #[inline]
+    fn from(value: *const aeron_driver_context_bindings_clientd_entry_t) -> Self {
+        AeronDriverContextBindingsClientdEntry {
+            inner: CResource::Borrowed(value as *mut aeron_driver_context_bindings_clientd_entry_t),
+        }
+    }
+}
+impl From<aeron_driver_context_bindings_clientd_entry_t> for AeronDriverContextBindingsClientdEntry {
+    #[inline]
+    fn from(value: aeron_driver_context_bindings_clientd_entry_t) -> Self {
+        AeronDriverContextBindingsClientdEntry {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverContextBindingsClientdEntry> for *mut aeron_driver_context_bindings_clientd_entry_t {
     #[inline]
     fn from(value: AeronDriverContextBindingsClientdEntry) -> Self {
@@ -18780,22 +18817,6 @@ impl From<AeronDriverContextBindingsClientdEntry> for aeron_driver_context_bindi
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_context_bindings_clientd_entry_t> for AeronDriverContextBindingsClientdEntry {
-    #[inline]
-    fn from(value: *const aeron_driver_context_bindings_clientd_entry_t) -> Self {
-        AeronDriverContextBindingsClientdEntry {
-            inner: CResource::Borrowed(value as *mut aeron_driver_context_bindings_clientd_entry_t),
-        }
-    }
-}
-impl From<aeron_driver_context_bindings_clientd_entry_t> for AeronDriverContextBindingsClientdEntry {
-    #[inline]
-    fn from(value: aeron_driver_context_bindings_clientd_entry_t) -> Self {
-        AeronDriverContextBindingsClientdEntry {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverContextBindingsClientdEntry {
     fn default() -> Self {
@@ -18803,16 +18824,16 @@ impl Default for AeronDriverContextBindingsClientdEntry {
     }
 }
 impl AeronDriverContextBindingsClientdEntry {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -25336,6 +25357,22 @@ impl From<*mut aeron_driver_context_t> for AeronDriverContext {
         }
     }
 }
+impl From<*const aeron_driver_context_t> for AeronDriverContext {
+    #[inline]
+    fn from(value: *const aeron_driver_context_t) -> Self {
+        AeronDriverContext {
+            inner: CResource::Borrowed(value as *mut aeron_driver_context_t),
+        }
+    }
+}
+impl From<aeron_driver_context_t> for AeronDriverContext {
+    #[inline]
+    fn from(value: aeron_driver_context_t) -> Self {
+        AeronDriverContext {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverContext> for *mut aeron_driver_context_t {
     #[inline]
     fn from(value: AeronDriverContext) -> Self {
@@ -25352,22 +25389,6 @@ impl From<AeronDriverContext> for aeron_driver_context_t {
     #[inline]
     fn from(value: AeronDriverContext) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_driver_context_t> for AeronDriverContext {
-    #[inline]
-    fn from(value: *const aeron_driver_context_t) -> Self {
-        AeronDriverContext {
-            inner: CResource::Borrowed(value as *mut aeron_driver_context_t),
-        }
-    }
-}
-impl From<aeron_driver_context_t> for AeronDriverContext {
-    #[inline]
-    fn from(value: aeron_driver_context_t) -> Self {
-        AeronDriverContext {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -25512,6 +25533,22 @@ impl From<*mut aeron_driver_managed_resource_t> for AeronDriverManagedResource {
         }
     }
 }
+impl From<*const aeron_driver_managed_resource_t> for AeronDriverManagedResource {
+    #[inline]
+    fn from(value: *const aeron_driver_managed_resource_t) -> Self {
+        AeronDriverManagedResource {
+            inner: CResource::Borrowed(value as *mut aeron_driver_managed_resource_t),
+        }
+    }
+}
+impl From<aeron_driver_managed_resource_t> for AeronDriverManagedResource {
+    #[inline]
+    fn from(value: aeron_driver_managed_resource_t) -> Self {
+        AeronDriverManagedResource {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverManagedResource> for *mut aeron_driver_managed_resource_t {
     #[inline]
     fn from(value: AeronDriverManagedResource) -> Self {
@@ -25530,22 +25567,6 @@ impl From<AeronDriverManagedResource> for aeron_driver_managed_resource_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_managed_resource_t> for AeronDriverManagedResource {
-    #[inline]
-    fn from(value: *const aeron_driver_managed_resource_t) -> Self {
-        AeronDriverManagedResource {
-            inner: CResource::Borrowed(value as *mut aeron_driver_managed_resource_t),
-        }
-    }
-}
-impl From<aeron_driver_managed_resource_t> for AeronDriverManagedResource {
-    #[inline]
-    fn from(value: aeron_driver_managed_resource_t) -> Self {
-        AeronDriverManagedResource {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverManagedResource {
     fn default() -> Self {
@@ -25553,16 +25574,16 @@ impl Default for AeronDriverManagedResource {
     }
 }
 impl AeronDriverManagedResource {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -25711,6 +25732,22 @@ impl From<*mut aeron_driver_native_resource_agent_command_result_t> for AeronDri
         }
     }
 }
+impl From<*const aeron_driver_native_resource_agent_command_result_t> for AeronDriverNativeResourceAgentCommandResult {
+    #[inline]
+    fn from(value: *const aeron_driver_native_resource_agent_command_result_t) -> Self {
+        AeronDriverNativeResourceAgentCommandResult {
+            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_command_result_t),
+        }
+    }
+}
+impl From<aeron_driver_native_resource_agent_command_result_t> for AeronDriverNativeResourceAgentCommandResult {
+    #[inline]
+    fn from(value: aeron_driver_native_resource_agent_command_result_t) -> Self {
+        AeronDriverNativeResourceAgentCommandResult {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverNativeResourceAgentCommandResult> for *mut aeron_driver_native_resource_agent_command_result_t {
     #[inline]
     fn from(value: AeronDriverNativeResourceAgentCommandResult) -> Self {
@@ -25729,22 +25766,6 @@ impl From<AeronDriverNativeResourceAgentCommandResult> for aeron_driver_native_r
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_native_resource_agent_command_result_t> for AeronDriverNativeResourceAgentCommandResult {
-    #[inline]
-    fn from(value: *const aeron_driver_native_resource_agent_command_result_t) -> Self {
-        AeronDriverNativeResourceAgentCommandResult {
-            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_command_result_t),
-        }
-    }
-}
-impl From<aeron_driver_native_resource_agent_command_result_t> for AeronDriverNativeResourceAgentCommandResult {
-    #[inline]
-    fn from(value: aeron_driver_native_resource_agent_command_result_t) -> Self {
-        AeronDriverNativeResourceAgentCommandResult {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverNativeResourceAgentCommandResult {
     fn default() -> Self {
@@ -25752,11 +25773,12 @@ impl Default for AeronDriverNativeResourceAgentCommandResult {
     }
 }
 impl AeronDriverNativeResourceAgentCommandResult {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -25913,6 +25935,26 @@ impl From<*mut aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t>
         }
     }
 }
+impl From<*const aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t>
+    for AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer
+{
+    #[inline]
+    fn from(value: *const aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
+            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t),
+        }
+    }
+}
+impl From<aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t>
+    for AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer
+{
+    #[inline]
+    fn from(value: aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer>
     for *mut aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t
 {
@@ -25937,26 +25979,6 @@ impl From<AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer>
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t>
-    for AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer
-{
-    #[inline]
-    fn from(value: *const aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t) -> Self {
-        AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
-            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t),
-        }
-    }
-}
-impl From<aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t>
-    for AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer
-{
-    #[inline]
-    fn from(value: aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t) -> Self {
-        AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
     fn default() -> Self {
@@ -25964,16 +25986,16 @@ impl Default for AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
     }
 }
 impl AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -26150,6 +26172,26 @@ impl From<*mut aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t>
         }
     }
 }
+impl From<*const aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t>
+    for AeronDriverNativeResourceAgentProxyCmdMapLogBuffer
+{
+    #[inline]
+    fn from(value: *const aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
+            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t),
+        }
+    }
+}
+impl From<aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t>
+    for AeronDriverNativeResourceAgentProxyCmdMapLogBuffer
+{
+    #[inline]
+    fn from(value: aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverNativeResourceAgentProxyCmdMapLogBuffer>
     for *mut aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t
 {
@@ -26174,26 +26216,6 @@ impl From<AeronDriverNativeResourceAgentProxyCmdMapLogBuffer>
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t>
-    for AeronDriverNativeResourceAgentProxyCmdMapLogBuffer
-{
-    #[inline]
-    fn from(value: *const aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t) -> Self {
-        AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
-            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t),
-        }
-    }
-}
-impl From<aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t>
-    for AeronDriverNativeResourceAgentProxyCmdMapLogBuffer
-{
-    #[inline]
-    fn from(value: aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t) -> Self {
-        AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
     fn default() -> Self {
@@ -26201,16 +26223,16 @@ impl Default for AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
     }
 }
 impl AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -26365,6 +26387,26 @@ impl From<*mut aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t>
         }
     }
 }
+impl From<*const aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t>
+    for AeronDriverNativeResourceAgentProxyCmdParseChannel
+{
+    #[inline]
+    fn from(value: *const aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdParseChannel {
+            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t),
+        }
+    }
+}
+impl From<aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t>
+    for AeronDriverNativeResourceAgentProxyCmdParseChannel
+{
+    #[inline]
+    fn from(value: aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdParseChannel {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverNativeResourceAgentProxyCmdParseChannel>
     for *mut aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t
 {
@@ -26389,26 +26431,6 @@ impl From<AeronDriverNativeResourceAgentProxyCmdParseChannel>
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t>
-    for AeronDriverNativeResourceAgentProxyCmdParseChannel
-{
-    #[inline]
-    fn from(value: *const aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t) -> Self {
-        AeronDriverNativeResourceAgentProxyCmdParseChannel {
-            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t),
-        }
-    }
-}
-impl From<aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t>
-    for AeronDriverNativeResourceAgentProxyCmdParseChannel
-{
-    #[inline]
-    fn from(value: aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t) -> Self {
-        AeronDriverNativeResourceAgentProxyCmdParseChannel {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverNativeResourceAgentProxyCmdParseChannel {
     fn default() -> Self {
@@ -26416,16 +26438,16 @@ impl Default for AeronDriverNativeResourceAgentProxyCmdParseChannel {
     }
 }
 impl AeronDriverNativeResourceAgentProxyCmdParseChannel {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -26580,6 +26602,26 @@ impl From<*mut aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t>
         }
     }
 }
+impl From<*const aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t>
+    for AeronDriverNativeResourceAgentProxyCmdResolveAddress
+{
+    #[inline]
+    fn from(value: *const aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdResolveAddress {
+            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t),
+        }
+    }
+}
+impl From<aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t>
+    for AeronDriverNativeResourceAgentProxyCmdResolveAddress
+{
+    #[inline]
+    fn from(value: aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t) -> Self {
+        AeronDriverNativeResourceAgentProxyCmdResolveAddress {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverNativeResourceAgentProxyCmdResolveAddress>
     for *mut aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t
 {
@@ -26604,26 +26646,6 @@ impl From<AeronDriverNativeResourceAgentProxyCmdResolveAddress>
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t>
-    for AeronDriverNativeResourceAgentProxyCmdResolveAddress
-{
-    #[inline]
-    fn from(value: *const aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t) -> Self {
-        AeronDriverNativeResourceAgentProxyCmdResolveAddress {
-            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t),
-        }
-    }
-}
-impl From<aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t>
-    for AeronDriverNativeResourceAgentProxyCmdResolveAddress
-{
-    #[inline]
-    fn from(value: aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t) -> Self {
-        AeronDriverNativeResourceAgentProxyCmdResolveAddress {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverNativeResourceAgentProxyCmdResolveAddress {
     fn default() -> Self {
@@ -26631,16 +26653,16 @@ impl Default for AeronDriverNativeResourceAgentProxyCmdResolveAddress {
     }
 }
 impl AeronDriverNativeResourceAgentProxyCmdResolveAddress {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -26943,6 +26965,22 @@ impl From<*mut aeron_driver_native_resource_agent_proxy_t> for AeronDriverNative
         }
     }
 }
+impl From<*const aeron_driver_native_resource_agent_proxy_t> for AeronDriverNativeResourceAgentProxy {
+    #[inline]
+    fn from(value: *const aeron_driver_native_resource_agent_proxy_t) -> Self {
+        AeronDriverNativeResourceAgentProxy {
+            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_proxy_t),
+        }
+    }
+}
+impl From<aeron_driver_native_resource_agent_proxy_t> for AeronDriverNativeResourceAgentProxy {
+    #[inline]
+    fn from(value: aeron_driver_native_resource_agent_proxy_t) -> Self {
+        AeronDriverNativeResourceAgentProxy {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverNativeResourceAgentProxy> for *mut aeron_driver_native_resource_agent_proxy_t {
     #[inline]
     fn from(value: AeronDriverNativeResourceAgentProxy) -> Self {
@@ -26961,22 +26999,6 @@ impl From<AeronDriverNativeResourceAgentProxy> for aeron_driver_native_resource_
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_native_resource_agent_proxy_t> for AeronDriverNativeResourceAgentProxy {
-    #[inline]
-    fn from(value: *const aeron_driver_native_resource_agent_proxy_t) -> Self {
-        AeronDriverNativeResourceAgentProxy {
-            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_proxy_t),
-        }
-    }
-}
-impl From<aeron_driver_native_resource_agent_proxy_t> for AeronDriverNativeResourceAgentProxy {
-    #[inline]
-    fn from(value: aeron_driver_native_resource_agent_proxy_t) -> Self {
-        AeronDriverNativeResourceAgentProxy {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverNativeResourceAgentProxy {
     fn default() -> Self {
@@ -26984,16 +27006,16 @@ impl Default for AeronDriverNativeResourceAgentProxy {
     }
 }
 impl AeronDriverNativeResourceAgentProxy {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -27357,6 +27379,22 @@ impl From<*mut aeron_driver_native_resource_agent_t> for AeronDriverNativeResour
         }
     }
 }
+impl From<*const aeron_driver_native_resource_agent_t> for AeronDriverNativeResourceAgent {
+    #[inline]
+    fn from(value: *const aeron_driver_native_resource_agent_t) -> Self {
+        AeronDriverNativeResourceAgent {
+            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_t),
+        }
+    }
+}
+impl From<aeron_driver_native_resource_agent_t> for AeronDriverNativeResourceAgent {
+    #[inline]
+    fn from(value: aeron_driver_native_resource_agent_t) -> Self {
+        AeronDriverNativeResourceAgent {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverNativeResourceAgent> for *mut aeron_driver_native_resource_agent_t {
     #[inline]
     fn from(value: AeronDriverNativeResourceAgent) -> Self {
@@ -27375,22 +27413,6 @@ impl From<AeronDriverNativeResourceAgent> for aeron_driver_native_resource_agent
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_native_resource_agent_t> for AeronDriverNativeResourceAgent {
-    #[inline]
-    fn from(value: *const aeron_driver_native_resource_agent_t) -> Self {
-        AeronDriverNativeResourceAgent {
-            inner: CResource::Borrowed(value as *mut aeron_driver_native_resource_agent_t),
-        }
-    }
-}
-impl From<aeron_driver_native_resource_agent_t> for AeronDriverNativeResourceAgent {
-    #[inline]
-    fn from(value: aeron_driver_native_resource_agent_t) -> Self {
-        AeronDriverNativeResourceAgent {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverNativeResourceAgent {
     fn default() -> Self {
@@ -27398,16 +27420,16 @@ impl Default for AeronDriverNativeResourceAgent {
     }
 }
 impl AeronDriverNativeResourceAgent {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -27547,6 +27569,22 @@ impl From<*mut aeron_driver_receiver_image_entry_t> for AeronDriverReceiverImage
         }
     }
 }
+impl From<*const aeron_driver_receiver_image_entry_t> for AeronDriverReceiverImageEntry {
+    #[inline]
+    fn from(value: *const aeron_driver_receiver_image_entry_t) -> Self {
+        AeronDriverReceiverImageEntry {
+            inner: CResource::Borrowed(value as *mut aeron_driver_receiver_image_entry_t),
+        }
+    }
+}
+impl From<aeron_driver_receiver_image_entry_t> for AeronDriverReceiverImageEntry {
+    #[inline]
+    fn from(value: aeron_driver_receiver_image_entry_t) -> Self {
+        AeronDriverReceiverImageEntry {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverReceiverImageEntry> for *mut aeron_driver_receiver_image_entry_t {
     #[inline]
     fn from(value: AeronDriverReceiverImageEntry) -> Self {
@@ -27565,22 +27603,6 @@ impl From<AeronDriverReceiverImageEntry> for aeron_driver_receiver_image_entry_t
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_receiver_image_entry_t> for AeronDriverReceiverImageEntry {
-    #[inline]
-    fn from(value: *const aeron_driver_receiver_image_entry_t) -> Self {
-        AeronDriverReceiverImageEntry {
-            inner: CResource::Borrowed(value as *mut aeron_driver_receiver_image_entry_t),
-        }
-    }
-}
-impl From<aeron_driver_receiver_image_entry_t> for AeronDriverReceiverImageEntry {
-    #[inline]
-    fn from(value: aeron_driver_receiver_image_entry_t) -> Self {
-        AeronDriverReceiverImageEntry {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverReceiverImageEntry {
     fn default() -> Self {
@@ -27588,16 +27610,16 @@ impl Default for AeronDriverReceiverImageEntry {
     }
 }
 impl AeronDriverReceiverImageEntry {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -27783,6 +27805,22 @@ impl From<*mut aeron_driver_receiver_pending_setup_entry_t> for AeronDriverRecei
         }
     }
 }
+impl From<*const aeron_driver_receiver_pending_setup_entry_t> for AeronDriverReceiverPendingSetupEntry {
+    #[inline]
+    fn from(value: *const aeron_driver_receiver_pending_setup_entry_t) -> Self {
+        AeronDriverReceiverPendingSetupEntry {
+            inner: CResource::Borrowed(value as *mut aeron_driver_receiver_pending_setup_entry_t),
+        }
+    }
+}
+impl From<aeron_driver_receiver_pending_setup_entry_t> for AeronDriverReceiverPendingSetupEntry {
+    #[inline]
+    fn from(value: aeron_driver_receiver_pending_setup_entry_t) -> Self {
+        AeronDriverReceiverPendingSetupEntry {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverReceiverPendingSetupEntry> for *mut aeron_driver_receiver_pending_setup_entry_t {
     #[inline]
     fn from(value: AeronDriverReceiverPendingSetupEntry) -> Self {
@@ -27801,22 +27839,6 @@ impl From<AeronDriverReceiverPendingSetupEntry> for aeron_driver_receiver_pendin
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_receiver_pending_setup_entry_t> for AeronDriverReceiverPendingSetupEntry {
-    #[inline]
-    fn from(value: *const aeron_driver_receiver_pending_setup_entry_t) -> Self {
-        AeronDriverReceiverPendingSetupEntry {
-            inner: CResource::Borrowed(value as *mut aeron_driver_receiver_pending_setup_entry_t),
-        }
-    }
-}
-impl From<aeron_driver_receiver_pending_setup_entry_t> for AeronDriverReceiverPendingSetupEntry {
-    #[inline]
-    fn from(value: aeron_driver_receiver_pending_setup_entry_t) -> Self {
-        AeronDriverReceiverPendingSetupEntry {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverReceiverPendingSetupEntry {
     fn default() -> Self {
@@ -27824,16 +27846,16 @@ impl Default for AeronDriverReceiverPendingSetupEntry {
     }
 }
 impl AeronDriverReceiverPendingSetupEntry {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -28365,6 +28387,22 @@ impl From<*mut aeron_driver_receiver_proxy_t> for AeronDriverReceiverProxy {
         }
     }
 }
+impl From<*const aeron_driver_receiver_proxy_t> for AeronDriverReceiverProxy {
+    #[inline]
+    fn from(value: *const aeron_driver_receiver_proxy_t) -> Self {
+        AeronDriverReceiverProxy {
+            inner: CResource::Borrowed(value as *mut aeron_driver_receiver_proxy_t),
+        }
+    }
+}
+impl From<aeron_driver_receiver_proxy_t> for AeronDriverReceiverProxy {
+    #[inline]
+    fn from(value: aeron_driver_receiver_proxy_t) -> Self {
+        AeronDriverReceiverProxy {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverReceiverProxy> for *mut aeron_driver_receiver_proxy_t {
     #[inline]
     fn from(value: AeronDriverReceiverProxy) -> Self {
@@ -28381,22 +28419,6 @@ impl From<AeronDriverReceiverProxy> for aeron_driver_receiver_proxy_t {
     #[inline]
     fn from(value: AeronDriverReceiverProxy) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_driver_receiver_proxy_t> for AeronDriverReceiverProxy {
-    #[inline]
-    fn from(value: *const aeron_driver_receiver_proxy_t) -> Self {
-        AeronDriverReceiverProxy {
-            inner: CResource::Borrowed(value as *mut aeron_driver_receiver_proxy_t),
-        }
-    }
-}
-impl From<aeron_driver_receiver_proxy_t> for AeronDriverReceiverProxy {
-    #[inline]
-    fn from(value: aeron_driver_receiver_proxy_t) -> Self {
-        AeronDriverReceiverProxy {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[cfg(test)]
@@ -29069,6 +29091,22 @@ impl From<*mut aeron_driver_receiver_t> for AeronDriverReceiver {
         }
     }
 }
+impl From<*const aeron_driver_receiver_t> for AeronDriverReceiver {
+    #[inline]
+    fn from(value: *const aeron_driver_receiver_t) -> Self {
+        AeronDriverReceiver {
+            inner: CResource::Borrowed(value as *mut aeron_driver_receiver_t),
+        }
+    }
+}
+impl From<aeron_driver_receiver_t> for AeronDriverReceiver {
+    #[inline]
+    fn from(value: aeron_driver_receiver_t) -> Self {
+        AeronDriverReceiver {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverReceiver> for *mut aeron_driver_receiver_t {
     #[inline]
     fn from(value: AeronDriverReceiver) -> Self {
@@ -29087,22 +29125,6 @@ impl From<AeronDriverReceiver> for aeron_driver_receiver_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_receiver_t> for AeronDriverReceiver {
-    #[inline]
-    fn from(value: *const aeron_driver_receiver_t) -> Self {
-        AeronDriverReceiver {
-            inner: CResource::Borrowed(value as *mut aeron_driver_receiver_t),
-        }
-    }
-}
-impl From<aeron_driver_receiver_t> for AeronDriverReceiver {
-    #[inline]
-    fn from(value: aeron_driver_receiver_t) -> Self {
-        AeronDriverReceiver {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverReceiver {
     fn default() -> Self {
@@ -29110,16 +29132,16 @@ impl Default for AeronDriverReceiver {
     }
 }
 impl AeronDriverReceiver {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -29261,6 +29283,22 @@ impl From<*mut aeron_driver_sender_network_publication_entry_t> for AeronDriverS
         }
     }
 }
+impl From<*const aeron_driver_sender_network_publication_entry_t> for AeronDriverSenderNetworkPublicationEntry {
+    #[inline]
+    fn from(value: *const aeron_driver_sender_network_publication_entry_t) -> Self {
+        AeronDriverSenderNetworkPublicationEntry {
+            inner: CResource::Borrowed(value as *mut aeron_driver_sender_network_publication_entry_t),
+        }
+    }
+}
+impl From<aeron_driver_sender_network_publication_entry_t> for AeronDriverSenderNetworkPublicationEntry {
+    #[inline]
+    fn from(value: aeron_driver_sender_network_publication_entry_t) -> Self {
+        AeronDriverSenderNetworkPublicationEntry {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverSenderNetworkPublicationEntry> for *mut aeron_driver_sender_network_publication_entry_t {
     #[inline]
     fn from(value: AeronDriverSenderNetworkPublicationEntry) -> Self {
@@ -29279,22 +29317,6 @@ impl From<AeronDriverSenderNetworkPublicationEntry> for aeron_driver_sender_netw
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_sender_network_publication_entry_t> for AeronDriverSenderNetworkPublicationEntry {
-    #[inline]
-    fn from(value: *const aeron_driver_sender_network_publication_entry_t) -> Self {
-        AeronDriverSenderNetworkPublicationEntry {
-            inner: CResource::Borrowed(value as *mut aeron_driver_sender_network_publication_entry_t),
-        }
-    }
-}
-impl From<aeron_driver_sender_network_publication_entry_t> for AeronDriverSenderNetworkPublicationEntry {
-    #[inline]
-    fn from(value: aeron_driver_sender_network_publication_entry_t) -> Self {
-        AeronDriverSenderNetworkPublicationEntry {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverSenderNetworkPublicationEntry {
     fn default() -> Self {
@@ -29302,16 +29324,16 @@ impl Default for AeronDriverSenderNetworkPublicationEntry {
     }
 }
 impl AeronDriverSenderNetworkPublicationEntry {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -29667,6 +29689,22 @@ impl From<*mut aeron_driver_sender_proxy_t> for AeronDriverSenderProxy {
         }
     }
 }
+impl From<*const aeron_driver_sender_proxy_t> for AeronDriverSenderProxy {
+    #[inline]
+    fn from(value: *const aeron_driver_sender_proxy_t) -> Self {
+        AeronDriverSenderProxy {
+            inner: CResource::Borrowed(value as *mut aeron_driver_sender_proxy_t),
+        }
+    }
+}
+impl From<aeron_driver_sender_proxy_t> for AeronDriverSenderProxy {
+    #[inline]
+    fn from(value: aeron_driver_sender_proxy_t) -> Self {
+        AeronDriverSenderProxy {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverSenderProxy> for *mut aeron_driver_sender_proxy_t {
     #[inline]
     fn from(value: AeronDriverSenderProxy) -> Self {
@@ -29685,22 +29723,6 @@ impl From<AeronDriverSenderProxy> for aeron_driver_sender_proxy_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_sender_proxy_t> for AeronDriverSenderProxy {
-    #[inline]
-    fn from(value: *const aeron_driver_sender_proxy_t) -> Self {
-        AeronDriverSenderProxy {
-            inner: CResource::Borrowed(value as *mut aeron_driver_sender_proxy_t),
-        }
-    }
-}
-impl From<aeron_driver_sender_proxy_t> for AeronDriverSenderProxy {
-    #[inline]
-    fn from(value: aeron_driver_sender_proxy_t) -> Self {
-        AeronDriverSenderProxy {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverSenderProxy {
     fn default() -> Self {
@@ -29708,16 +29730,16 @@ impl Default for AeronDriverSenderProxy {
     }
 }
 impl AeronDriverSenderProxy {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -30381,6 +30403,22 @@ impl From<*mut aeron_driver_sender_t> for AeronDriverSender {
         }
     }
 }
+impl From<*const aeron_driver_sender_t> for AeronDriverSender {
+    #[inline]
+    fn from(value: *const aeron_driver_sender_t) -> Self {
+        AeronDriverSender {
+            inner: CResource::Borrowed(value as *mut aeron_driver_sender_t),
+        }
+    }
+}
+impl From<aeron_driver_sender_t> for AeronDriverSender {
+    #[inline]
+    fn from(value: aeron_driver_sender_t) -> Self {
+        AeronDriverSender {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverSender> for *mut aeron_driver_sender_t {
     #[inline]
     fn from(value: AeronDriverSender) -> Self {
@@ -30399,22 +30437,6 @@ impl From<AeronDriverSender> for aeron_driver_sender_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_sender_t> for AeronDriverSender {
-    #[inline]
-    fn from(value: *const aeron_driver_sender_t) -> Self {
-        AeronDriverSender {
-            inner: CResource::Borrowed(value as *mut aeron_driver_sender_t),
-        }
-    }
-}
-impl From<aeron_driver_sender_t> for AeronDriverSender {
-    #[inline]
-    fn from(value: aeron_driver_sender_t) -> Self {
-        AeronDriverSender {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverSender {
     fn default() -> Self {
@@ -30422,16 +30444,16 @@ impl Default for AeronDriverSender {
     }
 }
 impl AeronDriverSender {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -30709,24 +30731,6 @@ impl From<*mut aeron_driver_t> for AeronDriver {
         }
     }
 }
-impl From<AeronDriver> for *mut aeron_driver_t {
-    #[inline]
-    fn from(value: AeronDriver) -> Self {
-        value.get_inner()
-    }
-}
-impl From<&AeronDriver> for *mut aeron_driver_t {
-    #[inline]
-    fn from(value: &AeronDriver) -> Self {
-        value.get_inner()
-    }
-}
-impl From<AeronDriver> for aeron_driver_t {
-    #[inline]
-    fn from(value: AeronDriver) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
 impl From<*const aeron_driver_t> for AeronDriver {
     #[inline]
     fn from(value: *const aeron_driver_t) -> Self {
@@ -30743,6 +30747,24 @@ impl From<aeron_driver_t> for AeronDriver {
             inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
             _context: None,
         }
+    }
+}
+impl From<AeronDriver> for *mut aeron_driver_t {
+    #[inline]
+    fn from(value: AeronDriver) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&AeronDriver> for *mut aeron_driver_t {
+    #[inline]
+    fn from(value: &AeronDriver) -> Self {
+        value.get_inner()
+    }
+}
+impl From<AeronDriver> for aeron_driver_t {
+    #[inline]
+    fn from(value: AeronDriver) -> Self {
+        unsafe { *value.get_inner().clone() }
     }
 }
 #[derive(Clone)]
@@ -31070,6 +31092,22 @@ impl From<*mut aeron_driver_uri_publication_params_t> for AeronDriverUriPublicat
         }
     }
 }
+impl From<*const aeron_driver_uri_publication_params_t> for AeronDriverUriPublicationParams {
+    #[inline]
+    fn from(value: *const aeron_driver_uri_publication_params_t) -> Self {
+        AeronDriverUriPublicationParams {
+            inner: CResource::Borrowed(value as *mut aeron_driver_uri_publication_params_t),
+        }
+    }
+}
+impl From<aeron_driver_uri_publication_params_t> for AeronDriverUriPublicationParams {
+    #[inline]
+    fn from(value: aeron_driver_uri_publication_params_t) -> Self {
+        AeronDriverUriPublicationParams {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverUriPublicationParams> for *mut aeron_driver_uri_publication_params_t {
     #[inline]
     fn from(value: AeronDriverUriPublicationParams) -> Self {
@@ -31088,22 +31126,6 @@ impl From<AeronDriverUriPublicationParams> for aeron_driver_uri_publication_para
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_uri_publication_params_t> for AeronDriverUriPublicationParams {
-    #[inline]
-    fn from(value: *const aeron_driver_uri_publication_params_t) -> Self {
-        AeronDriverUriPublicationParams {
-            inner: CResource::Borrowed(value as *mut aeron_driver_uri_publication_params_t),
-        }
-    }
-}
-impl From<aeron_driver_uri_publication_params_t> for AeronDriverUriPublicationParams {
-    #[inline]
-    fn from(value: aeron_driver_uri_publication_params_t) -> Self {
-        AeronDriverUriPublicationParams {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverUriPublicationParams {
     fn default() -> Self {
@@ -31111,11 +31133,12 @@ impl Default for AeronDriverUriPublicationParams {
     }
 }
 impl AeronDriverUriPublicationParams {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -31344,6 +31367,22 @@ impl From<*mut aeron_driver_uri_subscription_params_t> for AeronDriverUriSubscri
         }
     }
 }
+impl From<*const aeron_driver_uri_subscription_params_t> for AeronDriverUriSubscriptionParams {
+    #[inline]
+    fn from(value: *const aeron_driver_uri_subscription_params_t) -> Self {
+        AeronDriverUriSubscriptionParams {
+            inner: CResource::Borrowed(value as *mut aeron_driver_uri_subscription_params_t),
+        }
+    }
+}
+impl From<aeron_driver_uri_subscription_params_t> for AeronDriverUriSubscriptionParams {
+    #[inline]
+    fn from(value: aeron_driver_uri_subscription_params_t) -> Self {
+        AeronDriverUriSubscriptionParams {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDriverUriSubscriptionParams> for *mut aeron_driver_uri_subscription_params_t {
     #[inline]
     fn from(value: AeronDriverUriSubscriptionParams) -> Self {
@@ -31362,22 +31401,6 @@ impl From<AeronDriverUriSubscriptionParams> for aeron_driver_uri_subscription_pa
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_driver_uri_subscription_params_t> for AeronDriverUriSubscriptionParams {
-    #[inline]
-    fn from(value: *const aeron_driver_uri_subscription_params_t) -> Self {
-        AeronDriverUriSubscriptionParams {
-            inner: CResource::Borrowed(value as *mut aeron_driver_uri_subscription_params_t),
-        }
-    }
-}
-impl From<aeron_driver_uri_subscription_params_t> for AeronDriverUriSubscriptionParams {
-    #[inline]
-    fn from(value: aeron_driver_uri_subscription_params_t) -> Self {
-        AeronDriverUriSubscriptionParams {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDriverUriSubscriptionParams {
     fn default() -> Self {
@@ -31385,11 +31408,12 @@ impl Default for AeronDriverUriSubscriptionParams {
     }
 }
 impl AeronDriverUriSubscriptionParams {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -31570,6 +31594,22 @@ impl From<*mut aeron_duty_cycle_stall_tracker_t> for AeronDutyCycleStallTracker 
         }
     }
 }
+impl From<*const aeron_duty_cycle_stall_tracker_t> for AeronDutyCycleStallTracker {
+    #[inline]
+    fn from(value: *const aeron_duty_cycle_stall_tracker_t) -> Self {
+        AeronDutyCycleStallTracker {
+            inner: CResource::Borrowed(value as *mut aeron_duty_cycle_stall_tracker_t),
+        }
+    }
+}
+impl From<aeron_duty_cycle_stall_tracker_t> for AeronDutyCycleStallTracker {
+    #[inline]
+    fn from(value: aeron_duty_cycle_stall_tracker_t) -> Self {
+        AeronDutyCycleStallTracker {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDutyCycleStallTracker> for *mut aeron_duty_cycle_stall_tracker_t {
     #[inline]
     fn from(value: AeronDutyCycleStallTracker) -> Self {
@@ -31588,22 +31628,6 @@ impl From<AeronDutyCycleStallTracker> for aeron_duty_cycle_stall_tracker_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_duty_cycle_stall_tracker_t> for AeronDutyCycleStallTracker {
-    #[inline]
-    fn from(value: *const aeron_duty_cycle_stall_tracker_t) -> Self {
-        AeronDutyCycleStallTracker {
-            inner: CResource::Borrowed(value as *mut aeron_duty_cycle_stall_tracker_t),
-        }
-    }
-}
-impl From<aeron_duty_cycle_stall_tracker_t> for AeronDutyCycleStallTracker {
-    #[inline]
-    fn from(value: aeron_duty_cycle_stall_tracker_t) -> Self {
-        AeronDutyCycleStallTracker {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDutyCycleStallTracker {
     fn default() -> Self {
@@ -31611,16 +31635,16 @@ impl Default for AeronDutyCycleStallTracker {
     }
 }
 impl AeronDutyCycleStallTracker {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -31795,6 +31819,22 @@ impl From<*mut aeron_duty_cycle_tracker_t> for AeronDutyCycleTracker {
         }
     }
 }
+impl From<*const aeron_duty_cycle_tracker_t> for AeronDutyCycleTracker {
+    #[inline]
+    fn from(value: *const aeron_duty_cycle_tracker_t) -> Self {
+        AeronDutyCycleTracker {
+            inner: CResource::Borrowed(value as *mut aeron_duty_cycle_tracker_t),
+        }
+    }
+}
+impl From<aeron_duty_cycle_tracker_t> for AeronDutyCycleTracker {
+    #[inline]
+    fn from(value: aeron_duty_cycle_tracker_t) -> Self {
+        AeronDutyCycleTracker {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronDutyCycleTracker> for *mut aeron_duty_cycle_tracker_t {
     #[inline]
     fn from(value: AeronDutyCycleTracker) -> Self {
@@ -31813,22 +31853,6 @@ impl From<AeronDutyCycleTracker> for aeron_duty_cycle_tracker_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_duty_cycle_tracker_t> for AeronDutyCycleTracker {
-    #[inline]
-    fn from(value: *const aeron_duty_cycle_tracker_t) -> Self {
-        AeronDutyCycleTracker {
-            inner: CResource::Borrowed(value as *mut aeron_duty_cycle_tracker_t),
-        }
-    }
-}
-impl From<aeron_duty_cycle_tracker_t> for AeronDutyCycleTracker {
-    #[inline]
-    fn from(value: aeron_duty_cycle_tracker_t) -> Self {
-        AeronDutyCycleTracker {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronDutyCycleTracker {
     fn default() -> Self {
@@ -31836,16 +31860,16 @@ impl Default for AeronDutyCycleTracker {
     }
 }
 impl AeronDutyCycleTracker {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -31994,6 +32018,22 @@ impl From<*mut aeron_end_of_life_resource_t> for AeronEndOfLifeResource {
         }
     }
 }
+impl From<*const aeron_end_of_life_resource_t> for AeronEndOfLifeResource {
+    #[inline]
+    fn from(value: *const aeron_end_of_life_resource_t) -> Self {
+        AeronEndOfLifeResource {
+            inner: CResource::Borrowed(value as *mut aeron_end_of_life_resource_t),
+        }
+    }
+}
+impl From<aeron_end_of_life_resource_t> for AeronEndOfLifeResource {
+    #[inline]
+    fn from(value: aeron_end_of_life_resource_t) -> Self {
+        AeronEndOfLifeResource {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronEndOfLifeResource> for *mut aeron_end_of_life_resource_t {
     #[inline]
     fn from(value: AeronEndOfLifeResource) -> Self {
@@ -32012,22 +32052,6 @@ impl From<AeronEndOfLifeResource> for aeron_end_of_life_resource_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_end_of_life_resource_t> for AeronEndOfLifeResource {
-    #[inline]
-    fn from(value: *const aeron_end_of_life_resource_t) -> Self {
-        AeronEndOfLifeResource {
-            inner: CResource::Borrowed(value as *mut aeron_end_of_life_resource_t),
-        }
-    }
-}
-impl From<aeron_end_of_life_resource_t> for AeronEndOfLifeResource {
-    #[inline]
-    fn from(value: aeron_end_of_life_resource_t) -> Self {
-        AeronEndOfLifeResource {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronEndOfLifeResource {
     fn default() -> Self {
@@ -32035,16 +32059,16 @@ impl Default for AeronEndOfLifeResource {
     }
 }
 impl AeronEndOfLifeResource {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -32230,6 +32254,22 @@ impl From<*mut aeron_error_header_t> for AeronErrorHeader {
         }
     }
 }
+impl From<*const aeron_error_header_t> for AeronErrorHeader {
+    #[inline]
+    fn from(value: *const aeron_error_header_t) -> Self {
+        AeronErrorHeader {
+            inner: CResource::Borrowed(value as *mut aeron_error_header_t),
+        }
+    }
+}
+impl From<aeron_error_header_t> for AeronErrorHeader {
+    #[inline]
+    fn from(value: aeron_error_header_t) -> Self {
+        AeronErrorHeader {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronErrorHeader> for *mut aeron_error_header_t {
     #[inline]
     fn from(value: AeronErrorHeader) -> Self {
@@ -32248,22 +32288,6 @@ impl From<AeronErrorHeader> for aeron_error_header_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_error_header_t> for AeronErrorHeader {
-    #[inline]
-    fn from(value: *const aeron_error_header_t) -> Self {
-        AeronErrorHeader {
-            inner: CResource::Borrowed(value as *mut aeron_error_header_t),
-        }
-    }
-}
-impl From<aeron_error_header_t> for AeronErrorHeader {
-    #[inline]
-    fn from(value: aeron_error_header_t) -> Self {
-        AeronErrorHeader {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronErrorHeader {
     fn default() -> Self {
@@ -32271,11 +32295,12 @@ impl Default for AeronErrorHeader {
     }
 }
 impl AeronErrorHeader {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -32446,6 +32471,22 @@ impl From<*mut aeron_error_log_entry_t> for AeronErrorLogEntry {
         }
     }
 }
+impl From<*const aeron_error_log_entry_t> for AeronErrorLogEntry {
+    #[inline]
+    fn from(value: *const aeron_error_log_entry_t) -> Self {
+        AeronErrorLogEntry {
+            inner: CResource::Borrowed(value as *mut aeron_error_log_entry_t),
+        }
+    }
+}
+impl From<aeron_error_log_entry_t> for AeronErrorLogEntry {
+    #[inline]
+    fn from(value: aeron_error_log_entry_t) -> Self {
+        AeronErrorLogEntry {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronErrorLogEntry> for *mut aeron_error_log_entry_t {
     #[inline]
     fn from(value: AeronErrorLogEntry) -> Self {
@@ -32464,22 +32505,6 @@ impl From<AeronErrorLogEntry> for aeron_error_log_entry_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_error_log_entry_t> for AeronErrorLogEntry {
-    #[inline]
-    fn from(value: *const aeron_error_log_entry_t) -> Self {
-        AeronErrorLogEntry {
-            inner: CResource::Borrowed(value as *mut aeron_error_log_entry_t),
-        }
-    }
-}
-impl From<aeron_error_log_entry_t> for AeronErrorLogEntry {
-    #[inline]
-    fn from(value: aeron_error_log_entry_t) -> Self {
-        AeronErrorLogEntry {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronErrorLogEntry {
     fn default() -> Self {
@@ -32487,11 +32512,12 @@ impl Default for AeronErrorLogEntry {
     }
 }
 impl AeronErrorLogEntry {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -32652,6 +32678,22 @@ impl From<*mut aeron_error_response_t> for AeronErrorResponse {
         }
     }
 }
+impl From<*const aeron_error_response_t> for AeronErrorResponse {
+    #[inline]
+    fn from(value: *const aeron_error_response_t) -> Self {
+        AeronErrorResponse {
+            inner: CResource::Borrowed(value as *mut aeron_error_response_t),
+        }
+    }
+}
+impl From<aeron_error_response_t> for AeronErrorResponse {
+    #[inline]
+    fn from(value: aeron_error_response_t) -> Self {
+        AeronErrorResponse {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronErrorResponse> for *mut aeron_error_response_t {
     #[inline]
     fn from(value: AeronErrorResponse) -> Self {
@@ -32670,22 +32712,6 @@ impl From<AeronErrorResponse> for aeron_error_response_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_error_response_t> for AeronErrorResponse {
-    #[inline]
-    fn from(value: *const aeron_error_response_t) -> Self {
-        AeronErrorResponse {
-            inner: CResource::Borrowed(value as *mut aeron_error_response_t),
-        }
-    }
-}
-impl From<aeron_error_response_t> for AeronErrorResponse {
-    #[inline]
-    fn from(value: aeron_error_response_t) -> Self {
-        AeronErrorResponse {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronErrorResponse {
     fn default() -> Self {
@@ -32693,11 +32719,12 @@ impl Default for AeronErrorResponse {
     }
 }
 impl AeronErrorResponse {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -33224,6 +33251,22 @@ impl From<*mut aeron_exclusive_publication_t> for AeronExclusivePublication {
         }
     }
 }
+impl From<*const aeron_exclusive_publication_t> for AeronExclusivePublication {
+    #[inline]
+    fn from(value: *const aeron_exclusive_publication_t) -> Self {
+        AeronExclusivePublication {
+            inner: CResource::Borrowed(value as *mut aeron_exclusive_publication_t),
+        }
+    }
+}
+impl From<aeron_exclusive_publication_t> for AeronExclusivePublication {
+    #[inline]
+    fn from(value: aeron_exclusive_publication_t) -> Self {
+        AeronExclusivePublication {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronExclusivePublication> for *mut aeron_exclusive_publication_t {
     #[inline]
     fn from(value: AeronExclusivePublication) -> Self {
@@ -33240,22 +33283,6 @@ impl From<AeronExclusivePublication> for aeron_exclusive_publication_t {
     #[inline]
     fn from(value: AeronExclusivePublication) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_exclusive_publication_t> for AeronExclusivePublication {
-    #[inline]
-    fn from(value: *const aeron_exclusive_publication_t) -> Self {
-        AeronExclusivePublication {
-            inner: CResource::Borrowed(value as *mut aeron_exclusive_publication_t),
-        }
-    }
-}
-impl From<aeron_exclusive_publication_t> for AeronExclusivePublication {
-    #[inline]
-    fn from(value: aeron_exclusive_publication_t) -> Self {
-        AeronExclusivePublication {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 impl AeronExclusivePublication {
@@ -33488,6 +33515,22 @@ impl From<*mut aeron_feedback_delay_generator_state_t> for AeronFeedbackDelayGen
         }
     }
 }
+impl From<*const aeron_feedback_delay_generator_state_t> for AeronFeedbackDelayGeneratorState {
+    #[inline]
+    fn from(value: *const aeron_feedback_delay_generator_state_t) -> Self {
+        AeronFeedbackDelayGeneratorState {
+            inner: CResource::Borrowed(value as *mut aeron_feedback_delay_generator_state_t),
+        }
+    }
+}
+impl From<aeron_feedback_delay_generator_state_t> for AeronFeedbackDelayGeneratorState {
+    #[inline]
+    fn from(value: aeron_feedback_delay_generator_state_t) -> Self {
+        AeronFeedbackDelayGeneratorState {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronFeedbackDelayGeneratorState> for *mut aeron_feedback_delay_generator_state_t {
     #[inline]
     fn from(value: AeronFeedbackDelayGeneratorState) -> Self {
@@ -33506,22 +33549,6 @@ impl From<AeronFeedbackDelayGeneratorState> for aeron_feedback_delay_generator_s
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_feedback_delay_generator_state_t> for AeronFeedbackDelayGeneratorState {
-    #[inline]
-    fn from(value: *const aeron_feedback_delay_generator_state_t) -> Self {
-        AeronFeedbackDelayGeneratorState {
-            inner: CResource::Borrowed(value as *mut aeron_feedback_delay_generator_state_t),
-        }
-    }
-}
-impl From<aeron_feedback_delay_generator_state_t> for AeronFeedbackDelayGeneratorState {
-    #[inline]
-    fn from(value: aeron_feedback_delay_generator_state_t) -> Self {
-        AeronFeedbackDelayGeneratorState {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronFeedbackDelayGeneratorState {
     fn default() -> Self {
@@ -33529,11 +33556,12 @@ impl Default for AeronFeedbackDelayGeneratorState {
     }
 }
 impl AeronFeedbackDelayGeneratorState {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -33678,6 +33706,22 @@ impl From<*mut aeron_flow_control_max_options_t> for AeronFlowControlMaxOptions 
         }
     }
 }
+impl From<*const aeron_flow_control_max_options_t> for AeronFlowControlMaxOptions {
+    #[inline]
+    fn from(value: *const aeron_flow_control_max_options_t) -> Self {
+        AeronFlowControlMaxOptions {
+            inner: CResource::Borrowed(value as *mut aeron_flow_control_max_options_t),
+        }
+    }
+}
+impl From<aeron_flow_control_max_options_t> for AeronFlowControlMaxOptions {
+    #[inline]
+    fn from(value: aeron_flow_control_max_options_t) -> Self {
+        AeronFlowControlMaxOptions {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronFlowControlMaxOptions> for *mut aeron_flow_control_max_options_t {
     #[inline]
     fn from(value: AeronFlowControlMaxOptions) -> Self {
@@ -33696,22 +33740,6 @@ impl From<AeronFlowControlMaxOptions> for aeron_flow_control_max_options_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_flow_control_max_options_t> for AeronFlowControlMaxOptions {
-    #[inline]
-    fn from(value: *const aeron_flow_control_max_options_t) -> Self {
-        AeronFlowControlMaxOptions {
-            inner: CResource::Borrowed(value as *mut aeron_flow_control_max_options_t),
-        }
-    }
-}
-impl From<aeron_flow_control_max_options_t> for AeronFlowControlMaxOptions {
-    #[inline]
-    fn from(value: aeron_flow_control_max_options_t) -> Self {
-        AeronFlowControlMaxOptions {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronFlowControlMaxOptions {
     fn default() -> Self {
@@ -33719,11 +33747,12 @@ impl Default for AeronFlowControlMaxOptions {
     }
 }
 impl AeronFlowControlMaxOptions {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -33881,6 +33910,24 @@ impl From<*mut aeron_flow_control_strategy_supplier_func_table_entry_t>
         }
     }
 }
+impl From<*const aeron_flow_control_strategy_supplier_func_table_entry_t>
+    for AeronFlowControlStrategySupplierFuncTableEntry
+{
+    #[inline]
+    fn from(value: *const aeron_flow_control_strategy_supplier_func_table_entry_t) -> Self {
+        AeronFlowControlStrategySupplierFuncTableEntry {
+            inner: CResource::Borrowed(value as *mut aeron_flow_control_strategy_supplier_func_table_entry_t),
+        }
+    }
+}
+impl From<aeron_flow_control_strategy_supplier_func_table_entry_t> for AeronFlowControlStrategySupplierFuncTableEntry {
+    #[inline]
+    fn from(value: aeron_flow_control_strategy_supplier_func_table_entry_t) -> Self {
+        AeronFlowControlStrategySupplierFuncTableEntry {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronFlowControlStrategySupplierFuncTableEntry>
     for *mut aeron_flow_control_strategy_supplier_func_table_entry_t
 {
@@ -33903,24 +33950,6 @@ impl From<AeronFlowControlStrategySupplierFuncTableEntry> for aeron_flow_control
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_flow_control_strategy_supplier_func_table_entry_t>
-    for AeronFlowControlStrategySupplierFuncTableEntry
-{
-    #[inline]
-    fn from(value: *const aeron_flow_control_strategy_supplier_func_table_entry_t) -> Self {
-        AeronFlowControlStrategySupplierFuncTableEntry {
-            inner: CResource::Borrowed(value as *mut aeron_flow_control_strategy_supplier_func_table_entry_t),
-        }
-    }
-}
-impl From<aeron_flow_control_strategy_supplier_func_table_entry_t> for AeronFlowControlStrategySupplierFuncTableEntry {
-    #[inline]
-    fn from(value: aeron_flow_control_strategy_supplier_func_table_entry_t) -> Self {
-        AeronFlowControlStrategySupplierFuncTableEntry {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronFlowControlStrategySupplierFuncTableEntry {
     fn default() -> Self {
@@ -33928,16 +33957,16 @@ impl Default for AeronFlowControlStrategySupplierFuncTableEntry {
     }
 }
 impl AeronFlowControlStrategySupplierFuncTableEntry {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -34198,6 +34227,22 @@ impl From<*mut aeron_flow_control_strategy_t> for AeronFlowControlStrategy {
         }
     }
 }
+impl From<*const aeron_flow_control_strategy_t> for AeronFlowControlStrategy {
+    #[inline]
+    fn from(value: *const aeron_flow_control_strategy_t) -> Self {
+        AeronFlowControlStrategy {
+            inner: CResource::Borrowed(value as *mut aeron_flow_control_strategy_t),
+        }
+    }
+}
+impl From<aeron_flow_control_strategy_t> for AeronFlowControlStrategy {
+    #[inline]
+    fn from(value: aeron_flow_control_strategy_t) -> Self {
+        AeronFlowControlStrategy {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronFlowControlStrategy> for *mut aeron_flow_control_strategy_t {
     #[inline]
     fn from(value: AeronFlowControlStrategy) -> Self {
@@ -34214,22 +34259,6 @@ impl From<AeronFlowControlStrategy> for aeron_flow_control_strategy_t {
     #[inline]
     fn from(value: AeronFlowControlStrategy) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_flow_control_strategy_t> for AeronFlowControlStrategy {
-    #[inline]
-    fn from(value: *const aeron_flow_control_strategy_t) -> Self {
-        AeronFlowControlStrategy {
-            inner: CResource::Borrowed(value as *mut aeron_flow_control_strategy_t),
-        }
-    }
-}
-impl From<aeron_flow_control_strategy_t> for AeronFlowControlStrategy {
-    #[inline]
-    fn from(value: aeron_flow_control_strategy_t) -> Self {
-        AeronFlowControlStrategy {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -34385,6 +34414,22 @@ impl From<*mut aeron_flow_control_tagged_options_t> for AeronFlowControlTaggedOp
         }
     }
 }
+impl From<*const aeron_flow_control_tagged_options_t> for AeronFlowControlTaggedOptions {
+    #[inline]
+    fn from(value: *const aeron_flow_control_tagged_options_t) -> Self {
+        AeronFlowControlTaggedOptions {
+            inner: CResource::Borrowed(value as *mut aeron_flow_control_tagged_options_t),
+        }
+    }
+}
+impl From<aeron_flow_control_tagged_options_t> for AeronFlowControlTaggedOptions {
+    #[inline]
+    fn from(value: aeron_flow_control_tagged_options_t) -> Self {
+        AeronFlowControlTaggedOptions {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronFlowControlTaggedOptions> for *mut aeron_flow_control_tagged_options_t {
     #[inline]
     fn from(value: AeronFlowControlTaggedOptions) -> Self {
@@ -34403,22 +34448,6 @@ impl From<AeronFlowControlTaggedOptions> for aeron_flow_control_tagged_options_t
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_flow_control_tagged_options_t> for AeronFlowControlTaggedOptions {
-    #[inline]
-    fn from(value: *const aeron_flow_control_tagged_options_t) -> Self {
-        AeronFlowControlTaggedOptions {
-            inner: CResource::Borrowed(value as *mut aeron_flow_control_tagged_options_t),
-        }
-    }
-}
-impl From<aeron_flow_control_tagged_options_t> for AeronFlowControlTaggedOptions {
-    #[inline]
-    fn from(value: aeron_flow_control_tagged_options_t) -> Self {
-        AeronFlowControlTaggedOptions {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronFlowControlTaggedOptions {
     fn default() -> Self {
@@ -34426,16 +34455,16 @@ impl Default for AeronFlowControlTaggedOptions {
     }
 }
 impl AeronFlowControlTaggedOptions {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -34648,6 +34677,22 @@ impl From<*mut aeron_fragment_assembler_t> for AeronFragmentAssembler {
         }
     }
 }
+impl From<*const aeron_fragment_assembler_t> for AeronFragmentAssembler {
+    #[inline]
+    fn from(value: *const aeron_fragment_assembler_t) -> Self {
+        AeronFragmentAssembler {
+            inner: CResource::Borrowed(value as *mut aeron_fragment_assembler_t),
+        }
+    }
+}
+impl From<aeron_fragment_assembler_t> for AeronFragmentAssembler {
+    #[inline]
+    fn from(value: aeron_fragment_assembler_t) -> Self {
+        AeronFragmentAssembler {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronFragmentAssembler> for *mut aeron_fragment_assembler_t {
     #[inline]
     fn from(value: AeronFragmentAssembler) -> Self {
@@ -34664,22 +34709,6 @@ impl From<AeronFragmentAssembler> for aeron_fragment_assembler_t {
     #[inline]
     fn from(value: AeronFragmentAssembler) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_fragment_assembler_t> for AeronFragmentAssembler {
-    #[inline]
-    fn from(value: *const aeron_fragment_assembler_t) -> Self {
-        AeronFragmentAssembler {
-            inner: CResource::Borrowed(value as *mut aeron_fragment_assembler_t),
-        }
-    }
-}
-impl From<aeron_fragment_assembler_t> for AeronFragmentAssembler {
-    #[inline]
-    fn from(value: aeron_fragment_assembler_t) -> Self {
-        AeronFragmentAssembler {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -34810,6 +34839,22 @@ impl From<*mut aeron_frame_header_t> for AeronFrameHeader {
         }
     }
 }
+impl From<*const aeron_frame_header_t> for AeronFrameHeader {
+    #[inline]
+    fn from(value: *const aeron_frame_header_t) -> Self {
+        AeronFrameHeader {
+            inner: CResource::Borrowed(value as *mut aeron_frame_header_t),
+        }
+    }
+}
+impl From<aeron_frame_header_t> for AeronFrameHeader {
+    #[inline]
+    fn from(value: aeron_frame_header_t) -> Self {
+        AeronFrameHeader {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronFrameHeader> for *mut aeron_frame_header_t {
     #[inline]
     fn from(value: AeronFrameHeader) -> Self {
@@ -34828,22 +34873,6 @@ impl From<AeronFrameHeader> for aeron_frame_header_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_frame_header_t> for AeronFrameHeader {
-    #[inline]
-    fn from(value: *const aeron_frame_header_t) -> Self {
-        AeronFrameHeader {
-            inner: CResource::Borrowed(value as *mut aeron_frame_header_t),
-        }
-    }
-}
-impl From<aeron_frame_header_t> for AeronFrameHeader {
-    #[inline]
-    fn from(value: aeron_frame_header_t) -> Self {
-        AeronFrameHeader {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronFrameHeader {
     fn default() -> Self {
@@ -34851,11 +34880,12 @@ impl Default for AeronFrameHeader {
     }
 }
 impl AeronFrameHeader {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -35003,6 +35033,22 @@ impl From<*mut aeron_get_next_available_session_id_command_t> for AeronGetNextAv
         }
     }
 }
+impl From<*const aeron_get_next_available_session_id_command_t> for AeronGetNextAvailableSessionIdCommand {
+    #[inline]
+    fn from(value: *const aeron_get_next_available_session_id_command_t) -> Self {
+        AeronGetNextAvailableSessionIdCommand {
+            inner: CResource::Borrowed(value as *mut aeron_get_next_available_session_id_command_t),
+        }
+    }
+}
+impl From<aeron_get_next_available_session_id_command_t> for AeronGetNextAvailableSessionIdCommand {
+    #[inline]
+    fn from(value: aeron_get_next_available_session_id_command_t) -> Self {
+        AeronGetNextAvailableSessionIdCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronGetNextAvailableSessionIdCommand> for *mut aeron_get_next_available_session_id_command_t {
     #[inline]
     fn from(value: AeronGetNextAvailableSessionIdCommand) -> Self {
@@ -35021,22 +35067,6 @@ impl From<AeronGetNextAvailableSessionIdCommand> for aeron_get_next_available_se
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_get_next_available_session_id_command_t> for AeronGetNextAvailableSessionIdCommand {
-    #[inline]
-    fn from(value: *const aeron_get_next_available_session_id_command_t) -> Self {
-        AeronGetNextAvailableSessionIdCommand {
-            inner: CResource::Borrowed(value as *mut aeron_get_next_available_session_id_command_t),
-        }
-    }
-}
-impl From<aeron_get_next_available_session_id_command_t> for AeronGetNextAvailableSessionIdCommand {
-    #[inline]
-    fn from(value: aeron_get_next_available_session_id_command_t) -> Self {
-        AeronGetNextAvailableSessionIdCommand {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronGetNextAvailableSessionIdCommand {
     fn default() -> Self {
@@ -35044,11 +35074,12 @@ impl Default for AeronGetNextAvailableSessionIdCommand {
     }
 }
 impl AeronGetNextAvailableSessionIdCommand {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -35080,22 +35111,6 @@ mod aeron_get_next_available_session_id_command_t_allocation_tests {
 }
 pub struct AeronHeader {
     inner: CResource<aeron_header_t>,
-}
-impl AeronHeader {
-    #[doc = r" The old `Clone`: shares the underlying struct rather than copying it. If owned"]
-    #[doc = r" on heap this bumps the reference count; if borrowed, e.g. a callback argument,"]
-    #[doc = r" it copies the pointer."]
-    #[doc = r""]
-    #[doc = r" # Safety"]
-    #[doc = r" A callback argument is borrowed from memory Aeron frees or reuses when the"]
-    #[doc = r" callback returns, so the returned handle must not be used after that. Use"]
-    #[doc = r" `clone_struct` or copy the fields you need instead. For an owned value both"]
-    #[doc = r" handles share one struct, so writes through either are seen by both"]
-    pub unsafe fn clone_reference(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
-    }
 }
 impl core::fmt::Debug for AeronHeader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -35278,11 +35293,29 @@ impl std::ops::Deref for AeronHeader {
         self.get_inner_ref()
     }
 }
-impl From<*mut aeron_header_t> for AeronHeader {
+impl AeronHeader {
+    #[doc = r" Wraps a pointer to a struct Aeron passes to a callback, without copying it"]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" `ptr` must point at a valid struct for as long as the result is used. For a"]
+    #[doc = r" callback argument that is until the callback returns"]
     #[inline]
-    fn from(value: *mut aeron_header_t) -> Self {
-        AeronHeader {
-            inner: CResource::Borrowed(value),
+    pub unsafe fn from_ptr(ptr: *mut aeron_header_t) -> Self {
+        Self {
+            inner: CResource::Borrowed(ptr),
+        }
+    }
+    #[doc = r" Returns a second handle to the same underlying struct, without copying it."]
+    #[doc = r" If owned on heap both handles share it; if borrowed, e.g. a callback"]
+    #[doc = r" argument, both point at the same C memory"]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" A callback argument lives in memory Aeron frees or reuses when the callback"]
+    #[doc = r" returns, so do not use the returned handle after that. Copy out the fields"]
+    #[doc = r" you need instead"]
+    pub unsafe fn clone_reference(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
         }
     }
 }
@@ -35302,22 +35335,6 @@ impl From<AeronHeader> for aeron_header_t {
     #[inline]
     fn from(value: AeronHeader) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_header_t> for AeronHeader {
-    #[inline]
-    fn from(value: *const aeron_header_t) -> Self {
-        AeronHeader {
-            inner: CResource::Borrowed(value as *mut aeron_header_t),
-        }
-    }
-}
-impl From<aeron_header_t> for AeronHeader {
-    #[inline]
-    fn from(value: aeron_header_t) -> Self {
-        AeronHeader {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[cfg(test)]
@@ -35502,6 +35519,22 @@ impl From<*mut aeron_header_values_frame_t> for AeronHeaderValuesFrame {
         }
     }
 }
+impl From<*const aeron_header_values_frame_t> for AeronHeaderValuesFrame {
+    #[inline]
+    fn from(value: *const aeron_header_values_frame_t) -> Self {
+        AeronHeaderValuesFrame {
+            inner: CResource::Borrowed(value as *mut aeron_header_values_frame_t),
+        }
+    }
+}
+impl From<aeron_header_values_frame_t> for AeronHeaderValuesFrame {
+    #[inline]
+    fn from(value: aeron_header_values_frame_t) -> Self {
+        AeronHeaderValuesFrame {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronHeaderValuesFrame> for *mut aeron_header_values_frame_t {
     #[inline]
     fn from(value: AeronHeaderValuesFrame) -> Self {
@@ -35520,22 +35553,6 @@ impl From<AeronHeaderValuesFrame> for aeron_header_values_frame_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_header_values_frame_t> for AeronHeaderValuesFrame {
-    #[inline]
-    fn from(value: *const aeron_header_values_frame_t) -> Self {
-        AeronHeaderValuesFrame {
-            inner: CResource::Borrowed(value as *mut aeron_header_values_frame_t),
-        }
-    }
-}
-impl From<aeron_header_values_frame_t> for AeronHeaderValuesFrame {
-    #[inline]
-    fn from(value: aeron_header_values_frame_t) -> Self {
-        AeronHeaderValuesFrame {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronHeaderValuesFrame {
     fn default() -> Self {
@@ -35543,11 +35560,12 @@ impl Default for AeronHeaderValuesFrame {
     }
 }
 impl AeronHeaderValuesFrame {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -35705,6 +35723,22 @@ impl From<*mut aeron_header_values_t> for AeronHeaderValues {
         }
     }
 }
+impl From<*const aeron_header_values_t> for AeronHeaderValues {
+    #[inline]
+    fn from(value: *const aeron_header_values_t) -> Self {
+        AeronHeaderValues {
+            inner: CResource::Borrowed(value as *mut aeron_header_values_t),
+        }
+    }
+}
+impl From<aeron_header_values_t> for AeronHeaderValues {
+    #[inline]
+    fn from(value: aeron_header_values_t) -> Self {
+        AeronHeaderValues {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronHeaderValues> for *mut aeron_header_values_t {
     #[inline]
     fn from(value: AeronHeaderValues) -> Self {
@@ -35723,22 +35757,6 @@ impl From<AeronHeaderValues> for aeron_header_values_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_header_values_t> for AeronHeaderValues {
-    #[inline]
-    fn from(value: *const aeron_header_values_t) -> Self {
-        AeronHeaderValues {
-            inner: CResource::Borrowed(value as *mut aeron_header_values_t),
-        }
-    }
-}
-impl From<aeron_header_values_t> for AeronHeaderValues {
-    #[inline]
-    fn from(value: aeron_header_values_t) -> Self {
-        AeronHeaderValues {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronHeaderValues {
     fn default() -> Self {
@@ -35746,11 +35764,12 @@ impl Default for AeronHeaderValues {
     }
 }
 impl AeronHeaderValues {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -35892,6 +35911,22 @@ impl From<*mut aeron_heartbeat_timestamp_key_layout_t> for AeronHeartbeatTimesta
         }
     }
 }
+impl From<*const aeron_heartbeat_timestamp_key_layout_t> for AeronHeartbeatTimestampKeyLayout {
+    #[inline]
+    fn from(value: *const aeron_heartbeat_timestamp_key_layout_t) -> Self {
+        AeronHeartbeatTimestampKeyLayout {
+            inner: CResource::Borrowed(value as *mut aeron_heartbeat_timestamp_key_layout_t),
+        }
+    }
+}
+impl From<aeron_heartbeat_timestamp_key_layout_t> for AeronHeartbeatTimestampKeyLayout {
+    #[inline]
+    fn from(value: aeron_heartbeat_timestamp_key_layout_t) -> Self {
+        AeronHeartbeatTimestampKeyLayout {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronHeartbeatTimestampKeyLayout> for *mut aeron_heartbeat_timestamp_key_layout_t {
     #[inline]
     fn from(value: AeronHeartbeatTimestampKeyLayout) -> Self {
@@ -35910,22 +35945,6 @@ impl From<AeronHeartbeatTimestampKeyLayout> for aeron_heartbeat_timestamp_key_la
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_heartbeat_timestamp_key_layout_t> for AeronHeartbeatTimestampKeyLayout {
-    #[inline]
-    fn from(value: *const aeron_heartbeat_timestamp_key_layout_t) -> Self {
-        AeronHeartbeatTimestampKeyLayout {
-            inner: CResource::Borrowed(value as *mut aeron_heartbeat_timestamp_key_layout_t),
-        }
-    }
-}
-impl From<aeron_heartbeat_timestamp_key_layout_t> for AeronHeartbeatTimestampKeyLayout {
-    #[inline]
-    fn from(value: aeron_heartbeat_timestamp_key_layout_t) -> Self {
-        AeronHeartbeatTimestampKeyLayout {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronHeartbeatTimestampKeyLayout {
     fn default() -> Self {
@@ -35933,11 +35952,12 @@ impl Default for AeronHeartbeatTimestampKeyLayout {
     }
 }
 impl AeronHeartbeatTimestampKeyLayout {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -36158,6 +36178,22 @@ impl From<*mut aeron_idle_strategy_t> for AeronIdleStrategy {
         }
     }
 }
+impl From<*const aeron_idle_strategy_t> for AeronIdleStrategy {
+    #[inline]
+    fn from(value: *const aeron_idle_strategy_t) -> Self {
+        AeronIdleStrategy {
+            inner: CResource::Borrowed(value as *mut aeron_idle_strategy_t),
+        }
+    }
+}
+impl From<aeron_idle_strategy_t> for AeronIdleStrategy {
+    #[inline]
+    fn from(value: aeron_idle_strategy_t) -> Self {
+        AeronIdleStrategy {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronIdleStrategy> for *mut aeron_idle_strategy_t {
     #[inline]
     fn from(value: AeronIdleStrategy) -> Self {
@@ -36174,22 +36210,6 @@ impl From<AeronIdleStrategy> for aeron_idle_strategy_t {
     #[inline]
     fn from(value: AeronIdleStrategy) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_idle_strategy_t> for AeronIdleStrategy {
-    #[inline]
-    fn from(value: *const aeron_idle_strategy_t) -> Self {
-        AeronIdleStrategy {
-            inner: CResource::Borrowed(value as *mut aeron_idle_strategy_t),
-        }
-    }
-}
-impl From<aeron_idle_strategy_t> for AeronIdleStrategy {
-    #[inline]
-    fn from(value: aeron_idle_strategy_t) -> Self {
-        AeronIdleStrategy {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -36337,6 +36357,22 @@ impl From<*mut aeron_image_buffers_ready_t> for AeronImageBuffersReady {
         }
     }
 }
+impl From<*const aeron_image_buffers_ready_t> for AeronImageBuffersReady {
+    #[inline]
+    fn from(value: *const aeron_image_buffers_ready_t) -> Self {
+        AeronImageBuffersReady {
+            inner: CResource::Borrowed(value as *mut aeron_image_buffers_ready_t),
+        }
+    }
+}
+impl From<aeron_image_buffers_ready_t> for AeronImageBuffersReady {
+    #[inline]
+    fn from(value: aeron_image_buffers_ready_t) -> Self {
+        AeronImageBuffersReady {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronImageBuffersReady> for *mut aeron_image_buffers_ready_t {
     #[inline]
     fn from(value: AeronImageBuffersReady) -> Self {
@@ -36355,22 +36391,6 @@ impl From<AeronImageBuffersReady> for aeron_image_buffers_ready_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_image_buffers_ready_t> for AeronImageBuffersReady {
-    #[inline]
-    fn from(value: *const aeron_image_buffers_ready_t) -> Self {
-        AeronImageBuffersReady {
-            inner: CResource::Borrowed(value as *mut aeron_image_buffers_ready_t),
-        }
-    }
-}
-impl From<aeron_image_buffers_ready_t> for AeronImageBuffersReady {
-    #[inline]
-    fn from(value: aeron_image_buffers_ready_t) -> Self {
-        AeronImageBuffersReady {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronImageBuffersReady {
     fn default() -> Self {
@@ -36378,11 +36398,12 @@ impl Default for AeronImageBuffersReady {
     }
 }
 impl AeronImageBuffersReady {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -36594,6 +36615,22 @@ impl From<*mut aeron_image_constants_t> for AeronImageConstants {
         }
     }
 }
+impl From<*const aeron_image_constants_t> for AeronImageConstants {
+    #[inline]
+    fn from(value: *const aeron_image_constants_t) -> Self {
+        AeronImageConstants {
+            inner: CResource::Borrowed(value as *mut aeron_image_constants_t),
+        }
+    }
+}
+impl From<aeron_image_constants_t> for AeronImageConstants {
+    #[inline]
+    fn from(value: aeron_image_constants_t) -> Self {
+        AeronImageConstants {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronImageConstants> for *mut aeron_image_constants_t {
     #[inline]
     fn from(value: AeronImageConstants) -> Self {
@@ -36612,22 +36649,6 @@ impl From<AeronImageConstants> for aeron_image_constants_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_image_constants_t> for AeronImageConstants {
-    #[inline]
-    fn from(value: *const aeron_image_constants_t) -> Self {
-        AeronImageConstants {
-            inner: CResource::Borrowed(value as *mut aeron_image_constants_t),
-        }
-    }
-}
-impl From<aeron_image_constants_t> for AeronImageConstants {
-    #[inline]
-    fn from(value: aeron_image_constants_t) -> Self {
-        AeronImageConstants {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronImageConstants {
     fn default() -> Self {
@@ -36635,16 +36656,16 @@ impl Default for AeronImageConstants {
     }
 }
 impl AeronImageConstants {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -36863,6 +36884,22 @@ impl From<*mut aeron_image_controlled_fragment_assembler_t> for AeronImageContro
         }
     }
 }
+impl From<*const aeron_image_controlled_fragment_assembler_t> for AeronImageControlledFragmentAssembler {
+    #[inline]
+    fn from(value: *const aeron_image_controlled_fragment_assembler_t) -> Self {
+        AeronImageControlledFragmentAssembler {
+            inner: CResource::Borrowed(value as *mut aeron_image_controlled_fragment_assembler_t),
+        }
+    }
+}
+impl From<aeron_image_controlled_fragment_assembler_t> for AeronImageControlledFragmentAssembler {
+    #[inline]
+    fn from(value: aeron_image_controlled_fragment_assembler_t) -> Self {
+        AeronImageControlledFragmentAssembler {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronImageControlledFragmentAssembler> for *mut aeron_image_controlled_fragment_assembler_t {
     #[inline]
     fn from(value: AeronImageControlledFragmentAssembler) -> Self {
@@ -36879,22 +36916,6 @@ impl From<AeronImageControlledFragmentAssembler> for aeron_image_controlled_frag
     #[inline]
     fn from(value: AeronImageControlledFragmentAssembler) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_image_controlled_fragment_assembler_t> for AeronImageControlledFragmentAssembler {
-    #[inline]
-    fn from(value: *const aeron_image_controlled_fragment_assembler_t) -> Self {
-        AeronImageControlledFragmentAssembler {
-            inner: CResource::Borrowed(value as *mut aeron_image_controlled_fragment_assembler_t),
-        }
-    }
-}
-impl From<aeron_image_controlled_fragment_assembler_t> for AeronImageControlledFragmentAssembler {
-    #[inline]
-    fn from(value: aeron_image_controlled_fragment_assembler_t) -> Self {
-        AeronImageControlledFragmentAssembler {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -37061,6 +37082,22 @@ impl From<*mut aeron_image_fragment_assembler_t> for AeronImageFragmentAssembler
         }
     }
 }
+impl From<*const aeron_image_fragment_assembler_t> for AeronImageFragmentAssembler {
+    #[inline]
+    fn from(value: *const aeron_image_fragment_assembler_t) -> Self {
+        AeronImageFragmentAssembler {
+            inner: CResource::Borrowed(value as *mut aeron_image_fragment_assembler_t),
+        }
+    }
+}
+impl From<aeron_image_fragment_assembler_t> for AeronImageFragmentAssembler {
+    #[inline]
+    fn from(value: aeron_image_fragment_assembler_t) -> Self {
+        AeronImageFragmentAssembler {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronImageFragmentAssembler> for *mut aeron_image_fragment_assembler_t {
     #[inline]
     fn from(value: AeronImageFragmentAssembler) -> Self {
@@ -37077,22 +37114,6 @@ impl From<AeronImageFragmentAssembler> for aeron_image_fragment_assembler_t {
     #[inline]
     fn from(value: AeronImageFragmentAssembler) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_image_fragment_assembler_t> for AeronImageFragmentAssembler {
-    #[inline]
-    fn from(value: *const aeron_image_fragment_assembler_t) -> Self {
-        AeronImageFragmentAssembler {
-            inner: CResource::Borrowed(value as *mut aeron_image_fragment_assembler_t),
-        }
-    }
-}
-impl From<aeron_image_fragment_assembler_t> for AeronImageFragmentAssembler {
-    #[inline]
-    fn from(value: aeron_image_fragment_assembler_t) -> Self {
-        AeronImageFragmentAssembler {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -37233,6 +37254,22 @@ impl From<*mut aeron_image_message_t> for AeronImageMessage {
         }
     }
 }
+impl From<*const aeron_image_message_t> for AeronImageMessage {
+    #[inline]
+    fn from(value: *const aeron_image_message_t) -> Self {
+        AeronImageMessage {
+            inner: CResource::Borrowed(value as *mut aeron_image_message_t),
+        }
+    }
+}
+impl From<aeron_image_message_t> for AeronImageMessage {
+    #[inline]
+    fn from(value: aeron_image_message_t) -> Self {
+        AeronImageMessage {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronImageMessage> for *mut aeron_image_message_t {
     #[inline]
     fn from(value: AeronImageMessage) -> Self {
@@ -37251,22 +37288,6 @@ impl From<AeronImageMessage> for aeron_image_message_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_image_message_t> for AeronImageMessage {
-    #[inline]
-    fn from(value: *const aeron_image_message_t) -> Self {
-        AeronImageMessage {
-            inner: CResource::Borrowed(value as *mut aeron_image_message_t),
-        }
-    }
-}
-impl From<aeron_image_message_t> for AeronImageMessage {
-    #[inline]
-    fn from(value: aeron_image_message_t) -> Self {
-        AeronImageMessage {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronImageMessage {
     fn default() -> Self {
@@ -37274,11 +37295,12 @@ impl Default for AeronImageMessage {
     }
 }
 impl AeronImageMessage {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -38164,6 +38186,22 @@ impl From<*mut aeron_image_t> for AeronImage {
         }
     }
 }
+impl From<*const aeron_image_t> for AeronImage {
+    #[inline]
+    fn from(value: *const aeron_image_t) -> Self {
+        AeronImage {
+            inner: CResource::Borrowed(value as *mut aeron_image_t),
+        }
+    }
+}
+impl From<aeron_image_t> for AeronImage {
+    #[inline]
+    fn from(value: aeron_image_t) -> Self {
+        AeronImage {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronImage> for *mut aeron_image_t {
     #[inline]
     fn from(value: AeronImage) -> Self {
@@ -38180,22 +38218,6 @@ impl From<AeronImage> for aeron_image_t {
     #[inline]
     fn from(value: AeronImage) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_image_t> for AeronImage {
-    #[inline]
-    fn from(value: *const aeron_image_t) -> Self {
-        AeronImage {
-            inner: CResource::Borrowed(value as *mut aeron_image_t),
-        }
-    }
-}
-impl From<aeron_image_t> for AeronImage {
-    #[inline]
-    fn from(value: aeron_image_t) -> Self {
-        AeronImage {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[cfg(test)]
@@ -38360,6 +38382,22 @@ impl From<*mut aeron_int64_counter_map_t> for AeronInt64CounterMap {
         }
     }
 }
+impl From<*const aeron_int64_counter_map_t> for AeronInt64CounterMap {
+    #[inline]
+    fn from(value: *const aeron_int64_counter_map_t) -> Self {
+        AeronInt64CounterMap {
+            inner: CResource::Borrowed(value as *mut aeron_int64_counter_map_t),
+        }
+    }
+}
+impl From<aeron_int64_counter_map_t> for AeronInt64CounterMap {
+    #[inline]
+    fn from(value: aeron_int64_counter_map_t) -> Self {
+        AeronInt64CounterMap {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronInt64CounterMap> for *mut aeron_int64_counter_map_t {
     #[inline]
     fn from(value: AeronInt64CounterMap) -> Self {
@@ -38378,22 +38416,6 @@ impl From<AeronInt64CounterMap> for aeron_int64_counter_map_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_int64_counter_map_t> for AeronInt64CounterMap {
-    #[inline]
-    fn from(value: *const aeron_int64_counter_map_t) -> Self {
-        AeronInt64CounterMap {
-            inner: CResource::Borrowed(value as *mut aeron_int64_counter_map_t),
-        }
-    }
-}
-impl From<aeron_int64_counter_map_t> for AeronInt64CounterMap {
-    #[inline]
-    fn from(value: aeron_int64_counter_map_t) -> Self {
-        AeronInt64CounterMap {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronInt64CounterMap {
     fn default() -> Self {
@@ -38401,16 +38423,16 @@ impl Default for AeronInt64CounterMap {
     }
 }
 impl AeronInt64CounterMap {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -38587,6 +38609,22 @@ impl From<*mut aeron_int64_to_ptr_hash_map_t> for AeronInt64ToPtrHashMap {
         }
     }
 }
+impl From<*const aeron_int64_to_ptr_hash_map_t> for AeronInt64ToPtrHashMap {
+    #[inline]
+    fn from(value: *const aeron_int64_to_ptr_hash_map_t) -> Self {
+        AeronInt64ToPtrHashMap {
+            inner: CResource::Borrowed(value as *mut aeron_int64_to_ptr_hash_map_t),
+        }
+    }
+}
+impl From<aeron_int64_to_ptr_hash_map_t> for AeronInt64ToPtrHashMap {
+    #[inline]
+    fn from(value: aeron_int64_to_ptr_hash_map_t) -> Self {
+        AeronInt64ToPtrHashMap {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronInt64ToPtrHashMap> for *mut aeron_int64_to_ptr_hash_map_t {
     #[inline]
     fn from(value: AeronInt64ToPtrHashMap) -> Self {
@@ -38605,22 +38643,6 @@ impl From<AeronInt64ToPtrHashMap> for aeron_int64_to_ptr_hash_map_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_int64_to_ptr_hash_map_t> for AeronInt64ToPtrHashMap {
-    #[inline]
-    fn from(value: *const aeron_int64_to_ptr_hash_map_t) -> Self {
-        AeronInt64ToPtrHashMap {
-            inner: CResource::Borrowed(value as *mut aeron_int64_to_ptr_hash_map_t),
-        }
-    }
-}
-impl From<aeron_int64_to_ptr_hash_map_t> for AeronInt64ToPtrHashMap {
-    #[inline]
-    fn from(value: aeron_int64_to_ptr_hash_map_t) -> Self {
-        AeronInt64ToPtrHashMap {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronInt64ToPtrHashMap {
     fn default() -> Self {
@@ -38628,16 +38650,16 @@ impl Default for AeronInt64ToPtrHashMap {
     }
 }
 impl AeronInt64ToPtrHashMap {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -38790,6 +38812,22 @@ impl From<*mut aeron_int64_to_tagged_ptr_entry_t> for AeronInt64ToTaggedPtrEntry
         }
     }
 }
+impl From<*const aeron_int64_to_tagged_ptr_entry_t> for AeronInt64ToTaggedPtrEntry {
+    #[inline]
+    fn from(value: *const aeron_int64_to_tagged_ptr_entry_t) -> Self {
+        AeronInt64ToTaggedPtrEntry {
+            inner: CResource::Borrowed(value as *mut aeron_int64_to_tagged_ptr_entry_t),
+        }
+    }
+}
+impl From<aeron_int64_to_tagged_ptr_entry_t> for AeronInt64ToTaggedPtrEntry {
+    #[inline]
+    fn from(value: aeron_int64_to_tagged_ptr_entry_t) -> Self {
+        AeronInt64ToTaggedPtrEntry {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronInt64ToTaggedPtrEntry> for *mut aeron_int64_to_tagged_ptr_entry_t {
     #[inline]
     fn from(value: AeronInt64ToTaggedPtrEntry) -> Self {
@@ -38808,22 +38846,6 @@ impl From<AeronInt64ToTaggedPtrEntry> for aeron_int64_to_tagged_ptr_entry_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_int64_to_tagged_ptr_entry_t> for AeronInt64ToTaggedPtrEntry {
-    #[inline]
-    fn from(value: *const aeron_int64_to_tagged_ptr_entry_t) -> Self {
-        AeronInt64ToTaggedPtrEntry {
-            inner: CResource::Borrowed(value as *mut aeron_int64_to_tagged_ptr_entry_t),
-        }
-    }
-}
-impl From<aeron_int64_to_tagged_ptr_entry_t> for AeronInt64ToTaggedPtrEntry {
-    #[inline]
-    fn from(value: aeron_int64_to_tagged_ptr_entry_t) -> Self {
-        AeronInt64ToTaggedPtrEntry {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronInt64ToTaggedPtrEntry {
     fn default() -> Self {
@@ -38831,16 +38853,16 @@ impl Default for AeronInt64ToTaggedPtrEntry {
     }
 }
 impl AeronInt64ToTaggedPtrEntry {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -39018,6 +39040,22 @@ impl From<*mut aeron_int64_to_tagged_ptr_hash_map_t> for AeronInt64ToTaggedPtrHa
         }
     }
 }
+impl From<*const aeron_int64_to_tagged_ptr_hash_map_t> for AeronInt64ToTaggedPtrHashMap {
+    #[inline]
+    fn from(value: *const aeron_int64_to_tagged_ptr_hash_map_t) -> Self {
+        AeronInt64ToTaggedPtrHashMap {
+            inner: CResource::Borrowed(value as *mut aeron_int64_to_tagged_ptr_hash_map_t),
+        }
+    }
+}
+impl From<aeron_int64_to_tagged_ptr_hash_map_t> for AeronInt64ToTaggedPtrHashMap {
+    #[inline]
+    fn from(value: aeron_int64_to_tagged_ptr_hash_map_t) -> Self {
+        AeronInt64ToTaggedPtrHashMap {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronInt64ToTaggedPtrHashMap> for *mut aeron_int64_to_tagged_ptr_hash_map_t {
     #[inline]
     fn from(value: AeronInt64ToTaggedPtrHashMap) -> Self {
@@ -39036,22 +39074,6 @@ impl From<AeronInt64ToTaggedPtrHashMap> for aeron_int64_to_tagged_ptr_hash_map_t
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_int64_to_tagged_ptr_hash_map_t> for AeronInt64ToTaggedPtrHashMap {
-    #[inline]
-    fn from(value: *const aeron_int64_to_tagged_ptr_hash_map_t) -> Self {
-        AeronInt64ToTaggedPtrHashMap {
-            inner: CResource::Borrowed(value as *mut aeron_int64_to_tagged_ptr_hash_map_t),
-        }
-    }
-}
-impl From<aeron_int64_to_tagged_ptr_hash_map_t> for AeronInt64ToTaggedPtrHashMap {
-    #[inline]
-    fn from(value: aeron_int64_to_tagged_ptr_hash_map_t) -> Self {
-        AeronInt64ToTaggedPtrHashMap {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronInt64ToTaggedPtrHashMap {
     fn default() -> Self {
@@ -39059,16 +39081,16 @@ impl Default for AeronInt64ToTaggedPtrHashMap {
     }
 }
 impl AeronInt64ToTaggedPtrHashMap {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -39213,6 +39235,22 @@ impl From<*mut aeron_iovec_t> for AeronIovec {
         }
     }
 }
+impl From<*const aeron_iovec_t> for AeronIovec {
+    #[inline]
+    fn from(value: *const aeron_iovec_t) -> Self {
+        AeronIovec {
+            inner: CResource::Borrowed(value as *mut aeron_iovec_t),
+        }
+    }
+}
+impl From<aeron_iovec_t> for AeronIovec {
+    #[inline]
+    fn from(value: aeron_iovec_t) -> Self {
+        AeronIovec {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronIovec> for *mut aeron_iovec_t {
     #[inline]
     fn from(value: AeronIovec) -> Self {
@@ -39231,22 +39269,6 @@ impl From<AeronIovec> for aeron_iovec_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_iovec_t> for AeronIovec {
-    #[inline]
-    fn from(value: *const aeron_iovec_t) -> Self {
-        AeronIovec {
-            inner: CResource::Borrowed(value as *mut aeron_iovec_t),
-        }
-    }
-}
-impl From<aeron_iovec_t> for AeronIovec {
-    #[inline]
-    fn from(value: aeron_iovec_t) -> Self {
-        AeronIovec {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronIovec {
     fn default() -> Self {
@@ -39254,16 +39276,16 @@ impl Default for AeronIovec {
     }
 }
 impl AeronIovec {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -39440,6 +39462,22 @@ impl From<*mut aeron_ipc_channel_params_t> for AeronIpcChannelParams {
         }
     }
 }
+impl From<*const aeron_ipc_channel_params_t> for AeronIpcChannelParams {
+    #[inline]
+    fn from(value: *const aeron_ipc_channel_params_t) -> Self {
+        AeronIpcChannelParams {
+            inner: CResource::Borrowed(value as *mut aeron_ipc_channel_params_t),
+        }
+    }
+}
+impl From<aeron_ipc_channel_params_t> for AeronIpcChannelParams {
+    #[inline]
+    fn from(value: aeron_ipc_channel_params_t) -> Self {
+        AeronIpcChannelParams {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronIpcChannelParams> for *mut aeron_ipc_channel_params_t {
     #[inline]
     fn from(value: AeronIpcChannelParams) -> Self {
@@ -39458,22 +39496,6 @@ impl From<AeronIpcChannelParams> for aeron_ipc_channel_params_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_ipc_channel_params_t> for AeronIpcChannelParams {
-    #[inline]
-    fn from(value: *const aeron_ipc_channel_params_t) -> Self {
-        AeronIpcChannelParams {
-            inner: CResource::Borrowed(value as *mut aeron_ipc_channel_params_t),
-        }
-    }
-}
-impl From<aeron_ipc_channel_params_t> for AeronIpcChannelParams {
-    #[inline]
-    fn from(value: aeron_ipc_channel_params_t) -> Self {
-        AeronIpcChannelParams {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronIpcChannelParams {
     fn default() -> Self {
@@ -39481,16 +39503,16 @@ impl Default for AeronIpcChannelParams {
     }
 }
 impl AeronIpcChannelParams {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -39652,6 +39674,22 @@ impl From<*mut aeron_ipc_publication_entry_t> for AeronIpcPublicationEntry {
         }
     }
 }
+impl From<*const aeron_ipc_publication_entry_t> for AeronIpcPublicationEntry {
+    #[inline]
+    fn from(value: *const aeron_ipc_publication_entry_t) -> Self {
+        AeronIpcPublicationEntry {
+            inner: CResource::Borrowed(value as *mut aeron_ipc_publication_entry_t),
+        }
+    }
+}
+impl From<aeron_ipc_publication_entry_t> for AeronIpcPublicationEntry {
+    #[inline]
+    fn from(value: aeron_ipc_publication_entry_t) -> Self {
+        AeronIpcPublicationEntry {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronIpcPublicationEntry> for *mut aeron_ipc_publication_entry_t {
     #[inline]
     fn from(value: AeronIpcPublicationEntry) -> Self {
@@ -39670,22 +39708,6 @@ impl From<AeronIpcPublicationEntry> for aeron_ipc_publication_entry_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_ipc_publication_entry_t> for AeronIpcPublicationEntry {
-    #[inline]
-    fn from(value: *const aeron_ipc_publication_entry_t) -> Self {
-        AeronIpcPublicationEntry {
-            inner: CResource::Borrowed(value as *mut aeron_ipc_publication_entry_t),
-        }
-    }
-}
-impl From<aeron_ipc_publication_entry_t> for AeronIpcPublicationEntry {
-    #[inline]
-    fn from(value: aeron_ipc_publication_entry_t) -> Self {
-        AeronIpcPublicationEntry {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronIpcPublicationEntry {
     fn default() -> Self {
@@ -39693,16 +39715,16 @@ impl Default for AeronIpcPublicationEntry {
     }
 }
 impl AeronIpcPublicationEntry {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -40108,6 +40130,22 @@ impl From<*mut aeron_ipc_publication_t> for AeronIpcPublication {
         }
     }
 }
+impl From<*const aeron_ipc_publication_t> for AeronIpcPublication {
+    #[inline]
+    fn from(value: *const aeron_ipc_publication_t) -> Self {
+        AeronIpcPublication {
+            inner: CResource::Borrowed(value as *mut aeron_ipc_publication_t),
+        }
+    }
+}
+impl From<aeron_ipc_publication_t> for AeronIpcPublication {
+    #[inline]
+    fn from(value: aeron_ipc_publication_t) -> Self {
+        AeronIpcPublication {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronIpcPublication> for *mut aeron_ipc_publication_t {
     #[inline]
     fn from(value: AeronIpcPublication) -> Self {
@@ -40124,22 +40162,6 @@ impl From<AeronIpcPublication> for aeron_ipc_publication_t {
     #[inline]
     fn from(value: AeronIpcPublication) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_ipc_publication_t> for AeronIpcPublication {
-    #[inline]
-    fn from(value: *const aeron_ipc_publication_t) -> Self {
-        AeronIpcPublication {
-            inner: CResource::Borrowed(value as *mut aeron_ipc_publication_t),
-        }
-    }
-}
-impl From<aeron_ipc_publication_t> for AeronIpcPublication {
-    #[inline]
-    fn from(value: aeron_ipc_publication_t) -> Self {
-        AeronIpcPublication {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -40265,6 +40287,22 @@ impl From<*mut aeron_linger_resource_entry_t> for AeronLingerResourceEntry {
         }
     }
 }
+impl From<*const aeron_linger_resource_entry_t> for AeronLingerResourceEntry {
+    #[inline]
+    fn from(value: *const aeron_linger_resource_entry_t) -> Self {
+        AeronLingerResourceEntry {
+            inner: CResource::Borrowed(value as *mut aeron_linger_resource_entry_t),
+        }
+    }
+}
+impl From<aeron_linger_resource_entry_t> for AeronLingerResourceEntry {
+    #[inline]
+    fn from(value: aeron_linger_resource_entry_t) -> Self {
+        AeronLingerResourceEntry {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronLingerResourceEntry> for *mut aeron_linger_resource_entry_t {
     #[inline]
     fn from(value: AeronLingerResourceEntry) -> Self {
@@ -40283,22 +40321,6 @@ impl From<AeronLingerResourceEntry> for aeron_linger_resource_entry_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_linger_resource_entry_t> for AeronLingerResourceEntry {
-    #[inline]
-    fn from(value: *const aeron_linger_resource_entry_t) -> Self {
-        AeronLingerResourceEntry {
-            inner: CResource::Borrowed(value as *mut aeron_linger_resource_entry_t),
-        }
-    }
-}
-impl From<aeron_linger_resource_entry_t> for AeronLingerResourceEntry {
-    #[inline]
-    fn from(value: aeron_linger_resource_entry_t) -> Self {
-        AeronLingerResourceEntry {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronLingerResourceEntry {
     fn default() -> Self {
@@ -40306,16 +40328,16 @@ impl Default for AeronLingerResourceEntry {
     }
 }
 impl AeronLingerResourceEntry {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -40472,6 +40494,22 @@ impl From<*mut aeron_local_sockaddr_key_layout_t> for AeronLocalSockaddrKeyLayou
         }
     }
 }
+impl From<*const aeron_local_sockaddr_key_layout_t> for AeronLocalSockaddrKeyLayout {
+    #[inline]
+    fn from(value: *const aeron_local_sockaddr_key_layout_t) -> Self {
+        AeronLocalSockaddrKeyLayout {
+            inner: CResource::Borrowed(value as *mut aeron_local_sockaddr_key_layout_t),
+        }
+    }
+}
+impl From<aeron_local_sockaddr_key_layout_t> for AeronLocalSockaddrKeyLayout {
+    #[inline]
+    fn from(value: aeron_local_sockaddr_key_layout_t) -> Self {
+        AeronLocalSockaddrKeyLayout {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronLocalSockaddrKeyLayout> for *mut aeron_local_sockaddr_key_layout_t {
     #[inline]
     fn from(value: AeronLocalSockaddrKeyLayout) -> Self {
@@ -40490,22 +40528,6 @@ impl From<AeronLocalSockaddrKeyLayout> for aeron_local_sockaddr_key_layout_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_local_sockaddr_key_layout_t> for AeronLocalSockaddrKeyLayout {
-    #[inline]
-    fn from(value: *const aeron_local_sockaddr_key_layout_t) -> Self {
-        AeronLocalSockaddrKeyLayout {
-            inner: CResource::Borrowed(value as *mut aeron_local_sockaddr_key_layout_t),
-        }
-    }
-}
-impl From<aeron_local_sockaddr_key_layout_t> for AeronLocalSockaddrKeyLayout {
-    #[inline]
-    fn from(value: aeron_local_sockaddr_key_layout_t) -> Self {
-        AeronLocalSockaddrKeyLayout {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronLocalSockaddrKeyLayout {
     fn default() -> Self {
@@ -40513,11 +40535,12 @@ impl Default for AeronLocalSockaddrKeyLayout {
     }
 }
 impl AeronLocalSockaddrKeyLayout {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -40635,6 +40658,22 @@ impl From<*mut aeron_log_buffer_t> for AeronLogBuffer {
         }
     }
 }
+impl From<*const aeron_log_buffer_t> for AeronLogBuffer {
+    #[inline]
+    fn from(value: *const aeron_log_buffer_t) -> Self {
+        AeronLogBuffer {
+            inner: CResource::Borrowed(value as *mut aeron_log_buffer_t),
+        }
+    }
+}
+impl From<aeron_log_buffer_t> for AeronLogBuffer {
+    #[inline]
+    fn from(value: aeron_log_buffer_t) -> Self {
+        AeronLogBuffer {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronLogBuffer> for *mut aeron_log_buffer_t {
     #[inline]
     fn from(value: AeronLogBuffer) -> Self {
@@ -40651,22 +40690,6 @@ impl From<AeronLogBuffer> for aeron_log_buffer_t {
     #[inline]
     fn from(value: AeronLogBuffer) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_log_buffer_t> for AeronLogBuffer {
-    #[inline]
-    fn from(value: *const aeron_log_buffer_t) -> Self {
-        AeronLogBuffer {
-            inner: CResource::Borrowed(value as *mut aeron_log_buffer_t),
-        }
-    }
-}
-impl From<aeron_log_buffer_t> for AeronLogBuffer {
-    #[inline]
-    fn from(value: aeron_log_buffer_t) -> Self {
-        AeronLogBuffer {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[cfg(test)]
@@ -41079,6 +41102,22 @@ impl From<*mut aeron_logbuffer_metadata_t> for AeronLogbufferMetadata {
         }
     }
 }
+impl From<*const aeron_logbuffer_metadata_t> for AeronLogbufferMetadata {
+    #[inline]
+    fn from(value: *const aeron_logbuffer_metadata_t) -> Self {
+        AeronLogbufferMetadata {
+            inner: CResource::Borrowed(value as *mut aeron_logbuffer_metadata_t),
+        }
+    }
+}
+impl From<aeron_logbuffer_metadata_t> for AeronLogbufferMetadata {
+    #[inline]
+    fn from(value: aeron_logbuffer_metadata_t) -> Self {
+        AeronLogbufferMetadata {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronLogbufferMetadata> for *mut aeron_logbuffer_metadata_t {
     #[inline]
     fn from(value: AeronLogbufferMetadata) -> Self {
@@ -41097,22 +41136,6 @@ impl From<AeronLogbufferMetadata> for aeron_logbuffer_metadata_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_logbuffer_metadata_t> for AeronLogbufferMetadata {
-    #[inline]
-    fn from(value: *const aeron_logbuffer_metadata_t) -> Self {
-        AeronLogbufferMetadata {
-            inner: CResource::Borrowed(value as *mut aeron_logbuffer_metadata_t),
-        }
-    }
-}
-impl From<aeron_logbuffer_metadata_t> for AeronLogbufferMetadata {
-    #[inline]
-    fn from(value: aeron_logbuffer_metadata_t) -> Self {
-        AeronLogbufferMetadata {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronLogbufferMetadata {
     fn default() -> Self {
@@ -41120,11 +41143,12 @@ impl Default for AeronLogbufferMetadata {
     }
 }
 impl AeronLogbufferMetadata {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -41278,6 +41302,22 @@ impl From<*mut aeron_loss_detector_gap_t> for AeronLossDetectorGap {
         }
     }
 }
+impl From<*const aeron_loss_detector_gap_t> for AeronLossDetectorGap {
+    #[inline]
+    fn from(value: *const aeron_loss_detector_gap_t) -> Self {
+        AeronLossDetectorGap {
+            inner: CResource::Borrowed(value as *mut aeron_loss_detector_gap_t),
+        }
+    }
+}
+impl From<aeron_loss_detector_gap_t> for AeronLossDetectorGap {
+    #[inline]
+    fn from(value: aeron_loss_detector_gap_t) -> Self {
+        AeronLossDetectorGap {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronLossDetectorGap> for *mut aeron_loss_detector_gap_t {
     #[inline]
     fn from(value: AeronLossDetectorGap) -> Self {
@@ -41296,22 +41336,6 @@ impl From<AeronLossDetectorGap> for aeron_loss_detector_gap_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_loss_detector_gap_t> for AeronLossDetectorGap {
-    #[inline]
-    fn from(value: *const aeron_loss_detector_gap_t) -> Self {
-        AeronLossDetectorGap {
-            inner: CResource::Borrowed(value as *mut aeron_loss_detector_gap_t),
-        }
-    }
-}
-impl From<aeron_loss_detector_gap_t> for AeronLossDetectorGap {
-    #[inline]
-    fn from(value: aeron_loss_detector_gap_t) -> Self {
-        AeronLossDetectorGap {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronLossDetectorGap {
     fn default() -> Self {
@@ -41319,11 +41343,12 @@ impl Default for AeronLossDetectorGap {
     }
 }
 impl AeronLossDetectorGap {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -41666,6 +41691,22 @@ impl From<*mut aeron_loss_detector_t> for AeronLossDetector {
         }
     }
 }
+impl From<*const aeron_loss_detector_t> for AeronLossDetector {
+    #[inline]
+    fn from(value: *const aeron_loss_detector_t) -> Self {
+        AeronLossDetector {
+            inner: CResource::Borrowed(value as *mut aeron_loss_detector_t),
+        }
+    }
+}
+impl From<aeron_loss_detector_t> for AeronLossDetector {
+    #[inline]
+    fn from(value: aeron_loss_detector_t) -> Self {
+        AeronLossDetector {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronLossDetector> for *mut aeron_loss_detector_t {
     #[inline]
     fn from(value: AeronLossDetector) -> Self {
@@ -41684,22 +41725,6 @@ impl From<AeronLossDetector> for aeron_loss_detector_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_loss_detector_t> for AeronLossDetector {
-    #[inline]
-    fn from(value: *const aeron_loss_detector_t) -> Self {
-        AeronLossDetector {
-            inner: CResource::Borrowed(value as *mut aeron_loss_detector_t),
-        }
-    }
-}
-impl From<aeron_loss_detector_t> for AeronLossDetector {
-    #[inline]
-    fn from(value: aeron_loss_detector_t) -> Self {
-        AeronLossDetector {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronLossDetector {
     fn default() -> Self {
@@ -41707,16 +41732,16 @@ impl Default for AeronLossDetector {
     }
 }
 impl AeronLossDetector {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -41877,6 +41902,22 @@ impl From<*mut aeron_loss_generator_t> for AeronLossGenerator {
         }
     }
 }
+impl From<*const aeron_loss_generator_t> for AeronLossGenerator {
+    #[inline]
+    fn from(value: *const aeron_loss_generator_t) -> Self {
+        AeronLossGenerator {
+            inner: CResource::Borrowed(value as *mut aeron_loss_generator_t),
+        }
+    }
+}
+impl From<aeron_loss_generator_t> for AeronLossGenerator {
+    #[inline]
+    fn from(value: aeron_loss_generator_t) -> Self {
+        AeronLossGenerator {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronLossGenerator> for *mut aeron_loss_generator_t {
     #[inline]
     fn from(value: AeronLossGenerator) -> Self {
@@ -41895,22 +41936,6 @@ impl From<AeronLossGenerator> for aeron_loss_generator_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_loss_generator_t> for AeronLossGenerator {
-    #[inline]
-    fn from(value: *const aeron_loss_generator_t) -> Self {
-        AeronLossGenerator {
-            inner: CResource::Borrowed(value as *mut aeron_loss_generator_t),
-        }
-    }
-}
-impl From<aeron_loss_generator_t> for AeronLossGenerator {
-    #[inline]
-    fn from(value: aeron_loss_generator_t) -> Self {
-        AeronLossGenerator {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronLossGenerator {
     fn default() -> Self {
@@ -41918,16 +41943,16 @@ impl Default for AeronLossGenerator {
     }
 }
 impl AeronLossGenerator {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -42112,6 +42137,22 @@ impl From<*mut aeron_loss_reporter_entry_t> for AeronLossReporterEntry {
         }
     }
 }
+impl From<*const aeron_loss_reporter_entry_t> for AeronLossReporterEntry {
+    #[inline]
+    fn from(value: *const aeron_loss_reporter_entry_t) -> Self {
+        AeronLossReporterEntry {
+            inner: CResource::Borrowed(value as *mut aeron_loss_reporter_entry_t),
+        }
+    }
+}
+impl From<aeron_loss_reporter_entry_t> for AeronLossReporterEntry {
+    #[inline]
+    fn from(value: aeron_loss_reporter_entry_t) -> Self {
+        AeronLossReporterEntry {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronLossReporterEntry> for *mut aeron_loss_reporter_entry_t {
     #[inline]
     fn from(value: AeronLossReporterEntry) -> Self {
@@ -42130,22 +42171,6 @@ impl From<AeronLossReporterEntry> for aeron_loss_reporter_entry_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_loss_reporter_entry_t> for AeronLossReporterEntry {
-    #[inline]
-    fn from(value: *const aeron_loss_reporter_entry_t) -> Self {
-        AeronLossReporterEntry {
-            inner: CResource::Borrowed(value as *mut aeron_loss_reporter_entry_t),
-        }
-    }
-}
-impl From<aeron_loss_reporter_entry_t> for AeronLossReporterEntry {
-    #[inline]
-    fn from(value: aeron_loss_reporter_entry_t) -> Self {
-        AeronLossReporterEntry {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronLossReporterEntry {
     fn default() -> Self {
@@ -42153,11 +42178,12 @@ impl Default for AeronLossReporterEntry {
     }
 }
 impl AeronLossReporterEntry {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -42522,6 +42548,22 @@ impl From<*mut aeron_loss_reporter_t> for AeronLossReporter {
         }
     }
 }
+impl From<*const aeron_loss_reporter_t> for AeronLossReporter {
+    #[inline]
+    fn from(value: *const aeron_loss_reporter_t) -> Self {
+        AeronLossReporter {
+            inner: CResource::Borrowed(value as *mut aeron_loss_reporter_t),
+        }
+    }
+}
+impl From<aeron_loss_reporter_t> for AeronLossReporter {
+    #[inline]
+    fn from(value: aeron_loss_reporter_t) -> Self {
+        AeronLossReporter {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronLossReporter> for *mut aeron_loss_reporter_t {
     #[inline]
     fn from(value: AeronLossReporter) -> Self {
@@ -42540,22 +42582,6 @@ impl From<AeronLossReporter> for aeron_loss_reporter_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_loss_reporter_t> for AeronLossReporter {
-    #[inline]
-    fn from(value: *const aeron_loss_reporter_t) -> Self {
-        AeronLossReporter {
-            inner: CResource::Borrowed(value as *mut aeron_loss_reporter_t),
-        }
-    }
-}
-impl From<aeron_loss_reporter_t> for AeronLossReporter {
-    #[inline]
-    fn from(value: aeron_loss_reporter_t) -> Self {
-        AeronLossReporter {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronLossReporter {
     fn default() -> Self {
@@ -42563,16 +42589,16 @@ impl Default for AeronLossReporter {
     }
 }
 impl AeronLossReporter {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -42725,6 +42751,22 @@ impl From<*mut aeron_mapped_buffer_t> for AeronMappedBuffer {
         }
     }
 }
+impl From<*const aeron_mapped_buffer_t> for AeronMappedBuffer {
+    #[inline]
+    fn from(value: *const aeron_mapped_buffer_t) -> Self {
+        AeronMappedBuffer {
+            inner: CResource::Borrowed(value as *mut aeron_mapped_buffer_t),
+        }
+    }
+}
+impl From<aeron_mapped_buffer_t> for AeronMappedBuffer {
+    #[inline]
+    fn from(value: aeron_mapped_buffer_t) -> Self {
+        AeronMappedBuffer {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronMappedBuffer> for *mut aeron_mapped_buffer_t {
     #[inline]
     fn from(value: AeronMappedBuffer) -> Self {
@@ -42743,22 +42785,6 @@ impl From<AeronMappedBuffer> for aeron_mapped_buffer_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_mapped_buffer_t> for AeronMappedBuffer {
-    #[inline]
-    fn from(value: *const aeron_mapped_buffer_t) -> Self {
-        AeronMappedBuffer {
-            inner: CResource::Borrowed(value as *mut aeron_mapped_buffer_t),
-        }
-    }
-}
-impl From<aeron_mapped_buffer_t> for AeronMappedBuffer {
-    #[inline]
-    fn from(value: aeron_mapped_buffer_t) -> Self {
-        AeronMappedBuffer {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronMappedBuffer {
     fn default() -> Self {
@@ -42766,16 +42792,16 @@ impl Default for AeronMappedBuffer {
     }
 }
 impl AeronMappedBuffer {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -43044,6 +43070,22 @@ impl From<*mut aeron_mapped_file_t> for AeronMappedFile {
         }
     }
 }
+impl From<*const aeron_mapped_file_t> for AeronMappedFile {
+    #[inline]
+    fn from(value: *const aeron_mapped_file_t) -> Self {
+        AeronMappedFile {
+            inner: CResource::Borrowed(value as *mut aeron_mapped_file_t),
+        }
+    }
+}
+impl From<aeron_mapped_file_t> for AeronMappedFile {
+    #[inline]
+    fn from(value: aeron_mapped_file_t) -> Self {
+        AeronMappedFile {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronMappedFile> for *mut aeron_mapped_file_t {
     #[inline]
     fn from(value: AeronMappedFile) -> Self {
@@ -43062,22 +43104,6 @@ impl From<AeronMappedFile> for aeron_mapped_file_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_mapped_file_t> for AeronMappedFile {
-    #[inline]
-    fn from(value: *const aeron_mapped_file_t) -> Self {
-        AeronMappedFile {
-            inner: CResource::Borrowed(value as *mut aeron_mapped_file_t),
-        }
-    }
-}
-impl From<aeron_mapped_file_t> for AeronMappedFile {
-    #[inline]
-    fn from(value: aeron_mapped_file_t) -> Self {
-        AeronMappedFile {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronMappedFile {
     fn default() -> Self {
@@ -43085,16 +43111,16 @@ impl Default for AeronMappedFile {
     }
 }
 impl AeronMappedFile {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -43339,6 +43365,22 @@ impl From<*mut aeron_mapped_raw_log_t> for AeronMappedRawLog {
         }
     }
 }
+impl From<*const aeron_mapped_raw_log_t> for AeronMappedRawLog {
+    #[inline]
+    fn from(value: *const aeron_mapped_raw_log_t) -> Self {
+        AeronMappedRawLog {
+            inner: CResource::Borrowed(value as *mut aeron_mapped_raw_log_t),
+        }
+    }
+}
+impl From<aeron_mapped_raw_log_t> for AeronMappedRawLog {
+    #[inline]
+    fn from(value: aeron_mapped_raw_log_t) -> Self {
+        AeronMappedRawLog {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronMappedRawLog> for *mut aeron_mapped_raw_log_t {
     #[inline]
     fn from(value: AeronMappedRawLog) -> Self {
@@ -43357,22 +43399,6 @@ impl From<AeronMappedRawLog> for aeron_mapped_raw_log_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_mapped_raw_log_t> for AeronMappedRawLog {
-    #[inline]
-    fn from(value: *const aeron_mapped_raw_log_t) -> Self {
-        AeronMappedRawLog {
-            inner: CResource::Borrowed(value as *mut aeron_mapped_raw_log_t),
-        }
-    }
-}
-impl From<aeron_mapped_raw_log_t> for AeronMappedRawLog {
-    #[inline]
-    fn from(value: aeron_mapped_raw_log_t) -> Self {
-        AeronMappedRawLog {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronMappedRawLog {
     fn default() -> Self {
@@ -43380,11 +43406,12 @@ impl Default for AeronMappedRawLog {
     }
 }
 impl AeronMappedRawLog {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -43887,6 +43914,22 @@ impl From<*mut aeron_mpsc_rb_t> for AeronMpscRb {
         }
     }
 }
+impl From<*const aeron_mpsc_rb_t> for AeronMpscRb {
+    #[inline]
+    fn from(value: *const aeron_mpsc_rb_t) -> Self {
+        AeronMpscRb {
+            inner: CResource::Borrowed(value as *mut aeron_mpsc_rb_t),
+        }
+    }
+}
+impl From<aeron_mpsc_rb_t> for AeronMpscRb {
+    #[inline]
+    fn from(value: aeron_mpsc_rb_t) -> Self {
+        AeronMpscRb {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronMpscRb> for *mut aeron_mpsc_rb_t {
     #[inline]
     fn from(value: AeronMpscRb) -> Self {
@@ -43905,22 +43948,6 @@ impl From<AeronMpscRb> for aeron_mpsc_rb_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_mpsc_rb_t> for AeronMpscRb {
-    #[inline]
-    fn from(value: *const aeron_mpsc_rb_t) -> Self {
-        AeronMpscRb {
-            inner: CResource::Borrowed(value as *mut aeron_mpsc_rb_t),
-        }
-    }
-}
-impl From<aeron_mpsc_rb_t> for AeronMpscRb {
-    #[inline]
-    fn from(value: aeron_mpsc_rb_t) -> Self {
-        AeronMpscRb {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronMpscRb {
     fn default() -> Self {
@@ -43928,16 +43955,16 @@ impl Default for AeronMpscRb {
     }
 }
 impl AeronMpscRb {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -44116,6 +44143,22 @@ impl From<*mut aeron_nak_header_t> for AeronNakHeader {
         }
     }
 }
+impl From<*const aeron_nak_header_t> for AeronNakHeader {
+    #[inline]
+    fn from(value: *const aeron_nak_header_t) -> Self {
+        AeronNakHeader {
+            inner: CResource::Borrowed(value as *mut aeron_nak_header_t),
+        }
+    }
+}
+impl From<aeron_nak_header_t> for AeronNakHeader {
+    #[inline]
+    fn from(value: aeron_nak_header_t) -> Self {
+        AeronNakHeader {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronNakHeader> for *mut aeron_nak_header_t {
     #[inline]
     fn from(value: AeronNakHeader) -> Self {
@@ -44134,22 +44177,6 @@ impl From<AeronNakHeader> for aeron_nak_header_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_nak_header_t> for AeronNakHeader {
-    #[inline]
-    fn from(value: *const aeron_nak_header_t) -> Self {
-        AeronNakHeader {
-            inner: CResource::Borrowed(value as *mut aeron_nak_header_t),
-        }
-    }
-}
-impl From<aeron_nak_header_t> for AeronNakHeader {
-    #[inline]
-    fn from(value: aeron_nak_header_t) -> Self {
-        AeronNakHeader {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronNakHeader {
     fn default() -> Self {
@@ -44157,11 +44184,12 @@ impl Default for AeronNakHeader {
     }
 }
 impl AeronNakHeader {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -44308,6 +44336,22 @@ impl From<*mut aeron_named_interface_t> for AeronNamedInterface {
         }
     }
 }
+impl From<*const aeron_named_interface_t> for AeronNamedInterface {
+    #[inline]
+    fn from(value: *const aeron_named_interface_t) -> Self {
+        AeronNamedInterface {
+            inner: CResource::Borrowed(value as *mut aeron_named_interface_t),
+        }
+    }
+}
+impl From<aeron_named_interface_t> for AeronNamedInterface {
+    #[inline]
+    fn from(value: aeron_named_interface_t) -> Self {
+        AeronNamedInterface {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronNamedInterface> for *mut aeron_named_interface_t {
     #[inline]
     fn from(value: AeronNamedInterface) -> Self {
@@ -44326,22 +44370,6 @@ impl From<AeronNamedInterface> for aeron_named_interface_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_named_interface_t> for AeronNamedInterface {
-    #[inline]
-    fn from(value: *const aeron_named_interface_t) -> Self {
-        AeronNamedInterface {
-            inner: CResource::Borrowed(value as *mut aeron_named_interface_t),
-        }
-    }
-}
-impl From<aeron_named_interface_t> for AeronNamedInterface {
-    #[inline]
-    fn from(value: aeron_named_interface_t) -> Self {
-        AeronNamedInterface {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronNamedInterface {
     fn default() -> Self {
@@ -44349,11 +44377,12 @@ impl Default for AeronNamedInterface {
     }
 }
 impl AeronNamedInterface {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -44515,6 +44544,22 @@ impl From<*mut aeron_network_publication_entry_t> for AeronNetworkPublicationEnt
         }
     }
 }
+impl From<*const aeron_network_publication_entry_t> for AeronNetworkPublicationEntry {
+    #[inline]
+    fn from(value: *const aeron_network_publication_entry_t) -> Self {
+        AeronNetworkPublicationEntry {
+            inner: CResource::Borrowed(value as *mut aeron_network_publication_entry_t),
+        }
+    }
+}
+impl From<aeron_network_publication_entry_t> for AeronNetworkPublicationEntry {
+    #[inline]
+    fn from(value: aeron_network_publication_entry_t) -> Self {
+        AeronNetworkPublicationEntry {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronNetworkPublicationEntry> for *mut aeron_network_publication_entry_t {
     #[inline]
     fn from(value: AeronNetworkPublicationEntry) -> Self {
@@ -44533,22 +44578,6 @@ impl From<AeronNetworkPublicationEntry> for aeron_network_publication_entry_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_network_publication_entry_t> for AeronNetworkPublicationEntry {
-    #[inline]
-    fn from(value: *const aeron_network_publication_entry_t) -> Self {
-        AeronNetworkPublicationEntry {
-            inner: CResource::Borrowed(value as *mut aeron_network_publication_entry_t),
-        }
-    }
-}
-impl From<aeron_network_publication_entry_t> for AeronNetworkPublicationEntry {
-    #[inline]
-    fn from(value: aeron_network_publication_entry_t) -> Self {
-        AeronNetworkPublicationEntry {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronNetworkPublicationEntry {
     fn default() -> Self {
@@ -44556,16 +44585,16 @@ impl Default for AeronNetworkPublicationEntry {
     }
 }
 impl AeronNetworkPublicationEntry {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -45358,6 +45387,22 @@ impl From<*mut aeron_network_publication_t> for AeronNetworkPublication {
         }
     }
 }
+impl From<*const aeron_network_publication_t> for AeronNetworkPublication {
+    #[inline]
+    fn from(value: *const aeron_network_publication_t) -> Self {
+        AeronNetworkPublication {
+            inner: CResource::Borrowed(value as *mut aeron_network_publication_t),
+        }
+    }
+}
+impl From<aeron_network_publication_t> for AeronNetworkPublication {
+    #[inline]
+    fn from(value: aeron_network_publication_t) -> Self {
+        AeronNetworkPublication {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronNetworkPublication> for *mut aeron_network_publication_t {
     #[inline]
     fn from(value: AeronNetworkPublication) -> Self {
@@ -45374,22 +45419,6 @@ impl From<AeronNetworkPublication> for aeron_network_publication_t {
     #[inline]
     fn from(value: AeronNetworkPublication) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_network_publication_t> for AeronNetworkPublication {
-    #[inline]
-    fn from(value: *const aeron_network_publication_t) -> Self {
-        AeronNetworkPublication {
-            inner: CResource::Borrowed(value as *mut aeron_network_publication_t),
-        }
-    }
-}
-impl From<aeron_network_publication_t> for AeronNetworkPublication {
-    #[inline]
-    fn from(value: aeron_network_publication_t) -> Self {
-        AeronNetworkPublication {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -45510,6 +45539,22 @@ impl From<*mut aeron_next_available_session_id_response_t> for AeronNextAvailabl
         }
     }
 }
+impl From<*const aeron_next_available_session_id_response_t> for AeronNextAvailableSessionIdResponse {
+    #[inline]
+    fn from(value: *const aeron_next_available_session_id_response_t) -> Self {
+        AeronNextAvailableSessionIdResponse {
+            inner: CResource::Borrowed(value as *mut aeron_next_available_session_id_response_t),
+        }
+    }
+}
+impl From<aeron_next_available_session_id_response_t> for AeronNextAvailableSessionIdResponse {
+    #[inline]
+    fn from(value: aeron_next_available_session_id_response_t) -> Self {
+        AeronNextAvailableSessionIdResponse {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronNextAvailableSessionIdResponse> for *mut aeron_next_available_session_id_response_t {
     #[inline]
     fn from(value: AeronNextAvailableSessionIdResponse) -> Self {
@@ -45528,22 +45573,6 @@ impl From<AeronNextAvailableSessionIdResponse> for aeron_next_available_session_
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_next_available_session_id_response_t> for AeronNextAvailableSessionIdResponse {
-    #[inline]
-    fn from(value: *const aeron_next_available_session_id_response_t) -> Self {
-        AeronNextAvailableSessionIdResponse {
-            inner: CResource::Borrowed(value as *mut aeron_next_available_session_id_response_t),
-        }
-    }
-}
-impl From<aeron_next_available_session_id_response_t> for AeronNextAvailableSessionIdResponse {
-    #[inline]
-    fn from(value: aeron_next_available_session_id_response_t) -> Self {
-        AeronNextAvailableSessionIdResponse {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronNextAvailableSessionIdResponse {
     fn default() -> Self {
@@ -45551,11 +45580,12 @@ impl Default for AeronNextAvailableSessionIdResponse {
     }
 }
 impl AeronNextAvailableSessionIdResponse {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -45715,6 +45745,22 @@ impl From<*mut aeron_on_available_counter_pair_t> for AeronAvailableCounterPair 
         }
     }
 }
+impl From<*const aeron_on_available_counter_pair_t> for AeronAvailableCounterPair {
+    #[inline]
+    fn from(value: *const aeron_on_available_counter_pair_t) -> Self {
+        AeronAvailableCounterPair {
+            inner: CResource::Borrowed(value as *mut aeron_on_available_counter_pair_t),
+        }
+    }
+}
+impl From<aeron_on_available_counter_pair_t> for AeronAvailableCounterPair {
+    #[inline]
+    fn from(value: aeron_on_available_counter_pair_t) -> Self {
+        AeronAvailableCounterPair {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronAvailableCounterPair> for *mut aeron_on_available_counter_pair_t {
     #[inline]
     fn from(value: AeronAvailableCounterPair) -> Self {
@@ -45733,22 +45779,6 @@ impl From<AeronAvailableCounterPair> for aeron_on_available_counter_pair_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_on_available_counter_pair_t> for AeronAvailableCounterPair {
-    #[inline]
-    fn from(value: *const aeron_on_available_counter_pair_t) -> Self {
-        AeronAvailableCounterPair {
-            inner: CResource::Borrowed(value as *mut aeron_on_available_counter_pair_t),
-        }
-    }
-}
-impl From<aeron_on_available_counter_pair_t> for AeronAvailableCounterPair {
-    #[inline]
-    fn from(value: aeron_on_available_counter_pair_t) -> Self {
-        AeronAvailableCounterPair {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronAvailableCounterPair {
     fn default() -> Self {
@@ -45756,16 +45786,16 @@ impl Default for AeronAvailableCounterPair {
     }
 }
 impl AeronAvailableCounterPair {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -45925,6 +45955,22 @@ impl From<*mut aeron_on_close_client_pair_t> for AeronCloseClientPair {
         }
     }
 }
+impl From<*const aeron_on_close_client_pair_t> for AeronCloseClientPair {
+    #[inline]
+    fn from(value: *const aeron_on_close_client_pair_t) -> Self {
+        AeronCloseClientPair {
+            inner: CResource::Borrowed(value as *mut aeron_on_close_client_pair_t),
+        }
+    }
+}
+impl From<aeron_on_close_client_pair_t> for AeronCloseClientPair {
+    #[inline]
+    fn from(value: aeron_on_close_client_pair_t) -> Self {
+        AeronCloseClientPair {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronCloseClientPair> for *mut aeron_on_close_client_pair_t {
     #[inline]
     fn from(value: AeronCloseClientPair) -> Self {
@@ -45943,22 +45989,6 @@ impl From<AeronCloseClientPair> for aeron_on_close_client_pair_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_on_close_client_pair_t> for AeronCloseClientPair {
-    #[inline]
-    fn from(value: *const aeron_on_close_client_pair_t) -> Self {
-        AeronCloseClientPair {
-            inner: CResource::Borrowed(value as *mut aeron_on_close_client_pair_t),
-        }
-    }
-}
-impl From<aeron_on_close_client_pair_t> for AeronCloseClientPair {
-    #[inline]
-    fn from(value: aeron_on_close_client_pair_t) -> Self {
-        AeronCloseClientPair {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronCloseClientPair {
     fn default() -> Self {
@@ -45966,16 +45996,16 @@ impl Default for AeronCloseClientPair {
     }
 }
 impl AeronCloseClientPair {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -46135,6 +46165,22 @@ impl From<*mut aeron_on_unavailable_counter_pair_t> for AeronUnavailableCounterP
         }
     }
 }
+impl From<*const aeron_on_unavailable_counter_pair_t> for AeronUnavailableCounterPair {
+    #[inline]
+    fn from(value: *const aeron_on_unavailable_counter_pair_t) -> Self {
+        AeronUnavailableCounterPair {
+            inner: CResource::Borrowed(value as *mut aeron_on_unavailable_counter_pair_t),
+        }
+    }
+}
+impl From<aeron_on_unavailable_counter_pair_t> for AeronUnavailableCounterPair {
+    #[inline]
+    fn from(value: aeron_on_unavailable_counter_pair_t) -> Self {
+        AeronUnavailableCounterPair {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronUnavailableCounterPair> for *mut aeron_on_unavailable_counter_pair_t {
     #[inline]
     fn from(value: AeronUnavailableCounterPair) -> Self {
@@ -46153,22 +46199,6 @@ impl From<AeronUnavailableCounterPair> for aeron_on_unavailable_counter_pair_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_on_unavailable_counter_pair_t> for AeronUnavailableCounterPair {
-    #[inline]
-    fn from(value: *const aeron_on_unavailable_counter_pair_t) -> Self {
-        AeronUnavailableCounterPair {
-            inner: CResource::Borrowed(value as *mut aeron_on_unavailable_counter_pair_t),
-        }
-    }
-}
-impl From<aeron_on_unavailable_counter_pair_t> for AeronUnavailableCounterPair {
-    #[inline]
-    fn from(value: aeron_on_unavailable_counter_pair_t) -> Self {
-        AeronUnavailableCounterPair {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronUnavailableCounterPair {
     fn default() -> Self {
@@ -46176,16 +46206,16 @@ impl Default for AeronUnavailableCounterPair {
     }
 }
 impl AeronUnavailableCounterPair {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -46327,6 +46357,22 @@ impl From<*mut aeron_operation_succeeded_t> for AeronOperationSucceeded {
         }
     }
 }
+impl From<*const aeron_operation_succeeded_t> for AeronOperationSucceeded {
+    #[inline]
+    fn from(value: *const aeron_operation_succeeded_t) -> Self {
+        AeronOperationSucceeded {
+            inner: CResource::Borrowed(value as *mut aeron_operation_succeeded_t),
+        }
+    }
+}
+impl From<aeron_operation_succeeded_t> for AeronOperationSucceeded {
+    #[inline]
+    fn from(value: aeron_operation_succeeded_t) -> Self {
+        AeronOperationSucceeded {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronOperationSucceeded> for *mut aeron_operation_succeeded_t {
     #[inline]
     fn from(value: AeronOperationSucceeded) -> Self {
@@ -46345,22 +46391,6 @@ impl From<AeronOperationSucceeded> for aeron_operation_succeeded_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_operation_succeeded_t> for AeronOperationSucceeded {
-    #[inline]
-    fn from(value: *const aeron_operation_succeeded_t) -> Self {
-        AeronOperationSucceeded {
-            inner: CResource::Borrowed(value as *mut aeron_operation_succeeded_t),
-        }
-    }
-}
-impl From<aeron_operation_succeeded_t> for AeronOperationSucceeded {
-    #[inline]
-    fn from(value: aeron_operation_succeeded_t) -> Self {
-        AeronOperationSucceeded {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronOperationSucceeded {
     fn default() -> Self {
@@ -46368,11 +46398,12 @@ impl Default for AeronOperationSucceeded {
     }
 }
 impl AeronOperationSucceeded {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -46520,6 +46551,22 @@ impl From<*mut aeron_option_header_t> for AeronOptionHeader {
         }
     }
 }
+impl From<*const aeron_option_header_t> for AeronOptionHeader {
+    #[inline]
+    fn from(value: *const aeron_option_header_t) -> Self {
+        AeronOptionHeader {
+            inner: CResource::Borrowed(value as *mut aeron_option_header_t),
+        }
+    }
+}
+impl From<aeron_option_header_t> for AeronOptionHeader {
+    #[inline]
+    fn from(value: aeron_option_header_t) -> Self {
+        AeronOptionHeader {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronOptionHeader> for *mut aeron_option_header_t {
     #[inline]
     fn from(value: AeronOptionHeader) -> Self {
@@ -46538,22 +46585,6 @@ impl From<AeronOptionHeader> for aeron_option_header_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_option_header_t> for AeronOptionHeader {
-    #[inline]
-    fn from(value: *const aeron_option_header_t) -> Self {
-        AeronOptionHeader {
-            inner: CResource::Borrowed(value as *mut aeron_option_header_t),
-        }
-    }
-}
-impl From<aeron_option_header_t> for AeronOptionHeader {
-    #[inline]
-    fn from(value: aeron_option_header_t) -> Self {
-        AeronOptionHeader {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronOptionHeader {
     fn default() -> Self {
@@ -46561,11 +46592,12 @@ impl Default for AeronOptionHeader {
     }
 }
 impl AeronOptionHeader {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -46721,6 +46753,22 @@ impl From<*mut aeron_parsed_address_t> for AeronParsedAddress {
         }
     }
 }
+impl From<*const aeron_parsed_address_t> for AeronParsedAddress {
+    #[inline]
+    fn from(value: *const aeron_parsed_address_t) -> Self {
+        AeronParsedAddress {
+            inner: CResource::Borrowed(value as *mut aeron_parsed_address_t),
+        }
+    }
+}
+impl From<aeron_parsed_address_t> for AeronParsedAddress {
+    #[inline]
+    fn from(value: aeron_parsed_address_t) -> Self {
+        AeronParsedAddress {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronParsedAddress> for *mut aeron_parsed_address_t {
     #[inline]
     fn from(value: AeronParsedAddress) -> Self {
@@ -46739,22 +46787,6 @@ impl From<AeronParsedAddress> for aeron_parsed_address_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_parsed_address_t> for AeronParsedAddress {
-    #[inline]
-    fn from(value: *const aeron_parsed_address_t) -> Self {
-        AeronParsedAddress {
-            inner: CResource::Borrowed(value as *mut aeron_parsed_address_t),
-        }
-    }
-}
-impl From<aeron_parsed_address_t> for AeronParsedAddress {
-    #[inline]
-    fn from(value: aeron_parsed_address_t) -> Self {
-        AeronParsedAddress {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronParsedAddress {
     fn default() -> Self {
@@ -46762,11 +46794,12 @@ impl Default for AeronParsedAddress {
     }
 }
 impl AeronParsedAddress {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -46928,6 +46961,22 @@ impl From<*mut aeron_parsed_interface_t> for AeronParsedInterface {
         }
     }
 }
+impl From<*const aeron_parsed_interface_t> for AeronParsedInterface {
+    #[inline]
+    fn from(value: *const aeron_parsed_interface_t) -> Self {
+        AeronParsedInterface {
+            inner: CResource::Borrowed(value as *mut aeron_parsed_interface_t),
+        }
+    }
+}
+impl From<aeron_parsed_interface_t> for AeronParsedInterface {
+    #[inline]
+    fn from(value: aeron_parsed_interface_t) -> Self {
+        AeronParsedInterface {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronParsedInterface> for *mut aeron_parsed_interface_t {
     #[inline]
     fn from(value: AeronParsedInterface) -> Self {
@@ -46946,22 +46995,6 @@ impl From<AeronParsedInterface> for aeron_parsed_interface_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_parsed_interface_t> for AeronParsedInterface {
-    #[inline]
-    fn from(value: *const aeron_parsed_interface_t) -> Self {
-        AeronParsedInterface {
-            inner: CResource::Borrowed(value as *mut aeron_parsed_interface_t),
-        }
-    }
-}
-impl From<aeron_parsed_interface_t> for AeronParsedInterface {
-    #[inline]
-    fn from(value: aeron_parsed_interface_t) -> Self {
-        AeronParsedInterface {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronParsedInterface {
     fn default() -> Self {
@@ -46969,11 +47002,12 @@ impl Default for AeronParsedInterface {
     }
 }
 impl AeronParsedInterface {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -47130,6 +47164,22 @@ impl From<*mut aeron_per_thread_error_t> for AeronPerThreadError {
         }
     }
 }
+impl From<*const aeron_per_thread_error_t> for AeronPerThreadError {
+    #[inline]
+    fn from(value: *const aeron_per_thread_error_t) -> Self {
+        AeronPerThreadError {
+            inner: CResource::Borrowed(value as *mut aeron_per_thread_error_t),
+        }
+    }
+}
+impl From<aeron_per_thread_error_t> for AeronPerThreadError {
+    #[inline]
+    fn from(value: aeron_per_thread_error_t) -> Self {
+        AeronPerThreadError {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronPerThreadError> for *mut aeron_per_thread_error_t {
     #[inline]
     fn from(value: AeronPerThreadError) -> Self {
@@ -47148,22 +47198,6 @@ impl From<AeronPerThreadError> for aeron_per_thread_error_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_per_thread_error_t> for AeronPerThreadError {
-    #[inline]
-    fn from(value: *const aeron_per_thread_error_t) -> Self {
-        AeronPerThreadError {
-            inner: CResource::Borrowed(value as *mut aeron_per_thread_error_t),
-        }
-    }
-}
-impl From<aeron_per_thread_error_t> for AeronPerThreadError {
-    #[inline]
-    fn from(value: aeron_per_thread_error_t) -> Self {
-        AeronPerThreadError {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronPerThreadError {
     fn default() -> Self {
@@ -47171,11 +47205,12 @@ impl Default for AeronPerThreadError {
     }
 }
 impl AeronPerThreadError {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -47349,6 +47384,22 @@ impl From<*mut aeron_port_manager_t> for AeronPortManager {
         }
     }
 }
+impl From<*const aeron_port_manager_t> for AeronPortManager {
+    #[inline]
+    fn from(value: *const aeron_port_manager_t) -> Self {
+        AeronPortManager {
+            inner: CResource::Borrowed(value as *mut aeron_port_manager_t),
+        }
+    }
+}
+impl From<aeron_port_manager_t> for AeronPortManager {
+    #[inline]
+    fn from(value: aeron_port_manager_t) -> Self {
+        AeronPortManager {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronPortManager> for *mut aeron_port_manager_t {
     #[inline]
     fn from(value: AeronPortManager) -> Self {
@@ -47367,22 +47418,6 @@ impl From<AeronPortManager> for aeron_port_manager_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_port_manager_t> for AeronPortManager {
-    #[inline]
-    fn from(value: *const aeron_port_manager_t) -> Self {
-        AeronPortManager {
-            inner: CResource::Borrowed(value as *mut aeron_port_manager_t),
-        }
-    }
-}
-impl From<aeron_port_manager_t> for AeronPortManager {
-    #[inline]
-    fn from(value: aeron_port_manager_t) -> Self {
-        AeronPortManager {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronPortManager {
     fn default() -> Self {
@@ -47390,16 +47425,16 @@ impl Default for AeronPortManager {
     }
 }
 impl AeronPortManager {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -47546,6 +47581,22 @@ impl From<*mut aeron_position_t> for AeronPosition {
         }
     }
 }
+impl From<*const aeron_position_t> for AeronPosition {
+    #[inline]
+    fn from(value: *const aeron_position_t) -> Self {
+        AeronPosition {
+            inner: CResource::Borrowed(value as *mut aeron_position_t),
+        }
+    }
+}
+impl From<aeron_position_t> for AeronPosition {
+    #[inline]
+    fn from(value: aeron_position_t) -> Self {
+        AeronPosition {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronPosition> for *mut aeron_position_t {
     #[inline]
     fn from(value: AeronPosition) -> Self {
@@ -47564,22 +47615,6 @@ impl From<AeronPosition> for aeron_position_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_position_t> for AeronPosition {
-    #[inline]
-    fn from(value: *const aeron_position_t) -> Self {
-        AeronPosition {
-            inner: CResource::Borrowed(value as *mut aeron_position_t),
-        }
-    }
-}
-impl From<aeron_position_t> for AeronPosition {
-    #[inline]
-    fn from(value: aeron_position_t) -> Self {
-        AeronPosition {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronPosition {
     fn default() -> Self {
@@ -47587,16 +47622,16 @@ impl Default for AeronPosition {
     }
 }
 impl AeronPosition {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -47785,6 +47820,22 @@ impl From<*mut aeron_publication_buffers_ready_t> for AeronPublicationBuffersRea
         }
     }
 }
+impl From<*const aeron_publication_buffers_ready_t> for AeronPublicationBuffersReady {
+    #[inline]
+    fn from(value: *const aeron_publication_buffers_ready_t) -> Self {
+        AeronPublicationBuffersReady {
+            inner: CResource::Borrowed(value as *mut aeron_publication_buffers_ready_t),
+        }
+    }
+}
+impl From<aeron_publication_buffers_ready_t> for AeronPublicationBuffersReady {
+    #[inline]
+    fn from(value: aeron_publication_buffers_ready_t) -> Self {
+        AeronPublicationBuffersReady {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronPublicationBuffersReady> for *mut aeron_publication_buffers_ready_t {
     #[inline]
     fn from(value: AeronPublicationBuffersReady) -> Self {
@@ -47803,22 +47854,6 @@ impl From<AeronPublicationBuffersReady> for aeron_publication_buffers_ready_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_publication_buffers_ready_t> for AeronPublicationBuffersReady {
-    #[inline]
-    fn from(value: *const aeron_publication_buffers_ready_t) -> Self {
-        AeronPublicationBuffersReady {
-            inner: CResource::Borrowed(value as *mut aeron_publication_buffers_ready_t),
-        }
-    }
-}
-impl From<aeron_publication_buffers_ready_t> for AeronPublicationBuffersReady {
-    #[inline]
-    fn from(value: aeron_publication_buffers_ready_t) -> Self {
-        AeronPublicationBuffersReady {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronPublicationBuffersReady {
     fn default() -> Self {
@@ -47826,11 +47861,12 @@ impl Default for AeronPublicationBuffersReady {
     }
 }
 impl AeronPublicationBuffersReady {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -47984,6 +48020,22 @@ impl From<*mut aeron_publication_command_t> for AeronPublicationCommand {
         }
     }
 }
+impl From<*const aeron_publication_command_t> for AeronPublicationCommand {
+    #[inline]
+    fn from(value: *const aeron_publication_command_t) -> Self {
+        AeronPublicationCommand {
+            inner: CResource::Borrowed(value as *mut aeron_publication_command_t),
+        }
+    }
+}
+impl From<aeron_publication_command_t> for AeronPublicationCommand {
+    #[inline]
+    fn from(value: aeron_publication_command_t) -> Self {
+        AeronPublicationCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronPublicationCommand> for *mut aeron_publication_command_t {
     #[inline]
     fn from(value: AeronPublicationCommand) -> Self {
@@ -48002,22 +48054,6 @@ impl From<AeronPublicationCommand> for aeron_publication_command_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_publication_command_t> for AeronPublicationCommand {
-    #[inline]
-    fn from(value: *const aeron_publication_command_t) -> Self {
-        AeronPublicationCommand {
-            inner: CResource::Borrowed(value as *mut aeron_publication_command_t),
-        }
-    }
-}
-impl From<aeron_publication_command_t> for AeronPublicationCommand {
-    #[inline]
-    fn from(value: aeron_publication_command_t) -> Self {
-        AeronPublicationCommand {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronPublicationCommand {
     fn default() -> Self {
@@ -48025,11 +48061,12 @@ impl Default for AeronPublicationCommand {
     }
 }
 impl AeronPublicationCommand {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -48268,6 +48305,22 @@ impl From<*mut aeron_publication_constants_t> for AeronPublicationConstants {
         }
     }
 }
+impl From<*const aeron_publication_constants_t> for AeronPublicationConstants {
+    #[inline]
+    fn from(value: *const aeron_publication_constants_t) -> Self {
+        AeronPublicationConstants {
+            inner: CResource::Borrowed(value as *mut aeron_publication_constants_t),
+        }
+    }
+}
+impl From<aeron_publication_constants_t> for AeronPublicationConstants {
+    #[inline]
+    fn from(value: aeron_publication_constants_t) -> Self {
+        AeronPublicationConstants {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronPublicationConstants> for *mut aeron_publication_constants_t {
     #[inline]
     fn from(value: AeronPublicationConstants) -> Self {
@@ -48286,22 +48339,6 @@ impl From<AeronPublicationConstants> for aeron_publication_constants_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_publication_constants_t> for AeronPublicationConstants {
-    #[inline]
-    fn from(value: *const aeron_publication_constants_t) -> Self {
-        AeronPublicationConstants {
-            inner: CResource::Borrowed(value as *mut aeron_publication_constants_t),
-        }
-    }
-}
-impl From<aeron_publication_constants_t> for AeronPublicationConstants {
-    #[inline]
-    fn from(value: aeron_publication_constants_t) -> Self {
-        AeronPublicationConstants {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronPublicationConstants {
     fn default() -> Self {
@@ -48309,16 +48346,16 @@ impl Default for AeronPublicationConstants {
     }
 }
 impl AeronPublicationConstants {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -48540,6 +48577,22 @@ impl From<*mut aeron_publication_error_t> for AeronPublicationError {
         }
     }
 }
+impl From<*const aeron_publication_error_t> for AeronPublicationError {
+    #[inline]
+    fn from(value: *const aeron_publication_error_t) -> Self {
+        AeronPublicationError {
+            inner: CResource::Borrowed(value as *mut aeron_publication_error_t),
+        }
+    }
+}
+impl From<aeron_publication_error_t> for AeronPublicationError {
+    #[inline]
+    fn from(value: aeron_publication_error_t) -> Self {
+        AeronPublicationError {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronPublicationError> for *mut aeron_publication_error_t {
     #[inline]
     fn from(value: AeronPublicationError) -> Self {
@@ -48558,22 +48611,6 @@ impl From<AeronPublicationError> for aeron_publication_error_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_publication_error_t> for AeronPublicationError {
-    #[inline]
-    fn from(value: *const aeron_publication_error_t) -> Self {
-        AeronPublicationError {
-            inner: CResource::Borrowed(value as *mut aeron_publication_error_t),
-        }
-    }
-}
-impl From<aeron_publication_error_t> for AeronPublicationError {
-    #[inline]
-    fn from(value: aeron_publication_error_t) -> Self {
-        AeronPublicationError {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronPublicationError {
     fn default() -> Self {
@@ -48581,11 +48618,12 @@ impl Default for AeronPublicationError {
     }
 }
 impl AeronPublicationError {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -48617,22 +48655,6 @@ mod aeron_publication_error_t_allocation_tests {
 }
 pub struct AeronPublicationErrorValues {
     inner: CResource<aeron_publication_error_values_t>,
-}
-impl AeronPublicationErrorValues {
-    #[doc = r" The old `Clone`: shares the underlying struct rather than copying it. If owned"]
-    #[doc = r" on heap this bumps the reference count; if borrowed, e.g. a callback argument,"]
-    #[doc = r" it copies the pointer."]
-    #[doc = r""]
-    #[doc = r" # Safety"]
-    #[doc = r" A callback argument is borrowed from memory Aeron frees or reuses when the"]
-    #[doc = r" callback returns, so the returned handle must not be used after that. Use"]
-    #[doc = r" `clone_struct` or copy the fields you need instead. For an owned value both"]
-    #[doc = r" handles share one struct, so writes through either are seen by both"]
-    pub unsafe fn clone_reference(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
-    }
 }
 impl core::fmt::Debug for AeronPublicationErrorValues {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -48788,11 +48810,29 @@ impl std::ops::Deref for AeronPublicationErrorValues {
         self.get_inner_ref()
     }
 }
-impl From<*mut aeron_publication_error_values_t> for AeronPublicationErrorValues {
+impl AeronPublicationErrorValues {
+    #[doc = r" Wraps a pointer to a struct Aeron passes to a callback, without copying it"]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" `ptr` must point at a valid struct for as long as the result is used. For a"]
+    #[doc = r" callback argument that is until the callback returns"]
     #[inline]
-    fn from(value: *mut aeron_publication_error_values_t) -> Self {
-        AeronPublicationErrorValues {
-            inner: CResource::Borrowed(value),
+    pub unsafe fn from_ptr(ptr: *mut aeron_publication_error_values_t) -> Self {
+        Self {
+            inner: CResource::Borrowed(ptr),
+        }
+    }
+    #[doc = r" Returns a second handle to the same underlying struct, without copying it."]
+    #[doc = r" If owned on heap both handles share it; if borrowed, e.g. a callback"]
+    #[doc = r" argument, both point at the same C memory"]
+    #[doc = r""]
+    #[doc = r" # Safety"]
+    #[doc = r" A callback argument lives in memory Aeron frees or reuses when the callback"]
+    #[doc = r" returns, so do not use the returned handle after that. Copy out the fields"]
+    #[doc = r" you need instead"]
+    pub unsafe fn clone_reference(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
         }
     }
 }
@@ -48812,22 +48852,6 @@ impl From<AeronPublicationErrorValues> for aeron_publication_error_values_t {
     #[inline]
     fn from(value: AeronPublicationErrorValues) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_publication_error_values_t> for AeronPublicationErrorValues {
-    #[inline]
-    fn from(value: *const aeron_publication_error_values_t) -> Self {
-        AeronPublicationErrorValues {
-            inner: CResource::Borrowed(value as *mut aeron_publication_error_values_t),
-        }
-    }
-}
-impl From<aeron_publication_error_values_t> for AeronPublicationErrorValues {
-    #[inline]
-    fn from(value: aeron_publication_error_values_t) -> Self {
-        AeronPublicationErrorValues {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -49002,6 +49026,22 @@ impl From<*mut aeron_publication_image_connection_t> for AeronPublicationImageCo
         }
     }
 }
+impl From<*const aeron_publication_image_connection_t> for AeronPublicationImageConnection {
+    #[inline]
+    fn from(value: *const aeron_publication_image_connection_t) -> Self {
+        AeronPublicationImageConnection {
+            inner: CResource::Borrowed(value as *mut aeron_publication_image_connection_t),
+        }
+    }
+}
+impl From<aeron_publication_image_connection_t> for AeronPublicationImageConnection {
+    #[inline]
+    fn from(value: aeron_publication_image_connection_t) -> Self {
+        AeronPublicationImageConnection {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronPublicationImageConnection> for *mut aeron_publication_image_connection_t {
     #[inline]
     fn from(value: AeronPublicationImageConnection) -> Self {
@@ -49020,22 +49060,6 @@ impl From<AeronPublicationImageConnection> for aeron_publication_image_connectio
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_publication_image_connection_t> for AeronPublicationImageConnection {
-    #[inline]
-    fn from(value: *const aeron_publication_image_connection_t) -> Self {
-        AeronPublicationImageConnection {
-            inner: CResource::Borrowed(value as *mut aeron_publication_image_connection_t),
-        }
-    }
-}
-impl From<aeron_publication_image_connection_t> for AeronPublicationImageConnection {
-    #[inline]
-    fn from(value: aeron_publication_image_connection_t) -> Self {
-        AeronPublicationImageConnection {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronPublicationImageConnection {
     fn default() -> Self {
@@ -49043,16 +49067,16 @@ impl Default for AeronPublicationImageConnection {
     }
 }
 impl AeronPublicationImageConnection {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -49214,6 +49238,22 @@ impl From<*mut aeron_publication_image_entry_t> for AeronPublicationImageEntry {
         }
     }
 }
+impl From<*const aeron_publication_image_entry_t> for AeronPublicationImageEntry {
+    #[inline]
+    fn from(value: *const aeron_publication_image_entry_t) -> Self {
+        AeronPublicationImageEntry {
+            inner: CResource::Borrowed(value as *mut aeron_publication_image_entry_t),
+        }
+    }
+}
+impl From<aeron_publication_image_entry_t> for AeronPublicationImageEntry {
+    #[inline]
+    fn from(value: aeron_publication_image_entry_t) -> Self {
+        AeronPublicationImageEntry {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronPublicationImageEntry> for *mut aeron_publication_image_entry_t {
     #[inline]
     fn from(value: AeronPublicationImageEntry) -> Self {
@@ -49232,22 +49272,6 @@ impl From<AeronPublicationImageEntry> for aeron_publication_image_entry_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_publication_image_entry_t> for AeronPublicationImageEntry {
-    #[inline]
-    fn from(value: *const aeron_publication_image_entry_t) -> Self {
-        AeronPublicationImageEntry {
-            inner: CResource::Borrowed(value as *mut aeron_publication_image_entry_t),
-        }
-    }
-}
-impl From<aeron_publication_image_entry_t> for AeronPublicationImageEntry {
-    #[inline]
-    fn from(value: aeron_publication_image_entry_t) -> Self {
-        AeronPublicationImageEntry {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronPublicationImageEntry {
     fn default() -> Self {
@@ -49255,16 +49279,16 @@ impl Default for AeronPublicationImageEntry {
     }
 }
 impl AeronPublicationImageEntry {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -50061,6 +50085,22 @@ impl From<*mut aeron_publication_image_t> for AeronPublicationImage {
         }
     }
 }
+impl From<*const aeron_publication_image_t> for AeronPublicationImage {
+    #[inline]
+    fn from(value: *const aeron_publication_image_t) -> Self {
+        AeronPublicationImage {
+            inner: CResource::Borrowed(value as *mut aeron_publication_image_t),
+        }
+    }
+}
+impl From<aeron_publication_image_t> for AeronPublicationImage {
+    #[inline]
+    fn from(value: aeron_publication_image_t) -> Self {
+        AeronPublicationImage {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronPublicationImage> for *mut aeron_publication_image_t {
     #[inline]
     fn from(value: AeronPublicationImage) -> Self {
@@ -50077,22 +50117,6 @@ impl From<AeronPublicationImage> for aeron_publication_image_t {
     #[inline]
     fn from(value: AeronPublicationImage) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_publication_image_t> for AeronPublicationImage {
-    #[inline]
-    fn from(value: *const aeron_publication_image_t) -> Self {
-        AeronPublicationImage {
-            inner: CResource::Borrowed(value as *mut aeron_publication_image_t),
-        }
-    }
-}
-impl From<aeron_publication_image_t> for AeronPublicationImage {
-    #[inline]
-    fn from(value: aeron_publication_image_t) -> Self {
-        AeronPublicationImage {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -50213,6 +50237,22 @@ impl From<*mut aeron_publication_link_t> for AeronPublicationLink {
         }
     }
 }
+impl From<*const aeron_publication_link_t> for AeronPublicationLink {
+    #[inline]
+    fn from(value: *const aeron_publication_link_t) -> Self {
+        AeronPublicationLink {
+            inner: CResource::Borrowed(value as *mut aeron_publication_link_t),
+        }
+    }
+}
+impl From<aeron_publication_link_t> for AeronPublicationLink {
+    #[inline]
+    fn from(value: aeron_publication_link_t) -> Self {
+        AeronPublicationLink {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronPublicationLink> for *mut aeron_publication_link_t {
     #[inline]
     fn from(value: AeronPublicationLink) -> Self {
@@ -50231,22 +50271,6 @@ impl From<AeronPublicationLink> for aeron_publication_link_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_publication_link_t> for AeronPublicationLink {
-    #[inline]
-    fn from(value: *const aeron_publication_link_t) -> Self {
-        AeronPublicationLink {
-            inner: CResource::Borrowed(value as *mut aeron_publication_link_t),
-        }
-    }
-}
-impl From<aeron_publication_link_t> for AeronPublicationLink {
-    #[inline]
-    fn from(value: aeron_publication_link_t) -> Self {
-        AeronPublicationLink {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronPublicationLink {
     fn default() -> Self {
@@ -50254,16 +50278,16 @@ impl Default for AeronPublicationLink {
     }
 }
 impl AeronPublicationLink {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -50722,6 +50746,22 @@ impl From<*mut aeron_publication_t> for AeronPublication {
         }
     }
 }
+impl From<*const aeron_publication_t> for AeronPublication {
+    #[inline]
+    fn from(value: *const aeron_publication_t) -> Self {
+        AeronPublication {
+            inner: CResource::Borrowed(value as *mut aeron_publication_t),
+        }
+    }
+}
+impl From<aeron_publication_t> for AeronPublication {
+    #[inline]
+    fn from(value: aeron_publication_t) -> Self {
+        AeronPublication {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronPublication> for *mut aeron_publication_t {
     #[inline]
     fn from(value: AeronPublication) -> Self {
@@ -50738,22 +50778,6 @@ impl From<AeronPublication> for aeron_publication_t {
     #[inline]
     fn from(value: AeronPublication) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_publication_t> for AeronPublication {
-    #[inline]
-    fn from(value: *const aeron_publication_t) -> Self {
-        AeronPublication {
-            inner: CResource::Borrowed(value as *mut aeron_publication_t),
-        }
-    }
-}
-impl From<aeron_publication_t> for AeronPublication {
-    #[inline]
-    fn from(value: aeron_publication_t) -> Self {
-        AeronPublication {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 impl AeronPublication {
@@ -50977,6 +51001,22 @@ impl From<*mut aeron_rb_descriptor_t> for AeronRbDescriptor {
         }
     }
 }
+impl From<*const aeron_rb_descriptor_t> for AeronRbDescriptor {
+    #[inline]
+    fn from(value: *const aeron_rb_descriptor_t) -> Self {
+        AeronRbDescriptor {
+            inner: CResource::Borrowed(value as *mut aeron_rb_descriptor_t),
+        }
+    }
+}
+impl From<aeron_rb_descriptor_t> for AeronRbDescriptor {
+    #[inline]
+    fn from(value: aeron_rb_descriptor_t) -> Self {
+        AeronRbDescriptor {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronRbDescriptor> for *mut aeron_rb_descriptor_t {
     #[inline]
     fn from(value: AeronRbDescriptor) -> Self {
@@ -50995,22 +51035,6 @@ impl From<AeronRbDescriptor> for aeron_rb_descriptor_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_rb_descriptor_t> for AeronRbDescriptor {
-    #[inline]
-    fn from(value: *const aeron_rb_descriptor_t) -> Self {
-        AeronRbDescriptor {
-            inner: CResource::Borrowed(value as *mut aeron_rb_descriptor_t),
-        }
-    }
-}
-impl From<aeron_rb_descriptor_t> for AeronRbDescriptor {
-    #[inline]
-    fn from(value: aeron_rb_descriptor_t) -> Self {
-        AeronRbDescriptor {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronRbDescriptor {
     fn default() -> Self {
@@ -51018,11 +51042,12 @@ impl Default for AeronRbDescriptor {
     }
 }
 impl AeronRbDescriptor {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -51170,6 +51195,22 @@ impl From<*mut aeron_rb_record_descriptor_t> for AeronRbRecordDescriptor {
         }
     }
 }
+impl From<*const aeron_rb_record_descriptor_t> for AeronRbRecordDescriptor {
+    #[inline]
+    fn from(value: *const aeron_rb_record_descriptor_t) -> Self {
+        AeronRbRecordDescriptor {
+            inner: CResource::Borrowed(value as *mut aeron_rb_record_descriptor_t),
+        }
+    }
+}
+impl From<aeron_rb_record_descriptor_t> for AeronRbRecordDescriptor {
+    #[inline]
+    fn from(value: aeron_rb_record_descriptor_t) -> Self {
+        AeronRbRecordDescriptor {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronRbRecordDescriptor> for *mut aeron_rb_record_descriptor_t {
     #[inline]
     fn from(value: AeronRbRecordDescriptor) -> Self {
@@ -51188,22 +51229,6 @@ impl From<AeronRbRecordDescriptor> for aeron_rb_record_descriptor_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_rb_record_descriptor_t> for AeronRbRecordDescriptor {
-    #[inline]
-    fn from(value: *const aeron_rb_record_descriptor_t) -> Self {
-        AeronRbRecordDescriptor {
-            inner: CResource::Borrowed(value as *mut aeron_rb_record_descriptor_t),
-        }
-    }
-}
-impl From<aeron_rb_record_descriptor_t> for AeronRbRecordDescriptor {
-    #[inline]
-    fn from(value: aeron_rb_record_descriptor_t) -> Self {
-        AeronRbRecordDescriptor {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronRbRecordDescriptor {
     fn default() -> Self {
@@ -51211,11 +51236,12 @@ impl Default for AeronRbRecordDescriptor {
     }
 }
 impl AeronRbRecordDescriptor {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -51357,6 +51383,22 @@ impl From<*mut aeron_receive_channel_endpoint_entry_t> for AeronReceiveChannelEn
         }
     }
 }
+impl From<*const aeron_receive_channel_endpoint_entry_t> for AeronReceiveChannelEndpointEntry {
+    #[inline]
+    fn from(value: *const aeron_receive_channel_endpoint_entry_t) -> Self {
+        AeronReceiveChannelEndpointEntry {
+            inner: CResource::Borrowed(value as *mut aeron_receive_channel_endpoint_entry_t),
+        }
+    }
+}
+impl From<aeron_receive_channel_endpoint_entry_t> for AeronReceiveChannelEndpointEntry {
+    #[inline]
+    fn from(value: aeron_receive_channel_endpoint_entry_t) -> Self {
+        AeronReceiveChannelEndpointEntry {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronReceiveChannelEndpointEntry> for *mut aeron_receive_channel_endpoint_entry_t {
     #[inline]
     fn from(value: AeronReceiveChannelEndpointEntry) -> Self {
@@ -51375,22 +51417,6 @@ impl From<AeronReceiveChannelEndpointEntry> for aeron_receive_channel_endpoint_e
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_receive_channel_endpoint_entry_t> for AeronReceiveChannelEndpointEntry {
-    #[inline]
-    fn from(value: *const aeron_receive_channel_endpoint_entry_t) -> Self {
-        AeronReceiveChannelEndpointEntry {
-            inner: CResource::Borrowed(value as *mut aeron_receive_channel_endpoint_entry_t),
-        }
-    }
-}
-impl From<aeron_receive_channel_endpoint_entry_t> for AeronReceiveChannelEndpointEntry {
-    #[inline]
-    fn from(value: aeron_receive_channel_endpoint_entry_t) -> Self {
-        AeronReceiveChannelEndpointEntry {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronReceiveChannelEndpointEntry {
     fn default() -> Self {
@@ -51398,16 +51424,16 @@ impl Default for AeronReceiveChannelEndpointEntry {
     }
 }
 impl AeronReceiveChannelEndpointEntry {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -52581,6 +52607,22 @@ impl From<*mut aeron_receive_channel_endpoint_t> for AeronReceiveChannelEndpoint
         }
     }
 }
+impl From<*const aeron_receive_channel_endpoint_t> for AeronReceiveChannelEndpoint {
+    #[inline]
+    fn from(value: *const aeron_receive_channel_endpoint_t) -> Self {
+        AeronReceiveChannelEndpoint {
+            inner: CResource::Borrowed(value as *mut aeron_receive_channel_endpoint_t),
+        }
+    }
+}
+impl From<aeron_receive_channel_endpoint_t> for AeronReceiveChannelEndpoint {
+    #[inline]
+    fn from(value: aeron_receive_channel_endpoint_t) -> Self {
+        AeronReceiveChannelEndpoint {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronReceiveChannelEndpoint> for *mut aeron_receive_channel_endpoint_t {
     #[inline]
     fn from(value: AeronReceiveChannelEndpoint) -> Self {
@@ -52597,22 +52639,6 @@ impl From<AeronReceiveChannelEndpoint> for aeron_receive_channel_endpoint_t {
     #[inline]
     fn from(value: AeronReceiveChannelEndpoint) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_receive_channel_endpoint_t> for AeronReceiveChannelEndpoint {
-    #[inline]
-    fn from(value: *const aeron_receive_channel_endpoint_t) -> Self {
-        AeronReceiveChannelEndpoint {
-            inner: CResource::Borrowed(value as *mut aeron_receive_channel_endpoint_t),
-        }
-    }
-}
-impl From<aeron_receive_channel_endpoint_t> for AeronReceiveChannelEndpoint {
-    #[inline]
-    fn from(value: aeron_receive_channel_endpoint_t) -> Self {
-        AeronReceiveChannelEndpoint {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 impl AeronReceiveChannelEndpoint {
@@ -52736,6 +52762,22 @@ impl From<*mut aeron_receive_destination_entry_t> for AeronReceiveDestinationEnt
         }
     }
 }
+impl From<*const aeron_receive_destination_entry_t> for AeronReceiveDestinationEntry {
+    #[inline]
+    fn from(value: *const aeron_receive_destination_entry_t) -> Self {
+        AeronReceiveDestinationEntry {
+            inner: CResource::Borrowed(value as *mut aeron_receive_destination_entry_t),
+        }
+    }
+}
+impl From<aeron_receive_destination_entry_t> for AeronReceiveDestinationEntry {
+    #[inline]
+    fn from(value: aeron_receive_destination_entry_t) -> Self {
+        AeronReceiveDestinationEntry {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronReceiveDestinationEntry> for *mut aeron_receive_destination_entry_t {
     #[inline]
     fn from(value: AeronReceiveDestinationEntry) -> Self {
@@ -52754,22 +52796,6 @@ impl From<AeronReceiveDestinationEntry> for aeron_receive_destination_entry_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_receive_destination_entry_t> for AeronReceiveDestinationEntry {
-    #[inline]
-    fn from(value: *const aeron_receive_destination_entry_t) -> Self {
-        AeronReceiveDestinationEntry {
-            inner: CResource::Borrowed(value as *mut aeron_receive_destination_entry_t),
-        }
-    }
-}
-impl From<aeron_receive_destination_entry_t> for AeronReceiveDestinationEntry {
-    #[inline]
-    fn from(value: aeron_receive_destination_entry_t) -> Self {
-        AeronReceiveDestinationEntry {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronReceiveDestinationEntry {
     fn default() -> Self {
@@ -52777,16 +52803,16 @@ impl Default for AeronReceiveDestinationEntry {
     }
 }
 impl AeronReceiveDestinationEntry {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -52973,6 +52999,22 @@ impl From<*mut aeron_receive_destination_t> for AeronReceiveDestination {
         }
     }
 }
+impl From<*const aeron_receive_destination_t> for AeronReceiveDestination {
+    #[inline]
+    fn from(value: *const aeron_receive_destination_t) -> Self {
+        AeronReceiveDestination {
+            inner: CResource::Borrowed(value as *mut aeron_receive_destination_t),
+        }
+    }
+}
+impl From<aeron_receive_destination_t> for AeronReceiveDestination {
+    #[inline]
+    fn from(value: aeron_receive_destination_t) -> Self {
+        AeronReceiveDestination {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronReceiveDestination> for *mut aeron_receive_destination_t {
     #[inline]
     fn from(value: AeronReceiveDestination) -> Self {
@@ -52989,22 +53031,6 @@ impl From<AeronReceiveDestination> for aeron_receive_destination_t {
     #[inline]
     fn from(value: AeronReceiveDestination) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_receive_destination_t> for AeronReceiveDestination {
-    #[inline]
-    fn from(value: *const aeron_receive_destination_t) -> Self {
-        AeronReceiveDestination {
-            inner: CResource::Borrowed(value as *mut aeron_receive_destination_t),
-        }
-    }
-}
-impl From<aeron_receive_destination_t> for AeronReceiveDestination {
-    #[inline]
-    fn from(value: aeron_receive_destination_t) -> Self {
-        AeronReceiveDestination {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -53148,6 +53174,22 @@ impl From<*mut aeron_reject_image_command_t> for AeronRejectImageCommand {
         }
     }
 }
+impl From<*const aeron_reject_image_command_t> for AeronRejectImageCommand {
+    #[inline]
+    fn from(value: *const aeron_reject_image_command_t) -> Self {
+        AeronRejectImageCommand {
+            inner: CResource::Borrowed(value as *mut aeron_reject_image_command_t),
+        }
+    }
+}
+impl From<aeron_reject_image_command_t> for AeronRejectImageCommand {
+    #[inline]
+    fn from(value: aeron_reject_image_command_t) -> Self {
+        AeronRejectImageCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronRejectImageCommand> for *mut aeron_reject_image_command_t {
     #[inline]
     fn from(value: AeronRejectImageCommand) -> Self {
@@ -53166,22 +53208,6 @@ impl From<AeronRejectImageCommand> for aeron_reject_image_command_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_reject_image_command_t> for AeronRejectImageCommand {
-    #[inline]
-    fn from(value: *const aeron_reject_image_command_t) -> Self {
-        AeronRejectImageCommand {
-            inner: CResource::Borrowed(value as *mut aeron_reject_image_command_t),
-        }
-    }
-}
-impl From<aeron_reject_image_command_t> for AeronRejectImageCommand {
-    #[inline]
-    fn from(value: aeron_reject_image_command_t) -> Self {
-        AeronRejectImageCommand {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronRejectImageCommand {
     fn default() -> Self {
@@ -53189,11 +53215,12 @@ impl Default for AeronRejectImageCommand {
     }
 }
 impl AeronRejectImageCommand {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -53341,6 +53368,22 @@ impl From<*mut aeron_remove_counter_command_t> for AeronRemoveCounterCommand {
         }
     }
 }
+impl From<*const aeron_remove_counter_command_t> for AeronRemoveCounterCommand {
+    #[inline]
+    fn from(value: *const aeron_remove_counter_command_t) -> Self {
+        AeronRemoveCounterCommand {
+            inner: CResource::Borrowed(value as *mut aeron_remove_counter_command_t),
+        }
+    }
+}
+impl From<aeron_remove_counter_command_t> for AeronRemoveCounterCommand {
+    #[inline]
+    fn from(value: aeron_remove_counter_command_t) -> Self {
+        AeronRemoveCounterCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronRemoveCounterCommand> for *mut aeron_remove_counter_command_t {
     #[inline]
     fn from(value: AeronRemoveCounterCommand) -> Self {
@@ -53359,22 +53402,6 @@ impl From<AeronRemoveCounterCommand> for aeron_remove_counter_command_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_remove_counter_command_t> for AeronRemoveCounterCommand {
-    #[inline]
-    fn from(value: *const aeron_remove_counter_command_t) -> Self {
-        AeronRemoveCounterCommand {
-            inner: CResource::Borrowed(value as *mut aeron_remove_counter_command_t),
-        }
-    }
-}
-impl From<aeron_remove_counter_command_t> for AeronRemoveCounterCommand {
-    #[inline]
-    fn from(value: aeron_remove_counter_command_t) -> Self {
-        AeronRemoveCounterCommand {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronRemoveCounterCommand {
     fn default() -> Self {
@@ -53382,11 +53409,12 @@ impl Default for AeronRemoveCounterCommand {
     }
 }
 impl AeronRemoveCounterCommand {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -53540,6 +53568,22 @@ impl From<*mut aeron_remove_publication_command_t> for AeronRemovePublicationCom
         }
     }
 }
+impl From<*const aeron_remove_publication_command_t> for AeronRemovePublicationCommand {
+    #[inline]
+    fn from(value: *const aeron_remove_publication_command_t) -> Self {
+        AeronRemovePublicationCommand {
+            inner: CResource::Borrowed(value as *mut aeron_remove_publication_command_t),
+        }
+    }
+}
+impl From<aeron_remove_publication_command_t> for AeronRemovePublicationCommand {
+    #[inline]
+    fn from(value: aeron_remove_publication_command_t) -> Self {
+        AeronRemovePublicationCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronRemovePublicationCommand> for *mut aeron_remove_publication_command_t {
     #[inline]
     fn from(value: AeronRemovePublicationCommand) -> Self {
@@ -53558,22 +53602,6 @@ impl From<AeronRemovePublicationCommand> for aeron_remove_publication_command_t 
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_remove_publication_command_t> for AeronRemovePublicationCommand {
-    #[inline]
-    fn from(value: *const aeron_remove_publication_command_t) -> Self {
-        AeronRemovePublicationCommand {
-            inner: CResource::Borrowed(value as *mut aeron_remove_publication_command_t),
-        }
-    }
-}
-impl From<aeron_remove_publication_command_t> for AeronRemovePublicationCommand {
-    #[inline]
-    fn from(value: aeron_remove_publication_command_t) -> Self {
-        AeronRemovePublicationCommand {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronRemovePublicationCommand {
     fn default() -> Self {
@@ -53581,11 +53609,12 @@ impl Default for AeronRemovePublicationCommand {
     }
 }
 impl AeronRemovePublicationCommand {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -53733,6 +53762,22 @@ impl From<*mut aeron_remove_subscription_command_t> for AeronRemoveSubscriptionC
         }
     }
 }
+impl From<*const aeron_remove_subscription_command_t> for AeronRemoveSubscriptionCommand {
+    #[inline]
+    fn from(value: *const aeron_remove_subscription_command_t) -> Self {
+        AeronRemoveSubscriptionCommand {
+            inner: CResource::Borrowed(value as *mut aeron_remove_subscription_command_t),
+        }
+    }
+}
+impl From<aeron_remove_subscription_command_t> for AeronRemoveSubscriptionCommand {
+    #[inline]
+    fn from(value: aeron_remove_subscription_command_t) -> Self {
+        AeronRemoveSubscriptionCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronRemoveSubscriptionCommand> for *mut aeron_remove_subscription_command_t {
     #[inline]
     fn from(value: AeronRemoveSubscriptionCommand) -> Self {
@@ -53751,22 +53796,6 @@ impl From<AeronRemoveSubscriptionCommand> for aeron_remove_subscription_command_
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_remove_subscription_command_t> for AeronRemoveSubscriptionCommand {
-    #[inline]
-    fn from(value: *const aeron_remove_subscription_command_t) -> Self {
-        AeronRemoveSubscriptionCommand {
-            inner: CResource::Borrowed(value as *mut aeron_remove_subscription_command_t),
-        }
-    }
-}
-impl From<aeron_remove_subscription_command_t> for AeronRemoveSubscriptionCommand {
-    #[inline]
-    fn from(value: aeron_remove_subscription_command_t) -> Self {
-        AeronRemoveSubscriptionCommand {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronRemoveSubscriptionCommand {
     fn default() -> Self {
@@ -53774,11 +53803,12 @@ impl Default for AeronRemoveSubscriptionCommand {
     }
 }
 impl AeronRemoveSubscriptionCommand {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -53950,6 +53980,22 @@ impl From<*mut aeron_resolution_header_ipv4_t> for AeronResolutionHeaderIpv4 {
         }
     }
 }
+impl From<*const aeron_resolution_header_ipv4_t> for AeronResolutionHeaderIpv4 {
+    #[inline]
+    fn from(value: *const aeron_resolution_header_ipv4_t) -> Self {
+        AeronResolutionHeaderIpv4 {
+            inner: CResource::Borrowed(value as *mut aeron_resolution_header_ipv4_t),
+        }
+    }
+}
+impl From<aeron_resolution_header_ipv4_t> for AeronResolutionHeaderIpv4 {
+    #[inline]
+    fn from(value: aeron_resolution_header_ipv4_t) -> Self {
+        AeronResolutionHeaderIpv4 {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronResolutionHeaderIpv4> for *mut aeron_resolution_header_ipv4_t {
     #[inline]
     fn from(value: AeronResolutionHeaderIpv4) -> Self {
@@ -53968,22 +54014,6 @@ impl From<AeronResolutionHeaderIpv4> for aeron_resolution_header_ipv4_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_resolution_header_ipv4_t> for AeronResolutionHeaderIpv4 {
-    #[inline]
-    fn from(value: *const aeron_resolution_header_ipv4_t) -> Self {
-        AeronResolutionHeaderIpv4 {
-            inner: CResource::Borrowed(value as *mut aeron_resolution_header_ipv4_t),
-        }
-    }
-}
-impl From<aeron_resolution_header_ipv4_t> for AeronResolutionHeaderIpv4 {
-    #[inline]
-    fn from(value: aeron_resolution_header_ipv4_t) -> Self {
-        AeronResolutionHeaderIpv4 {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronResolutionHeaderIpv4 {
     fn default() -> Self {
@@ -53991,11 +54021,12 @@ impl Default for AeronResolutionHeaderIpv4 {
     }
 }
 impl AeronResolutionHeaderIpv4 {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -54167,6 +54198,22 @@ impl From<*mut aeron_resolution_header_ipv6_t> for AeronResolutionHeaderIpv6 {
         }
     }
 }
+impl From<*const aeron_resolution_header_ipv6_t> for AeronResolutionHeaderIpv6 {
+    #[inline]
+    fn from(value: *const aeron_resolution_header_ipv6_t) -> Self {
+        AeronResolutionHeaderIpv6 {
+            inner: CResource::Borrowed(value as *mut aeron_resolution_header_ipv6_t),
+        }
+    }
+}
+impl From<aeron_resolution_header_ipv6_t> for AeronResolutionHeaderIpv6 {
+    #[inline]
+    fn from(value: aeron_resolution_header_ipv6_t) -> Self {
+        AeronResolutionHeaderIpv6 {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronResolutionHeaderIpv6> for *mut aeron_resolution_header_ipv6_t {
     #[inline]
     fn from(value: AeronResolutionHeaderIpv6) -> Self {
@@ -54185,22 +54232,6 @@ impl From<AeronResolutionHeaderIpv6> for aeron_resolution_header_ipv6_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_resolution_header_ipv6_t> for AeronResolutionHeaderIpv6 {
-    #[inline]
-    fn from(value: *const aeron_resolution_header_ipv6_t) -> Self {
-        AeronResolutionHeaderIpv6 {
-            inner: CResource::Borrowed(value as *mut aeron_resolution_header_ipv6_t),
-        }
-    }
-}
-impl From<aeron_resolution_header_ipv6_t> for AeronResolutionHeaderIpv6 {
-    #[inline]
-    fn from(value: aeron_resolution_header_ipv6_t) -> Self {
-        AeronResolutionHeaderIpv6 {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronResolutionHeaderIpv6 {
     fn default() -> Self {
@@ -54208,11 +54239,12 @@ impl Default for AeronResolutionHeaderIpv6 {
     }
 }
 impl AeronResolutionHeaderIpv6 {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -54370,6 +54402,22 @@ impl From<*mut aeron_resolution_header_t> for AeronResolutionHeader {
         }
     }
 }
+impl From<*const aeron_resolution_header_t> for AeronResolutionHeader {
+    #[inline]
+    fn from(value: *const aeron_resolution_header_t) -> Self {
+        AeronResolutionHeader {
+            inner: CResource::Borrowed(value as *mut aeron_resolution_header_t),
+        }
+    }
+}
+impl From<aeron_resolution_header_t> for AeronResolutionHeader {
+    #[inline]
+    fn from(value: aeron_resolution_header_t) -> Self {
+        AeronResolutionHeader {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronResolutionHeader> for *mut aeron_resolution_header_t {
     #[inline]
     fn from(value: AeronResolutionHeader) -> Self {
@@ -54388,22 +54436,6 @@ impl From<AeronResolutionHeader> for aeron_resolution_header_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_resolution_header_t> for AeronResolutionHeader {
-    #[inline]
-    fn from(value: *const aeron_resolution_header_t) -> Self {
-        AeronResolutionHeader {
-            inner: CResource::Borrowed(value as *mut aeron_resolution_header_t),
-        }
-    }
-}
-impl From<aeron_resolution_header_t> for AeronResolutionHeader {
-    #[inline]
-    fn from(value: aeron_resolution_header_t) -> Self {
-        AeronResolutionHeader {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronResolutionHeader {
     fn default() -> Self {
@@ -54411,11 +54443,12 @@ impl Default for AeronResolutionHeader {
     }
 }
 impl AeronResolutionHeader {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -54580,6 +54613,22 @@ impl From<*mut aeron_response_setup_header_t> for AeronResponseSetupHeader {
         }
     }
 }
+impl From<*const aeron_response_setup_header_t> for AeronResponseSetupHeader {
+    #[inline]
+    fn from(value: *const aeron_response_setup_header_t) -> Self {
+        AeronResponseSetupHeader {
+            inner: CResource::Borrowed(value as *mut aeron_response_setup_header_t),
+        }
+    }
+}
+impl From<aeron_response_setup_header_t> for AeronResponseSetupHeader {
+    #[inline]
+    fn from(value: aeron_response_setup_header_t) -> Self {
+        AeronResponseSetupHeader {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronResponseSetupHeader> for *mut aeron_response_setup_header_t {
     #[inline]
     fn from(value: AeronResponseSetupHeader) -> Self {
@@ -54598,22 +54647,6 @@ impl From<AeronResponseSetupHeader> for aeron_response_setup_header_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_response_setup_header_t> for AeronResponseSetupHeader {
-    #[inline]
-    fn from(value: *const aeron_response_setup_header_t) -> Self {
-        AeronResponseSetupHeader {
-            inner: CResource::Borrowed(value as *mut aeron_response_setup_header_t),
-        }
-    }
-}
-impl From<aeron_response_setup_header_t> for AeronResponseSetupHeader {
-    #[inline]
-    fn from(value: aeron_response_setup_header_t) -> Self {
-        AeronResponseSetupHeader {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronResponseSetupHeader {
     fn default() -> Self {
@@ -54621,11 +54654,12 @@ impl Default for AeronResponseSetupHeader {
     }
 }
 impl AeronResponseSetupHeader {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -54796,6 +54830,22 @@ impl From<*mut aeron_retransmit_action_t> for AeronRetransmitAction {
         }
     }
 }
+impl From<*const aeron_retransmit_action_t> for AeronRetransmitAction {
+    #[inline]
+    fn from(value: *const aeron_retransmit_action_t) -> Self {
+        AeronRetransmitAction {
+            inner: CResource::Borrowed(value as *mut aeron_retransmit_action_t),
+        }
+    }
+}
+impl From<aeron_retransmit_action_t> for AeronRetransmitAction {
+    #[inline]
+    fn from(value: aeron_retransmit_action_t) -> Self {
+        AeronRetransmitAction {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronRetransmitAction> for *mut aeron_retransmit_action_t {
     #[inline]
     fn from(value: AeronRetransmitAction) -> Self {
@@ -54814,22 +54864,6 @@ impl From<AeronRetransmitAction> for aeron_retransmit_action_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_retransmit_action_t> for AeronRetransmitAction {
-    #[inline]
-    fn from(value: *const aeron_retransmit_action_t) -> Self {
-        AeronRetransmitAction {
-            inner: CResource::Borrowed(value as *mut aeron_retransmit_action_t),
-        }
-    }
-}
-impl From<aeron_retransmit_action_t> for AeronRetransmitAction {
-    #[inline]
-    fn from(value: aeron_retransmit_action_t) -> Self {
-        AeronRetransmitAction {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronRetransmitAction {
     fn default() -> Self {
@@ -54837,11 +54871,12 @@ impl Default for AeronRetransmitAction {
     }
 }
 impl AeronRetransmitAction {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -55210,6 +55245,22 @@ impl From<*mut aeron_retransmit_handler_t> for AeronRetransmitHandler {
         }
     }
 }
+impl From<*const aeron_retransmit_handler_t> for AeronRetransmitHandler {
+    #[inline]
+    fn from(value: *const aeron_retransmit_handler_t) -> Self {
+        AeronRetransmitHandler {
+            inner: CResource::Borrowed(value as *mut aeron_retransmit_handler_t),
+        }
+    }
+}
+impl From<aeron_retransmit_handler_t> for AeronRetransmitHandler {
+    #[inline]
+    fn from(value: aeron_retransmit_handler_t) -> Self {
+        AeronRetransmitHandler {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronRetransmitHandler> for *mut aeron_retransmit_handler_t {
     #[inline]
     fn from(value: AeronRetransmitHandler) -> Self {
@@ -55228,22 +55279,6 @@ impl From<AeronRetransmitHandler> for aeron_retransmit_handler_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_retransmit_handler_t> for AeronRetransmitHandler {
-    #[inline]
-    fn from(value: *const aeron_retransmit_handler_t) -> Self {
-        AeronRetransmitHandler {
-            inner: CResource::Borrowed(value as *mut aeron_retransmit_handler_t),
-        }
-    }
-}
-impl From<aeron_retransmit_handler_t> for AeronRetransmitHandler {
-    #[inline]
-    fn from(value: aeron_retransmit_handler_t) -> Self {
-        AeronRetransmitHandler {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronRetransmitHandler {
     fn default() -> Self {
@@ -55251,16 +55286,16 @@ impl Default for AeronRetransmitHandler {
     }
 }
 impl AeronRetransmitHandler {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -55439,6 +55474,22 @@ impl From<*mut aeron_rttm_header_t> for AeronRttmHeader {
         }
     }
 }
+impl From<*const aeron_rttm_header_t> for AeronRttmHeader {
+    #[inline]
+    fn from(value: *const aeron_rttm_header_t) -> Self {
+        AeronRttmHeader {
+            inner: CResource::Borrowed(value as *mut aeron_rttm_header_t),
+        }
+    }
+}
+impl From<aeron_rttm_header_t> for AeronRttmHeader {
+    #[inline]
+    fn from(value: aeron_rttm_header_t) -> Self {
+        AeronRttmHeader {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronRttmHeader> for *mut aeron_rttm_header_t {
     #[inline]
     fn from(value: AeronRttmHeader) -> Self {
@@ -55457,22 +55508,6 @@ impl From<AeronRttmHeader> for aeron_rttm_header_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_rttm_header_t> for AeronRttmHeader {
-    #[inline]
-    fn from(value: *const aeron_rttm_header_t) -> Self {
-        AeronRttmHeader {
-            inner: CResource::Borrowed(value as *mut aeron_rttm_header_t),
-        }
-    }
-}
-impl From<aeron_rttm_header_t> for AeronRttmHeader {
-    #[inline]
-    fn from(value: aeron_rttm_header_t) -> Self {
-        AeronRttmHeader {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronRttmHeader {
     fn default() -> Self {
@@ -55480,11 +55515,12 @@ impl Default for AeronRttmHeader {
     }
 }
 impl AeronRttmHeader {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -55626,6 +55662,22 @@ impl From<*mut aeron_send_channel_endpoint_entry_t> for AeronSendChannelEndpoint
         }
     }
 }
+impl From<*const aeron_send_channel_endpoint_entry_t> for AeronSendChannelEndpointEntry {
+    #[inline]
+    fn from(value: *const aeron_send_channel_endpoint_entry_t) -> Self {
+        AeronSendChannelEndpointEntry {
+            inner: CResource::Borrowed(value as *mut aeron_send_channel_endpoint_entry_t),
+        }
+    }
+}
+impl From<aeron_send_channel_endpoint_entry_t> for AeronSendChannelEndpointEntry {
+    #[inline]
+    fn from(value: aeron_send_channel_endpoint_entry_t) -> Self {
+        AeronSendChannelEndpointEntry {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronSendChannelEndpointEntry> for *mut aeron_send_channel_endpoint_entry_t {
     #[inline]
     fn from(value: AeronSendChannelEndpointEntry) -> Self {
@@ -55644,22 +55696,6 @@ impl From<AeronSendChannelEndpointEntry> for aeron_send_channel_endpoint_entry_t
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_send_channel_endpoint_entry_t> for AeronSendChannelEndpointEntry {
-    #[inline]
-    fn from(value: *const aeron_send_channel_endpoint_entry_t) -> Self {
-        AeronSendChannelEndpointEntry {
-            inner: CResource::Borrowed(value as *mut aeron_send_channel_endpoint_entry_t),
-        }
-    }
-}
-impl From<aeron_send_channel_endpoint_entry_t> for AeronSendChannelEndpointEntry {
-    #[inline]
-    fn from(value: aeron_send_channel_endpoint_entry_t) -> Self {
-        AeronSendChannelEndpointEntry {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronSendChannelEndpointEntry {
     fn default() -> Self {
@@ -55667,16 +55703,16 @@ impl Default for AeronSendChannelEndpointEntry {
     }
 }
 impl AeronSendChannelEndpointEntry {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -56108,6 +56144,22 @@ impl From<*mut aeron_send_channel_endpoint_t> for AeronSendChannelEndpoint {
         }
     }
 }
+impl From<*const aeron_send_channel_endpoint_t> for AeronSendChannelEndpoint {
+    #[inline]
+    fn from(value: *const aeron_send_channel_endpoint_t) -> Self {
+        AeronSendChannelEndpoint {
+            inner: CResource::Borrowed(value as *mut aeron_send_channel_endpoint_t),
+        }
+    }
+}
+impl From<aeron_send_channel_endpoint_t> for AeronSendChannelEndpoint {
+    #[inline]
+    fn from(value: aeron_send_channel_endpoint_t) -> Self {
+        AeronSendChannelEndpoint {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronSendChannelEndpoint> for *mut aeron_send_channel_endpoint_t {
     #[inline]
     fn from(value: AeronSendChannelEndpoint) -> Self {
@@ -56124,22 +56176,6 @@ impl From<AeronSendChannelEndpoint> for aeron_send_channel_endpoint_t {
     #[inline]
     fn from(value: AeronSendChannelEndpoint) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_send_channel_endpoint_t> for AeronSendChannelEndpoint {
-    #[inline]
-    fn from(value: *const aeron_send_channel_endpoint_t) -> Self {
-        AeronSendChannelEndpoint {
-            inner: CResource::Borrowed(value as *mut aeron_send_channel_endpoint_t),
-        }
-    }
-}
-impl From<aeron_send_channel_endpoint_t> for AeronSendChannelEndpoint {
-    #[inline]
-    fn from(value: aeron_send_channel_endpoint_t) -> Self {
-        AeronSendChannelEndpoint {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 impl AeronSendChannelEndpoint {
@@ -56321,6 +56357,22 @@ impl From<*mut aeron_setup_header_t> for AeronSetupHeader {
         }
     }
 }
+impl From<*const aeron_setup_header_t> for AeronSetupHeader {
+    #[inline]
+    fn from(value: *const aeron_setup_header_t) -> Self {
+        AeronSetupHeader {
+            inner: CResource::Borrowed(value as *mut aeron_setup_header_t),
+        }
+    }
+}
+impl From<aeron_setup_header_t> for AeronSetupHeader {
+    #[inline]
+    fn from(value: aeron_setup_header_t) -> Self {
+        AeronSetupHeader {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronSetupHeader> for *mut aeron_setup_header_t {
     #[inline]
     fn from(value: AeronSetupHeader) -> Self {
@@ -56339,22 +56391,6 @@ impl From<AeronSetupHeader> for aeron_setup_header_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_setup_header_t> for AeronSetupHeader {
-    #[inline]
-    fn from(value: *const aeron_setup_header_t) -> Self {
-        AeronSetupHeader {
-            inner: CResource::Borrowed(value as *mut aeron_setup_header_t),
-        }
-    }
-}
-impl From<aeron_setup_header_t> for AeronSetupHeader {
-    #[inline]
-    fn from(value: aeron_setup_header_t) -> Self {
-        AeronSetupHeader {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronSetupHeader {
     fn default() -> Self {
@@ -56362,11 +56398,12 @@ impl Default for AeronSetupHeader {
     }
 }
 impl AeronSetupHeader {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -56576,6 +56613,22 @@ impl From<*mut aeron_spsc_concurrent_array_queue_t> for AeronSpscConcurrentArray
         }
     }
 }
+impl From<*const aeron_spsc_concurrent_array_queue_t> for AeronSpscConcurrentArrayQueue {
+    #[inline]
+    fn from(value: *const aeron_spsc_concurrent_array_queue_t) -> Self {
+        AeronSpscConcurrentArrayQueue {
+            inner: CResource::Borrowed(value as *mut aeron_spsc_concurrent_array_queue_t),
+        }
+    }
+}
+impl From<aeron_spsc_concurrent_array_queue_t> for AeronSpscConcurrentArrayQueue {
+    #[inline]
+    fn from(value: aeron_spsc_concurrent_array_queue_t) -> Self {
+        AeronSpscConcurrentArrayQueue {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronSpscConcurrentArrayQueue> for *mut aeron_spsc_concurrent_array_queue_t {
     #[inline]
     fn from(value: AeronSpscConcurrentArrayQueue) -> Self {
@@ -56594,22 +56647,6 @@ impl From<AeronSpscConcurrentArrayQueue> for aeron_spsc_concurrent_array_queue_t
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_spsc_concurrent_array_queue_t> for AeronSpscConcurrentArrayQueue {
-    #[inline]
-    fn from(value: *const aeron_spsc_concurrent_array_queue_t) -> Self {
-        AeronSpscConcurrentArrayQueue {
-            inner: CResource::Borrowed(value as *mut aeron_spsc_concurrent_array_queue_t),
-        }
-    }
-}
-impl From<aeron_spsc_concurrent_array_queue_t> for AeronSpscConcurrentArrayQueue {
-    #[inline]
-    fn from(value: aeron_spsc_concurrent_array_queue_t) -> Self {
-        AeronSpscConcurrentArrayQueue {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronSpscConcurrentArrayQueue {
     fn default() -> Self {
@@ -56617,16 +56654,16 @@ impl Default for AeronSpscConcurrentArrayQueue {
     }
 }
 impl AeronSpscConcurrentArrayQueue {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -57099,6 +57136,22 @@ impl From<*mut aeron_spsc_rb_t> for AeronSpscRb {
         }
     }
 }
+impl From<*const aeron_spsc_rb_t> for AeronSpscRb {
+    #[inline]
+    fn from(value: *const aeron_spsc_rb_t) -> Self {
+        AeronSpscRb {
+            inner: CResource::Borrowed(value as *mut aeron_spsc_rb_t),
+        }
+    }
+}
+impl From<aeron_spsc_rb_t> for AeronSpscRb {
+    #[inline]
+    fn from(value: aeron_spsc_rb_t) -> Self {
+        AeronSpscRb {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronSpscRb> for *mut aeron_spsc_rb_t {
     #[inline]
     fn from(value: AeronSpscRb) -> Self {
@@ -57117,22 +57170,6 @@ impl From<AeronSpscRb> for aeron_spsc_rb_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_spsc_rb_t> for AeronSpscRb {
-    #[inline]
-    fn from(value: *const aeron_spsc_rb_t) -> Self {
-        AeronSpscRb {
-            inner: CResource::Borrowed(value as *mut aeron_spsc_rb_t),
-        }
-    }
-}
-impl From<aeron_spsc_rb_t> for AeronSpscRb {
-    #[inline]
-    fn from(value: aeron_spsc_rb_t) -> Self {
-        AeronSpscRb {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronSpscRb {
     fn default() -> Self {
@@ -57140,16 +57177,16 @@ impl Default for AeronSpscRb {
     }
 }
 impl AeronSpscRb {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -57303,6 +57340,22 @@ impl From<*mut aeron_static_counter_command_t> for AeronStaticCounterCommand {
         }
     }
 }
+impl From<*const aeron_static_counter_command_t> for AeronStaticCounterCommand {
+    #[inline]
+    fn from(value: *const aeron_static_counter_command_t) -> Self {
+        AeronStaticCounterCommand {
+            inner: CResource::Borrowed(value as *mut aeron_static_counter_command_t),
+        }
+    }
+}
+impl From<aeron_static_counter_command_t> for AeronStaticCounterCommand {
+    #[inline]
+    fn from(value: aeron_static_counter_command_t) -> Self {
+        AeronStaticCounterCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronStaticCounterCommand> for *mut aeron_static_counter_command_t {
     #[inline]
     fn from(value: AeronStaticCounterCommand) -> Self {
@@ -57321,22 +57374,6 @@ impl From<AeronStaticCounterCommand> for aeron_static_counter_command_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_static_counter_command_t> for AeronStaticCounterCommand {
-    #[inline]
-    fn from(value: *const aeron_static_counter_command_t) -> Self {
-        AeronStaticCounterCommand {
-            inner: CResource::Borrowed(value as *mut aeron_static_counter_command_t),
-        }
-    }
-}
-impl From<aeron_static_counter_command_t> for AeronStaticCounterCommand {
-    #[inline]
-    fn from(value: aeron_static_counter_command_t) -> Self {
-        AeronStaticCounterCommand {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronStaticCounterCommand {
     fn default() -> Self {
@@ -57344,11 +57381,12 @@ impl Default for AeronStaticCounterCommand {
     }
 }
 impl AeronStaticCounterCommand {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -57496,6 +57534,22 @@ impl From<*mut aeron_static_counter_response_t> for AeronStaticCounterResponse {
         }
     }
 }
+impl From<*const aeron_static_counter_response_t> for AeronStaticCounterResponse {
+    #[inline]
+    fn from(value: *const aeron_static_counter_response_t) -> Self {
+        AeronStaticCounterResponse {
+            inner: CResource::Borrowed(value as *mut aeron_static_counter_response_t),
+        }
+    }
+}
+impl From<aeron_static_counter_response_t> for AeronStaticCounterResponse {
+    #[inline]
+    fn from(value: aeron_static_counter_response_t) -> Self {
+        AeronStaticCounterResponse {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronStaticCounterResponse> for *mut aeron_static_counter_response_t {
     #[inline]
     fn from(value: AeronStaticCounterResponse) -> Self {
@@ -57514,22 +57568,6 @@ impl From<AeronStaticCounterResponse> for aeron_static_counter_response_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_static_counter_response_t> for AeronStaticCounterResponse {
-    #[inline]
-    fn from(value: *const aeron_static_counter_response_t) -> Self {
-        AeronStaticCounterResponse {
-            inner: CResource::Borrowed(value as *mut aeron_static_counter_response_t),
-        }
-    }
-}
-impl From<aeron_static_counter_response_t> for AeronStaticCounterResponse {
-    #[inline]
-    fn from(value: aeron_static_counter_response_t) -> Self {
-        AeronStaticCounterResponse {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronStaticCounterResponse {
     fn default() -> Self {
@@ -57537,11 +57575,12 @@ impl Default for AeronStaticCounterResponse {
     }
 }
 impl AeronStaticCounterResponse {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -57751,6 +57790,22 @@ impl From<*mut aeron_status_message_header_t> for AeronStatusMessageHeader {
         }
     }
 }
+impl From<*const aeron_status_message_header_t> for AeronStatusMessageHeader {
+    #[inline]
+    fn from(value: *const aeron_status_message_header_t) -> Self {
+        AeronStatusMessageHeader {
+            inner: CResource::Borrowed(value as *mut aeron_status_message_header_t),
+        }
+    }
+}
+impl From<aeron_status_message_header_t> for AeronStatusMessageHeader {
+    #[inline]
+    fn from(value: aeron_status_message_header_t) -> Self {
+        AeronStatusMessageHeader {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronStatusMessageHeader> for *mut aeron_status_message_header_t {
     #[inline]
     fn from(value: AeronStatusMessageHeader) -> Self {
@@ -57769,22 +57824,6 @@ impl From<AeronStatusMessageHeader> for aeron_status_message_header_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_status_message_header_t> for AeronStatusMessageHeader {
-    #[inline]
-    fn from(value: *const aeron_status_message_header_t) -> Self {
-        AeronStatusMessageHeader {
-            inner: CResource::Borrowed(value as *mut aeron_status_message_header_t),
-        }
-    }
-}
-impl From<aeron_status_message_header_t> for AeronStatusMessageHeader {
-    #[inline]
-    fn from(value: aeron_status_message_header_t) -> Self {
-        AeronStatusMessageHeader {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronStatusMessageHeader {
     fn default() -> Self {
@@ -57792,11 +57831,12 @@ impl Default for AeronStatusMessageHeader {
     }
 }
 impl AeronStatusMessageHeader {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -57938,6 +57978,22 @@ impl From<*mut aeron_status_message_optional_header_t> for AeronStatusMessageOpt
         }
     }
 }
+impl From<*const aeron_status_message_optional_header_t> for AeronStatusMessageOptionalHeader {
+    #[inline]
+    fn from(value: *const aeron_status_message_optional_header_t) -> Self {
+        AeronStatusMessageOptionalHeader {
+            inner: CResource::Borrowed(value as *mut aeron_status_message_optional_header_t),
+        }
+    }
+}
+impl From<aeron_status_message_optional_header_t> for AeronStatusMessageOptionalHeader {
+    #[inline]
+    fn from(value: aeron_status_message_optional_header_t) -> Self {
+        AeronStatusMessageOptionalHeader {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronStatusMessageOptionalHeader> for *mut aeron_status_message_optional_header_t {
     #[inline]
     fn from(value: AeronStatusMessageOptionalHeader) -> Self {
@@ -57956,22 +58012,6 @@ impl From<AeronStatusMessageOptionalHeader> for aeron_status_message_optional_he
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_status_message_optional_header_t> for AeronStatusMessageOptionalHeader {
-    #[inline]
-    fn from(value: *const aeron_status_message_optional_header_t) -> Self {
-        AeronStatusMessageOptionalHeader {
-            inner: CResource::Borrowed(value as *mut aeron_status_message_optional_header_t),
-        }
-    }
-}
-impl From<aeron_status_message_optional_header_t> for AeronStatusMessageOptionalHeader {
-    #[inline]
-    fn from(value: aeron_status_message_optional_header_t) -> Self {
-        AeronStatusMessageOptionalHeader {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronStatusMessageOptionalHeader {
     fn default() -> Self {
@@ -57979,11 +58019,12 @@ impl Default for AeronStatusMessageOptionalHeader {
     }
 }
 impl AeronStatusMessageOptionalHeader {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -58141,6 +58182,22 @@ impl From<*mut aeron_str_to_ptr_hash_map_key_t> for AeronStrToPtrHashMapKey {
         }
     }
 }
+impl From<*const aeron_str_to_ptr_hash_map_key_t> for AeronStrToPtrHashMapKey {
+    #[inline]
+    fn from(value: *const aeron_str_to_ptr_hash_map_key_t) -> Self {
+        AeronStrToPtrHashMapKey {
+            inner: CResource::Borrowed(value as *mut aeron_str_to_ptr_hash_map_key_t),
+        }
+    }
+}
+impl From<aeron_str_to_ptr_hash_map_key_t> for AeronStrToPtrHashMapKey {
+    #[inline]
+    fn from(value: aeron_str_to_ptr_hash_map_key_t) -> Self {
+        AeronStrToPtrHashMapKey {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronStrToPtrHashMapKey> for *mut aeron_str_to_ptr_hash_map_key_t {
     #[inline]
     fn from(value: AeronStrToPtrHashMapKey) -> Self {
@@ -58159,22 +58216,6 @@ impl From<AeronStrToPtrHashMapKey> for aeron_str_to_ptr_hash_map_key_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_str_to_ptr_hash_map_key_t> for AeronStrToPtrHashMapKey {
-    #[inline]
-    fn from(value: *const aeron_str_to_ptr_hash_map_key_t) -> Self {
-        AeronStrToPtrHashMapKey {
-            inner: CResource::Borrowed(value as *mut aeron_str_to_ptr_hash_map_key_t),
-        }
-    }
-}
-impl From<aeron_str_to_ptr_hash_map_key_t> for AeronStrToPtrHashMapKey {
-    #[inline]
-    fn from(value: aeron_str_to_ptr_hash_map_key_t) -> Self {
-        AeronStrToPtrHashMapKey {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronStrToPtrHashMapKey {
     fn default() -> Self {
@@ -58182,16 +58223,16 @@ impl Default for AeronStrToPtrHashMapKey {
     }
 }
 impl AeronStrToPtrHashMapKey {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -58369,6 +58410,22 @@ impl From<*mut aeron_str_to_ptr_hash_map_t> for AeronStrToPtrHashMap {
         }
     }
 }
+impl From<*const aeron_str_to_ptr_hash_map_t> for AeronStrToPtrHashMap {
+    #[inline]
+    fn from(value: *const aeron_str_to_ptr_hash_map_t) -> Self {
+        AeronStrToPtrHashMap {
+            inner: CResource::Borrowed(value as *mut aeron_str_to_ptr_hash_map_t),
+        }
+    }
+}
+impl From<aeron_str_to_ptr_hash_map_t> for AeronStrToPtrHashMap {
+    #[inline]
+    fn from(value: aeron_str_to_ptr_hash_map_t) -> Self {
+        AeronStrToPtrHashMap {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronStrToPtrHashMap> for *mut aeron_str_to_ptr_hash_map_t {
     #[inline]
     fn from(value: AeronStrToPtrHashMap) -> Self {
@@ -58387,22 +58444,6 @@ impl From<AeronStrToPtrHashMap> for aeron_str_to_ptr_hash_map_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_str_to_ptr_hash_map_t> for AeronStrToPtrHashMap {
-    #[inline]
-    fn from(value: *const aeron_str_to_ptr_hash_map_t) -> Self {
-        AeronStrToPtrHashMap {
-            inner: CResource::Borrowed(value as *mut aeron_str_to_ptr_hash_map_t),
-        }
-    }
-}
-impl From<aeron_str_to_ptr_hash_map_t> for AeronStrToPtrHashMap {
-    #[inline]
-    fn from(value: aeron_str_to_ptr_hash_map_t) -> Self {
-        AeronStrToPtrHashMap {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronStrToPtrHashMap {
     fn default() -> Self {
@@ -58410,16 +58451,16 @@ impl Default for AeronStrToPtrHashMap {
     }
 }
 impl AeronStrToPtrHashMap {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -58590,6 +58631,22 @@ impl From<*mut aeron_stream_position_counter_key_layout_t> for AeronStreamPositi
         }
     }
 }
+impl From<*const aeron_stream_position_counter_key_layout_t> for AeronStreamPositionCounterKeyLayout {
+    #[inline]
+    fn from(value: *const aeron_stream_position_counter_key_layout_t) -> Self {
+        AeronStreamPositionCounterKeyLayout {
+            inner: CResource::Borrowed(value as *mut aeron_stream_position_counter_key_layout_t),
+        }
+    }
+}
+impl From<aeron_stream_position_counter_key_layout_t> for AeronStreamPositionCounterKeyLayout {
+    #[inline]
+    fn from(value: aeron_stream_position_counter_key_layout_t) -> Self {
+        AeronStreamPositionCounterKeyLayout {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronStreamPositionCounterKeyLayout> for *mut aeron_stream_position_counter_key_layout_t {
     #[inline]
     fn from(value: AeronStreamPositionCounterKeyLayout) -> Self {
@@ -58608,22 +58665,6 @@ impl From<AeronStreamPositionCounterKeyLayout> for aeron_stream_position_counter
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_stream_position_counter_key_layout_t> for AeronStreamPositionCounterKeyLayout {
-    #[inline]
-    fn from(value: *const aeron_stream_position_counter_key_layout_t) -> Self {
-        AeronStreamPositionCounterKeyLayout {
-            inner: CResource::Borrowed(value as *mut aeron_stream_position_counter_key_layout_t),
-        }
-    }
-}
-impl From<aeron_stream_position_counter_key_layout_t> for AeronStreamPositionCounterKeyLayout {
-    #[inline]
-    fn from(value: aeron_stream_position_counter_key_layout_t) -> Self {
-        AeronStreamPositionCounterKeyLayout {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronStreamPositionCounterKeyLayout {
     fn default() -> Self {
@@ -58631,11 +58672,12 @@ impl Default for AeronStreamPositionCounterKeyLayout {
     }
 }
 impl AeronStreamPositionCounterKeyLayout {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -58783,6 +58825,22 @@ impl From<*mut aeron_subscribable_list_entry_t> for AeronSubscribableListEntry {
         }
     }
 }
+impl From<*const aeron_subscribable_list_entry_t> for AeronSubscribableListEntry {
+    #[inline]
+    fn from(value: *const aeron_subscribable_list_entry_t) -> Self {
+        AeronSubscribableListEntry {
+            inner: CResource::Borrowed(value as *mut aeron_subscribable_list_entry_t),
+        }
+    }
+}
+impl From<aeron_subscribable_list_entry_t> for AeronSubscribableListEntry {
+    #[inline]
+    fn from(value: aeron_subscribable_list_entry_t) -> Self {
+        AeronSubscribableListEntry {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronSubscribableListEntry> for *mut aeron_subscribable_list_entry_t {
     #[inline]
     fn from(value: AeronSubscribableListEntry) -> Self {
@@ -58801,22 +58859,6 @@ impl From<AeronSubscribableListEntry> for aeron_subscribable_list_entry_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_subscribable_list_entry_t> for AeronSubscribableListEntry {
-    #[inline]
-    fn from(value: *const aeron_subscribable_list_entry_t) -> Self {
-        AeronSubscribableListEntry {
-            inner: CResource::Borrowed(value as *mut aeron_subscribable_list_entry_t),
-        }
-    }
-}
-impl From<aeron_subscribable_list_entry_t> for AeronSubscribableListEntry {
-    #[inline]
-    fn from(value: aeron_subscribable_list_entry_t) -> Self {
-        AeronSubscribableListEntry {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronSubscribableListEntry {
     fn default() -> Self {
@@ -58824,16 +58866,16 @@ impl Default for AeronSubscribableListEntry {
     }
 }
 impl AeronSubscribableListEntry {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -59130,6 +59172,22 @@ impl From<*mut aeron_subscribable_t> for AeronSubscribable {
         }
     }
 }
+impl From<*const aeron_subscribable_t> for AeronSubscribable {
+    #[inline]
+    fn from(value: *const aeron_subscribable_t) -> Self {
+        AeronSubscribable {
+            inner: CResource::Borrowed(value as *mut aeron_subscribable_t),
+        }
+    }
+}
+impl From<aeron_subscribable_t> for AeronSubscribable {
+    #[inline]
+    fn from(value: aeron_subscribable_t) -> Self {
+        AeronSubscribable {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronSubscribable> for *mut aeron_subscribable_t {
     #[inline]
     fn from(value: AeronSubscribable) -> Self {
@@ -59148,22 +59206,6 @@ impl From<AeronSubscribable> for aeron_subscribable_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_subscribable_t> for AeronSubscribable {
-    #[inline]
-    fn from(value: *const aeron_subscribable_t) -> Self {
-        AeronSubscribable {
-            inner: CResource::Borrowed(value as *mut aeron_subscribable_t),
-        }
-    }
-}
-impl From<aeron_subscribable_t> for AeronSubscribable {
-    #[inline]
-    fn from(value: aeron_subscribable_t) -> Self {
-        AeronSubscribable {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronSubscribable {
     fn default() -> Self {
@@ -59171,16 +59213,16 @@ impl Default for AeronSubscribable {
     }
 }
 impl AeronSubscribable {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -59348,6 +59390,22 @@ impl From<*mut aeron_subscription_command_t> for AeronSubscriptionCommand {
         }
     }
 }
+impl From<*const aeron_subscription_command_t> for AeronSubscriptionCommand {
+    #[inline]
+    fn from(value: *const aeron_subscription_command_t) -> Self {
+        AeronSubscriptionCommand {
+            inner: CResource::Borrowed(value as *mut aeron_subscription_command_t),
+        }
+    }
+}
+impl From<aeron_subscription_command_t> for AeronSubscriptionCommand {
+    #[inline]
+    fn from(value: aeron_subscription_command_t) -> Self {
+        AeronSubscriptionCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronSubscriptionCommand> for *mut aeron_subscription_command_t {
     #[inline]
     fn from(value: AeronSubscriptionCommand) -> Self {
@@ -59366,22 +59424,6 @@ impl From<AeronSubscriptionCommand> for aeron_subscription_command_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_subscription_command_t> for AeronSubscriptionCommand {
-    #[inline]
-    fn from(value: *const aeron_subscription_command_t) -> Self {
-        AeronSubscriptionCommand {
-            inner: CResource::Borrowed(value as *mut aeron_subscription_command_t),
-        }
-    }
-}
-impl From<aeron_subscription_command_t> for AeronSubscriptionCommand {
-    #[inline]
-    fn from(value: aeron_subscription_command_t) -> Self {
-        AeronSubscriptionCommand {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronSubscriptionCommand {
     fn default() -> Self {
@@ -59389,11 +59431,12 @@ impl Default for AeronSubscriptionCommand {
     }
 }
 impl AeronSubscriptionCommand {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -59577,6 +59620,22 @@ impl From<*mut aeron_subscription_constants_t> for AeronSubscriptionConstants {
         }
     }
 }
+impl From<*const aeron_subscription_constants_t> for AeronSubscriptionConstants {
+    #[inline]
+    fn from(value: *const aeron_subscription_constants_t) -> Self {
+        AeronSubscriptionConstants {
+            inner: CResource::Borrowed(value as *mut aeron_subscription_constants_t),
+        }
+    }
+}
+impl From<aeron_subscription_constants_t> for AeronSubscriptionConstants {
+    #[inline]
+    fn from(value: aeron_subscription_constants_t) -> Self {
+        AeronSubscriptionConstants {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronSubscriptionConstants> for *mut aeron_subscription_constants_t {
     #[inline]
     fn from(value: AeronSubscriptionConstants) -> Self {
@@ -59595,22 +59654,6 @@ impl From<AeronSubscriptionConstants> for aeron_subscription_constants_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_subscription_constants_t> for AeronSubscriptionConstants {
-    #[inline]
-    fn from(value: *const aeron_subscription_constants_t) -> Self {
-        AeronSubscriptionConstants {
-            inner: CResource::Borrowed(value as *mut aeron_subscription_constants_t),
-        }
-    }
-}
-impl From<aeron_subscription_constants_t> for AeronSubscriptionConstants {
-    #[inline]
-    fn from(value: aeron_subscription_constants_t) -> Self {
-        AeronSubscriptionConstants {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronSubscriptionConstants {
     fn default() -> Self {
@@ -59618,16 +59661,16 @@ impl Default for AeronSubscriptionConstants {
     }
 }
 impl AeronSubscriptionConstants {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -59905,6 +59948,22 @@ impl From<*mut aeron_subscription_link_t> for AeronSubscriptionLink {
         }
     }
 }
+impl From<*const aeron_subscription_link_t> for AeronSubscriptionLink {
+    #[inline]
+    fn from(value: *const aeron_subscription_link_t) -> Self {
+        AeronSubscriptionLink {
+            inner: CResource::Borrowed(value as *mut aeron_subscription_link_t),
+        }
+    }
+}
+impl From<aeron_subscription_link_t> for AeronSubscriptionLink {
+    #[inline]
+    fn from(value: aeron_subscription_link_t) -> Self {
+        AeronSubscriptionLink {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronSubscriptionLink> for *mut aeron_subscription_link_t {
     #[inline]
     fn from(value: AeronSubscriptionLink) -> Self {
@@ -59923,22 +59982,6 @@ impl From<AeronSubscriptionLink> for aeron_subscription_link_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_subscription_link_t> for AeronSubscriptionLink {
-    #[inline]
-    fn from(value: *const aeron_subscription_link_t) -> Self {
-        AeronSubscriptionLink {
-            inner: CResource::Borrowed(value as *mut aeron_subscription_link_t),
-        }
-    }
-}
-impl From<aeron_subscription_link_t> for AeronSubscriptionLink {
-    #[inline]
-    fn from(value: aeron_subscription_link_t) -> Self {
-        AeronSubscriptionLink {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronSubscriptionLink {
     fn default() -> Self {
@@ -59946,16 +59989,16 @@ impl Default for AeronSubscriptionLink {
     }
 }
 impl AeronSubscriptionLink {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -60106,6 +60149,22 @@ impl From<*mut aeron_subscription_ready_t> for AeronSubscriptionReady {
         }
     }
 }
+impl From<*const aeron_subscription_ready_t> for AeronSubscriptionReady {
+    #[inline]
+    fn from(value: *const aeron_subscription_ready_t) -> Self {
+        AeronSubscriptionReady {
+            inner: CResource::Borrowed(value as *mut aeron_subscription_ready_t),
+        }
+    }
+}
+impl From<aeron_subscription_ready_t> for AeronSubscriptionReady {
+    #[inline]
+    fn from(value: aeron_subscription_ready_t) -> Self {
+        AeronSubscriptionReady {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronSubscriptionReady> for *mut aeron_subscription_ready_t {
     #[inline]
     fn from(value: AeronSubscriptionReady) -> Self {
@@ -60124,22 +60183,6 @@ impl From<AeronSubscriptionReady> for aeron_subscription_ready_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_subscription_ready_t> for AeronSubscriptionReady {
-    #[inline]
-    fn from(value: *const aeron_subscription_ready_t) -> Self {
-        AeronSubscriptionReady {
-            inner: CResource::Borrowed(value as *mut aeron_subscription_ready_t),
-        }
-    }
-}
-impl From<aeron_subscription_ready_t> for AeronSubscriptionReady {
-    #[inline]
-    fn from(value: aeron_subscription_ready_t) -> Self {
-        AeronSubscriptionReady {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronSubscriptionReady {
     fn default() -> Self {
@@ -60147,11 +60190,12 @@ impl Default for AeronSubscriptionReady {
     }
 }
 impl AeronSubscriptionReady {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -60960,6 +61004,22 @@ impl From<*mut aeron_subscription_t> for AeronSubscription {
         }
     }
 }
+impl From<*const aeron_subscription_t> for AeronSubscription {
+    #[inline]
+    fn from(value: *const aeron_subscription_t) -> Self {
+        AeronSubscription {
+            inner: CResource::Borrowed(value as *mut aeron_subscription_t),
+        }
+    }
+}
+impl From<aeron_subscription_t> for AeronSubscription {
+    #[inline]
+    fn from(value: aeron_subscription_t) -> Self {
+        AeronSubscription {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronSubscription> for *mut aeron_subscription_t {
     #[inline]
     fn from(value: AeronSubscription) -> Self {
@@ -60976,22 +61036,6 @@ impl From<AeronSubscription> for aeron_subscription_t {
     #[inline]
     fn from(value: AeronSubscription) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_subscription_t> for AeronSubscription {
-    #[inline]
-    fn from(value: *const aeron_subscription_t) -> Self {
-        AeronSubscription {
-            inner: CResource::Borrowed(value as *mut aeron_subscription_t),
-        }
-    }
-}
-impl From<aeron_subscription_t> for AeronSubscription {
-    #[inline]
-    fn from(value: aeron_subscription_t) -> Self {
-        AeronSubscription {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 impl AeronSubscription {
@@ -61153,6 +61197,22 @@ impl From<*mut aeron_system_counter_t> for AeronSystemCounter {
         }
     }
 }
+impl From<*const aeron_system_counter_t> for AeronSystemCounter {
+    #[inline]
+    fn from(value: *const aeron_system_counter_t) -> Self {
+        AeronSystemCounter {
+            inner: CResource::Borrowed(value as *mut aeron_system_counter_t),
+        }
+    }
+}
+impl From<aeron_system_counter_t> for AeronSystemCounter {
+    #[inline]
+    fn from(value: aeron_system_counter_t) -> Self {
+        AeronSystemCounter {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronSystemCounter> for *mut aeron_system_counter_t {
     #[inline]
     fn from(value: AeronSystemCounter) -> Self {
@@ -61171,22 +61231,6 @@ impl From<AeronSystemCounter> for aeron_system_counter_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_system_counter_t> for AeronSystemCounter {
-    #[inline]
-    fn from(value: *const aeron_system_counter_t) -> Self {
-        AeronSystemCounter {
-            inner: CResource::Borrowed(value as *mut aeron_system_counter_t),
-        }
-    }
-}
-impl From<aeron_system_counter_t> for AeronSystemCounter {
-    #[inline]
-    fn from(value: aeron_system_counter_t) -> Self {
-        AeronSystemCounter {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronSystemCounter {
     fn default() -> Self {
@@ -61194,16 +61238,16 @@ impl Default for AeronSystemCounter {
     }
 }
 impl AeronSystemCounter {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -61368,6 +61412,22 @@ impl From<*mut aeron_system_counters_t> for AeronSystemCounters {
         }
     }
 }
+impl From<*const aeron_system_counters_t> for AeronSystemCounters {
+    #[inline]
+    fn from(value: *const aeron_system_counters_t) -> Self {
+        AeronSystemCounters {
+            inner: CResource::Borrowed(value as *mut aeron_system_counters_t),
+        }
+    }
+}
+impl From<aeron_system_counters_t> for AeronSystemCounters {
+    #[inline]
+    fn from(value: aeron_system_counters_t) -> Self {
+        AeronSystemCounters {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronSystemCounters> for *mut aeron_system_counters_t {
     #[inline]
     fn from(value: AeronSystemCounters) -> Self {
@@ -61386,22 +61446,6 @@ impl From<AeronSystemCounters> for aeron_system_counters_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_system_counters_t> for AeronSystemCounters {
-    #[inline]
-    fn from(value: *const aeron_system_counters_t) -> Self {
-        AeronSystemCounters {
-            inner: CResource::Borrowed(value as *mut aeron_system_counters_t),
-        }
-    }
-}
-impl From<aeron_system_counters_t> for AeronSystemCounters {
-    #[inline]
-    fn from(value: aeron_system_counters_t) -> Self {
-        AeronSystemCounters {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronSystemCounters {
     fn default() -> Self {
@@ -61409,16 +61453,16 @@ impl Default for AeronSystemCounters {
     }
 }
 impl AeronSystemCounters {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -64776,24 +64820,6 @@ impl From<*mut aeron_t> for Aeron {
         }
     }
 }
-impl From<Aeron> for *mut aeron_t {
-    #[inline]
-    fn from(value: Aeron) -> Self {
-        value.get_inner()
-    }
-}
-impl From<&Aeron> for *mut aeron_t {
-    #[inline]
-    fn from(value: &Aeron) -> Self {
-        value.get_inner()
-    }
-}
-impl From<Aeron> for aeron_t {
-    #[inline]
-    fn from(value: Aeron) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
 impl From<*const aeron_t> for Aeron {
     #[inline]
     fn from(value: *const aeron_t) -> Self {
@@ -64810,6 +64836,24 @@ impl From<aeron_t> for Aeron {
             inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
             _context: None,
         }
+    }
+}
+impl From<Aeron> for *mut aeron_t {
+    #[inline]
+    fn from(value: Aeron) -> Self {
+        value.get_inner()
+    }
+}
+impl From<&Aeron> for *mut aeron_t {
+    #[inline]
+    fn from(value: &Aeron) -> Self {
+        value.get_inner()
+    }
+}
+impl From<Aeron> for aeron_t {
+    #[inline]
+    fn from(value: Aeron) -> Self {
+        unsafe { *value.get_inner().clone() }
     }
 }
 impl Aeron {
@@ -64961,6 +65005,22 @@ impl From<*mut aeron_terminate_driver_command_t> for AeronTerminateDriverCommand
         }
     }
 }
+impl From<*const aeron_terminate_driver_command_t> for AeronTerminateDriverCommand {
+    #[inline]
+    fn from(value: *const aeron_terminate_driver_command_t) -> Self {
+        AeronTerminateDriverCommand {
+            inner: CResource::Borrowed(value as *mut aeron_terminate_driver_command_t),
+        }
+    }
+}
+impl From<aeron_terminate_driver_command_t> for AeronTerminateDriverCommand {
+    #[inline]
+    fn from(value: aeron_terminate_driver_command_t) -> Self {
+        AeronTerminateDriverCommand {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronTerminateDriverCommand> for *mut aeron_terminate_driver_command_t {
     #[inline]
     fn from(value: AeronTerminateDriverCommand) -> Self {
@@ -64979,22 +65039,6 @@ impl From<AeronTerminateDriverCommand> for aeron_terminate_driver_command_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_terminate_driver_command_t> for AeronTerminateDriverCommand {
-    #[inline]
-    fn from(value: *const aeron_terminate_driver_command_t) -> Self {
-        AeronTerminateDriverCommand {
-            inner: CResource::Borrowed(value as *mut aeron_terminate_driver_command_t),
-        }
-    }
-}
-impl From<aeron_terminate_driver_command_t> for AeronTerminateDriverCommand {
-    #[inline]
-    fn from(value: aeron_terminate_driver_command_t) -> Self {
-        AeronTerminateDriverCommand {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronTerminateDriverCommand {
     fn default() -> Self {
@@ -65002,11 +65046,12 @@ impl Default for AeronTerminateDriverCommand {
     }
 }
 impl AeronTerminateDriverCommand {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -65193,6 +65238,22 @@ impl From<*mut aeron_tetherable_position_t> for AeronTetherablePosition {
         }
     }
 }
+impl From<*const aeron_tetherable_position_t> for AeronTetherablePosition {
+    #[inline]
+    fn from(value: *const aeron_tetherable_position_t) -> Self {
+        AeronTetherablePosition {
+            inner: CResource::Borrowed(value as *mut aeron_tetherable_position_t),
+        }
+    }
+}
+impl From<aeron_tetherable_position_t> for AeronTetherablePosition {
+    #[inline]
+    fn from(value: aeron_tetherable_position_t) -> Self {
+        AeronTetherablePosition {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronTetherablePosition> for *mut aeron_tetherable_position_t {
     #[inline]
     fn from(value: AeronTetherablePosition) -> Self {
@@ -65211,22 +65272,6 @@ impl From<AeronTetherablePosition> for aeron_tetherable_position_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_tetherable_position_t> for AeronTetherablePosition {
-    #[inline]
-    fn from(value: *const aeron_tetherable_position_t) -> Self {
-        AeronTetherablePosition {
-            inner: CResource::Borrowed(value as *mut aeron_tetherable_position_t),
-        }
-    }
-}
-impl From<aeron_tetherable_position_t> for AeronTetherablePosition {
-    #[inline]
-    fn from(value: aeron_tetherable_position_t) -> Self {
-        AeronTetherablePosition {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronTetherablePosition {
     fn default() -> Self {
@@ -65234,16 +65279,16 @@ impl Default for AeronTetherablePosition {
     }
 }
 impl AeronTetherablePosition {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -65391,6 +65436,22 @@ impl From<*mut aeron_udp_channel_async_parse_t> for AeronUdpChannelAsyncParse {
         }
     }
 }
+impl From<*const aeron_udp_channel_async_parse_t> for AeronUdpChannelAsyncParse {
+    #[inline]
+    fn from(value: *const aeron_udp_channel_async_parse_t) -> Self {
+        AeronUdpChannelAsyncParse {
+            inner: CResource::Borrowed(value as *mut aeron_udp_channel_async_parse_t),
+        }
+    }
+}
+impl From<aeron_udp_channel_async_parse_t> for AeronUdpChannelAsyncParse {
+    #[inline]
+    fn from(value: aeron_udp_channel_async_parse_t) -> Self {
+        AeronUdpChannelAsyncParse {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronUdpChannelAsyncParse> for *mut aeron_udp_channel_async_parse_t {
     #[inline]
     fn from(value: AeronUdpChannelAsyncParse) -> Self {
@@ -65409,22 +65470,6 @@ impl From<AeronUdpChannelAsyncParse> for aeron_udp_channel_async_parse_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_udp_channel_async_parse_t> for AeronUdpChannelAsyncParse {
-    #[inline]
-    fn from(value: *const aeron_udp_channel_async_parse_t) -> Self {
-        AeronUdpChannelAsyncParse {
-            inner: CResource::Borrowed(value as *mut aeron_udp_channel_async_parse_t),
-        }
-    }
-}
-impl From<aeron_udp_channel_async_parse_t> for AeronUdpChannelAsyncParse {
-    #[inline]
-    fn from(value: aeron_udp_channel_async_parse_t) -> Self {
-        AeronUdpChannelAsyncParse {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronUdpChannelAsyncParse {
     fn default() -> Self {
@@ -65432,16 +65477,16 @@ impl Default for AeronUdpChannelAsyncParse {
     }
 }
 impl AeronUdpChannelAsyncParse {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -65852,6 +65897,22 @@ impl From<*mut aeron_udp_channel_data_paths_t> for AeronUdpChannelDataPaths {
         }
     }
 }
+impl From<*const aeron_udp_channel_data_paths_t> for AeronUdpChannelDataPaths {
+    #[inline]
+    fn from(value: *const aeron_udp_channel_data_paths_t) -> Self {
+        AeronUdpChannelDataPaths {
+            inner: CResource::Borrowed(value as *mut aeron_udp_channel_data_paths_t),
+        }
+    }
+}
+impl From<aeron_udp_channel_data_paths_t> for AeronUdpChannelDataPaths {
+    #[inline]
+    fn from(value: aeron_udp_channel_data_paths_t) -> Self {
+        AeronUdpChannelDataPaths {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronUdpChannelDataPaths> for *mut aeron_udp_channel_data_paths_t {
     #[inline]
     fn from(value: AeronUdpChannelDataPaths) -> Self {
@@ -65870,22 +65931,6 @@ impl From<AeronUdpChannelDataPaths> for aeron_udp_channel_data_paths_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_udp_channel_data_paths_t> for AeronUdpChannelDataPaths {
-    #[inline]
-    fn from(value: *const aeron_udp_channel_data_paths_t) -> Self {
-        AeronUdpChannelDataPaths {
-            inner: CResource::Borrowed(value as *mut aeron_udp_channel_data_paths_t),
-        }
-    }
-}
-impl From<aeron_udp_channel_data_paths_t> for AeronUdpChannelDataPaths {
-    #[inline]
-    fn from(value: aeron_udp_channel_data_paths_t) -> Self {
-        AeronUdpChannelDataPaths {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronUdpChannelDataPaths {
     fn default() -> Self {
@@ -65893,16 +65938,16 @@ impl Default for AeronUdpChannelDataPaths {
     }
 }
 impl AeronUdpChannelDataPaths {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -66084,6 +66129,22 @@ impl From<*mut aeron_udp_channel_incoming_interceptor_t> for AeronUdpChannelInco
         }
     }
 }
+impl From<*const aeron_udp_channel_incoming_interceptor_t> for AeronUdpChannelIncomingInterceptor {
+    #[inline]
+    fn from(value: *const aeron_udp_channel_incoming_interceptor_t) -> Self {
+        AeronUdpChannelIncomingInterceptor {
+            inner: CResource::Borrowed(value as *mut aeron_udp_channel_incoming_interceptor_t),
+        }
+    }
+}
+impl From<aeron_udp_channel_incoming_interceptor_t> for AeronUdpChannelIncomingInterceptor {
+    #[inline]
+    fn from(value: aeron_udp_channel_incoming_interceptor_t) -> Self {
+        AeronUdpChannelIncomingInterceptor {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronUdpChannelIncomingInterceptor> for *mut aeron_udp_channel_incoming_interceptor_t {
     #[inline]
     fn from(value: AeronUdpChannelIncomingInterceptor) -> Self {
@@ -66102,22 +66163,6 @@ impl From<AeronUdpChannelIncomingInterceptor> for aeron_udp_channel_incoming_int
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_udp_channel_incoming_interceptor_t> for AeronUdpChannelIncomingInterceptor {
-    #[inline]
-    fn from(value: *const aeron_udp_channel_incoming_interceptor_t) -> Self {
-        AeronUdpChannelIncomingInterceptor {
-            inner: CResource::Borrowed(value as *mut aeron_udp_channel_incoming_interceptor_t),
-        }
-    }
-}
-impl From<aeron_udp_channel_incoming_interceptor_t> for AeronUdpChannelIncomingInterceptor {
-    #[inline]
-    fn from(value: aeron_udp_channel_incoming_interceptor_t) -> Self {
-        AeronUdpChannelIncomingInterceptor {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronUdpChannelIncomingInterceptor {
     fn default() -> Self {
@@ -66125,16 +66170,16 @@ impl Default for AeronUdpChannelIncomingInterceptor {
     }
 }
 impl AeronUdpChannelIncomingInterceptor {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -66377,6 +66422,22 @@ impl From<*mut aeron_udp_channel_interceptor_bindings_t> for AeronUdpChannelInte
         }
     }
 }
+impl From<*const aeron_udp_channel_interceptor_bindings_t> for AeronUdpChannelInterceptorBindings {
+    #[inline]
+    fn from(value: *const aeron_udp_channel_interceptor_bindings_t) -> Self {
+        AeronUdpChannelInterceptorBindings {
+            inner: CResource::Borrowed(value as *mut aeron_udp_channel_interceptor_bindings_t),
+        }
+    }
+}
+impl From<aeron_udp_channel_interceptor_bindings_t> for AeronUdpChannelInterceptorBindings {
+    #[inline]
+    fn from(value: aeron_udp_channel_interceptor_bindings_t) -> Self {
+        AeronUdpChannelInterceptorBindings {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronUdpChannelInterceptorBindings> for *mut aeron_udp_channel_interceptor_bindings_t {
     #[inline]
     fn from(value: AeronUdpChannelInterceptorBindings) -> Self {
@@ -66395,22 +66456,6 @@ impl From<AeronUdpChannelInterceptorBindings> for aeron_udp_channel_interceptor_
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_udp_channel_interceptor_bindings_t> for AeronUdpChannelInterceptorBindings {
-    #[inline]
-    fn from(value: *const aeron_udp_channel_interceptor_bindings_t) -> Self {
-        AeronUdpChannelInterceptorBindings {
-            inner: CResource::Borrowed(value as *mut aeron_udp_channel_interceptor_bindings_t),
-        }
-    }
-}
-impl From<aeron_udp_channel_interceptor_bindings_t> for AeronUdpChannelInterceptorBindings {
-    #[inline]
-    fn from(value: aeron_udp_channel_interceptor_bindings_t) -> Self {
-        AeronUdpChannelInterceptorBindings {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronUdpChannelInterceptorBindings {
     fn default() -> Self {
@@ -66418,11 +66463,12 @@ impl Default for AeronUdpChannelInterceptorBindings {
     }
 }
 impl AeronUdpChannelInterceptorBindings {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -66604,6 +66650,22 @@ impl From<*mut aeron_udp_channel_outgoing_interceptor_t> for AeronUdpChannelOutg
         }
     }
 }
+impl From<*const aeron_udp_channel_outgoing_interceptor_t> for AeronUdpChannelOutgoingInterceptor {
+    #[inline]
+    fn from(value: *const aeron_udp_channel_outgoing_interceptor_t) -> Self {
+        AeronUdpChannelOutgoingInterceptor {
+            inner: CResource::Borrowed(value as *mut aeron_udp_channel_outgoing_interceptor_t),
+        }
+    }
+}
+impl From<aeron_udp_channel_outgoing_interceptor_t> for AeronUdpChannelOutgoingInterceptor {
+    #[inline]
+    fn from(value: aeron_udp_channel_outgoing_interceptor_t) -> Self {
+        AeronUdpChannelOutgoingInterceptor {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronUdpChannelOutgoingInterceptor> for *mut aeron_udp_channel_outgoing_interceptor_t {
     #[inline]
     fn from(value: AeronUdpChannelOutgoingInterceptor) -> Self {
@@ -66622,22 +66684,6 @@ impl From<AeronUdpChannelOutgoingInterceptor> for aeron_udp_channel_outgoing_int
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_udp_channel_outgoing_interceptor_t> for AeronUdpChannelOutgoingInterceptor {
-    #[inline]
-    fn from(value: *const aeron_udp_channel_outgoing_interceptor_t) -> Self {
-        AeronUdpChannelOutgoingInterceptor {
-            inner: CResource::Borrowed(value as *mut aeron_udp_channel_outgoing_interceptor_t),
-        }
-    }
-}
-impl From<aeron_udp_channel_outgoing_interceptor_t> for AeronUdpChannelOutgoingInterceptor {
-    #[inline]
-    fn from(value: aeron_udp_channel_outgoing_interceptor_t) -> Self {
-        AeronUdpChannelOutgoingInterceptor {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronUdpChannelOutgoingInterceptor {
     fn default() -> Self {
@@ -66645,16 +66691,16 @@ impl Default for AeronUdpChannelOutgoingInterceptor {
     }
 }
 impl AeronUdpChannelOutgoingInterceptor {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -66875,6 +66921,22 @@ impl From<*mut aeron_udp_channel_params_t> for AeronUdpChannelParams {
         }
     }
 }
+impl From<*const aeron_udp_channel_params_t> for AeronUdpChannelParams {
+    #[inline]
+    fn from(value: *const aeron_udp_channel_params_t) -> Self {
+        AeronUdpChannelParams {
+            inner: CResource::Borrowed(value as *mut aeron_udp_channel_params_t),
+        }
+    }
+}
+impl From<aeron_udp_channel_params_t> for AeronUdpChannelParams {
+    #[inline]
+    fn from(value: aeron_udp_channel_params_t) -> Self {
+        AeronUdpChannelParams {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronUdpChannelParams> for *mut aeron_udp_channel_params_t {
     #[inline]
     fn from(value: AeronUdpChannelParams) -> Self {
@@ -66893,22 +66955,6 @@ impl From<AeronUdpChannelParams> for aeron_udp_channel_params_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_udp_channel_params_t> for AeronUdpChannelParams {
-    #[inline]
-    fn from(value: *const aeron_udp_channel_params_t) -> Self {
-        AeronUdpChannelParams {
-            inner: CResource::Borrowed(value as *mut aeron_udp_channel_params_t),
-        }
-    }
-}
-impl From<aeron_udp_channel_params_t> for AeronUdpChannelParams {
-    #[inline]
-    fn from(value: aeron_udp_channel_params_t) -> Self {
-        AeronUdpChannelParams {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronUdpChannelParams {
     fn default() -> Self {
@@ -66916,16 +66962,16 @@ impl Default for AeronUdpChannelParams {
     }
 }
 impl AeronUdpChannelParams {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -67246,6 +67292,22 @@ impl From<*mut aeron_udp_channel_t> for AeronUdpChannel {
         }
     }
 }
+impl From<*const aeron_udp_channel_t> for AeronUdpChannel {
+    #[inline]
+    fn from(value: *const aeron_udp_channel_t) -> Self {
+        AeronUdpChannel {
+            inner: CResource::Borrowed(value as *mut aeron_udp_channel_t),
+        }
+    }
+}
+impl From<aeron_udp_channel_t> for AeronUdpChannel {
+    #[inline]
+    fn from(value: aeron_udp_channel_t) -> Self {
+        AeronUdpChannel {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronUdpChannel> for *mut aeron_udp_channel_t {
     #[inline]
     fn from(value: AeronUdpChannel) -> Self {
@@ -67262,22 +67324,6 @@ impl From<AeronUdpChannel> for aeron_udp_channel_t {
     #[inline]
     fn from(value: AeronUdpChannel) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_udp_channel_t> for AeronUdpChannel {
-    #[inline]
-    fn from(value: *const aeron_udp_channel_t) -> Self {
-        AeronUdpChannel {
-            inner: CResource::Borrowed(value as *mut aeron_udp_channel_t),
-        }
-    }
-}
-impl From<aeron_udp_channel_t> for AeronUdpChannel {
-    #[inline]
-    fn from(value: aeron_udp_channel_t) -> Self {
-        AeronUdpChannel {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -67448,6 +67494,22 @@ impl From<*mut aeron_udp_destination_entry_t> for AeronUdpDestinationEntry {
         }
     }
 }
+impl From<*const aeron_udp_destination_entry_t> for AeronUdpDestinationEntry {
+    #[inline]
+    fn from(value: *const aeron_udp_destination_entry_t) -> Self {
+        AeronUdpDestinationEntry {
+            inner: CResource::Borrowed(value as *mut aeron_udp_destination_entry_t),
+        }
+    }
+}
+impl From<aeron_udp_destination_entry_t> for AeronUdpDestinationEntry {
+    #[inline]
+    fn from(value: aeron_udp_destination_entry_t) -> Self {
+        AeronUdpDestinationEntry {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronUdpDestinationEntry> for *mut aeron_udp_destination_entry_t {
     #[inline]
     fn from(value: AeronUdpDestinationEntry) -> Self {
@@ -67466,22 +67528,6 @@ impl From<AeronUdpDestinationEntry> for aeron_udp_destination_entry_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_udp_destination_entry_t> for AeronUdpDestinationEntry {
-    #[inline]
-    fn from(value: *const aeron_udp_destination_entry_t) -> Self {
-        AeronUdpDestinationEntry {
-            inner: CResource::Borrowed(value as *mut aeron_udp_destination_entry_t),
-        }
-    }
-}
-impl From<aeron_udp_destination_entry_t> for AeronUdpDestinationEntry {
-    #[inline]
-    fn from(value: aeron_udp_destination_entry_t) -> Self {
-        AeronUdpDestinationEntry {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronUdpDestinationEntry {
     fn default() -> Self {
@@ -67489,16 +67535,16 @@ impl Default for AeronUdpDestinationEntry {
     }
 }
 impl AeronUdpDestinationEntry {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -67876,6 +67922,22 @@ impl From<*mut aeron_udp_destination_tracker_t> for AeronUdpDestinationTracker {
         }
     }
 }
+impl From<*const aeron_udp_destination_tracker_t> for AeronUdpDestinationTracker {
+    #[inline]
+    fn from(value: *const aeron_udp_destination_tracker_t) -> Self {
+        AeronUdpDestinationTracker {
+            inner: CResource::Borrowed(value as *mut aeron_udp_destination_tracker_t),
+        }
+    }
+}
+impl From<aeron_udp_destination_tracker_t> for AeronUdpDestinationTracker {
+    #[inline]
+    fn from(value: aeron_udp_destination_tracker_t) -> Self {
+        AeronUdpDestinationTracker {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronUdpDestinationTracker> for *mut aeron_udp_destination_tracker_t {
     #[inline]
     fn from(value: AeronUdpDestinationTracker) -> Self {
@@ -67892,22 +67954,6 @@ impl From<AeronUdpDestinationTracker> for aeron_udp_destination_tracker_t {
     #[inline]
     fn from(value: AeronUdpDestinationTracker) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_udp_destination_tracker_t> for AeronUdpDestinationTracker {
-    #[inline]
-    fn from(value: *const aeron_udp_destination_tracker_t) -> Self {
-        AeronUdpDestinationTracker {
-            inner: CResource::Borrowed(value as *mut aeron_udp_destination_tracker_t),
-        }
-    }
-}
-impl From<aeron_udp_destination_tracker_t> for AeronUdpDestinationTracker {
-    #[inline]
-    fn from(value: aeron_udp_destination_tracker_t) -> Self {
-        AeronUdpDestinationTracker {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -68036,6 +68082,22 @@ impl From<*mut aeron_uri_param_t> for AeronUriParam {
         }
     }
 }
+impl From<*const aeron_uri_param_t> for AeronUriParam {
+    #[inline]
+    fn from(value: *const aeron_uri_param_t) -> Self {
+        AeronUriParam {
+            inner: CResource::Borrowed(value as *mut aeron_uri_param_t),
+        }
+    }
+}
+impl From<aeron_uri_param_t> for AeronUriParam {
+    #[inline]
+    fn from(value: aeron_uri_param_t) -> Self {
+        AeronUriParam {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronUriParam> for *mut aeron_uri_param_t {
     #[inline]
     fn from(value: AeronUriParam) -> Self {
@@ -68054,22 +68116,6 @@ impl From<AeronUriParam> for aeron_uri_param_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_uri_param_t> for AeronUriParam {
-    #[inline]
-    fn from(value: *const aeron_uri_param_t) -> Self {
-        AeronUriParam {
-            inner: CResource::Borrowed(value as *mut aeron_uri_param_t),
-        }
-    }
-}
-impl From<aeron_uri_param_t> for AeronUriParam {
-    #[inline]
-    fn from(value: aeron_uri_param_t) -> Self {
-        AeronUriParam {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronUriParam {
     fn default() -> Self {
@@ -68077,16 +68123,16 @@ impl Default for AeronUriParam {
     }
 }
 impl AeronUriParam {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -68438,6 +68484,22 @@ impl From<*mut aeron_uri_params_t> for AeronUriParams {
         }
     }
 }
+impl From<*const aeron_uri_params_t> for AeronUriParams {
+    #[inline]
+    fn from(value: *const aeron_uri_params_t) -> Self {
+        AeronUriParams {
+            inner: CResource::Borrowed(value as *mut aeron_uri_params_t),
+        }
+    }
+}
+impl From<aeron_uri_params_t> for AeronUriParams {
+    #[inline]
+    fn from(value: aeron_uri_params_t) -> Self {
+        AeronUriParams {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronUriParams> for *mut aeron_uri_params_t {
     #[inline]
     fn from(value: AeronUriParams) -> Self {
@@ -68456,22 +68518,6 @@ impl From<AeronUriParams> for aeron_uri_params_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_uri_params_t> for AeronUriParams {
-    #[inline]
-    fn from(value: *const aeron_uri_params_t) -> Self {
-        AeronUriParams {
-            inner: CResource::Borrowed(value as *mut aeron_uri_params_t),
-        }
-    }
-}
-impl From<aeron_uri_params_t> for AeronUriParams {
-    #[inline]
-    fn from(value: aeron_uri_params_t) -> Self {
-        AeronUriParams {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronUriParams {
     fn default() -> Self {
@@ -68479,16 +68525,16 @@ impl Default for AeronUriParams {
     }
 }
 impl AeronUriParams {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -68793,6 +68839,22 @@ impl From<*mut aeron_uri_string_builder_t> for AeronUriStringBuilder {
         }
     }
 }
+impl From<*const aeron_uri_string_builder_t> for AeronUriStringBuilder {
+    #[inline]
+    fn from(value: *const aeron_uri_string_builder_t) -> Self {
+        AeronUriStringBuilder {
+            inner: CResource::Borrowed(value as *mut aeron_uri_string_builder_t),
+        }
+    }
+}
+impl From<aeron_uri_string_builder_t> for AeronUriStringBuilder {
+    #[inline]
+    fn from(value: aeron_uri_string_builder_t) -> Self {
+        AeronUriStringBuilder {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronUriStringBuilder> for *mut aeron_uri_string_builder_t {
     #[inline]
     fn from(value: AeronUriStringBuilder) -> Self {
@@ -68809,22 +68871,6 @@ impl From<AeronUriStringBuilder> for aeron_uri_string_builder_t {
     #[inline]
     fn from(value: AeronUriStringBuilder) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const aeron_uri_string_builder_t> for AeronUriStringBuilder {
-    #[inline]
-    fn from(value: *const aeron_uri_string_builder_t) -> Self {
-        AeronUriStringBuilder {
-            inner: CResource::Borrowed(value as *mut aeron_uri_string_builder_t),
-        }
-    }
-}
-impl From<aeron_uri_string_builder_t> for AeronUriStringBuilder {
-    #[inline]
-    fn from(value: aeron_uri_string_builder_t) -> Self {
-        AeronUriStringBuilder {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[cfg(test)]
@@ -69232,6 +69278,22 @@ impl From<*mut aeron_uri_t> for AeronUri {
         }
     }
 }
+impl From<*const aeron_uri_t> for AeronUri {
+    #[inline]
+    fn from(value: *const aeron_uri_t) -> Self {
+        AeronUri {
+            inner: CResource::Borrowed(value as *mut aeron_uri_t),
+        }
+    }
+}
+impl From<aeron_uri_t> for AeronUri {
+    #[inline]
+    fn from(value: aeron_uri_t) -> Self {
+        AeronUri {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronUri> for *mut aeron_uri_t {
     #[inline]
     fn from(value: AeronUri) -> Self {
@@ -69250,22 +69312,6 @@ impl From<AeronUri> for aeron_uri_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_uri_t> for AeronUri {
-    #[inline]
-    fn from(value: *const aeron_uri_t) -> Self {
-        AeronUri {
-            inner: CResource::Borrowed(value as *mut aeron_uri_t),
-        }
-    }
-}
-impl From<aeron_uri_t> for AeronUri {
-    #[inline]
-    fn from(value: aeron_uri_t) -> Self {
-        AeronUri {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 impl AeronUri {
     #[doc = r" Closes this resource in the C client immediately; all clones of this"]
     #[doc = r" handle become closed (their pointer is nulled) and must not be used."]
@@ -69282,11 +69328,12 @@ impl Default for AeronUri {
     }
 }
 impl AeronUri {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -69584,6 +69631,22 @@ impl From<*mut aeron_wildcard_port_manager_t> for AeronWildcardPortManager {
         }
     }
 }
+impl From<*const aeron_wildcard_port_manager_t> for AeronWildcardPortManager {
+    #[inline]
+    fn from(value: *const aeron_wildcard_port_manager_t) -> Self {
+        AeronWildcardPortManager {
+            inner: CResource::Borrowed(value as *mut aeron_wildcard_port_manager_t),
+        }
+    }
+}
+impl From<aeron_wildcard_port_manager_t> for AeronWildcardPortManager {
+    #[inline]
+    fn from(value: aeron_wildcard_port_manager_t) -> Self {
+        AeronWildcardPortManager {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<AeronWildcardPortManager> for *mut aeron_wildcard_port_manager_t {
     #[inline]
     fn from(value: AeronWildcardPortManager) -> Self {
@@ -69602,22 +69665,6 @@ impl From<AeronWildcardPortManager> for aeron_wildcard_port_manager_t {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const aeron_wildcard_port_manager_t> for AeronWildcardPortManager {
-    #[inline]
-    fn from(value: *const aeron_wildcard_port_manager_t) -> Self {
-        AeronWildcardPortManager {
-            inner: CResource::Borrowed(value as *mut aeron_wildcard_port_manager_t),
-        }
-    }
-}
-impl From<aeron_wildcard_port_manager_t> for AeronWildcardPortManager {
-    #[inline]
-    fn from(value: aeron_wildcard_port_manager_t) -> Self {
-        AeronWildcardPortManager {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for AeronWildcardPortManager {
     fn default() -> Self {
@@ -69625,11 +69672,12 @@ impl Default for AeronWildcardPortManager {
     }
 }
 impl AeronWildcardPortManager {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -69787,6 +69835,22 @@ impl From<*mut ifaddrs> for Ifaddrs {
         }
     }
 }
+impl From<*const ifaddrs> for Ifaddrs {
+    #[inline]
+    fn from(value: *const ifaddrs) -> Self {
+        Ifaddrs {
+            inner: CResource::Borrowed(value as *mut ifaddrs),
+        }
+    }
+}
+impl From<ifaddrs> for Ifaddrs {
+    #[inline]
+    fn from(value: ifaddrs) -> Self {
+        Ifaddrs {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<Ifaddrs> for *mut ifaddrs {
     #[inline]
     fn from(value: Ifaddrs) -> Self {
@@ -69803,22 +69867,6 @@ impl From<Ifaddrs> for ifaddrs {
     #[inline]
     fn from(value: Ifaddrs) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const ifaddrs> for Ifaddrs {
-    #[inline]
-    fn from(value: *const ifaddrs) -> Self {
-        Ifaddrs {
-            inner: CResource::Borrowed(value as *mut ifaddrs),
-        }
-    }
-}
-impl From<ifaddrs> for Ifaddrs {
-    #[inline]
-    fn from(value: ifaddrs) -> Self {
-        Ifaddrs {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[derive(Clone)]
@@ -69934,6 +69982,22 @@ impl From<*mut in6_addr> for In6Addr {
         }
     }
 }
+impl From<*const in6_addr> for In6Addr {
+    #[inline]
+    fn from(value: *const in6_addr) -> Self {
+        In6Addr {
+            inner: CResource::Borrowed(value as *mut in6_addr),
+        }
+    }
+}
+impl From<in6_addr> for In6Addr {
+    #[inline]
+    fn from(value: in6_addr) -> Self {
+        In6Addr {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<In6Addr> for *mut in6_addr {
     #[inline]
     fn from(value: In6Addr) -> Self {
@@ -69950,22 +70014,6 @@ impl From<In6Addr> for in6_addr {
     #[inline]
     fn from(value: In6Addr) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const in6_addr> for In6Addr {
-    #[inline]
-    fn from(value: *const in6_addr) -> Self {
-        In6Addr {
-            inner: CResource::Borrowed(value as *mut in6_addr),
-        }
-    }
-}
-impl From<in6_addr> for In6Addr {
-    #[inline]
-    fn from(value: in6_addr) -> Self {
-        In6Addr {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[cfg(test)]
@@ -70116,6 +70164,22 @@ impl From<*mut in_addr> for InAddr {
         }
     }
 }
+impl From<*const in_addr> for InAddr {
+    #[inline]
+    fn from(value: *const in_addr) -> Self {
+        InAddr {
+            inner: CResource::Borrowed(value as *mut in_addr),
+        }
+    }
+}
+impl From<in_addr> for InAddr {
+    #[inline]
+    fn from(value: in_addr) -> Self {
+        InAddr {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<InAddr> for *mut in_addr {
     #[inline]
     fn from(value: InAddr) -> Self {
@@ -70134,22 +70198,6 @@ impl From<InAddr> for in_addr {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const in_addr> for InAddr {
-    #[inline]
-    fn from(value: *const in_addr) -> Self {
-        InAddr {
-            inner: CResource::Borrowed(value as *mut in_addr),
-        }
-    }
-}
-impl From<in_addr> for InAddr {
-    #[inline]
-    fn from(value: in_addr) -> Self {
-        InAddr {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for InAddr {
     fn default() -> Self {
@@ -70157,11 +70205,12 @@ impl Default for InAddr {
     }
 }
 impl InAddr {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -70300,6 +70349,22 @@ impl From<*mut iovec> for Iovec {
         }
     }
 }
+impl From<*const iovec> for Iovec {
+    #[inline]
+    fn from(value: *const iovec) -> Self {
+        Iovec {
+            inner: CResource::Borrowed(value as *mut iovec),
+        }
+    }
+}
+impl From<iovec> for Iovec {
+    #[inline]
+    fn from(value: iovec) -> Self {
+        Iovec {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<Iovec> for *mut iovec {
     #[inline]
     fn from(value: Iovec) -> Self {
@@ -70318,22 +70383,6 @@ impl From<Iovec> for iovec {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const iovec> for Iovec {
-    #[inline]
-    fn from(value: *const iovec) -> Self {
-        Iovec {
-            inner: CResource::Borrowed(value as *mut iovec),
-        }
-    }
-}
-impl From<iovec> for Iovec {
-    #[inline]
-    fn from(value: iovec) -> Self {
-        Iovec {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for Iovec {
     fn default() -> Self {
@@ -70341,16 +70390,16 @@ impl Default for Iovec {
     }
 }
 impl Iovec {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -70489,6 +70538,22 @@ impl From<*mut mmsghdr> for Mmsghdr {
         }
     }
 }
+impl From<*const mmsghdr> for Mmsghdr {
+    #[inline]
+    fn from(value: *const mmsghdr) -> Self {
+        Mmsghdr {
+            inner: CResource::Borrowed(value as *mut mmsghdr),
+        }
+    }
+}
+impl From<mmsghdr> for Mmsghdr {
+    #[inline]
+    fn from(value: mmsghdr) -> Self {
+        Mmsghdr {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<Mmsghdr> for *mut mmsghdr {
     #[inline]
     fn from(value: Mmsghdr) -> Self {
@@ -70507,22 +70572,6 @@ impl From<Mmsghdr> for mmsghdr {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const mmsghdr> for Mmsghdr {
-    #[inline]
-    fn from(value: *const mmsghdr) -> Self {
-        Mmsghdr {
-            inner: CResource::Borrowed(value as *mut mmsghdr),
-        }
-    }
-}
-impl From<mmsghdr> for Mmsghdr {
-    #[inline]
-    fn from(value: mmsghdr) -> Self {
-        Mmsghdr {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for Mmsghdr {
     fn default() -> Self {
@@ -70530,11 +70579,12 @@ impl Default for Mmsghdr {
     }
 }
 impl Mmsghdr {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -70708,6 +70758,22 @@ impl From<*mut msghdr> for Msghdr {
         }
     }
 }
+impl From<*const msghdr> for Msghdr {
+    #[inline]
+    fn from(value: *const msghdr) -> Self {
+        Msghdr {
+            inner: CResource::Borrowed(value as *mut msghdr),
+        }
+    }
+}
+impl From<msghdr> for Msghdr {
+    #[inline]
+    fn from(value: msghdr) -> Self {
+        Msghdr {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<Msghdr> for *mut msghdr {
     #[inline]
     fn from(value: Msghdr) -> Self {
@@ -70726,22 +70792,6 @@ impl From<Msghdr> for msghdr {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const msghdr> for Msghdr {
-    #[inline]
-    fn from(value: *const msghdr) -> Self {
-        Msghdr {
-            inner: CResource::Borrowed(value as *mut msghdr),
-        }
-    }
-}
-impl From<msghdr> for Msghdr {
-    #[inline]
-    fn from(value: msghdr) -> Self {
-        Msghdr {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for Msghdr {
     fn default() -> Self {
@@ -70749,16 +70799,16 @@ impl Default for Msghdr {
     }
 }
 impl Msghdr {
-    #[doc = r" `clone_struct` shallow copies the content of the underlying struct on heap."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
     #[doc = r" # Safety"]
-    #[doc = r" Scalar fields are copied, but pointer fields (strings, buffers, other structs)"]
-    #[doc = r" still point at the source's memory. Do not read them, including via `Debug`,"]
-    #[doc = r" once that memory is freed; for a callback argument that is when the callback"]
-    #[doc = r" returns. Copy strings out with `.to_owned()` instead"]
+    #[doc = r" Number fields are copied, but pointer fields (strings, buffers, other"]
+    #[doc = r" structs) still point at the source's memory. Do not read them, including"]
+    #[doc = r" via `Debug`, once that memory is freed. For a callback argument that is"]
+    #[doc = r" when the callback returns. Copy strings out with `.to_owned()` instead"]
     pub unsafe fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -70934,6 +70984,22 @@ impl From<*mut pollfd> for Pollfd {
         }
     }
 }
+impl From<*const pollfd> for Pollfd {
+    #[inline]
+    fn from(value: *const pollfd) -> Self {
+        Pollfd {
+            inner: CResource::Borrowed(value as *mut pollfd),
+        }
+    }
+}
+impl From<pollfd> for Pollfd {
+    #[inline]
+    fn from(value: pollfd) -> Self {
+        Pollfd {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<Pollfd> for *mut pollfd {
     #[inline]
     fn from(value: Pollfd) -> Self {
@@ -70952,22 +71018,6 @@ impl From<Pollfd> for pollfd {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const pollfd> for Pollfd {
-    #[inline]
-    fn from(value: *const pollfd) -> Self {
-        Pollfd {
-            inner: CResource::Borrowed(value as *mut pollfd),
-        }
-    }
-}
-impl From<pollfd> for Pollfd {
-    #[inline]
-    fn from(value: pollfd) -> Self {
-        Pollfd {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for Pollfd {
     fn default() -> Self {
@@ -70975,11 +71025,12 @@ impl Default for Pollfd {
     }
 }
 impl Pollfd {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -71126,6 +71177,22 @@ impl From<*mut sockaddr> for Sockaddr {
         }
     }
 }
+impl From<*const sockaddr> for Sockaddr {
+    #[inline]
+    fn from(value: *const sockaddr) -> Self {
+        Sockaddr {
+            inner: CResource::Borrowed(value as *mut sockaddr),
+        }
+    }
+}
+impl From<sockaddr> for Sockaddr {
+    #[inline]
+    fn from(value: sockaddr) -> Self {
+        Sockaddr {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<Sockaddr> for *mut sockaddr {
     #[inline]
     fn from(value: Sockaddr) -> Self {
@@ -71144,22 +71211,6 @@ impl From<Sockaddr> for sockaddr {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const sockaddr> for Sockaddr {
-    #[inline]
-    fn from(value: *const sockaddr) -> Self {
-        Sockaddr {
-            inner: CResource::Borrowed(value as *mut sockaddr),
-        }
-    }
-}
-impl From<sockaddr> for Sockaddr {
-    #[inline]
-    fn from(value: sockaddr) -> Self {
-        Sockaddr {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for Sockaddr {
     fn default() -> Self {
@@ -71167,11 +71218,12 @@ impl Default for Sockaddr {
     }
 }
 impl Sockaddr {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -71397,6 +71449,22 @@ impl From<*mut sockaddr_storage> for SockaddrStorage {
         }
     }
 }
+impl From<*const sockaddr_storage> for SockaddrStorage {
+    #[inline]
+    fn from(value: *const sockaddr_storage) -> Self {
+        SockaddrStorage {
+            inner: CResource::Borrowed(value as *mut sockaddr_storage),
+        }
+    }
+}
+impl From<sockaddr_storage> for SockaddrStorage {
+    #[inline]
+    fn from(value: sockaddr_storage) -> Self {
+        SockaddrStorage {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<SockaddrStorage> for *mut sockaddr_storage {
     #[inline]
     fn from(value: SockaddrStorage) -> Self {
@@ -71413,22 +71481,6 @@ impl From<SockaddrStorage> for sockaddr_storage {
     #[inline]
     fn from(value: SockaddrStorage) -> Self {
         unsafe { *value.get_inner().clone() }
-    }
-}
-impl From<*const sockaddr_storage> for SockaddrStorage {
-    #[inline]
-    fn from(value: *const sockaddr_storage) -> Self {
-        SockaddrStorage {
-            inner: CResource::Borrowed(value as *mut sockaddr_storage),
-        }
-    }
-}
-impl From<sockaddr_storage> for SockaddrStorage {
-    #[inline]
-    fn from(value: sockaddr_storage) -> Self {
-        SockaddrStorage {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
     }
 }
 #[cfg(test)]
@@ -71575,6 +71627,22 @@ impl From<*mut timespec> for Timespec {
         }
     }
 }
+impl From<*const timespec> for Timespec {
+    #[inline]
+    fn from(value: *const timespec) -> Self {
+        Timespec {
+            inner: CResource::Borrowed(value as *mut timespec),
+        }
+    }
+}
+impl From<timespec> for Timespec {
+    #[inline]
+    fn from(value: timespec) -> Self {
+        Timespec {
+            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
+        }
+    }
+}
 impl From<Timespec> for *mut timespec {
     #[inline]
     fn from(value: Timespec) -> Self {
@@ -71593,22 +71661,6 @@ impl From<Timespec> for timespec {
         unsafe { *value.get_inner().clone() }
     }
 }
-impl From<*const timespec> for Timespec {
-    #[inline]
-    fn from(value: *const timespec) -> Self {
-        Timespec {
-            inner: CResource::Borrowed(value as *mut timespec),
-        }
-    }
-}
-impl From<timespec> for Timespec {
-    #[inline]
-    fn from(value: timespec) -> Self {
-        Timespec {
-            inner: CResource::OwnedOnStack(MaybeUninit::new(value).into()),
-        }
-    }
-}
 #[doc = r" This will create an instance where the struct is zeroed, use with care"]
 impl Default for Timespec {
     fn default() -> Self {
@@ -71616,11 +71668,12 @@ impl Default for Timespec {
     }
 }
 impl Timespec {
-    #[doc = r" `clone_struct` copies the content of the underlying struct on heap; it holds"]
-    #[doc = r" no pointers, so the copy is independent of the source."]
+    #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
-    #[doc = r" Must be only used on structs which has no init/clean up methods."]
-    #[doc = r" So its dangerous to use with Aeron/AeronContext/AeronPublication/AeronSubscription"]
+    #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
+    #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
+    #[doc = r""]
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
     pub fn clone_struct(&self) -> Self {
         let copy = Self::default();
         unsafe { copy.get_inner_mut().clone_from(self.deref()) };
@@ -72115,7 +72168,9 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback<F: AeronPu
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     log_panic(stringify!(aeron_publication_error_frame_handler_t_callback), (), || {
-        closure.handle_aeron_publication_error_frame_handler(&AeronPublicationErrorValues::from(error_frame))
+        closure.handle_aeron_publication_error_frame_handler(&unsafe {
+            AeronPublicationErrorValues::from_ptr(error_frame)
+        })
     })
 }
 #[allow(dead_code)]
@@ -72151,7 +72206,9 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_catch<
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure.handle_aeron_publication_error_frame_handler(&AeronPublicationErrorValues::from(error_frame))
+        closure.handle_aeron_publication_error_frame_handler(&unsafe {
+            AeronPublicationErrorValues::from_ptr(error_frame)
+        })
     })
 }
 #[allow(dead_code)]
@@ -72186,7 +72243,9 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_for_once_c
         .join(", ")
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
-    catch_panic((), || closure(&AeronPublicationErrorValues::from(error_frame)))
+    catch_panic((), || {
+        closure(&unsafe { AeronPublicationErrorValues::from_ptr(error_frame) })
+    })
 }
 #[doc = "Generalised notification callback."]
 #[doc = r""]
@@ -74336,7 +74395,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback<F: AeronFragmentHa
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            &AeronHeader::from(header),
+            &unsafe { AeronHeader::from_ptr(header) },
         )
     })
 }
@@ -74384,7 +74443,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_catch<F: AeronFrag
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            &AeronHeader::from(header),
+            &unsafe { AeronHeader::from_ptr(header) },
         )
     })
 }
@@ -74437,7 +74496,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_c
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            &AeronHeader::from(header),
+            &unsafe { AeronHeader::from_ptr(header) },
         )
     })
 }
@@ -74484,7 +74543,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_unwind<F: AeronFra
         } else {
             std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
-        &AeronHeader::from(header),
+        &unsafe { AeronHeader::from_ptr(header) },
     )
 }
 #[allow(dead_code)]
@@ -74535,7 +74594,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_u
         } else {
             std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
-        &AeronHeader::from(header),
+        &unsafe { AeronHeader::from_ptr(header) },
     )
 }
 #[doc = "Callback for handling fragments of data being read from a log."]
@@ -74666,7 +74725,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback<F: Aero
                 } else {
                     std::slice::from_raw_parts(buffer, length.try_into().unwrap())
                 },
-                &AeronHeader::from(header),
+                &unsafe { AeronHeader::from_ptr(header) },
             )
         },
     )
@@ -74721,7 +74780,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_catch<
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            &AeronHeader::from(header),
+            &unsafe { AeronHeader::from_ptr(header) },
         )
     })
 }
@@ -74775,7 +74834,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_onc
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            &AeronHeader::from(header),
+            &unsafe { AeronHeader::from_ptr(header) },
         )
     })
 }
@@ -74828,7 +74887,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_unwind<
         } else {
             std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
-        &AeronHeader::from(header),
+        &unsafe { AeronHeader::from_ptr(header) },
     )
 }
 #[allow(dead_code)]
@@ -74880,7 +74939,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_onc
         } else {
             std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
-        &AeronHeader::from(header),
+        &unsafe { AeronHeader::from_ptr(header) },
     )
 }
 #[doc = "Callback for handling a block of messages being read from a log."]
