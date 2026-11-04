@@ -451,6 +451,9 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
         .allowlist_function("aeron_.*")
         .allowlist_type("aeron_.*")
         .allowlist_var("AERON_.*")
+        // bindgen's own evaluator skips macros that call function-like macros, so constants
+        // such as `AERON_DATA_HEADER_BEGIN_FLAG (UINT8_C(0x80))` would otherwise be dropped
+        .clang_macro_fallback()
         .rustified_enum("aeron_.*_enum")
         .default_enum_style(EnumVariation::Rust { non_exhaustive: false })
         .derive_debug(true)

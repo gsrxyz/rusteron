@@ -9,6 +9,11 @@ Early history predating the available release tags is grouped separately.
 - Breaking: callbacks receive wrapper arguments by reference (`&AeronHeader`, `&AeronImage`, `&AeronSubscription`, `&AeronArchiveRecordingDescriptor`, ...). C frees or reuses the struct when the callback returns, and the reference stops safe code keeping it past that point. Handler trait impls, `_fn` closures, fragment assemblers and `poll` handlers change from `header: AeronHeader` to `header: &AeronHeader` (#73).
 - Breaking: structs Aeron only passes to callbacks (`AeronHeader`, `AeronArchiveRecordingDescriptor`, `AeronArchiveRecordingSubscriptionDescriptor`, `AeronArchiveRecordingSignal`, `AeronPublicationErrorValues`) no longer implement `Clone`, `From<*mut T>`, `From<*const T>` or `From<T>`. Copy the fields you need out, or use `unsafe fn from_ptr` / `unsafe fn clone_reference` within the callback (#73).
 - Breaking: `clone_struct` is `unsafe` on structs with pointer fields, such as the recording descriptor's channel strings, because the copy still points at the source's memory. It stays safe on structs without pointers (#73).
+- Added missing constants such as `AERON_DATA_HEADER_BEGIN_FLAG`, `AERON_DATA_HEADER_END_FLAG`, `AERON_DATA_HEADER_EOS_FLAG`, `AERON_DATA_HEADER_REVOKED_FLAG`, `AERON_DATA_HEADER_UNFRAGMENTED`, `AERON_HDR_TYPE_*` and `AERON_FRAME_ALIGNMENT`. They are generated as `u32`, so compare them with a header's `u8` `flags` using `as u8`.
+- Added the driver error codes (`AERON_ERROR_CODE_*`) to rusteron-client and rusteron-archive.
+- Added the archive client's context defaults and environment variable names (`AERON_ARCHIVE_*_DEFAULT`, `AERON_ARCHIVE_*_ENV_VAR`). `AeronArchiveContext` now exposes its fields through getters, and `AeronArchiveCredentialsSupplier` is a full wrapper.
+- Added `AeronDriver::version_text`, `version_git_sha`, `version_major`, `version_minor` and `version_patch`, plus the default termination validators `termination_validator_default_allow`, `termination_validator_default_deny` and `termination_validator_load`.
+- Fixed generated wrappers that pass a slice to a C function with an `int32_t` length; they now cast `len()` to the C length type.
 
 ## 0.2.16
 

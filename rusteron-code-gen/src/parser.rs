@@ -579,4 +579,31 @@ mod tests {
             buffer.processing
         );
     }
+
+    /// An `int32_t` length merges into a slice too, so the generator must cast `len()` rather
+    /// than assume `usize`
+    #[test]
+    fn i32_length_merges_into_byte_slice() {
+        if running_under_valgrind() {
+            return;
+        }
+
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("bindings")
+            .join("media-driver.rs");
+        let bindings = parse_bindings(&path);
+        let method = bindings
+            .wrappers
+            .values()
+            .flat_map(|w| w.methods.iter())
+            .find(|m| m.fn_name == "aeron_driver_termination_validator_default_allow")
+            .expect("termination validator method missing");
+        let length = method.arguments.iter().find(|a| a.name == "token_length").unwrap();
+        assert_eq!(length.c_type, "i32");
+        assert!(
+            matches!(length.processing, ArgProcessing::ByteArrayWithLength(_)),
+            "i32 length must merge with its buffer, got {:?}",
+            length.processing
+        );
+    }
 }
