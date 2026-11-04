@@ -12,7 +12,7 @@ resolver = "2"
 [workspace.package]
 
 [workspace.dependencies]
-bindgen         = "0.72"
+bindgen         = "0.73"
 cmake           = "0.1"
 criterion       = "0.8"
 ctrlc           = "3.5"
@@ -25,13 +25,13 @@ log             = "0.4"
 num-format      = "0.4"
 pkg-config      = "0.3"
 proc-macro2     = "1.0"
-proptest        = "1.11"
+proptest        = "1.12"
 quote           = "1.0"
 regex           = "1.13"
 reqwest         = { version = "0.13", features = ["blocking"], default-features = false }
 rusteron-code-gen = { path = "rusteron-code-gen", version = "=0.2.17" }
 serial_test     = { version = "4.0", features = ["file_locks"] }
-syn             = { version = "2.0", features = ["full"] }
+syn             = { version = "3.0", features = ["full"] }
 tar             = "0.4"
 walkdir         = "2.5"
 

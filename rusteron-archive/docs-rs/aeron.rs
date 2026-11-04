@@ -395,6 +395,7 @@ use crate::AeronErrorType::Unknown;
 use std::backtrace::Backtrace;
 use std::cell::UnsafeCell;
 use std::fmt::Formatter;
+#[allow(unused_imports)]
 use std::mem::MaybeUninit;
 use std::ops::Deref;
 #[allow(unused_imports)]
@@ -423,16 +424,12 @@ pub enum CResource<T> {
     OwnedOnStack(std::cell::UnsafeCell<std::mem::MaybeUninit<T>>),
     Borrowed(*mut T),
 }
-impl<T: Clone> Clone for CResource<T> {
+impl<T> Clone for CResource<T> {
     fn clone(&self) -> Self {
-        unsafe {
-            match self {
-                CResource::OwnedOnHeap(r) => CResource::OwnedOnHeap(r.clone()),
-                CResource::OwnedOnStack(r) => {
-                    CResource::OwnedOnStack(MaybeUninit::new((*r.get()).assume_init_ref().clone()).into())
-                }
-                CResource::Borrowed(r) => CResource::Borrowed(r.clone()),
-            }
+        match self {
+            CResource::OwnedOnHeap(r) => CResource::OwnedOnHeap(r.clone()),
+            CResource::OwnedOnStack(r) => CResource::OwnedOnStack(unsafe { r.get().read() }.into()),
+            CResource::Borrowed(r) => CResource::Borrowed(*r),
         }
     }
 }
@@ -1916,12 +1913,6 @@ impl From<&AeronArchiveAsyncConnect> for *mut aeron_archive_async_connect_t {
     #[inline]
     fn from(value: &AeronArchiveAsyncConnect) -> Self {
         value.get_inner()
-    }
-}
-impl From<AeronArchiveAsyncConnect> for aeron_archive_async_connect_t {
-    #[inline]
-    fn from(value: AeronArchiveAsyncConnect) -> Self {
-        unsafe { *value.get_inner().clone() }
     }
 }
 impl AeronArchive {
@@ -5154,12 +5145,6 @@ impl From<&AeronArchivePersistentSubscriptionContext> for *mut aeron_archive_per
         value.get_inner()
     }
 }
-impl From<AeronArchivePersistentSubscriptionContext> for aeron_archive_persistent_subscription_context_t {
-    #[inline]
-    fn from(value: AeronArchivePersistentSubscriptionContext) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
 #[doc = "Listener for events from a persistent subscription.\n <p>\n All callbacks are invoked from the thread that calls aeron_archive_persistent_subscription_poll\n or aeron_archive_persistent_subscription_controlled_poll."]
 #[derive(Clone)]
 pub struct AeronArchivePersistentSubscriptionListener {
@@ -5858,12 +5843,6 @@ impl From<&AeronArchivePersistentSubscription> for *mut aeron_archive_persistent
     #[inline]
     fn from(value: &AeronArchivePersistentSubscription) -> Self {
         value.get_inner()
-    }
-}
-impl From<AeronArchivePersistentSubscription> for aeron_archive_persistent_subscription_t {
-    #[inline]
-    fn from(value: AeronArchivePersistentSubscription) -> Self {
-        unsafe { *value.get_inner().clone() }
     }
 }
 impl AeronArchivePersistentSubscription {
@@ -8752,12 +8731,6 @@ impl From<&AeronArchiveReplayMerge> for *mut aeron_archive_replay_merge_t {
     #[inline]
     fn from(value: &AeronArchiveReplayMerge) -> Self {
         value.get_inner()
-    }
-}
-impl From<AeronArchiveReplayMerge> for aeron_archive_replay_merge_t {
-    #[inline]
-    fn from(value: AeronArchiveReplayMerge) -> Self {
-        unsafe { *value.get_inner().clone() }
     }
 }
 #[doc = "Struct containing the available replay parameters."]
@@ -11813,12 +11786,6 @@ impl From<&AeronAsyncAddCounter> for *mut aeron_async_add_counter_t {
         value.get_inner()
     }
 }
-impl From<AeronAsyncAddCounter> for aeron_async_add_counter_t {
-    #[inline]
-    fn from(value: AeronAsyncAddCounter) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
 impl AeronCounter {
     #[inline]
     pub fn new(async_: &AeronAsyncAddCounter) -> Result<Self, AeronCError> {
@@ -12220,12 +12187,6 @@ impl From<&AeronAsyncAddExclusivePublication> for *mut aeron_async_add_exclusive
         value.get_inner()
     }
 }
-impl From<AeronAsyncAddExclusivePublication> for aeron_async_add_exclusive_publication_t {
-    #[inline]
-    fn from(value: AeronAsyncAddExclusivePublication) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
 impl AeronExclusivePublication {
     #[inline]
     pub fn new(async_: &AeronAsyncAddExclusivePublication) -> Result<Self, AeronCError> {
@@ -12621,12 +12582,6 @@ impl From<&AeronAsyncAddPublication> for *mut aeron_async_add_publication_t {
         value.get_inner()
     }
 }
-impl From<AeronAsyncAddPublication> for aeron_async_add_publication_t {
-    #[inline]
-    fn from(value: AeronAsyncAddPublication) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
 impl AeronPublication {
     #[inline]
     pub fn new(async_: &AeronAsyncAddPublication) -> Result<Self, AeronCError> {
@@ -13016,12 +12971,6 @@ impl From<&AeronAsyncAddSubscription> for *mut aeron_async_add_subscription_t {
     #[inline]
     fn from(value: &AeronAsyncAddSubscription) -> Self {
         value.get_inner()
-    }
-}
-impl From<AeronAsyncAddSubscription> for aeron_async_add_subscription_t {
-    #[inline]
-    fn from(value: AeronAsyncAddSubscription) -> Self {
-        unsafe { *value.get_inner().clone() }
     }
 }
 impl AeronSubscription {
@@ -13472,12 +13421,6 @@ impl From<&AeronAsyncDestinationById> for *mut aeron_async_destination_by_id_t {
     #[inline]
     fn from(value: &AeronAsyncDestinationById) -> Self {
         value.get_inner()
-    }
-}
-impl From<AeronAsyncDestinationById> for aeron_async_destination_by_id_t {
-    #[inline]
-    fn from(value: AeronAsyncDestinationById) -> Self {
-        unsafe { *value.get_inner().clone() }
     }
 }
 #[cfg(test)]
@@ -14006,12 +13949,6 @@ impl From<&AeronAsyncDestination> for *mut aeron_async_destination_t {
         value.get_inner()
     }
 }
-impl From<AeronAsyncDestination> for aeron_async_destination_t {
-    #[inline]
-    fn from(value: AeronAsyncDestination) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
 #[derive(Clone)]
 pub struct AeronAsyncGetNextAvailableSessionId {
     inner: CResource<aeron_async_get_next_available_session_id_t>,
@@ -14159,12 +14096,6 @@ impl From<&AeronAsyncGetNextAvailableSessionId> for *mut aeron_async_get_next_av
     #[inline]
     fn from(value: &AeronAsyncGetNextAvailableSessionId) -> Self {
         value.get_inner()
-    }
-}
-impl From<AeronAsyncGetNextAvailableSessionId> for aeron_async_get_next_available_session_id_t {
-    #[inline]
-    fn from(value: AeronAsyncGetNextAvailableSessionId) -> Self {
-        unsafe { *value.get_inner().clone() }
     }
 }
 #[doc = "Structure used to hold information for a try_claim function call."]
@@ -14534,12 +14465,6 @@ impl From<&AeronClientRegisteringResource> for *mut aeron_client_registering_res
     #[inline]
     fn from(value: &AeronClientRegisteringResource) -> Self {
         value.get_inner()
-    }
-}
-impl From<AeronClientRegisteringResource> for aeron_client_registering_resource_t {
-    #[inline]
-    fn from(value: AeronClientRegisteringResource) -> Self {
-        unsafe { *value.get_inner().clone() }
     }
 }
 #[cfg(test)]
@@ -15517,12 +15442,6 @@ impl From<&AeronCnc> for *mut aeron_cnc_t {
     #[inline]
     fn from(value: &AeronCnc) -> Self {
         value.get_inner()
-    }
-}
-impl From<AeronCnc> for aeron_cnc_t {
-    #[inline]
-    fn from(value: AeronCnc) -> Self {
-        unsafe { *value.get_inner().clone() }
     }
 }
 #[derive(Clone)]
@@ -16802,12 +16721,6 @@ impl From<&AeronContext> for *mut aeron_context_t {
         value.get_inner()
     }
 }
-impl From<AeronContext> for aeron_context_t {
-    #[inline]
-    fn from(value: AeronContext) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
 #[derive(Clone)]
 pub struct AeronControlledFragmentAssembler {
     inner: CResource<aeron_controlled_fragment_assembler_t>,
@@ -17052,12 +16965,6 @@ impl From<&AeronControlledFragmentAssembler> for *mut aeron_controlled_fragment_
     #[inline]
     fn from(value: &AeronControlledFragmentAssembler) -> Self {
         value.get_inner()
-    }
-}
-impl From<AeronControlledFragmentAssembler> for aeron_controlled_fragment_assembler_t {
-    #[inline]
-    fn from(value: AeronControlledFragmentAssembler) -> Self {
-        unsafe { *value.get_inner().clone() }
     }
 }
 #[doc = "Configuration for a counter that does not change during its lifetime."]
@@ -17673,12 +17580,6 @@ impl From<&AeronCounter> for *mut aeron_counter_t {
     #[inline]
     fn from(value: &AeronCounter) -> Self {
         value.get_inner()
-    }
-}
-impl From<AeronCounter> for aeron_counter_t {
-    #[inline]
-    fn from(value: AeronCounter) -> Self {
-        unsafe { *value.get_inner().clone() }
     }
 }
 impl AeronCounter {
@@ -18844,12 +18745,6 @@ impl From<&AeronCountersReader> for *mut aeron_counters_reader_t {
     #[inline]
     fn from(value: &AeronCountersReader) -> Self {
         value.get_inner()
-    }
-}
-impl From<AeronCountersReader> for aeron_counters_reader_t {
-    #[inline]
-    fn from(value: AeronCountersReader) -> Self {
-        unsafe { *value.get_inner().clone() }
     }
 }
 #[derive(Clone)]
@@ -20019,12 +19914,6 @@ impl From<&AeronExclusivePublication> for *mut aeron_exclusive_publication_t {
         value.get_inner()
     }
 }
-impl From<AeronExclusivePublication> for aeron_exclusive_publication_t {
-    #[inline]
-    fn from(value: AeronExclusivePublication) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
 impl AeronExclusivePublication {
     #[doc = r" Closes this resource in the C client immediately; all clones of this"]
     #[doc = r" handle become closed (their pointer is nulled) and must not be used."]
@@ -20277,12 +20166,6 @@ impl From<&AeronFragmentAssembler> for *mut aeron_fragment_assembler_t {
     #[inline]
     fn from(value: &AeronFragmentAssembler) -> Self {
         value.get_inner()
-    }
-}
-impl From<AeronFragmentAssembler> for aeron_fragment_assembler_t {
-    #[inline]
-    fn from(value: AeronFragmentAssembler) -> Self {
-        unsafe { *value.get_inner().clone() }
     }
 }
 #[derive(Clone)]
@@ -20709,12 +20592,6 @@ impl From<&AeronHeader> for *mut aeron_header_t {
     #[inline]
     fn from(value: &AeronHeader) -> Self {
         value.get_inner()
-    }
-}
-impl From<AeronHeader> for aeron_header_t {
-    #[inline]
-    fn from(value: AeronHeader) -> Self {
-        unsafe { *value.get_inner().clone() }
     }
 }
 #[cfg(test)]
@@ -21883,12 +21760,6 @@ impl From<&AeronImageControlledFragmentAssembler> for *mut aeron_image_controlle
         value.get_inner()
     }
 }
-impl From<AeronImageControlledFragmentAssembler> for aeron_image_controlled_fragment_assembler_t {
-    #[inline]
-    fn from(value: AeronImageControlledFragmentAssembler) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
 #[derive(Clone)]
 pub struct AeronImageFragmentAssembler {
     inner: CResource<aeron_image_fragment_assembler_t>,
@@ -22079,12 +21950,6 @@ impl From<&AeronImageFragmentAssembler> for *mut aeron_image_fragment_assembler_
     #[inline]
     fn from(value: &AeronImageFragmentAssembler) -> Self {
         value.get_inner()
-    }
-}
-impl From<AeronImageFragmentAssembler> for aeron_image_fragment_assembler_t {
-    #[inline]
-    fn from(value: AeronImageFragmentAssembler) -> Self {
-        unsafe { *value.get_inner().clone() }
     }
 }
 #[derive(Clone)]
@@ -22971,12 +22836,6 @@ impl From<&AeronImage> for *mut aeron_image_t {
         value.get_inner()
     }
 }
-impl From<AeronImage> for aeron_image_t {
-    #[inline]
-    fn from(value: AeronImage) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
 #[cfg(test)]
 mod aeron_image_t_allocation_tests {
     use super::*;
@@ -23527,12 +23386,6 @@ impl From<&AeronLogBuffer> for *mut aeron_log_buffer_t {
     #[inline]
     fn from(value: &AeronLogBuffer) -> Self {
         value.get_inner()
-    }
-}
-impl From<AeronLogBuffer> for aeron_log_buffer_t {
-    #[inline]
-    fn from(value: AeronLogBuffer) -> Self {
-        unsafe { *value.get_inner().clone() }
     }
 }
 #[cfg(test)]
@@ -27685,12 +27538,6 @@ impl From<&AeronPublication> for *mut aeron_publication_t {
         value.get_inner()
     }
 }
-impl From<AeronPublication> for aeron_publication_t {
-    #[inline]
-    fn from(value: AeronPublication) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
 impl AeronPublication {
     #[doc = r" Closes this resource in the C client immediately; all clones of this"]
     #[doc = r" handle become closed (their pointer is nulled) and must not be used."]
@@ -30980,12 +30827,6 @@ impl From<&AeronSubscription> for *mut aeron_subscription_t {
         value.get_inner()
     }
 }
-impl From<AeronSubscription> for aeron_subscription_t {
-    #[inline]
-    fn from(value: AeronSubscription) -> Self {
-        unsafe { *value.get_inner().clone() }
-    }
-}
 impl AeronSubscription {
     #[doc = r" Closes this resource in the C client immediately; all clones of this"]
     #[doc = r" handle become closed (their pointer is nulled) and must not be used."]
@@ -33212,12 +33053,6 @@ impl From<&Aeron> for *mut aeron_t {
     #[inline]
     fn from(value: &Aeron) -> Self {
         value.get_inner()
-    }
-}
-impl From<Aeron> for aeron_t {
-    #[inline]
-    fn from(value: Aeron) -> Self {
-        unsafe { *value.get_inner().clone() }
     }
 }
 impl Aeron {
