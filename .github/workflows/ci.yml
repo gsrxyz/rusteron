@@ -132,11 +132,11 @@ jobs:
       # Single-runtime ASan (mirrors the macOS design in build_common.rs): the
       # `sanitize-address` feature compiles Aeron C with clang's
       # `-fsanitize=address`, and we link clang's libasan into the test binary
-      # via the cc linker driver — NO `-Z sanitizer=address`, so rustc does not
+      # via the cc linker driver. There is no `-Z sanitizer=address`, so rustc does not
       # pull in its own (incompatible) runtime. Using two runtimes (rustc's
       # LLVM-20 vs Ubuntu 22's clang LLVM-14) aborts at startup with
-      # "linked against incompatible ASan runtimes". The C side — where the
-      # UAF/double-free risks are — is fully instrumented; Rust wrapper code is
+      # "linked against incompatible ASan runtimes". The C side, where the
+      # UAF/double-free risks are, is fully instrumented; Rust wrapper code is
       # not, which is the same trade-off as the macOS ASan path.
       - name: Test with AddressSanitizer
         env:
@@ -227,7 +227,7 @@ jobs:
         # any owned resource dropped without an explicit close PANICS (the
         # manual_close_required Drop gate). Catches the Box::leak-class bug at
         # test time on Linux CI. Only on ubuntu+default to avoid multiplying the
-        # matrix — the panic path is platform-independent.
+        # matrix. The panic path is platform-independent.
         if: (matrix.os == 'ubuntu-22.04' || matrix.os == 'ubuntu-22.04-arm') && matrix.features == 'default'
         run: |
           cargo test -p rusteron-client --features strict-lifecycle --lib -- --nocapture

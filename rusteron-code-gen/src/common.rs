@@ -2,7 +2,7 @@
 // This file compiles in TWO contexts:
 //   1. as `mod common` inside rusteron-code-gen itself (unit tests, shared types), and
 //   2. verbatim inside every generated crate's `aeron.rs` (via COMMON_CODE include_str).
-// Consequence: nothing here may depend on impls that live in `aeron_custom*.rs` — those
+// Consequence: nothing here may depend on impls that live in `aeron_custom*.rs`. Those
 // exist only in context 2 (e.g. AeronCError's Debug/Display). That is why AeronOfferError
 // hand-rolls its Debug. Crate-specific code belongs in `aeron_custom.rs` (all crates) or
 // `aeron_custom_<crate>.rs` (one crate); build-script-only code goes in `build_common.rs`.
@@ -20,7 +20,7 @@ use std::ops::DerefMut;
 use std::time::Duration;
 
 /// Reference-counting smart pointer: `Rc` by default, `Arc` under the
-/// `multi-threaded` feature. Swap is transparent — `RcOrArc::new`, `.clone()`,
+/// `multi-threaded` feature. Swapping is transparent. `RcOrArc::new`, `.clone()` and
 /// `strong_count` all work on both.
 #[cfg(not(feature = "multi-threaded"))]
 pub type RcOrArc<T> = std::rc::Rc<T>;
@@ -40,13 +40,13 @@ pub type CleanupBox<T> = Box<dyn FnMut(*mut *mut T) -> i32 + Send>;
 pub enum CResource<T> {
     OwnedOnHeap(RcOrArc<ManagedCResource<T>>),
     /// Always initialised by construction (zeroed or `new(v)`). Never store
-    /// `uninit()` — `Clone` and `get()` assume it's valid. `UnsafeCell` because
+    /// `uninit()`. `Clone` and `get()` assume it's valid. `UnsafeCell` because
     /// C writes through the pointer `get()` hands out from `&self`.
     OwnedOnStack(std::cell::UnsafeCell<std::mem::MaybeUninit<T>>),
     Borrowed(*mut T),
 }
 
-// `CResource<T>` deliberately does NOT implement `Send`/`Sync` here — not even
+// `CResource<T>` deliberately does NOT implement `Send`/`Sync` here, not even
 // bounded on `T: Send`/`Sync`
 
 impl<T: Clone> Clone for CResource<T> {
@@ -117,7 +117,7 @@ impl<T> CResource<T> {
     /// Run the clean-up / close on the resource via its shared state.
     ///
     /// For `OwnedOnHeap` resources this calls `close_shared` on the
-    /// `ManagedCResource` — the FFI close fires exactly once across all
+    /// `ManagedCResource`. The FFI close fires exactly once across all
     /// clones.  Stack and borrowed resources are no-ops (they don't own a
     /// cleanup closure).
     #[allow(dead_code)]
@@ -194,7 +194,7 @@ impl<T> std::fmt::Debug for CResource<T> {
 /// are properly released when they go out of scope. All teardown goes through the
 /// single `cleanup` closure (if set), which is the FFI close function (e.g.
 /// `aeron_close`). The Rc dependency graph ensures parents outlive children
-/// structurally — you cannot race `aeron_close` ahead of a live child handle.
+/// structurally. You cannot race `aeron_close` ahead of a live child handle.
 #[allow(dead_code)]
 #[allow(dead_code)]
 pub struct ManagedCResource<T> {
@@ -434,7 +434,7 @@ impl<T> ManagedCResource<T> {
     }
 
     /// Test-only: number of dependencies currently anchored on this resource (e.g. via
-    /// [`Self::add_dependency`]). Used to document/measure dependency-list growth — see
+    /// [`Self::add_dependency`]). Used to document/measure dependency-list growth. See
     /// `handler_dependencies_on_client_grow_with_subscriptions_and_reset_on_client_drop`.
     #[cfg(test)]
     #[allow(dead_code)]
@@ -559,7 +559,7 @@ impl<T> ManagedCResource<T> {
 
 impl<T> Drop for ManagedCResource<T> {
     fn drop(&mut self) {
-        // Capture whether close ran BEFORE Drop — close_shared() below would set
+        // Capture whether close ran BEFORE Drop. close_shared() below would set
         // the flag even when the cleanup closure is None, hiding the leak signal.
         let close_ran_before_drop = self.get_close_already_called();
         // Delegate to close_shared() which handles single-execution, error
@@ -728,7 +728,7 @@ pub struct AeronCError {
     msg: Option<String>,
 }
 
-/// Equality is on `code` only — the attached message is advisory.
+/// Equality is on `code` only. The attached message is advisory.
 impl PartialEq for AeronCError {
     fn eq(&self, other: &Self) -> bool {
         self.code == other.code
@@ -812,7 +812,7 @@ impl AeronCError {
 /// Typed error for `offer` / `try_claim` on a publication.
 ///
 /// Aeron returns a negative *sentinel* instead of a stream position. These are not
-/// errno-style codes — `-1` here means "not connected", not a generic error — hence
+/// errno-style codes. Here `-1` means "not connected", not a generic error, hence
 /// this dedicated type. Use [`Self::is_retryable`] to drive retry loops.
 #[derive(Clone, PartialEq, Eq)]
 pub enum AeronOfferError {
@@ -830,7 +830,7 @@ pub enum AeronOfferError {
     /// The maximum stream position was reached (`-5`). Fatal: a new publication
     /// (new session) is required.
     MaxPositionExceeded,
-    /// More than [`MAX_OFFER_PARTS`] buffers passed to `offer_parts` — a caller
+    /// More than [`MAX_OFFER_PARTS`] buffers passed to `offer_parts`. This is a caller
     /// bug, not an Aeron wire error. Fatal (fix the call site).
     TooManyParts,
     /// Any other negative value (`-6` / unexpected). Fatal; inspect the inner
@@ -924,7 +924,7 @@ unsafe impl<T: Send> Send for Handler<T> {}
 /// Under the `multi-threaded` feature, `Handler` is also `Sync` so callbacks can
 /// be registered from one thread and the handle shared across threads. The
 /// underlying `Arc<UnsafeCell<T>>` is `!Sync` by construction; this impl follows
-/// the same "accepted unsoundness" policy as the handle-type impls — callbacks
+/// the same "accepted unsoundness" policy as the handle-type impls. Callbacks
 /// fire from the conductor thread only, never concurrently.
 #[cfg(feature = "multi-threaded")]
 unsafe impl<T: Send> Sync for Handler<T> {}
@@ -945,14 +945,14 @@ pub struct Handlers;
 /// Pass [`Handlers::NONE`] (which is `None::<&Handler<NoHandler>>`) to any
 /// callback-accepting method to leave that callback unset. `NoHandler` implements
 /// every generated callback trait, so the method's callback generic is inferred as
-/// `NoHandler` without a per-callback helper or turbofish — including methods with
+/// `NoHandler` without a per-callback helper or turbofish, including methods with
 /// several callback parameters (e.g. `async_add_subscription`'s image handlers).
 /// Its callback methods are unreachable: the C side is handed a null callback +
 /// null clientd, so they can never fire.
 pub struct NoHandler;
 
 impl Handlers {
-    /// `None` for any callback parameter — pins the callback generic to
+    /// `None` for any callback parameter. Pins the callback generic to
     /// [`NoHandler`] so type inference works without a per-callback helper or
     /// turbofish. Replaces `Handlers::no_available_image_handler()` /
     /// `no_unavailable_image_handler()` / `no_reserved_value_supplier_handler()`
@@ -1089,7 +1089,7 @@ impl ChannelUri {
 
     /// Return `channel` with a `session-id` param added (replacing any existing one).
     ///
-    /// Mirrors Java's `ChannelUri.addSessionId` — the standard way to build a channel
+    /// Mirrors Java's `ChannelUri.addSessionId`, the standard way to build a channel
     /// that joins a specific session, e.g. when subscribing to an archive replay:
     ///
     /// ```
@@ -1289,7 +1289,7 @@ pub(crate) mod test_alloc {
 ///
 /// This is the recommended way to build **dynamic** channel URIs and other C-string
 /// arguments. The `c`-prefix keeps the heap allocation greppable and visible at the
-/// call site — important for latency-sensitive code review — while removing the
+/// call site, which matters for latency-sensitive code review, while removing the
 /// `format!(...).into_c_string()` noise:
 ///
 /// ```
@@ -1300,11 +1300,11 @@ pub(crate) mod test_alloc {
 /// ```
 ///
 /// The three-tier pattern for C-string arguments (cheapest first):
-/// 1. **`c"aeron:ipc"` literals** — compile-time `&'static CStr`, zero runtime cost.
+/// 1. **`c"aeron:ipc"` literals**. Compile-time `&'static CStr`, zero runtime cost.
 ///    Use for every constant channel/name.
-/// 2. **`cformat!(...)`** — one heap allocation (the formatted `String`; `CString::new`
+/// 2. **`cformat!(...)`**. One heap allocation (the formatted `String`; `CString::new`
 ///    reuses its buffer). Use for dynamic URIs built once per stream/reconnect.
-/// 3. **Reuse** — build the `CString` once, store it, pass `&it` on every call
+/// 3. **Reuse**. Build the `CString` once, store it, pass `&it` on every call
 ///    (zero-copy via `&CString → &CStr` deref). Use for anything on a repeated path.
 ///
 /// Panics if the formatted string contains an interior nul byte.
@@ -1384,7 +1384,7 @@ impl IdleStrategy for BusySpinIdleStrategy {
     }
 }
 
-/// No-op — never yields the core. (Aeron `NoOpIdleStrategy`.)
+/// No-op. Never yields the core. (Aeron `NoOpIdleStrategy`.)
 pub struct NoOpIdleStrategy;
 impl NoOpIdleStrategy {
     pub const fn new() -> Self {
@@ -1507,7 +1507,7 @@ impl BackoffIdleStrategy {
                 }
             }
             _ => {
-                // PARKING — sleep then double the park period up to the max.
+                // PARKING. Sleep then double the park period up to the max.
                 std::thread::sleep(self.park);
                 self.park = std::cmp::min(self.park.saturating_mul(2), self.max_park);
             }
@@ -1577,7 +1577,7 @@ mod handler_tests {
 mod managed_c_resource_lifecycle_tests {
     use super::*;
 
-    // These tests pin down `manual_close_required` — the field that powers the
+    // These tests pin down `manual_close_required`, the field that powers the
     // Drop-time leak warning. The exact `AeronCncMetadata::load_from_file` bug
     // was a `new(_, None, false)` resource, so the first test asserts that
     // construction shape trips the flag. The resource pointers are dummies

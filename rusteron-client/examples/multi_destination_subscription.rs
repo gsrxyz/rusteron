@@ -1,8 +1,8 @@
 //! # Multi-destination subscription (MDS)
 //!
 //! Port of Aeron's `basic_mds_subscriber.c`: one subscription in **manual control mode**
-//! aggregates several transport destinations — here two UDP endpoints fed by two
-//! independent publications. Typical uses: consuming redundant feeds (A/B arbitration)
+//! aggregates several transport destinations, here two UDP endpoints fed by two
+//! independent publications. Typical uses are consuming redundant feeds (A/B arbitration)
 //! or merging shards onto one polling loop.
 //!
 //! ```bash

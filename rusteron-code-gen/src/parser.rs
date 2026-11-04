@@ -9,7 +9,7 @@ use syn::{Attribute, Item, ItemForeignMod, ItemStruct, ItemType, Lit, Meta, Meta
 
 /// bindgen maps C `va_list` to platform-specific opaque types (e.g.
 /// `__va_list_tag` on Linux, `VaListTag` on some platforms).  These never
-/// need a real Rust repr — replace every occurrence with `*mut c_char`
+/// need a real Rust repr, so replace every occurrence with `*mut c_char`
 /// so the generated handler wrappers compile everywhere.
 fn normalise_va_list(c_type: &str) -> String {
     for needle in &["va_list", "__va_list_tag", "VaListTag", "__builtin_va_list"] {

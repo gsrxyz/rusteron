@@ -530,8 +530,8 @@ impl AeronArchivePersistentSubscription {
     /// the callback pointers + `clientd`) and kept alive for the subscription's
     /// lifetime; it is freed once the subscription is closed.
     ///
-    /// The context is consumed and owned by the subscription from this point on —
-    /// it will be closed when the subscription is closed, so it must not be used
+    /// The context is consumed and owned by the subscription from this point on.
+    /// It will be closed when the subscription is closed, so it must not be used
     /// afterwards. The context's Aeron client and archive context must outlive the
     /// subscription; [`PersistentSubscriptionBuilder::build`] keeps them open. Creating it
     /// points the archive context at that client; without one, it makes its own and closes
@@ -602,8 +602,8 @@ impl AeronArchivePersistentSubscription {
             }
         };
 
-        // Reclaim via a dependency, not the cleanup closure — the generated
-        // close() bypasses the closure, but a field always drops.
+        // Reclaim via a dependency, not the cleanup closure. The generated
+        // close() bypasses the closure, but a field always drops
         if let Some(hb) = holder_box {
             resource.add_dependency(hb);
         }
@@ -670,7 +670,7 @@ pub trait PersistentSubscriptionListener: 'static {
     /// Called for **both** non-terminal and terminal errors. Non-terminal errors
     /// (timeouts, transient resource unavailability) are retried automatically.
     /// A terminal failure flips [`AeronArchivePersistentSubscription::has_failed`]
-    /// to true — check it in the poll loop and read the reason with
+    /// to true. Check it in the poll loop and read the reason with
     /// [`AeronArchivePersistentSubscription::get_failure_reason`].
     fn on_error(&self, error_code: i32, error_message: &str) {}
 }
@@ -1192,7 +1192,7 @@ mod tests {
 
         builder.init_new()?;
         builder
-            .media(Media::Udp)? // very important to set media else set_initial_position will give an error of -1
+            .media(Media::Udp)? // must set media, else set_initial_position will give an error of -1
             .mtu_length(1024 * 64)?
             .set_initial_position(127424949617280, 1182294755, 65536)?;
         let uri = builder.build(1024)?;
@@ -1617,8 +1617,8 @@ mod tests {
         }
     }
 
-    /// Deep-graph close: closing a *clone* of the archive client defers the C close —
-    /// the original stays fully usable (control session intact, error polling clean).
+    /// Deep-graph close: closing a *clone* of the archive client defers the C close.
+    /// The original stays fully usable (control session intact, error polling clean).
     #[test]
     #[serial]
     pub fn archive_clone_close_defers_and_original_remains_usable() -> Result<(), Box<dyn error::Error>> {
@@ -2394,7 +2394,7 @@ mod tests {
                     break;
                 }
                 Err(e) if attempt < max_retries - 1 => {
-                    // Check if error is about CLOSING state - retry with backoff
+                    // Retry with backoff if the error is about the CLOSING state
                     let error_msg = e.to_string();
                     if error_msg.contains("CLOSING") || error_msg.contains("temporarily unavailable") {
                         std::thread::sleep(retry_delay);
@@ -2513,7 +2513,7 @@ mod tests {
         drop(publication);
         // recording_id is just a u64, not a resource handle
 
-        // Call close_now on the archive — must not segfault or double-free
+        // Call close_now on the archive. It must not segfault or double-free
         unsafe {
             assert!(
                 archive.close_now().is_ok(),

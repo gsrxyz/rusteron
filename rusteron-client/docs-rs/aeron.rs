@@ -401,7 +401,7 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::time::Duration;
 #[doc = " Reference-counting smart pointer: `Rc` by default, `Arc` under the"]
-#[doc = " `multi-threaded` feature. Swap is transparent — `RcOrArc::new`, `.clone()`,"]
+#[doc = " `multi-threaded` feature. Swapping is transparent. `RcOrArc::new`, `.clone()` and"]
 #[doc = " `strong_count` all work on both."]
 #[cfg(not(feature = "multi-threaded"))]
 pub type RcOrArc<T> = std::rc::Rc<T>;
@@ -418,7 +418,7 @@ pub type CleanupBox<T> = Box<dyn FnMut(*mut *mut T) -> i32 + Send>;
 pub enum CResource<T> {
     OwnedOnHeap(RcOrArc<ManagedCResource<T>>),
     #[doc = " Always initialised by construction (zeroed or `new(v)`). Never store"]
-    #[doc = " `uninit()` — `Clone` and `get()` assume it's valid. `UnsafeCell` because"]
+    #[doc = " `uninit()`. `Clone` and `get()` assume it's valid. `UnsafeCell` because"]
     #[doc = " C writes through the pointer `get()` hands out from `&self`."]
     OwnedOnStack(std::cell::UnsafeCell<std::mem::MaybeUninit<T>>),
     Borrowed(*mut T),
@@ -480,7 +480,7 @@ impl<T> CResource<T> {
     #[doc = " Run the clean-up / close on the resource via its shared state."]
     #[doc = ""]
     #[doc = " For `OwnedOnHeap` resources this calls `close_shared` on the"]
-    #[doc = " `ManagedCResource` — the FFI close fires exactly once across all"]
+    #[doc = " `ManagedCResource`. The FFI close fires exactly once across all"]
     #[doc = " clones.  Stack and borrowed resources are no-ops (they don't own a"]
     #[doc = " cleanup closure)."]
     #[allow(dead_code)]
@@ -552,7 +552,7 @@ impl<T> std::fmt::Debug for CResource<T> {
 #[doc = " are properly released when they go out of scope. All teardown goes through the"]
 #[doc = " single `cleanup` closure (if set), which is the FFI close function (e.g."]
 #[doc = " `aeron_close`). The Rc dependency graph ensures parents outlive children"]
-#[doc = " structurally — you cannot race `aeron_close` ahead of a live child handle."]
+#[doc = " structurally. You cannot race `aeron_close` ahead of a live child handle."]
 #[allow(dead_code)]
 #[allow(dead_code)]
 pub struct ManagedCResource<T> {
@@ -763,7 +763,7 @@ impl<T> ManagedCResource<T> {
         self.get_resource_released()
     }
     #[doc = " Test-only: number of dependencies currently anchored on this resource (e.g. via"]
-    #[doc = " [`Self::add_dependency`]). Used to document/measure dependency-list growth — see"]
+    #[doc = " [`Self::add_dependency`]). Used to document/measure dependency-list growth. See"]
     #[doc = " `handler_dependencies_on_client_grow_with_subscriptions_and_reset_on_client_drop`."]
     #[cfg(test)]
     #[allow(dead_code)]
@@ -1017,7 +1017,7 @@ pub struct AeronCError {
     #[doc = " Attached via `capture_errmsg()` / `with_message()`; `None` otherwise."]
     msg: Option<String>,
 }
-#[doc = " Equality is on `code` only — the attached message is advisory."]
+#[doc = " Equality is on `code` only. The attached message is advisory."]
 impl PartialEq for AeronCError {
     fn eq(&self, other: &Self) -> bool {
         self.code == other.code
@@ -1087,7 +1087,7 @@ impl AeronCError {
 #[doc = " Typed error for `offer` / `try_claim` on a publication."]
 #[doc = ""]
 #[doc = " Aeron returns a negative *sentinel* instead of a stream position. These are not"]
-#[doc = " errno-style codes — `-1` here means \"not connected\", not a generic error — hence"]
+#[doc = " errno-style codes. Here `-1` means \"not connected\", not a generic error, hence"]
 #[doc = " this dedicated type. Use [`Self::is_retryable`] to drive retry loops."]
 #[derive(Clone, PartialEq, Eq)]
 pub enum AeronOfferError {
@@ -1105,7 +1105,7 @@ pub enum AeronOfferError {
     #[doc = " The maximum stream position was reached (`-5`). Fatal: a new publication"]
     #[doc = " (new session) is required."]
     MaxPositionExceeded,
-    #[doc = " More than [`MAX_OFFER_PARTS`] buffers passed to `offer_parts` — a caller"]
+    #[doc = " More than [`MAX_OFFER_PARTS`] buffers passed to `offer_parts`. This is a caller"]
     #[doc = " bug, not an Aeron wire error. Fatal (fix the call site)."]
     TooManyParts,
     #[doc = " Any other negative value (`-6` / unexpected). Fatal; inspect the inner"]
@@ -1188,7 +1188,7 @@ unsafe impl<T: Send> Send for Handler<T> {}
 #[doc = " Under the `multi-threaded` feature, `Handler` is also `Sync` so callbacks can"]
 #[doc = " be registered from one thread and the handle shared across threads. The"]
 #[doc = " underlying `Arc<UnsafeCell<T>>` is `!Sync` by construction; this impl follows"]
-#[doc = " the same \"accepted unsoundness\" policy as the handle-type impls — callbacks"]
+#[doc = " the same \"accepted unsoundness\" policy as the handle-type impls. Callbacks"]
 #[doc = " fire from the conductor thread only, never concurrently."]
 #[cfg(feature = "multi-threaded")]
 unsafe impl<T: Send> Sync for Handler<T> {}
@@ -1206,13 +1206,13 @@ pub struct Handlers;
 #[doc = " Pass [`Handlers::NONE`] (which is `None::<&Handler<NoHandler>>`) to any"]
 #[doc = " callback-accepting method to leave that callback unset. `NoHandler` implements"]
 #[doc = " every generated callback trait, so the method's callback generic is inferred as"]
-#[doc = " `NoHandler` without a per-callback helper or turbofish — including methods with"]
+#[doc = " `NoHandler` without a per-callback helper or turbofish, including methods with"]
 #[doc = " several callback parameters (e.g. `async_add_subscription`'s image handlers)."]
 #[doc = " Its callback methods are unreachable: the C side is handed a null callback +"]
 #[doc = " null clientd, so they can never fire."]
 pub struct NoHandler;
 impl Handlers {
-    #[doc = " `None` for any callback parameter — pins the callback generic to"]
+    #[doc = " `None` for any callback parameter. Pins the callback generic to"]
     #[doc = " [`NoHandler`] so type inference works without a per-callback helper or"]
     #[doc = " turbofish. Replaces `Handlers::no_available_image_handler()` /"]
     #[doc = " `no_unavailable_image_handler()` / `no_reserved_value_supplier_handler()`"]
@@ -1326,7 +1326,7 @@ impl ChannelUri {
     pub const MAX_URI_LENGTH: usize = 4095;
     #[doc = " Return `channel` with a `session-id` param added (replacing any existing one)."]
     #[doc = ""]
-    #[doc = " Mirrors Java's `ChannelUri.addSessionId` — the standard way to build a channel"]
+    #[doc = " Mirrors Java's `ChannelUri.addSessionId`, the standard way to build a channel"]
     #[doc = " that joins a specific session, e.g. when subscribing to an archive replay:"]
     #[doc = ""]
     #[doc = " ```"]
@@ -1504,7 +1504,7 @@ pub(crate) mod test_alloc {
 #[doc = ""]
 #[doc = " This is the recommended way to build **dynamic** channel URIs and other C-string"]
 #[doc = " arguments. The `c`-prefix keeps the heap allocation greppable and visible at the"]
-#[doc = " call site — important for latency-sensitive code review — while removing the"]
+#[doc = " call site, which matters for latency-sensitive code review, while removing the"]
 #[doc = " `format!(...).into_c_string()` noise:"]
 #[doc = ""]
 #[doc = " ```"]
@@ -1515,11 +1515,11 @@ pub(crate) mod test_alloc {
 #[doc = " ```"]
 #[doc = ""]
 #[doc = " The three-tier pattern for C-string arguments (cheapest first):"]
-#[doc = " 1. **`c\"aeron:ipc\"` literals** — compile-time `&'static CStr`, zero runtime cost."]
+#[doc = " 1. **`c\"aeron:ipc\"` literals**. Compile-time `&'static CStr`, zero runtime cost."]
 #[doc = "    Use for every constant channel/name."]
-#[doc = " 2. **`cformat!(...)`** — one heap allocation (the formatted `String`; `CString::new`"]
+#[doc = " 2. **`cformat!(...)`**. One heap allocation (the formatted `String`; `CString::new`"]
 #[doc = "    reuses its buffer). Use for dynamic URIs built once per stream/reconnect."]
-#[doc = " 3. **Reuse** — build the `CString` once, store it, pass `&it` on every call"]
+#[doc = " 3. **Reuse**. Build the `CString` once, store it, pass `&it` on every call"]
 #[doc = "    (zero-copy via `&CString → &CStr` deref). Use for anything on a repeated path."]
 #[doc = ""]
 #[doc = " Panics if the formatted string contains an interior nul byte."]
@@ -1578,7 +1578,7 @@ impl IdleStrategy for BusySpinIdleStrategy {
         std::hint::spin_loop();
     }
 }
-#[doc = " No-op — never yields the core. (Aeron `NoOpIdleStrategy`.)"]
+#[doc = " No-op. Never yields the core. (Aeron `NoOpIdleStrategy`.)"]
 pub struct NoOpIdleStrategy;
 impl NoOpIdleStrategy {
     pub const fn new() -> Self {
@@ -2173,7 +2173,7 @@ impl Aeron {
     #[doc = r"# Handler lifetime and async close"]
     #[doc = r""]
     #[doc = r"If this call takes a [`Handler`], the C close for the resulting resource"]
-    #[doc = r"(e.g. `aeron_subscription_close`) is **asynchronous** — the conductor thread"]
+    #[doc = r"(e.g. `aeron_subscription_close`) is **asynchronous**. The conductor thread"]
     #[doc = r"may still invoke the handler's callback (e.g. `on_available_image`) after"]
     #[doc = r"`close()`/`drop` has already returned on the calling thread. Releasing the"]
     #[doc = r"handler's value immediately on close would risk a use-after-free from that"]
@@ -2181,13 +2181,13 @@ impl Aeron {
     #[doc = r""]
     #[doc = r"To make this safe without requiring the caller to track it, this method"]
     #[doc = r"stores a clone of the owning [`Aeron`] client as a *dependency* on the"]
-    #[doc = r"resource being created — which transitively keeps every [`Handler`] clone"]
+    #[doc = r"resource being created, which transitively keeps every [`Handler`] clone"]
     #[doc = r"already registered as a dependency of that resource alive for as long as"]
     #[doc = r"the client itself lives, regardless of when the resource closes. No manual"]
     #[doc = r"`release()` call is needed."]
     #[doc = r""]
     #[doc = r"This differs from the Aeron C++ wrapper, which instead frees the handler"]
-    #[doc = r"as the final step of `on_cmd_close_subscription` on the conductor thread —"]
+    #[doc = r"as the final step of `on_cmd_close_subscription` on the conductor thread,"]
     #[doc = r"i.e. it ties the handler's lifetime to the close completing, not to the"]
     #[doc = r"client. Rusteron's approach is simpler and avoids needing a conductor-side"]
     #[doc = r"hook, but it means handler dependencies accumulate on the client's"]
@@ -2217,7 +2217,7 @@ impl Aeron {
     #[doc = r""]
     #[doc = r"# Production pattern (pseudo code)"]
     #[doc = r"```text"]
-    #[doc = r"// Don't block — drive the async poller from your loop"]
+    #[doc = r"// Don't block. Drive the async poller from your loop"]
     #[doc = r"let poller = client.async_add_*(...)?;"]
     #[doc = r"loop {"]
     #[doc = r"    if let Some(resource) = poller.poll()? {"]
@@ -2343,11 +2343,11 @@ impl AeronAsyncAddCounter {
     #[doc = r"Cancels this in-progress operation, releasing the pending Aeron"]
     #[doc = r"registration instead of waiting for `poll()`/`poll_blocking()` to"]
     #[doc = r"resolve it or for this value to be dropped (dropping an unresolved"]
-    #[doc = r"poller does this automatically — this is only needed to give up"]
+    #[doc = r"poller does this automatically, so this is only needed to give up"]
     #[doc = r"earlier than the drop would happen naturally)."]
     #[doc = r""]
     #[doc = r"A no-op if `poll()` has already returned a terminal result (`Some`"]
-    #[doc = r"or an `Err`) — cancelling after that point would either be invalid"]
+    #[doc = r"or an `Err`), as cancelling after that point would either be invalid"]
     #[doc = r"(the C struct is no longer valid) or unnecessary (nothing pending"]
     #[doc = r"left to cancel)."]
     #[inline]
@@ -2367,7 +2367,7 @@ impl AeronAsyncAddCounter {
     #[doc = r""]
     #[doc = r"# Production pattern (pseudo code)"]
     #[doc = r"```text"]
-    #[doc = r"// Don't block — integrate poll() into your existing loop"]
+    #[doc = r"// Don't block. Integrate poll() into your existing loop"]
     #[doc = r"loop {"]
     #[doc = r"    if let Some(resource) = poller.poll()? {"]
     #[doc = r"        break; // ready"]
@@ -2584,7 +2584,7 @@ impl Aeron {
     #[doc = r"# Handler lifetime and async close"]
     #[doc = r""]
     #[doc = r"If this call takes a [`Handler`], the C close for the resulting resource"]
-    #[doc = r"(e.g. `aeron_subscription_close`) is **asynchronous** — the conductor thread"]
+    #[doc = r"(e.g. `aeron_subscription_close`) is **asynchronous**. The conductor thread"]
     #[doc = r"may still invoke the handler's callback (e.g. `on_available_image`) after"]
     #[doc = r"`close()`/`drop` has already returned on the calling thread. Releasing the"]
     #[doc = r"handler's value immediately on close would risk a use-after-free from that"]
@@ -2592,13 +2592,13 @@ impl Aeron {
     #[doc = r""]
     #[doc = r"To make this safe without requiring the caller to track it, this method"]
     #[doc = r"stores a clone of the owning [`Aeron`] client as a *dependency* on the"]
-    #[doc = r"resource being created — which transitively keeps every [`Handler`] clone"]
+    #[doc = r"resource being created, which transitively keeps every [`Handler`] clone"]
     #[doc = r"already registered as a dependency of that resource alive for as long as"]
     #[doc = r"the client itself lives, regardless of when the resource closes. No manual"]
     #[doc = r"`release()` call is needed."]
     #[doc = r""]
     #[doc = r"This differs from the Aeron C++ wrapper, which instead frees the handler"]
-    #[doc = r"as the final step of `on_cmd_close_subscription` on the conductor thread —"]
+    #[doc = r"as the final step of `on_cmd_close_subscription` on the conductor thread,"]
     #[doc = r"i.e. it ties the handler's lifetime to the close completing, not to the"]
     #[doc = r"client. Rusteron's approach is simpler and avoids needing a conductor-side"]
     #[doc = r"hook, but it means handler dependencies accumulate on the client's"]
@@ -2627,7 +2627,7 @@ impl Aeron {
     #[doc = r""]
     #[doc = r"# Production pattern (pseudo code)"]
     #[doc = r"```text"]
-    #[doc = r"// Don't block — drive the async poller from your loop"]
+    #[doc = r"// Don't block. Drive the async poller from your loop"]
     #[doc = r"let poller = client.async_add_*(...)?;"]
     #[doc = r"loop {"]
     #[doc = r"    if let Some(resource) = poller.poll()? {"]
@@ -2749,11 +2749,11 @@ impl AeronAsyncAddExclusivePublication {
     #[doc = r"Cancels this in-progress operation, releasing the pending Aeron"]
     #[doc = r"registration instead of waiting for `poll()`/`poll_blocking()` to"]
     #[doc = r"resolve it or for this value to be dropped (dropping an unresolved"]
-    #[doc = r"poller does this automatically — this is only needed to give up"]
+    #[doc = r"poller does this automatically, so this is only needed to give up"]
     #[doc = r"earlier than the drop would happen naturally)."]
     #[doc = r""]
     #[doc = r"A no-op if `poll()` has already returned a terminal result (`Some`"]
-    #[doc = r"or an `Err`) — cancelling after that point would either be invalid"]
+    #[doc = r"or an `Err`), as cancelling after that point would either be invalid"]
     #[doc = r"(the C struct is no longer valid) or unnecessary (nothing pending"]
     #[doc = r"left to cancel)."]
     #[inline]
@@ -2773,7 +2773,7 @@ impl AeronAsyncAddExclusivePublication {
     #[doc = r""]
     #[doc = r"# Production pattern (pseudo code)"]
     #[doc = r"```text"]
-    #[doc = r"// Don't block — integrate poll() into your existing loop"]
+    #[doc = r"// Don't block. Integrate poll() into your existing loop"]
     #[doc = r"loop {"]
     #[doc = r"    if let Some(resource) = poller.poll()? {"]
     #[doc = r"        break; // ready"]
@@ -2981,7 +2981,7 @@ impl Aeron {
     #[doc = r"# Handler lifetime and async close"]
     #[doc = r""]
     #[doc = r"If this call takes a [`Handler`], the C close for the resulting resource"]
-    #[doc = r"(e.g. `aeron_subscription_close`) is **asynchronous** — the conductor thread"]
+    #[doc = r"(e.g. `aeron_subscription_close`) is **asynchronous**. The conductor thread"]
     #[doc = r"may still invoke the handler's callback (e.g. `on_available_image`) after"]
     #[doc = r"`close()`/`drop` has already returned on the calling thread. Releasing the"]
     #[doc = r"handler's value immediately on close would risk a use-after-free from that"]
@@ -2989,13 +2989,13 @@ impl Aeron {
     #[doc = r""]
     #[doc = r"To make this safe without requiring the caller to track it, this method"]
     #[doc = r"stores a clone of the owning [`Aeron`] client as a *dependency* on the"]
-    #[doc = r"resource being created — which transitively keeps every [`Handler`] clone"]
+    #[doc = r"resource being created, which transitively keeps every [`Handler`] clone"]
     #[doc = r"already registered as a dependency of that resource alive for as long as"]
     #[doc = r"the client itself lives, regardless of when the resource closes. No manual"]
     #[doc = r"`release()` call is needed."]
     #[doc = r""]
     #[doc = r"This differs from the Aeron C++ wrapper, which instead frees the handler"]
-    #[doc = r"as the final step of `on_cmd_close_subscription` on the conductor thread —"]
+    #[doc = r"as the final step of `on_cmd_close_subscription` on the conductor thread,"]
     #[doc = r"i.e. it ties the handler's lifetime to the close completing, not to the"]
     #[doc = r"client. Rusteron's approach is simpler and avoids needing a conductor-side"]
     #[doc = r"hook, but it means handler dependencies accumulate on the client's"]
@@ -3024,7 +3024,7 @@ impl Aeron {
     #[doc = r""]
     #[doc = r"# Production pattern (pseudo code)"]
     #[doc = r"```text"]
-    #[doc = r"// Don't block — drive the async poller from your loop"]
+    #[doc = r"// Don't block. Drive the async poller from your loop"]
     #[doc = r"let poller = client.async_add_*(...)?;"]
     #[doc = r"loop {"]
     #[doc = r"    if let Some(resource) = poller.poll()? {"]
@@ -3141,11 +3141,11 @@ impl AeronAsyncAddPublication {
     #[doc = r"Cancels this in-progress operation, releasing the pending Aeron"]
     #[doc = r"registration instead of waiting for `poll()`/`poll_blocking()` to"]
     #[doc = r"resolve it or for this value to be dropped (dropping an unresolved"]
-    #[doc = r"poller does this automatically — this is only needed to give up"]
+    #[doc = r"poller does this automatically, so this is only needed to give up"]
     #[doc = r"earlier than the drop would happen naturally)."]
     #[doc = r""]
     #[doc = r"A no-op if `poll()` has already returned a terminal result (`Some`"]
-    #[doc = r"or an `Err`) — cancelling after that point would either be invalid"]
+    #[doc = r"or an `Err`), as cancelling after that point would either be invalid"]
     #[doc = r"(the C struct is no longer valid) or unnecessary (nothing pending"]
     #[doc = r"left to cancel)."]
     #[inline]
@@ -3165,7 +3165,7 @@ impl AeronAsyncAddPublication {
     #[doc = r""]
     #[doc = r"# Production pattern (pseudo code)"]
     #[doc = r"```text"]
-    #[doc = r"// Don't block — integrate poll() into your existing loop"]
+    #[doc = r"// Don't block. Integrate poll() into your existing loop"]
     #[doc = r"loop {"]
     #[doc = r"    if let Some(resource) = poller.poll()? {"]
     #[doc = r"        break; // ready"]
@@ -3378,7 +3378,7 @@ impl Aeron {
     #[doc = r"# Handler lifetime and async close"]
     #[doc = r""]
     #[doc = r"If this call takes a [`Handler`], the C close for the resulting resource"]
-    #[doc = r"(e.g. `aeron_subscription_close`) is **asynchronous** — the conductor thread"]
+    #[doc = r"(e.g. `aeron_subscription_close`) is **asynchronous**. The conductor thread"]
     #[doc = r"may still invoke the handler's callback (e.g. `on_available_image`) after"]
     #[doc = r"`close()`/`drop` has already returned on the calling thread. Releasing the"]
     #[doc = r"handler's value immediately on close would risk a use-after-free from that"]
@@ -3386,13 +3386,13 @@ impl Aeron {
     #[doc = r""]
     #[doc = r"To make this safe without requiring the caller to track it, this method"]
     #[doc = r"stores a clone of the owning [`Aeron`] client as a *dependency* on the"]
-    #[doc = r"resource being created — which transitively keeps every [`Handler`] clone"]
+    #[doc = r"resource being created, which transitively keeps every [`Handler`] clone"]
     #[doc = r"already registered as a dependency of that resource alive for as long as"]
     #[doc = r"the client itself lives, regardless of when the resource closes. No manual"]
     #[doc = r"`release()` call is needed."]
     #[doc = r""]
     #[doc = r"This differs from the Aeron C++ wrapper, which instead frees the handler"]
-    #[doc = r"as the final step of `on_cmd_close_subscription` on the conductor thread —"]
+    #[doc = r"as the final step of `on_cmd_close_subscription` on the conductor thread,"]
     #[doc = r"i.e. it ties the handler's lifetime to the close completing, not to the"]
     #[doc = r"client. Rusteron's approach is simpler and avoids needing a conductor-side"]
     #[doc = r"hook, but it means handler dependencies accumulate on the client's"]
@@ -3432,7 +3432,7 @@ impl Aeron {
     #[doc = r""]
     #[doc = r"# Production pattern (pseudo code)"]
     #[doc = r"```text"]
-    #[doc = r"// Don't block — drive the async poller from your loop"]
+    #[doc = r"// Don't block. Drive the async poller from your loop"]
     #[doc = r"let poller = client.async_add_*(...)?;"]
     #[doc = r"loop {"]
     #[doc = r"    if let Some(resource) = poller.poll()? {"]
@@ -3622,11 +3622,11 @@ impl AeronAsyncAddSubscription {
     #[doc = r"Cancels this in-progress operation, releasing the pending Aeron"]
     #[doc = r"registration instead of waiting for `poll()`/`poll_blocking()` to"]
     #[doc = r"resolve it or for this value to be dropped (dropping an unresolved"]
-    #[doc = r"poller does this automatically — this is only needed to give up"]
+    #[doc = r"poller does this automatically, so this is only needed to give up"]
     #[doc = r"earlier than the drop would happen naturally)."]
     #[doc = r""]
     #[doc = r"A no-op if `poll()` has already returned a terminal result (`Some`"]
-    #[doc = r"or an `Err`) — cancelling after that point would either be invalid"]
+    #[doc = r"or an `Err`), as cancelling after that point would either be invalid"]
     #[doc = r"(the C struct is no longer valid) or unnecessary (nothing pending"]
     #[doc = r"left to cancel)."]
     #[inline]
@@ -3646,7 +3646,7 @@ impl AeronAsyncAddSubscription {
     #[doc = r""]
     #[doc = r"# Production pattern (pseudo code)"]
     #[doc = r"```text"]
-    #[doc = r"// Don't block — integrate poll() into your existing loop"]
+    #[doc = r"// Don't block. Integrate poll() into your existing loop"]
     #[doc = r"loop {"]
     #[doc = r"    if let Some(resource) = poller.poll()? {"]
     #[doc = r"        break; // ready"]
@@ -5593,7 +5593,7 @@ impl AeronCnc {
     #[doc = r""]
     #[doc = r""]
     #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
@@ -5708,7 +5708,7 @@ impl AeronCnc {
     #[doc = r""]
     #[doc = r""]
     #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
@@ -6265,7 +6265,7 @@ impl AeronContext {
     #[inline]
     #[doc = ""]
     #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access — safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
     pub fn set_error_handler<AeronErrorHandlerHandlerImpl: AeronErrorHandlerCallback + 'static>(
         &self,
         handler: Option<AeronErrorHandlerHandlerImpl>,
@@ -6345,7 +6345,7 @@ impl AeronContext {
     #[inline]
     #[doc = ""]
     #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access — safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
     pub fn set_publication_error_frame_handler<
         AeronPublicationErrorFrameHandlerHandlerImpl: AeronPublicationErrorFrameHandlerCallback + 'static,
     >(
@@ -6431,7 +6431,7 @@ impl AeronContext {
     #[inline]
     #[doc = ""]
     #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access — safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
     pub fn set_on_new_publication<AeronNewPublicationHandlerImpl: AeronNewPublicationCallback + 'static>(
         &self,
         handler: Option<AeronNewPublicationHandlerImpl>,
@@ -6511,7 +6511,7 @@ impl AeronContext {
     #[inline]
     #[doc = ""]
     #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access — safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
     pub fn set_on_new_exclusive_publication<AeronNewPublicationHandlerImpl: AeronNewPublicationCallback + 'static>(
         &self,
         handler: Option<AeronNewPublicationHandlerImpl>,
@@ -6591,7 +6591,7 @@ impl AeronContext {
     #[inline]
     #[doc = ""]
     #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access — safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
     pub fn set_on_new_subscription<AeronNewSubscriptionHandlerImpl: AeronNewSubscriptionCallback + 'static>(
         &self,
         handler: Option<AeronNewSubscriptionHandlerImpl>,
@@ -6671,7 +6671,7 @@ impl AeronContext {
     #[inline]
     #[doc = ""]
     #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access — safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
     pub fn set_on_available_counter<AeronAvailableCounterHandlerImpl: AeronAvailableCounterCallback + 'static>(
         &self,
         handler: Option<AeronAvailableCounterHandlerImpl>,
@@ -6751,7 +6751,7 @@ impl AeronContext {
     #[inline]
     #[doc = ""]
     #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access — safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
     pub fn set_on_unavailable_counter<AeronUnavailableCounterHandlerImpl: AeronUnavailableCounterCallback + 'static>(
         &self,
         handler: Option<AeronUnavailableCounterHandlerImpl>,
@@ -6831,7 +6831,7 @@ impl AeronContext {
     #[inline]
     #[doc = ""]
     #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access — safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
     pub fn set_on_close_client<AeronCloseClientHandlerImpl: AeronCloseClientCallback + 'static>(
         &self,
         handler: Option<AeronCloseClientHandlerImpl>,
@@ -6950,7 +6950,7 @@ impl AeronContext {
     #[inline]
     #[doc = ""]
     #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access — safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
     pub fn set_agent_on_start_function<AeronAgentStartFuncHandlerImpl: AeronAgentStartFuncCallback + 'static>(
         &self,
         value: Option<AeronAgentStartFuncHandlerImpl>,
@@ -8615,7 +8615,7 @@ impl AeronCountersReader {
     #[doc = r""]
     #[doc = r""]
     #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
@@ -9812,7 +9812,7 @@ impl AeronExclusivePublication {
     #[doc = r""]
     #[doc = r""]
     #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
@@ -10035,7 +10035,7 @@ impl AeronExclusivePublication {
     #[doc = " \n# Return\n 0 for success or -1 for error."]
     #[doc = ""]
     #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access — safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
     pub fn revoke<AeronNotificationHandlerImpl: AeronNotificationCallback + 'static>(
         &self,
         on_close_complete: Option<AeronNotificationHandlerImpl>,
@@ -12558,7 +12558,7 @@ impl AeronImage {
     #[doc = r""]
     #[doc = r""]
     #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
@@ -12667,7 +12667,7 @@ impl AeronImage {
     #[doc = r""]
     #[doc = r""]
     #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
@@ -12783,7 +12783,7 @@ impl AeronImage {
     #[doc = r""]
     #[doc = r""]
     #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
@@ -12902,7 +12902,7 @@ impl AeronImage {
     #[doc = r""]
     #[doc = r""]
     #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
@@ -13026,7 +13026,7 @@ impl AeronImage {
     #[doc = r""]
     #[doc = r""]
     #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
@@ -14706,7 +14706,7 @@ impl AeronLossReporter {
     #[doc = r""]
     #[doc = r""]
     #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
@@ -17519,7 +17519,7 @@ impl AeronPublication {
     #[doc = r""]
     #[doc = r""]
     #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
@@ -20487,7 +20487,7 @@ impl AeronSubscription {
     #[doc = r""]
     #[doc = r""]
     #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
@@ -20602,7 +20602,7 @@ impl AeronSubscription {
     #[doc = r""]
     #[doc = r""]
     #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
@@ -20705,7 +20705,7 @@ impl AeronSubscription {
     #[doc = r""]
     #[doc = r""]
     #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
@@ -21546,7 +21546,7 @@ impl Aeron {
     #[doc = " \n# Return\n 0 for success or -1 for error."]
     #[doc = ""]
     #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access — safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
     pub fn async_remove_publication<AeronNotificationHandlerImpl: AeronNotificationCallback + 'static>(
         &self,
         registration_id: i64,
@@ -21645,7 +21645,7 @@ impl Aeron {
     #[doc = " \n# Return\n 0 for success or -1 for error."]
     #[doc = ""]
     #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access — safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
     pub fn async_remove_exclusive_publication<AeronNotificationHandlerImpl: AeronNotificationCallback + 'static>(
         &self,
         registration_id: i64,
@@ -21741,7 +21741,7 @@ impl Aeron {
     #[doc = " \n# Return\n 0 for success or -1 for error."]
     #[doc = ""]
     #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access — safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
     pub fn async_remove_subscription<AeronNotificationHandlerImpl: AeronNotificationCallback + 'static>(
         &self,
         registration_id: i64,
@@ -21858,7 +21858,7 @@ impl Aeron {
     #[doc = " \n# Return\n 0 for success or -1 for error."]
     #[doc = ""]
     #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access — safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
     pub fn async_remove_counter<AeronNotificationHandlerImpl: AeronNotificationCallback + 'static>(
         &self,
         registration_id: i64,
@@ -23414,7 +23414,7 @@ impl Aeron {
     #[doc = r""]
     #[doc = r" The C client owns and frees every child resource (publications,"]
     #[doc = r" subscriptions, counters) when it closes, so while children or clones"]
-    #[doc = r" are alive this is deferred — equivalent to `drop` — and the surviving"]
+    #[doc = r" are alive this is deferred, equivalent to `drop`, and the surviving"]
     #[doc = r" handles remain fully usable. The C close runs when the final"]
     #[doc = r" reference (child or clone) is released."]
     pub fn close(self) -> Result<(), AeronCError> {
@@ -23430,7 +23430,7 @@ impl Aeron {
     #[doc = r" # Safety"]
     #[doc = r" The C client frees every child resource (publications, subscriptions,"]
     #[doc = r" counters) during this call, so surviving child handles dangle. Any use"]
-    #[doc = r" is use-after-free — **including their `Drop`**, which calls the C close"]
+    #[doc = r" is use-after-free, **including their `Drop`**, which calls the C close"]
     #[doc = r" on the freed pointer (double free). You must `std::mem::forget` every"]
     #[doc = r" surviving child, or never return (e.g. `std::process::exit`). Prefer"]
     #[doc = r" [`Self::close`], which defers until the last reference drops."]
@@ -24769,7 +24769,7 @@ impl AeronUri {
     #[doc = r""]
     #[doc = r""]
     #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only — the callback fires"]
+    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
     #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
     #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
     #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]

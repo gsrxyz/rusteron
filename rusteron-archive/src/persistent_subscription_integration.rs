@@ -6,7 +6,7 @@
 //! ## Running Tests
 //!
 //! These tests need a running Aeron Archive, which is a **Java** process.
-//! They are *not* `#[ignore]`d — instead each test calls `skip_unless_java!()`,
+//! They are *not* `#[ignore]`d. Each test calls `skip_unless_java!()`,
 //! so it runs automatically when `java` is on `PATH` and skips (passes) when it
 //! isn't. No special flags required.
 //!
@@ -74,7 +74,7 @@ mod tests {
                     return Ok(v);
                 }
                 Err(e) if Instant::now() < deadline => {
-                    // IMPROVEMENT #3: Better error logging - log retry attempts
+                    // Log every fifth retry attempt
                     if attempt % 5 == 0 {
                         eprintln!(
                             "Archive operation retry attempt {attempt}/{}: {e:?}",
@@ -175,7 +175,7 @@ mod tests {
             .expect("failed to connect to archive");
 
         info!("=== End-to-End: record -> replay -> live consume ===");
-        // NOTE: the seamless replay-merge-to-live transition is exercised by
+        // NOTE: the replay-merge-to-live transition is exercised by
         // `test_simple_replay_merge` in lib.rs. This test covers the two phases
         // (historical replay, then live consumption) on a recorded IPC stream.
 
@@ -643,7 +643,7 @@ mod tests {
 
         let handler = Handler::new(SizeVerificationHandler::default());
 
-        // Poll for all messages with improved timeout handling
+        // Poll for all messages with a timeout
         let start = Instant::now();
         let timeout = Duration::from_secs(30); // Increased from 20s to 30s for slower CI runners
         while handler.received_sizes.len() < total_messages && start.elapsed() < timeout {
@@ -941,7 +941,7 @@ mod tests {
         Ok(())
     }
 
-    /// Truncate and purge a recording — ports the purge exercise in Aeron's
+    /// Truncate and purge a recording. Ports the purge exercise in Aeron's
     /// `RecordedBasicPublisher`. Archive RPCs are synchronous (Ok = the archive
     /// accepted the request), so we assert each step rather than ignore the result.
     /// Truncate requires a *stopped* recording, so we stop recording first.
@@ -1001,7 +1001,7 @@ mod tests {
 
         // Truncate/purge operate on a *stopped* recording. Stop recording, close the stream,
         // then wait for the stop to take effect (stop_position becomes non-null) before
-        // truncating — otherwise the archive rejects it with "cannot truncate active recording".
+        // truncating. Otherwise the archive rejects it with "cannot truncate active recording".
         // Stop before closing: the recording auto-stops when its publication closes, and a
         // stop request that arrives after that finds no recording.
         info!("Stopping recording {recording_id}");
@@ -1031,7 +1031,7 @@ mod tests {
                     }
                 }
                 Err(e) => {
-                    // IMPROVEMENT #3: Better error logging
+                    // Log the failure and retry
                     eprintln!("Warning: list_recordings failed at attempt {attempts}: {e:?}, retrying...");
                     sleep(Duration::from_millis(50));
                 }
@@ -1039,7 +1039,7 @@ mod tests {
         }
         assert!(stopped, "recording {recording_id} never stopped within 10s deadline");
 
-        // IMPROVEMENT #2: Explicit recording existence and state verification before operations
+        // Verify the recording exists and is stopped before operating on it
         info!("Verifying recording {recording_id} exists and is stopped before truncate");
         let mut verified_stopped = false;
         let verify_deadline = Instant::now() + Duration::from_secs(5);
@@ -1078,7 +1078,7 @@ mod tests {
         let halfway = published_position / 2;
         info!("Truncating recording {recording_id} from {published_position} to {halfway}");
 
-        // Add final verification just before truncate to catch race conditions
+        // Verify once more just before truncate to catch race conditions
         let mut final_verified = false;
         let final_verify_deadline = Instant::now() + Duration::from_secs(3);
         while !final_verified && Instant::now() < final_verify_deadline {
@@ -1208,7 +1208,7 @@ mod tests {
         };
         let deadline = Instant::now() + Duration::from_secs(20);
         while collector.count == 0 && Instant::now() < deadline {
-            // asm.poll drives ps.poll(...) internally — it both advances the PS state
+            // asm.poll drives ps.poll(...) internally. It both advances the PS state
             // machine and delivers (reassembled) fragments. Do NOT also call ps.poll_fn:
             // that would consume the raw fragments before the assembler sees them.
             asm.poll(&ps, &mut collector, collect, 100)?;

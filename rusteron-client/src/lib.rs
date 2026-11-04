@@ -9,12 +9,12 @@
 #![doc = include_str!("../README.md")]
 //! # Features
 //!
-//! - **`static`**: When enabled, this feature statically links the Aeron C code.
-//!   By default, the library uses dynamic linking to the Aeron C libraries.
-//! - **`backtrace`**: When enabled will log a backtrace for each AeronCError
-//! - **`extra-logging`**: When enabled will log when resource is created and destroyed. Useful if you're seeing a segfault due to a resource being closed
-//! - **`log-c-bindings`**: When enabled will log every C binding call with arguments and return values. Useful for debugging FFI interactions
-//! - **`precompile`**: When enabled will use precompiled C code instead of requiring cmake and java to be installed
+//! - **`static`**: Statically links the Aeron C code.
+//!   By default, the library links the Aeron C libraries dynamically
+//! - **`backtrace`**: Logs a backtrace for each `AeronCError`
+//! - **`extra-logging`**: Logs when a resource is created and destroyed. Useful if you're seeing a segfault due to a resource being closed
+//! - **`log-c-bindings`**: Logs every C binding call with arguments and return values. Useful for debugging FFI interactions
+//! - **`precompile`**: Uses precompiled C code instead of requiring cmake and java to be installed
 
 #[allow(improper_ctypes_definitions)]
 #[allow(unpredictable_function_pointer_comparisons)]
@@ -865,7 +865,7 @@ mod tests {
         while claim_start.elapsed() < Duration::from_secs(2) && !claimed {
             if let Ok(mut claim) = publisher.try_claim_owned(dropped_payload.len()) {
                 claim.data()[..dropped_payload.len()].copy_from_slice(dropped_payload);
-                // Explicitly drop the claim here — it should be aborted, not committed.
+                // Explicitly drop the claim here. It should be aborted, not committed
                 drop(claim);
                 claimed = true;
             }
@@ -889,7 +889,7 @@ mod tests {
         }
         assert!(offered, "offer_result_simple never succeeded after dropped claim");
 
-        // Receive only the marker — the dropped claim should have been aborted.
+        // Receive only the marker, since the dropped claim should have been aborted
         let received_dropped = std::cell::Cell::new(false);
         let received_marker = std::cell::Cell::new(false);
         let read_start = Instant::now();
@@ -1002,14 +1002,14 @@ mod tests {
         let max_len = constants.max_message_length;
         assert!(max_len > 0, "max_message_length should be positive");
 
-        // Try to claim an absurdly large length — should return Err without panicking.
+        // Try to claim an absurdly large length. It should return Err without panicking
         let oversized_claim = publisher.try_claim_owned(usize::MAX);
         assert!(
             oversized_claim.is_err(),
             "try_claim_owned(usize::MAX) should return Err"
         );
 
-        // Try to claim exactly one byte over the limit — should also return Err.
+        // Try to claim exactly one byte over the limit. It should also return Err
         let over_limit_claim = publisher.try_claim_owned(max_len as usize + 1);
         assert!(
             over_limit_claim.is_err(),
@@ -2041,9 +2041,9 @@ mod tests {
     #[test]
     #[serial]
     pub fn structural_close_safety_test() -> Result<(), Box<dyn error::Error>> {
-        // Under the new design, close(self) consumes the handle — use-after-close
-        // is a compile error, not a runtime check.  This test verifies that
-        // structural teardown (the ManagedCResource::Drop path) properly frees
+        // Under the new design, close(self) consumes the handle, so use-after-close
+        // is a compile error, not a runtime check. This test verifies that
+        // structural teardown (the ManagedCResource::Drop path) frees
         // the C resource without errors.
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
 
@@ -2063,9 +2063,9 @@ mod tests {
         aeron.start()?;
         let publisher = aeron.add_publication(AERON_IPC_STREAM, 123, Duration::from_secs(5))?;
 
-        // Consume the publication handle — close(self) drops it, and the cleanup
+        // Consume the publication handle. close(self) drops it, and the cleanup
         // closure (wired at construction) calls aeron_publication_close on Drop
-        // of the last Rc.  No further use of `publisher` is possible at compile
+        // of the last Rc. No further use of `publisher` is possible at compile
         // time (the binding is moved into close()).
         publisher.close()?;
 
@@ -2594,7 +2594,7 @@ mod tests {
         };
         use proptest::prelude::*;
 
-        /// Fuzz: arbitrary endpoint strings must never panic — only Ok/Err.
+        /// Fuzz: arbitrary endpoint strings must never panic, only Ok/Err
         #[test]
         fn validate_endpoint_never_panics_on_arbitrary_input() {
             proptest!(|(s in ".{0,40}")| {
@@ -2857,7 +2857,7 @@ mod tests {
                 NUM_MESSAGES, received_count
             );
 
-            // Now test that the hot path is allocation-free
+            // Test that the hot path is allocation-free
             let alloc_before = current_allocs();
 
             let mut alloc_free_count = 0;
@@ -2894,7 +2894,7 @@ mod tests {
     // frees every registered resource (publications, subscriptions, counters,
     // exclusive publications) via `aeron_client_conductor_on_close()`.
     //
-    // The Rust wrappers don't know this happened — their `close_already_called`
+    // The Rust wrappers don't know this happened. Their `close_already_called`
     // flag is still `false`, so any subsequent method call that goes through
     // `get_inner()` dereferences a dangling pointer.
     //
@@ -2941,7 +2941,7 @@ mod tests {
     }
 
     /// `drop(aeron)` while children hold `Rc<Aeron>` references must not call
-    /// `aeron_close()` until the last child drops — the raw C pointer reads below
+    /// `aeron_close()` until the last child drops. The raw C pointer reads below
     /// stay valid because close is deferred.
     #[test]
     #[serial]
@@ -2974,11 +2974,11 @@ mod tests {
         let counter_ptr: *mut aeron_counter_t = counter.get_inner();
         let excl_pub_ptr: *mut aeron_exclusive_publication_t = excl_pub.get_inner();
 
-        // SAFE: drop(aeron) does NOT call aeron_close() — children still
+        // SAFE: drop(aeron) does NOT call aeron_close(). Children still
         // hold Rc references, keeping the C client alive.
         drop(aeron);
 
-        // Read raw pointers — these access VALID (not freed) memory.
+        // Read raw pointers. These access VALID (not freed) memory
         let _closed = unsafe { aeron_publication_is_closed(pub_ptr) };
         let _connected = unsafe { aeron_subscription_is_connected(sub_ptr) };
         let _counter_closed = unsafe { aeron_counter_is_closed(counter_ptr) };
@@ -2987,8 +2987,8 @@ mod tests {
 
         // Reaching here proves structural safety: no UAF after drop(aeron).
 
-        // Now drop children properly — last one releases Rc<Aeron> →
-        // aeron_close() fires in correct order.
+        // Drop the children. The last one releases Rc<Aeron>, so
+        // aeron_close() fires in the correct order.
         drop(publisher);
         drop(subscription);
         drop(counter);
@@ -3186,7 +3186,7 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// After `aeron.close()` the surviving handles must remain fully usable —
+    /// After `aeron.close()` the surviving handles must remain usable,
     /// not merely safe to drop. A complete offer/poll roundtrip is the strongest
     /// proof that the deferred close left the C client fully operational.
     #[test]
@@ -3291,7 +3291,7 @@ mod tests {
                     Duration::from_secs(5),
                 )
                 .unwrap();
-            // caller's reference goes away here — the subscription's dependency
+            // caller's reference goes away here, so the subscription's dependency
             // clone must keep the callback value alive for the conductor thread
             drop(handler);
             subscription
@@ -3393,7 +3393,7 @@ mod tests {
         // the driver rejects the port before resolving the host, so no DNS lookup slows this down
         let bad_uri = c"aeron:udp?endpoint=127.0.0.1:99999";
         match aeron.async_add_subscription(bad_uri, 1621, Handlers::NONE, Handlers::NONE) {
-            Err(_) => {} // rejected synchronously — fine
+            Err(_) => {} // rejected synchronously, which is fine
             Ok(poller) => {
                 let mut saw_error = false;
                 let start = Instant::now();
@@ -3426,9 +3426,9 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// The full dependency graph at once — context (with error handler), client + clone,
+    /// The full dependency graph at once: context (with error handler), client + clone,
     /// publication + clone, exclusive publication, subscription with a retained image
-    /// handler, counter, and an unpolled async poller — closed/dropped in an adversarial
+    /// handler, counter, and an unpolled async poller. It is closed/dropped in an adversarial
     /// order, with every surviving handle exercised after each step. Deferred close must
     /// keep the C client alive until the *last* reference, and every retained handler must
     /// be freed exactly once at the end.
@@ -3497,7 +3497,7 @@ mod tests {
             .async_add_subscription(AERON_IPC_STREAM, 1803, Some(&unpolled_handler), Handlers::NONE)
             .unwrap();
         drop(unpolled_handler);
-        drop(unpolled_poller); // never polled — its handler must stay alive via the client
+        drop(unpolled_poller); // never polled, so its handler must stay alive via the client
 
         // adversarial order: close the client FIRST (defers), then use everything
         assert!(aeron.close().is_ok());
@@ -3549,7 +3549,7 @@ mod tests {
         );
         drop(exclusive);
         assert!(counter.close().is_ok());
-        assert!(aeron_clone.close().is_ok()); // the LAST reference — the real aeron_close runs here
+        assert!(aeron_clone.close().is_ok()); // the LAST reference, so the real aeron_close runs here
 
         assert_eq!(
             1,
@@ -3746,7 +3746,7 @@ mod tests {
         };
 
         // A subscription's position counter is only materialised once it has an image
-        // (i.e. a connected publication) — so connect one to force the conductor to fully
+        // (i.e. a connected publication), so connect one to force the conductor to fully
         // complete whatever it did with the abandoned add. If the add wasn't cancelled,
         // the leaked subscription will connect just like a normal one and get a counter.
         let publisher = aeron
@@ -3823,8 +3823,8 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// A poller that *did* resolve via `poll()` must never be cancelled afterwards —
-    /// calling `.cancel()` (or dropping) post-resolution must be inert and must not tear
+    /// A poller that *did* resolve via `poll()` must never be cancelled afterwards.
+    /// Calling `.cancel()` (or dropping) post-resolution must be inert and must not tear
     /// down the now-live subscription it produced.
     #[test]
     #[serial]
@@ -3864,7 +3864,7 @@ mod tests {
 
     /// Same drop-before-poll leak proof as
     /// `dropping_unpolled_async_subscription_does_not_leak_driver_counter`, but for
-    /// `AeronAsyncAddPublication` — the publisher limit counter must never appear for a
+    /// `AeronAsyncAddPublication`. The publisher limit counter must never appear for a
     /// registration id whose async add was dropped unpolled.
     #[test]
     #[serial]
@@ -3951,7 +3951,7 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// Same drop-before-poll leak proof, but for `AeronAsyncAddCounter` — a user counter's
+    /// Same drop-before-poll leak proof, but for `AeronAsyncAddCounter`. A user counter's
     /// key buffer (not the registration id) is the only thing we control, so match on the
     /// key bytes instead of `find_by_type_and_registration_id`.
     #[test]
@@ -4089,7 +4089,7 @@ mod tests {
         // the driver rejects the port before resolving the host, so no DNS lookup slows this down
         let bad_uri = c"aeron:udp?endpoint=127.0.0.1:99999";
         match aeron.async_add_publication(bad_uri, 1622) {
-            Err(_) => {} // rejected synchronously — fine
+            Err(_) => {} // rejected synchronously, which is fine
             Ok(poller) => {
                 let mut saw_error = false;
                 let start = Instant::now();
@@ -4147,7 +4147,7 @@ mod tests {
 
     /// Repeatedly offers `msg` (ignoring transient/retryable send failures) while polling
     /// every subscription in `subs`, until every one of them has observed it (or `timeout`
-    /// elapses). Re-offering — rather than a single blind send — absorbs the real-world
+    /// elapses). Re-offering, rather than a single blind send, absorbs the real-world
     /// race between "the destination/image is nominally connected" and "the driver has
     /// actually finished wiring up delivery to it", which a single fixed-count send can hit
     /// even after `is_connected()` reports true.
@@ -4179,9 +4179,9 @@ mod tests {
     /// Repeatedly offers freshly-tagged probe messages while polling both `removed_sub`
     /// (expected to stop receiving) and every `alive_subs` entry (expected to keep
     /// receiving), until one probe is confirmed delivered to all `alive_subs` but absent
-    /// from `removed_sub`. This proves the destination removal has genuinely taken effect
-    /// driver-side — not merely that `remove_destination(...)` returned `Ok(())` — while
-    /// tolerating the small, real round-trip delay between that call succeeding and the
+    /// from `removed_sub`. This proves the destination removal has taken effect
+    /// driver-side, not merely that `remove_destination(...)` returned `Ok(())`. It
+    /// tolerates the small, real round-trip delay between that call succeeding and the
     /// driver actually tearing down delivery to the removed destination (the same kind of
     /// delay already observed for publication/counter cancellation elsewhere in this suite).
     /// Panics if no such probe is confirmed within `timeout`.
@@ -4252,7 +4252,7 @@ mod tests {
         let dest_a = udp_endpoint_channel(port_a);
         let dest_b = udp_endpoint_channel(port_b);
 
-        // Removing a destination that was never added must not panic/hang — Aeron's C API
+        // Removing a destination that was never added must not panic/hang. Aeron's C API
         // doesn't track membership up front for this call.
         let result = subscription.remove_destination(&dest_a, Duration::from_secs(2));
         assert!(
@@ -4309,7 +4309,7 @@ mod tests {
             "expected both destinations to deliver before any removal, got {seen:?}"
         );
 
-        // Remove destination A; its messages must genuinely stop arriving while B keeps
+        // Remove destination A; its messages must stop arriving while B keeps
         // flowing. Probe repeatedly (rather than a single send) to tolerate the small
         // real round trip between `remove_destination()` returning and the driver
         // actually tearing down delivery for that destination.
@@ -4410,7 +4410,7 @@ mod tests {
 
         // Capture destination B's registration id via the low-level async API (not
         // exposed by the `add_destination` convenience wrapper) so we can remove it by id
-        // later — mirrors how a caller would drive this from their own event loop.
+        // later, as a caller would drive this from their own event loop
         let add_b = publication.async_add_destination(&aeron, &dest_b).unwrap();
         let dest_b_registration_id = add_b.get_registration_id();
         let start = Instant::now();
@@ -4426,7 +4426,7 @@ mod tests {
             sleep(Duration::from_millis(5));
         }
         // Resolved: there's no C free for this resource once the driver acknowledges it
-        // (mirrors the wrapper functions in `aeron_custom.rs`) — mark it closed so `Drop`
+        // (mirrors the wrapper functions in `aeron_custom.rs`). Mark it closed so `Drop`
         // doesn't treat this as a leak under `strict-lifecycle`.
         let _ = add_b.inner.close_resource();
         let sub_b = aeron
@@ -4449,7 +4449,7 @@ mod tests {
         );
 
         // Everything is wired: a message sent (retried) now must reach all three
-        // subscribers — retrying absorbs the race between the destination nominally
+        // subscribers. Retrying absorbs the race between the destination nominally
         // connecting and the driver actually finishing delivery wiring for it.
         assert_all_subs_eventually_receive(
             |b| publication.offer(b),
@@ -4484,7 +4484,7 @@ mod tests {
     }
 
     /// Same MDC round trip as `publication_mdc_add_and_remove_destination_gates_real_data_flow`,
-    /// but for [`AeronExclusivePublication`] — the `add_destination`/`remove_destination`/
+    /// but for [`AeronExclusivePublication`]. The `add_destination`/`remove_destination`/
     /// `remove_destination_by_id` trio is a separate impl block generated from a separate set
     /// of C functions, so it needs its own real-data-flow proof rather than assuming parity
     /// with the regular-publication path.
@@ -4537,7 +4537,7 @@ mod tests {
             sleep(Duration::from_millis(5));
         }
         // Resolved: there's no C free for this resource once the driver acknowledges it
-        // (mirrors the wrapper functions in `aeron_custom.rs`) — mark it closed so `Drop`
+        // (mirrors the wrapper functions in `aeron_custom.rs`). Mark it closed so `Drop`
         // doesn't treat this as a leak under `strict-lifecycle`.
         let _ = add_b.inner.close_resource();
         let sub_b = aeron
@@ -4585,7 +4585,7 @@ mod tests {
     }
 
     /// Retained images are released back to the subscription automatically when the
-    /// handle drops — in either order: image-then-subscription (normal release) or
+    /// handle drops, in either order: image-then-subscription (normal release) or
     /// subscription-then-image (release skipped; the C client already reclaimed it).
     #[test]
     #[serial]
@@ -4738,7 +4738,7 @@ mod tests {
 
     /// `close_now` is the unsafe escape hatch: the C close runs immediately.
     /// Clones of the client handle share the nulled pointer, so they stay safe
-    /// to drop or close (children would dangle — none exist here).
+    /// to drop or close (none exist here, so no children can dangle).
     #[test]
     #[serial]
     fn close_now_with_clones_only_is_safe() {
@@ -4756,7 +4756,7 @@ mod tests {
     /// `close_now` with a complex object graph where Rust drops children before
     /// the parent. In 0.2's deferred-close model, children close immediately when
     /// dropped, so calling `close_now()` on a parent after all children have been
-    /// dropped must be safe — the C client handles already-closed resources
+    /// dropped must be safe, as the C client handles already-closed resources
     /// gracefully. This test verifies no segfaults or double-frees (CI runs this
     /// under ASan which catches use-after-free).
     ///
@@ -4808,7 +4808,7 @@ mod tests {
         drop(sub2);
         drop(excl_pub);
 
-        // Call close_now on the parent — must not segfault or double-free
+        // Call close_now on the parent. It must not segfault or double-free
         unsafe {
             assert!(
                 aeron.close_now().is_ok(),
@@ -4831,7 +4831,7 @@ mod tests {
     /// 3. But `pub2` still holds a non-null pointer to freed memory
     /// 4. `drop(pub2)` calls `aeron_publication_close()` on dangling pointer → UB
     ///
-    /// DO NOT call `close_now()` with surviving children — it's fundamentally unsafe.
+    /// DO NOT call `close_now()` with surviving children, as it's fundamentally unsafe.
     #[test]
     #[serial]
     #[ignore = "this test WILL segfault - it documents the UB scenario"]
@@ -4843,7 +4843,7 @@ mod tests {
             .add_publication(AERON_IPC_STREAM, 1001, Duration::from_secs(5))
             .expect("add publication");
 
-        // Call close_now while pub2 is still alive — UNSAFE
+        // Call close_now while pub2 is still alive. This is UNSAFE
         unsafe {
             let _ = aeron.close_now();
         }
@@ -4858,7 +4858,7 @@ mod tests {
 
     /// The client stores the raw context pointer in C for its entire life, so the
     /// context must outlive the client. Dropping the user's `AeronContext` handle
-    /// only releases a reference — the client's internal clone keeps the C context
+    /// only releases a reference. The client's internal clone keeps the C context
     /// alive, and a full roundtrip must still work afterwards.
     #[test]
     #[serial]
@@ -4931,7 +4931,7 @@ mod tests {
 
     /// Media driver dies mid-flight: the client must surface the failure through
     /// the error handler (driver keepalive timeout) and every handle must stay
-    /// memory-safe — offers turn into errors, never UB — and teardown completes.
+    /// memory-safe: offers turn into errors, never UB, and teardown completes.
     #[test]
     #[serial]
     fn media_driver_shutdown_surfaces_errors_and_client_stays_safe() {
@@ -5064,8 +5064,8 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, _error_handler);
     }
 
-    /// Test that subscription image handlers are properly tracked
-    /// and survive subscription drops.
+    /// Subscription image handlers are tracked
+    /// and survive subscription drops
     #[test]
     #[serial]
     fn subscription_handler_dependency_tracking() {
@@ -5206,7 +5206,7 @@ mod tests {
             "invoker never resolved the async add_subscription"
         );
         let subscription = subscription_result.unwrap();
-        drop(sub_poller); // done polling — don't hold its client-Rc clone any longer
+        drop(sub_poller); // done polling, so don't hold its client-Rc clone any longer
 
         let pub_poller = aeron.async_add_publication(AERON_IPC_STREAM, 2101).unwrap();
         #[allow(unused_assignments)]
@@ -5294,14 +5294,14 @@ mod tests {
 
     // ── Structural teardown verification via memory protection ────────
     //
-    // Under the new design, the Rc dependency graph ensures correct
+    // Under the new design, the Rc dependency graph enforces
     // teardown order: `aeron_close()` can only fire once every child's
     // Rc<Aeron> is released.  This section proves that:
     //
     //  1. `drop(aeron)` is SAFE while children are alive (Rc keeps the
     //     C client alive).
     //  2. `drop(publisher)` triggers `aeron_close()` (when its Rc<Aeron>
-    //     is the last handle), which frees the publication — UAF after
+    //     is the last handle), which frees the publication. UAF after
     //     the publisher drops is the *correct* C-level behaviour.
     //
     // To prove (2) we use `mprotect(PROT_NONE)` on the page containing
@@ -5310,7 +5310,7 @@ mod tests {
     //
     // On Linux/macOS `mprotect` on malloc'd heap memory works at the page
     // level.  This test uses `fork()` so the dangerous mprotect runs in a
-    // child process — the parent test runner is never at risk.
+    // child process, so the parent test runner is never at risk.
     //
     // The test passes when the child exits with SIGABRT (teardown proven).
 
@@ -5379,7 +5379,7 @@ mod tests {
         const SIGSEGV: i32 = 11;
 
         // This test deliberately forks, mprotects, and `mem::forget`s the driver
-        // to PROVE Rc teardown frees the C resource — it is not a memory-hygiene
+        // to PROVE Rc teardown frees the C resource. It is not a memory-hygiene
         // target, and its non-standard teardown (native-executed child + unusual
         // close ordering) confuses Valgrind's leak accounting. Skip under Valgrind.
         if running_under_valgrind() {
@@ -5409,12 +5409,12 @@ mod tests {
 
                 let raw_ptr: *mut aeron_publication_t = publisher.get_inner();
 
-                // Step 1: drop(aeron) — SAFE under new design.  The
+                // Step 1: drop(aeron) is SAFE under the new design. The
                 // publisher still holds an Rc<Aeron>, so aeron_close()
                 // is deferred.
                 drop(aeron);
 
-                // Step 2: drop(publisher) — the Rc<Aeron> refcount drops
+                // Step 2: drop(publisher). The Rc<Aeron> refcount drops
                 // to 0, triggering aeron_close().  aeron_close() frees all
                 // C resources including the publication at raw_ptr.
                 drop(publisher);
@@ -5425,7 +5425,7 @@ mod tests {
                 let rc = mprotect(page as *mut core::ffi::c_void, page_size, PROT_NONE);
 
                 if rc == 0 {
-                    // Page is PROT_NONE — accessing raw_ptr triggers SIGBUS →
+                    // Page is PROT_NONE, so accessing raw_ptr triggers SIGBUS →
                     // signal handler → "teardown confirmed" → abort() (SIGABRT).
                     let _closed = aeron_publication_is_closed(raw_ptr);
                     // If we reach here, mprotect worked but nothing crashed.
@@ -5433,7 +5433,7 @@ mod tests {
                     std::process::abort();
                 }
 
-                // mprotect not supported on this platform — clean exit.
+                // mprotect not supported on this platform, so exit cleanly
                 drop(error_handler);
                 std::mem::forget(driver); // child process: no clean driver teardown needed
                 _exit(0);

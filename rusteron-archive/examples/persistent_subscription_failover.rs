@@ -1,10 +1,10 @@
-//! # Persistent Subscription — failure & recovery
+//! # Persistent Subscription failure & recovery
 //!
 //! The failure-mode companion to `persistent_subscription.rs`. A persistent subscription
 //! rides through the loss of the live stream:
 //!
 //! 1. replay + join live (`on_live_joined`);
-//! 2. the live publication dies → `on_live_left`: the subscription re-reads the recording,
+//! 2. the live publication dies → `on_live_left`. The subscription re-reads the recording,
 //!    replays anything recorded past its position (nothing here, as the stream stopped)
 //!    and waits for live again;
 //! 3. the live stream comes back, resumed where it stopped → it **rejoins live**
@@ -157,7 +157,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ps.is_replaying()
     );
 
-    // ── Phase 3: the live stream comes back — rejoin ─────────────────────
+    // ── Phase 3: the live stream comes back and rejoins ─────────────────────
     // Aeron refuses a live stream behind what the subscription has already seen, so a
     // restarted publisher resumes the same session where it stopped.
     println!("phase 3: resuming the live publication where it stopped...");

@@ -2,7 +2,7 @@
 //!
 //! Ports Aeron's `RecordedBasicPublisher` + `ReplayedBasicSubscriber`: record a stream to the
 //! Aeron Archive, then replay it from the start. Focuses on **retryable vs unrecoverable error
-//! handling** — the split Aeron expects callers to make (back off + retry transient errors;
+//! handling**. This is the split Aeron expects callers to make (back off + retry transient errors;
 //! abort on fatal ones).
 //!
 //! Requires a running Aeron **Java** Archive. This example builds and starts one for you via the
@@ -22,7 +22,7 @@ use rusteron_archive::*;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-/// Retry `op` while it fails with a **retryable** (transient) error — back off between attempts.
+/// Retry `op` while it fails with a **retryable** (transient) error. Back off between attempts.
 /// Abort immediately on an **unrecoverable** error, or when `deadline` passes. This is the
 /// retryable/unrecoverable split callers should apply to archive/client operations:
 /// back-pressure, admin action, buffer-full and polling timeouts are retried; a closed

@@ -3,7 +3,7 @@
 pub static AERON_IPC_STREAM: &std::ffi::CStr = c"aeron:ipc";
 
 /// Max buffer parts accepted by [`AeronPublication::offer_parts`] /
-/// [`AeronExclusivePublication::offer_parts`] — the `aeron_iovec_t` array is
+/// [`AeronExclusivePublication::offer_parts`]. The `aeron_iovec_t` array is
 /// built on the stack, so it has a fixed capacity. Use the raw `offerv` with
 /// your own iovec array for larger gathers.
 pub const MAX_OFFER_PARTS: usize = 8;
@@ -24,10 +24,10 @@ pub const MAX_OFFER_PARTS: usize = 8;
 // and close, never during the shared-read window.
 //
 // `AeronSubscription` deliberately has no `Sync` impl, with or without
-// `multi-threaded`: Aeron's own docs (`Subscription.java` — "Subscriptions are not
+// `multi-threaded`: Aeron's own docs (`Subscription.java`, "Subscriptions are not
 // threadsafe and should not be shared between subscribers.") explicitly forbid
 // sharing a subscription across threads, so `&AeronSubscription` must never be
-// usable concurrently from multiple threads regardless of the refcount type — it's
+// usable concurrently from multiple threads regardless of the refcount type. It's
 // `Send`-only, matching "hand off to one other thread, don't share concurrently".
 // Enable with `features = ["multi-threaded"]` in Cargo.toml.
 #[cfg(feature = "multi-threaded")]
@@ -91,11 +91,11 @@ pub enum AeronIdleStrategyKind {
     Sleeping,
     /// Yield the OS thread when idle (`"yield"`).
     Yielding,
-    /// Busy-spin (`"spin"`) — lowest latency, pins a core.
+    /// Busy-spin (`"spin"`). Lowest latency, pins a core.
     BusySpin,
     /// Never back off (`"noop"`).
     NoOp,
-    /// Spin, then yield, then park with exponential backoff (`"backoff"`) — the default.
+    /// Spin, then yield, then park with exponential backoff (`"backoff"`). This is the default.
     Backoff,
 }
 
@@ -111,7 +111,7 @@ impl AeronIdleStrategyKind {
         }
     }
 
-    /// [`Self::name`] as a compile-time C string — lets setters pass it straight to
+    /// [`Self::name`] as a compile-time C string, so setters can pass it straight to
     /// the FFI with no runtime allocation.
     pub const fn name_c(&self) -> &'static std::ffi::CStr {
         match self {
@@ -149,7 +149,7 @@ impl AeronIdleStrategyKind {
 
 // ─── Per-type `Send`/`Sync` under `multi-threaded` (additions beyond the block at the
 // top of this file) ────────────────────────────────────────────────────────────────
-// `Aeron` (client): `Aeron.java` — "Add a Publication ... is threadsafe."/"... is
+// `Aeron` (client): `Aeron.java`, "Add a Publication ... is threadsafe."/"... is
 // threadsafe." for `addPublication`/`addSubscription` and friends; the client
 // conductor is explicitly designed to be driven from multiple registering threads.
 // Send + Sync.
@@ -158,12 +158,12 @@ unsafe impl Send for Aeron {}
 #[cfg(feature = "multi-threaded")]
 unsafe impl Sync for Aeron {}
 
-// `AeronExclusivePublication`: `Publication.java` — "All methods are threadsafe except
-// offer and tryClaim for the subclass ExclusivePublication" — i.e. NOT safe to call
+// `AeronExclusivePublication`: `Publication.java`, "All methods are threadsafe except
+// offer and tryClaim for the subclass ExclusivePublication", i.e. NOT safe to call
 // `offer`/`try_claim` concurrently from multiple threads. Send only (may be handed off
-// to and then used exclusively from a single other thread), deliberately NOT Sync —
+// to and then used exclusively from a single other thread), deliberately NOT Sync,
 // unlike `AeronPublication` (the "concurrent" publication, for which all methods,
-// including offer/try_claim, are documented threadsafe — see the Send+Sync block at
+// including offer/try_claim, are documented threadsafe; see the Send+Sync block at
 // the top of this file).
 #[cfg(feature = "multi-threaded")]
 unsafe impl Send for AeronExclusivePublication {}
@@ -172,7 +172,7 @@ impl Aeron {
     /// Connect to a media driver in one call: context, client, and conductor start.
     ///
     /// `dir` is the media driver directory (`None` uses the aeron default). For tuned
-    /// setups — error handlers, driver timeout, idle strategy — build the
+    /// setups with custom error handlers, driver timeout or idle strategy, build the
     /// [`AeronContext`] yourself and use [`Aeron::new`].
     pub fn connect(dir: Option<&str>) -> Result<Aeron, AeronCError> {
         let ctx = AeronContext::new()?;
@@ -212,7 +212,7 @@ impl AeronContext {
     }
 }
 
-/// **Counters and Control (CnC) file** — the shared-memory interface between the
+/// **Counters and Control (CnC) file** is the shared-memory interface between the
 /// media driver and its clients.
 ///
 /// The CnC file contains:
@@ -222,7 +222,7 @@ impl AeronContext {
 /// - **Loss reporter**: observed packet-loss entries.
 /// - **To-driver / to-clients** command buffers.
 ///
-/// `AeronCnc` is a read-only view of the CnC file — use it to inspect driver
+/// `AeronCnc` is a read-only view of the CnC file. Use it to inspect driver
 /// state, dump counters, or read the error log (the upstream `aeron_stat`,
 /// `error_stat`, and `loss_stat` tools all do this).
 ///
@@ -236,7 +236,7 @@ impl AeronContext {
 ///     });
 /// })?;
 /// ```
-/// Opens the CnC file, runs the closure, closes — the resource wrapper lives on
+/// Opens the CnC file, runs the closure, closes. The resource wrapper lives on
 /// the stack and is freed immediately after.
 ///
 /// **Owned handle** (for repeated polling, e.g. a stats dashboard):
@@ -250,7 +250,7 @@ impl AeronContext {
 /// // closed on drop
 /// ```
 impl AeronCnc {
-    /// Open the CnC file, run `handler`, close — **zero heap allocation** for the
+    /// Open the CnC file, run `handler`, close. **Zero heap allocation** for the
     /// resource wrapper (the C struct is stack-borrowed). Preferred for one-shot
     /// reads (dump counters, print the error log). Accepts `&CStr` so `c""`
     /// literals work directly.
@@ -494,7 +494,7 @@ impl std::convert::TryFrom<i32> for AeronSystemCounterType {
 
 // SAFETY: `aeron_mapped_file_t` is a plain `{ addr: *mut c_void, length: u64 }`.
 // It is touched only inside the init closure (runs once at construction) and the
-// cleanup closure (runs once at drop) of `AeronCncMetadata::load_from_file` — never
+// cleanup closure (runs once at drop) of `AeronCncMetadata::load_from_file`, never
 // concurrently. This matches the `unsafe impl Send` policy for `ManagedCResource<T>`
 // and the handle types at the top of this file, and unblocks the cleanup closure
 // under the `multi-threaded` feature where `CleanupBox<T>: Send`.
@@ -679,7 +679,7 @@ impl AeronSubscription {
                 0
             },
             Some(Box::new(move |ctx| unsafe {
-                // skip the release if the subscription was closed first — the C client
+                // skip the release if the subscription was closed first, as the C client
                 // reclaimed the image during the subscription close. Unlike
                 // `aeron_subscription_image_release`, this also releases an unavailable image.
                 if !subscription.get_inner().is_null() {
@@ -696,7 +696,7 @@ impl AeronSubscription {
         })
     }
 
-    /// Borrow-scoped iteration over the current images — zero retain/release bookkeeping.
+    /// Borrow-scoped iteration over the current images, with zero retain/release bookkeeping.
     /// The borrowed [`AeronImage`] is only valid inside the closure; call
     /// [`Self::image_at_index`] / [`Self::image_by_session_id`] for a handle that outlives it.
     pub fn for_each_image<F: FnMut(&AeronImage)>(&self, mut f: F) {
@@ -720,7 +720,7 @@ impl AeronSubscription {
 
     /// Add `destination`, polling until the driver acknowledges or `timeout` elapses.
     /// The owning [`Aeron`] client is retrieved automatically from the subscription's
-    /// dependency graph — pass it explicitly via [`Self::async_add_destination`] only
+    /// dependency graph. Pass it explicitly via [`Self::async_add_destination`] only
     /// when you hold it already.
     pub fn add_destination(
         &self,
@@ -735,10 +735,10 @@ impl AeronSubscription {
         poll_destination_op_to_completion(&client, &result, timeout, (destination, self))
     }
 
-    /// Note: unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
+    /// Unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
     /// for this in-flight operation, so (as with `add_destination`) dropping the returned
     /// [`AeronAsyncDestination`] before it resolves only logs the generic
-    /// "resource likely leaked" warning — it does not stop the removal.
+    /// "resource likely leaked" warning. It does not stop the removal.
     pub fn async_remove_destination(
         &self,
         client: &Aeron,
@@ -749,7 +749,7 @@ impl AeronSubscription {
 
     /// Remove `destination` (previously added via [`Self::add_destination`]), polling
     /// until the driver acknowledges or `timeout` elapses. The owning [`Aeron`] client is
-    /// retrieved automatically from the subscription's dependency graph — pass it
+    /// retrieved automatically from the subscription's dependency graph. Pass it
     /// explicitly via [`Self::async_remove_destination`] only when you hold it already.
     pub fn remove_destination(
         &self,
@@ -790,10 +790,10 @@ impl AeronExclusivePublication {
         poll_destination_op_to_completion(&client, &result, timeout, (destination, self))
     }
 
-    /// Note: unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
+    /// Unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
     /// for this in-flight operation, so (as with `add_destination`) dropping the returned
     /// [`AeronAsyncDestination`] before it resolves only logs the generic
-    /// "resource likely leaked" warning — it does not stop the removal.
+    /// "resource likely leaked" warning. It does not stop the removal.
     pub fn async_remove_destination(
         &self,
         client: &Aeron,
@@ -804,7 +804,7 @@ impl AeronExclusivePublication {
 
     /// Remove `destination` (previously added via [`Self::add_destination`]), polling
     /// until the driver acknowledges or `timeout` elapses. The owning [`Aeron`] client is
-    /// retrieved automatically from the publication's dependency graph — pass it
+    /// retrieved automatically from the publication's dependency graph. Pass it
     /// explicitly via [`Self::async_remove_destination`] only when you hold it already.
     pub fn remove_destination(
         &self,
@@ -819,9 +819,9 @@ impl AeronExclusivePublication {
         poll_destination_op_to_completion(&client, &result, timeout, (destination, self))
     }
 
-    /// Note: unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
+    /// Unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
     /// for this in-flight operation, so dropping the returned [`AeronAsyncDestination`]
-    /// before it resolves only logs the generic "resource likely leaked" warning — it
+    /// before it resolves only logs the generic "resource likely leaked" warning. It
     /// does not stop the removal.
     pub fn async_remove_destination_by_id(
         &self,
@@ -838,7 +838,7 @@ impl AeronExclusivePublication {
     /// Remove the destination identified by `destination_registration_id` (as returned by
     /// [`AeronAsyncDestination::get_registration_id`] after adding it), polling
     /// until the driver acknowledges or `timeout` elapses. The owning [`Aeron`] client is
-    /// retrieved automatically from the publication's dependency graph — pass it
+    /// retrieved automatically from the publication's dependency graph. Pass it
     /// explicitly via [`Self::async_remove_destination_by_id`] only when you hold it
     /// already.
     pub fn remove_destination_by_id(
@@ -879,10 +879,10 @@ impl AeronPublication {
         poll_destination_op_to_completion(&client, &result, timeout, (destination, self))
     }
 
-    /// Note: unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
+    /// Unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
     /// for this in-flight operation, so (as with `add_destination`) dropping the returned
     /// [`AeronAsyncDestination`] before it resolves only logs the generic
-    /// "resource likely leaked" warning — it does not stop the removal.
+    /// "resource likely leaked" warning. It does not stop the removal.
     pub fn async_remove_destination(
         &self,
         client: &Aeron,
@@ -893,7 +893,7 @@ impl AeronPublication {
 
     /// Remove `destination` (previously added via [`Self::add_destination`]), polling
     /// until the driver acknowledges or `timeout` elapses. The owning [`Aeron`] client is
-    /// retrieved automatically from the publication's dependency graph — pass it
+    /// retrieved automatically from the publication's dependency graph. Pass it
     /// explicitly via [`Self::async_remove_destination`] only when you hold it already.
     pub fn remove_destination(
         &self,
@@ -908,9 +908,9 @@ impl AeronPublication {
         poll_destination_op_to_completion(&client, &result, timeout, (destination, self))
     }
 
-    /// Note: unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
+    /// Unlike [`Self::add_destination`], Aeron's C API has no `..._destination_cancel`
     /// for this in-flight operation, so dropping the returned [`AeronAsyncDestination`]
-    /// before it resolves only logs the generic "resource likely leaked" warning — it
+    /// before it resolves only logs the generic "resource likely leaked" warning. It
     /// does not stop the removal.
     pub fn async_remove_destination_by_id(
         &self,
@@ -923,7 +923,7 @@ impl AeronPublication {
     /// Remove the destination identified by `destination_registration_id` (as returned by
     /// [`AeronAsyncDestination::get_registration_id`] after adding it), polling
     /// until the driver acknowledges or `timeout` elapses. The owning [`Aeron`] client is
-    /// retrieved automatically from the publication's dependency graph — pass it
+    /// retrieved automatically from the publication's dependency graph. Pass it
     /// explicitly via [`Self::async_remove_destination_by_id`] only when you hold it
     /// already.
     pub fn remove_destination_by_id(
@@ -980,7 +980,7 @@ impl AeronCError {
 
     /// Attach the current `aeron_errmsg()` text to this error (one allocation).
     /// Call at the error site when the error will be stored, logged later, or sent
-    /// across threads — otherwise `Display` reads the live buffer, which a later
+    /// across threads. Otherwise `Display` reads the live buffer, which a later
     /// error can overwrite.
     #[cold]
     pub fn capture_errmsg(mut self) -> Self {
@@ -1421,10 +1421,10 @@ impl AeronCountersReader {
         found
     }
 
-    /// Find the first counter of `type_id` keyed by `registration_id` — the layout used by
+    /// Find the first counter of `type_id` keyed by `registration_id`, the layout used by
     /// aeron's per-stream counters (publisher limit/position, sender/receiver positions,
-    /// subscriber position: the key starts with the registration id as a little-endian
-    /// `i64`). Mirrors Java's `findCounterIdByRegistration`-style helpers, e.g.:
+    /// subscriber position). The key starts with the registration id as a little-endian
+    /// `i64`. Mirrors Java's `findCounterIdByRegistration`-style helpers, e.g.:
     ///
     /// ```no_compile
     /// let registration_id = publication.get_constants()?.registration_id;
@@ -1861,7 +1861,7 @@ macro_rules! impl_publication_methods {
 
             /// Convenience accessor for the registration id (no direct C accessor exists;
             /// backed by [`Self::get_constants`]). `session_id`, `stream_id` and `channel`
-            /// have cheap direct getters — prefer those; for `registration_id` /
+            /// have cheap direct getters, so prefer those; for `registration_id` /
             /// `max_payload_length` in a hot loop, call [`Self::get_constants`] once and
             /// reuse the returned [`AeronPublicationConstants`].
             #[inline]
@@ -1891,7 +1891,7 @@ impl AeronPublication {
         AeronOfferError::from_position(self.offer_raw::<AeronReservedValueSupplierLogger>(buffer, None))
     }
 
-    /// Zero-copy claim with typed errors — see [`Self::try_claim_owned`] for RAII.
+    /// Zero-copy claim with typed errors. See [`Self::try_claim_owned`] for RAII.
     #[inline]
     pub fn try_claim(&self, length: usize, buffer_claim: &AeronBufferClaim) -> Result<i64, AeronOfferError> {
         AeronOfferError::from_position(self.try_claim_raw(length, buffer_claim))
@@ -1959,7 +1959,7 @@ impl AeronImage {
 }
 
 /// Production error handler that routes Aeron async errors through the Rust `log`
-/// facade at **error** level with a concise format — the recommended default for
+/// facade at **error** level with a concise format. This is the recommended default for
 /// `AeronContext::set_error_handler`.
 ///
 /// Not to be confused with the generated [`AeronErrorHandlerLogger`], which is the
@@ -2008,7 +2008,7 @@ impl FnMutMessageHandler {
     /// dispatches into them.
     ///
     /// # Lifetime contract (caller must uphold)
-    /// `ctx` is stored as a raw `*mut ()` that **escapes the borrow** — the
+    /// `ctx` is stored as a raw `*mut ()` that **escapes the borrow**, so the
     /// borrow checker does NOT keep it alive. The caller MUST ensure `ctx`
     /// outlives every subsequent `call` (i.e. `ctx` is dropped only after this
     /// handler is retired or re-`set`). Calling `call` after `ctx` is dropped is
@@ -2231,7 +2231,7 @@ impl AeronControlledFragmentClosureAssembler {
 ///
 /// # Example
 /// ```ignore
-/// // (illustrative — `publication.status()` needs a live handle; see the
+/// // (illustrative, as `publication.status()` needs a live handle; see the
 /// //  `aeron_custom_tests` unit tests for runnable pure-Rust assertions)
 /// let mut tracker = AeronStatusTracker::new();
 /// tracker.observe(publication.status()); // emits `Some(Disconnected)`
@@ -2291,9 +2291,9 @@ impl Default for AeronStatusTracker {
 /// providing clearer error messages than the generic C parse failures.
 ///
 /// # Accepted forms
-/// - `hostname:port` — host is alphanumeric plus `-` and `.`, port 0-65535
-/// - `IPv4:port` — dotted decimal, port 0-65535
-/// - `[IPv6]:port` — bracketed IPv6 literal, port required
+/// - `hostname:port` with host alphanumeric plus `-` and `.`, port 0-65535
+/// - `IPv4:port` with dotted decimal host, port 0-65535
+/// - `[IPv6]:port` with bracketed IPv6 literal host, port required
 ///
 /// # Errors
 /// Returns `Err(AeronCError)` with code `-1` for any validation failure:
@@ -2305,7 +2305,7 @@ impl Default for AeronStatusTracker {
 ///
 /// # Example
 /// ```ignore
-/// // (illustrative — `aeron_custom.rs` is `include!`'d into multiple crates, so
+/// // (illustrative, as `aeron_custom.rs` is `include!`'d into multiple crates, so
 /// //  no single `use` path compiles across all of them; see the
 /// //  `aeron_custom_tests` module for runnable pure-Rust assertions)
 /// assert!(validate_endpoint_for_aeron_udp("localhost:40123").is_ok());
@@ -2693,10 +2693,10 @@ mod aeron_custom_tests {
 
 // Retryable / unrecoverable classification for Aeron errors. Lives in hand-written code rather
 // than the codegen `common.rs` because the generator drops methods that carry multi-line doc
-// comments. GenericError(-1) and Unknown(_) are intentionally neither — `-1` is Aeron's catch-all
+// comments. GenericError(-1) and Unknown(_) are intentionally neither. `-1` is Aeron's catch-all
 // and could mean anything, so the caller must decide (treat as fatal if unsure).
 impl AeronErrorType {
-    /// Transient — retry the operation (back off first): back-pressure, admin action, a full
+    /// Transient. Retry the operation (back off first): back-pressure, admin action, a full
     /// client buffer, or a polling timeout.
     pub fn is_retryable(&self) -> bool {
         self == &AeronErrorType::PublicationBackPressured
@@ -2706,7 +2706,7 @@ impl AeronErrorType {
             || self == &AeronErrorType::TimedOut
     }
 
-    /// Definitively terminal — retrying will not help: the publication is closed / exhausted /
+    /// Definitively terminal, so retrying will not help. The publication is closed / exhausted /
     /// errored, or the driver or client has timed out (effectively dead). Not exhaustive: an
     /// ambiguous code (`GenericError` / `Unknown`) is neither retryable nor unrecoverable.
     pub fn is_unrecoverable(&self) -> bool {
@@ -2722,12 +2722,12 @@ impl AeronErrorType {
 }
 
 impl AeronCError {
-    /// Transient failure — retry the operation (back off first). See [`AeronErrorType::is_retryable`].
+    /// Transient failure. Retry the operation (back off first). See [`AeronErrorType::is_retryable`].
     pub fn is_retryable(&self) -> bool {
         self.kind().is_retryable()
     }
 
-    /// Definitively terminal — abort the operation. See [`AeronErrorType::is_unrecoverable`].
+    /// Definitively terminal. Abort the operation. See [`AeronErrorType::is_unrecoverable`].
     /// Not exhaustive: ambiguous codes are neither retryable nor unrecoverable.
     pub fn is_unrecoverable(&self) -> bool {
         self.kind().is_unrecoverable()
@@ -2806,7 +2806,7 @@ impl AeronArchiveErrorCode {
         }
     }
 
-    /// Resource-exhaustion codes — the operation can succeed later once capacity frees up
+    /// Resource-exhaustion codes. The operation can succeed later once capacity frees up
     /// (a replay/recording slot or storage). Everything else is a state/identity error:
     /// fix the request, don't retry it blindly.
     pub const fn is_resource_exhausted(&self) -> bool {
@@ -2848,7 +2848,7 @@ impl AeronArchiveError {
     /// thread-local error. Server responses embed `errorCode=N` in `aeron_errmsg()`;
     /// local client failures store their negative code in `aeron_errcode()`.
     ///
-    /// Unlike [`AeronCError::from_code`], this *does* read and copy the error text —
+    /// Unlike [`AeronCError::from_code`], this *does* read and copy the error text,
     /// preserving the archive's response details. Archive control operations are
     /// request/response calls, not hot-path loops, so the copy is acceptable there.
     #[cold]
@@ -3033,8 +3033,8 @@ impl AeronArchiveReplayParamsBuilder {
 
 /// [`AeronArchiveReplicationParams`] plus the string storage its C struct points into.
 ///
-/// The C params struct stores raw `char *` pointers, so the strings must outlive it —
-/// this wrapper owns them. Deref gives the params for `archive.replicate(...)`.
+/// The C params struct stores raw `char *` pointers, so the strings must outlive it,
+/// so this wrapper owns them. Deref gives the params for `archive.replicate(...)`.
 pub struct AeronArchiveReplicationParamsOwned {
     params: AeronArchiveReplicationParams,
     _credentials: AeronArchiveEncodedCredentials,
@@ -3169,8 +3169,8 @@ impl AeronArchive {
     /// Connect to an Aeron Archive in one call: context wiring, async connect, and a
     /// bounded blocking poll.
     ///
-    /// For tuned setups — error handlers, credentials, recording-signal consumers,
-    /// message timeouts — build the [`AeronArchiveContext`] yourself and use
+    /// To tune error handlers, credentials, recording-signal consumers or
+    /// message timeouts, build the [`AeronArchiveContext`] yourself and use
     /// [`AeronArchiveAsyncConnect`]. The context used here is retrievable afterwards via
     /// [`Self::get_archive_context`].
     pub fn connect(
@@ -3235,10 +3235,10 @@ impl AeronArchiveRecordingSignal {
 }
 
 /// Route a persistent subscription through [`AeronFragmentClosureAssembler`] for
-/// API consistency with [`AeronSubscription`]. Note: the C
+/// API consistency with [`AeronSubscription`]. The C
 /// `aeron_archive_persistent_subscription_poll` already reassembles fragments
 /// internally (via `aeron_image_fragment_assembler_handler`), so the delegate
-/// receives whole messages either way — the Rust assembler here is a pass-through.
+/// receives whole messages either way. The Rust assembler here is a pass-through.
 /// Prefer `ps.poll_fn(handler, limit)` directly unless you want the shared API.
 impl FragmentAssemblable for AeronArchivePersistentSubscription {
     #[inline]

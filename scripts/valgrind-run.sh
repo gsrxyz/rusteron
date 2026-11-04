@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# valgrind-run.sh — build the workspace then run each test binary under Valgrind.
+# valgrind-run.sh builds the workspace, then runs each test binary under Valgrind.
 #
 # This script is the Docker ENTRYPOINT for test-valgrind / test-valgrind2.
 # Running `valgrind cargo test` wraps the Cargo *build* process, not the test
-# binaries themselves — this script fixes that by separating the two phases.
+# binaries themselves. This script fixes that by separating the two phases.
 #
 # Exit code: non-zero if any test binary or valgrind invocation fails.
 
@@ -61,7 +61,7 @@ for BIN in $BINARIES; do
   echo "======================================================"
 
   if [[ "$GEN_SUPPRESSIONS" == "1" ]]; then
-    # Output suppression stanzas for every error found — redirect to append to valgrind.supp
+    # Output suppression stanzas for every error found. Redirect to append to valgrind.supp
     valgrind \
       --tool=memcheck \
       --fair-sched=yes \
@@ -77,11 +77,11 @@ for BIN in $BINARIES; do
     # Leak gate: --errors-for-leak-kinds=definite,possible fails CI on REAL
     # leaks (malloc with no reachable pointer). "Still reachable" allocations
     # (Rust runtime / std bookkeeping held by statics/Arcs at process exit) are
-    # shown via --show-leak-kinds=all but do NOT fail — every Rust binary has
+    # shown via --show-leak-kinds=all but do NOT fail. Every Rust binary has
     # them and they are not bugs.
     #
     # The Box::leak-class lifecycle bug (e.g. the AeronCncMetadata mmap leak,
-    # reachable not lost) is NOT caught by this gate — it is caught
+    # reachable not lost) is NOT caught by this gate. It is caught
     # deterministically by the manual_close_required Drop warning in
     # ManagedCResource (common.rs), which fires per-resource on every platform
     # including macOS, not just under valgrind on Linux.
@@ -117,7 +117,7 @@ for BIN in $BINARIES; do
     fi
 
     # Check for actual (non-suppressed) errors in the output
-    # "ERROR SUMMARY: N errors from M contexts" - we care about N (actual errors)
+    # "ERROR SUMMARY: N errors from M contexts". We care about N (actual errors)
     # Suppressed errors are shown as "(suppressed: X from Y)"
     if echo "$VALGRIND_OUTPUT" | grep -q "ERROR SUMMARY:"; then
       # Extract the actual error count (first number after "ERROR SUMMARY:")
@@ -130,7 +130,7 @@ for BIN in $BINARIES; do
         OVERALL_EXIT=1
       fi
     else
-      # No ERROR SUMMARY found - check if valgrind itself failed
+      # No ERROR SUMMARY found. Check if valgrind itself failed
       if [[ ${VALGRIND_EXIT:-0} -ne 0 ]]; then
         echo "FAIL: $BIN_NAME - Valgrind exited with code $VALGRIND_EXIT" >&2
         OVERALL_EXIT=1

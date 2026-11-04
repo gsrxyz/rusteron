@@ -1,18 +1,18 @@
 # Contributing to rusteron
 
-Thanks for your interest in contributing to **rusteron**! Whether you're fixing bugs, improving docs, or adding features, contributions are welcome.
+Thanks for your interest in contributing to rusteron. Contributions are welcome, whether they fix bugs, improve docs or add features.
 
-## Before You Start
+## Before you start
 
 - Submit changes via pull requests from a fork.
 - Run `cargo fmt --all`, `cargo clippy --all -- --deny warnings` and `cargo test` before submitting (CI enforces all three).
 - All contributions are dual-licensed under MIT and Apache-2.0.
 
-## Reporting Issues
+## Reporting issues
 
 Use [GitHub Issues](https://github.com/gsrxyz/rusteron/issues) to report bugs, request features, or ask questions. Include clear steps to reproduce and any relevant error messages or context.
 
-## Pull Request Workflow
+## Pull request workflow
 
 1. Fork the repo and clone it with its Aeron submodules:
    ```bash
@@ -45,9 +45,9 @@ Use [GitHub Issues](https://github.com/gsrxyz/rusteron/issues) to report bugs, r
 
 ## Documentation
 
-Typos, clarifications, or missing details? Feel free to open a PR. No test coverage required for doc-only changes.
+To fix typos, clarify text or fill in missing details, open a PR. No test coverage required for doc-only changes.
 
-## Code Style & Commit Tips
+## Code style and commit tips
 
 * Keep PRs focused and scoped.
 * Use clear commit messages (e.g. `"Fix: prevent panic on empty buffer"`).

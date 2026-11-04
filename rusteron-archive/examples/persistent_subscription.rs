@@ -1,7 +1,7 @@
 //! # Persistent Subscription example
 //!
 //! Demonstrates Aeron Archive **persistent subscriptions**: replay a recording from the start,
-//! then seamlessly join the live stream (`on_live_joined` fires at the handover).
+//! then join the live stream (`on_live_joined` fires at the handover).
 //!
 //! Requires a running Aeron **Java** Archive. This example builds and starts one for you via the
 //! `rusteron_archive::testing` harness, so `java` must be on `PATH`.

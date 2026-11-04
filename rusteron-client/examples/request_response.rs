@@ -5,7 +5,7 @@
 //! subscription registration id onto the request publication (`response-correlation-id=`);
 //! the server reads each client's requests from that client's own image and answers on a
 //! response publication keyed by the image's correlation id. No addressing logic in user
-//! code — the driver wires responses back to the right requester.
+//! code. The driver wires responses back to the right requester.
 //!
 //! ```bash
 //! cargo run --release --features "static precompile" --example request_response

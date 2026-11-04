@@ -1,8 +1,8 @@
-//! # Replay merge — late-joiner catch-up
+//! # Replay merge for late-joiner catch-up
 //!
 //! Port of Aeron's `ReplayMergeSubscriber` sample: a subscriber that starts *after* the
 //! stream began replays the recorded history from the archive and, once it has caught up,
-//! **merges seamlessly onto the live multicast/MDC stream** (`is_merged`, `is_live_added`).
+//! **merges onto the live multicast/MDC stream** (`is_merged`, `is_live_added`).
 //! This is the standard late-joiner pattern for market-data / order-flow feeds.
 //!
 //! Flow: publisher on an MDC channel → archive records it (remote source) → late joiner
@@ -132,7 +132,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert!(replay_merge.is_live_added());
     println!("merged onto live after {received} replayed messages (published so far: {published})");
 
-    // Once merged, the plain subscription IS the live stream — poll it directly.
+    // Once merged, the plain subscription IS the live stream. Poll it directly.
     let mut live_received = 0u64;
     let deadline = Instant::now() + Duration::from_secs(10);
     while live_received < 1_000 && Instant::now() < deadline {

@@ -3,7 +3,7 @@
 //
 // This file is `include!`d by each crate's build.rs (NOT compiled as part of
 // rusteron-code-gen), so `cfg!(feature = ...)` and `env!("CARGO_MANIFEST_DIR")` resolve
-// against the crate being built — exactly as when the three build scripts were copies.
+// against the crate being built, exactly as when the three build scripts were copies.
 // Each build.rs supplies a `RusteronBuildConfig` describing what actually varies:
 // cmake targets, header path, bindgen extras, and an optional pre-build hook.
 
@@ -312,7 +312,7 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
         cmake_config.define("GRADLE_WRAPPER", gradle_wrapper);
     }
 
-    // Sanitizer support — the `sanitize-address` feature is the discoverable way to turn
+    // Sanitizer support. The `sanitize-address` feature is the discoverable way to turn
     // this on; RUSTERON_SANITIZE remains for other sanitizers (thread, undefined, ...).
     // This injects -fsanitize=* flags into the C/C++ compilation via cmake.
     // -fexceptions lets a Rust panic pass safely through the Aeron poll functions
@@ -333,7 +333,7 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
         cxx_flags = san_flags;
         // The instrumented Aeron C objects reference __asan_* symbols, so the
         // crate's test/example link step needs an ASan runtime on the link line.
-        // cargo:rustc-link-arg scopes this to THIS crate's own binaries — build
+        // cargo:rustc-link-arg scopes this to THIS crate's own binaries. Build
         // scripts and proc-macros are not instrumented and stay unaffected. We do
         // NOT use `-Z sanitizer=address` (rustc's own runtime): on Linux CI the
         // bundled LLVM (20+) is ABI-incompatible with Ubuntu's clang (14), so two
@@ -562,7 +562,7 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
 
     if std::env::var("COPY_BINDINGS").is_ok() {
         // Deliberate snapshot regeneration: refresh BOTH committed snapshots from
-        // this build's output so they stay mutually consistent. Must be gated —
+        // this build's output so they stay mutually consistent. Must be gated because
         // bindings/ and docs-rs/ are platform-specific (e.g. Darwin vs Linux
         // pthread types), so writing them on every build would corrupt whichever
         // platform differs from the committed snapshots and trip the snapshot

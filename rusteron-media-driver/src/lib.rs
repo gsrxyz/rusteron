@@ -9,12 +9,12 @@
 #![doc = include_str!("../README.md")]
 //! # Features
 //!
-//! - **`static`**: When enabled, this feature statically links the Aeron C code.
-//!   By default, the library uses dynamic linking to the Aeron C libraries.
-//! - **`backtrace`**: When enabled will log a backtrace for each AeronCError
-//! - **`extra-logging`**: When enabled will log when resource is created and destroyed. Useful if you're seeing a segfault due to a resource being closed
-//! - **`log-c-bindings`**: When enabled will log every C binding call with arguments and return values. Useful for debugging FFI interactions
-//! - **`precompile`**: When enabled will use precompiled C code instead of requiring cmake and java to be installed
+//! - **`static`**: Statically links the Aeron C code.
+//!   By default, the library links the Aeron C libraries dynamically
+//! - **`backtrace`**: Logs a backtrace for each `AeronCError`
+//! - **`extra-logging`**: Logs when a resource is created and destroyed. Useful if you're seeing a segfault due to a resource being closed
+//! - **`log-c-bindings`**: Logs every C binding call with arguments and return values. Useful for debugging FFI interactions
+//! - **`precompile`**: Uses precompiled C code instead of requiring cmake and java to be installed
 
 #[allow(improper_ctypes_definitions)]
 #[allow(unpredictable_function_pointer_comparisons)]
@@ -224,8 +224,8 @@ impl AeronDriver {
         }
     }
 
-    /// if you have existing shm files and its before the driver timeout it will try to reuse it and fail
-    /// this makes sure that if that is the case it will wait else it proceeds
+    /// If existing shm files are still within the driver timeout, a new driver tries to reuse them and fails.
+    /// This waits in that case and otherwise proceeds
     pub fn wait_for_previous_media_driver_to_timeout(aeron_context: &AeronDriverContext) {
         if !aeron_context.get_dir_delete_on_start() {
             let cnc_file = Path::new(aeron_context.get_dir()).join("cnc.dat");
@@ -407,7 +407,7 @@ mod tests {
         struct AgentStartHandler {
             ctx_ptr: *mut aeron_driver_context_t,
         }
-        // SAFETY: see comment above — handler is owned by the context and only
+        // SAFETY: see comment above. The handler is owned by the context and only
         // dereferenced on the driver agent thread while the context is alive.
         unsafe impl Send for AgentStartHandler {}
 
