@@ -22,11 +22,23 @@ pub const AERON_CLIENT_NAME_ENV_VAR: &[u8; 18] = b"AERON_CLIENT_NAME\0";
 pub const AERON_AGENT_ON_START_FUNCTION_ENV_VAR: &[u8; 30] = b"AERON_AGENT_ON_START_FUNCTION\0";
 #[doc = " Counters Reader functions and definitions"]
 pub const AERON_COUNTER_CACHE_LINE_LENGTH: u32 = 64;
+pub const AERON_COUNTER_VALUE_LENGTH: u32 = 128;
+pub const AERON_COUNTER_REGISTRATION_ID_OFFSET: u32 = 8;
+pub const AERON_COUNTER_METADATA_LENGTH: u32 = 512;
+pub const AERON_COUNTER_TYPE_ID_OFFSET: u32 = 4;
+pub const AERON_COUNTER_FREE_FOR_REUSE_DEADLINE_OFFSET: u32 = 8;
+pub const AERON_COUNTER_KEY_OFFSET: u32 = 16;
+pub const AERON_COUNTER_LABEL_LENGTH_OFFSET: u32 = 132;
+pub const AERON_COUNTER_MAX_LABEL_LENGTH: u32 = 380;
+pub const AERON_COUNTER_MAX_KEY_LENGTH: u32 = 112;
 pub const AERON_COUNTER_MAX_CLIENT_NAME_LENGTH: u32 = 100;
 pub const AERON_COUNTER_RECORD_UNUSED: u32 = 0;
 pub const AERON_COUNTER_RECORD_ALLOCATED: u32 = 1;
 pub const AERON_COUNTER_RECORD_RECLAIMED: i32 = -1;
+pub const AERON_COUNTER_REGISTRATION_ID_DEFAULT: u32 = 0;
 pub const AERON_COUNTER_NOT_FREE_TO_REUSE: u64 = 9223372036854775807;
+pub const AERON_COUNTER_OWNER_ID_DEFAULT: u32 = 0;
+pub const AERON_COUNTER_REFERENCE_ID_DEFAULT: u32 = 0;
 pub const AERON_NULL_COUNTER_ID: i32 = -1;
 #[doc = " The publication is not connected to a subscriber, this can be an intermittent state as subscribers come and go."]
 pub const AERON_PUBLICATION_NOT_CONNECTED: i32 = -1;
@@ -40,6 +52,22 @@ pub const AERON_PUBLICATION_CLOSED: i32 = -4;
 pub const AERON_PUBLICATION_MAX_POSITION_EXCEEDED: i32 = -5;
 #[doc = " An error has occurred. Such as a bad argument."]
 pub const AERON_PUBLICATION_ERROR: i32 = -6;
+pub const AERON_ERROR_CODE_UNKNOWN_CODE_VALUE: i32 = -1;
+pub const AERON_ERROR_CODE_UNUSED: u32 = 0;
+pub const AERON_ERROR_CODE_INVALID_CHANNEL: u32 = 1;
+pub const AERON_ERROR_CODE_UNKNOWN_SUBSCRIPTION: u32 = 2;
+pub const AERON_ERROR_CODE_UNKNOWN_PUBLICATION: u32 = 3;
+pub const AERON_ERROR_CODE_CHANNEL_ENDPOINT_ERROR: u32 = 4;
+pub const AERON_ERROR_CODE_UNKNOWN_COUNTER: u32 = 5;
+pub const AERON_ERROR_CODE_UNKNOWN_COMMAND_TYPE_ID: u32 = 6;
+pub const AERON_ERROR_CODE_MALFORMED_COMMAND: u32 = 7;
+pub const AERON_ERROR_CODE_NOT_SUPPORTED: u32 = 8;
+pub const AERON_ERROR_CODE_UNKNOWN_HOST: u32 = 9;
+pub const AERON_ERROR_CODE_RESOURCE_TEMPORARILY_UNAVAILABLE: u32 = 10;
+pub const AERON_ERROR_CODE_GENERIC_ERROR: u32 = 11;
+pub const AERON_ERROR_CODE_STORAGE_SPACE: u32 = 12;
+pub const AERON_ERROR_CODE_IMAGE_REJECTED: u32 = 13;
+pub const AERON_ERROR_CODE_PUBLICATION_REVOKED: u32 = 14;
 pub const AERON_ARCHIVE_ERROR_CODE_GENERIC: u32 = 200;
 pub const AERON_ARCHIVE_ERROR_CODE_ACTIVE_LISTING: u32 = 201;
 pub const AERON_ARCHIVE_ERROR_CODE_ACTIVE_RECORDING: u32 = 202;
@@ -62,6 +90,8 @@ pub const AERON_ARCHIVE_CLIENT_ERROR_NOT_CONNECTED: u32 = 2001;
 pub const AERON_ARCHIVE_CLIENT_ERROR_ILLEGAL_STATE: u32 = 2002;
 pub const AERON_MAX_PATH: u32 = 4096;
 pub const AERON_NULL_POSITION: i32 = -1;
+pub const AERON_ARCHIVE_PERSISTENT_SUBSCRIPTION_FROM_START: i32 = -1;
+pub const AERON_ARCHIVE_PERSISTENT_SUBSCRIPTION_FROM_LIVE: i32 = -2;
 pub const AERON_ARCHIVE_PROXY_REQUEST_BUFFER_LENGTH: u32 = 8192;
 pub const AERON_ARCHIVE_CONTROL_RESPONSE_POLLER_FRAGMENT_LIMIT_DEFAULT: u32 = 10;
 pub const AERON_ARCHIVE_RECORDING_DESCRIPTOR_POLLER_FRAGMENT_LIMIT_DEFAULT: u32 = 10;
@@ -69,8 +99,32 @@ pub const AERON_ARCHIVE_RECORDING_SUBSCRIPTION_DESCRIPTOR_POLLER_FRAGMENT_LIMIT_
 pub const AERON_COMPILER_GCC: u32 = 1;
 pub const AERON_COMPILER_LLVM: u32 = 1;
 pub const AERON_CPU_ARM: u32 = 1;
+pub const AERON_THREAD_NAME_MAX_LENGTH: u32 = 15;
+pub const AERON_INIT_ONCE_VALUE: u32 = 816954554;
+pub const AERON_ERROR_MAX_TOTAL_LENGTH: u32 = 8192;
+pub const AERON_ARCHIVE_MESSAGE_TIMEOUT_ENV_VAR: &[u8; 30] = b"AERON_ARCHIVE_MESSAGE_TIMEOUT\0";
+pub const AERON_ARCHIVE_MESSAGE_TIMEOUT_NS_DEFAULT: u64 = 10000000000;
+pub const AERON_ARCHIVE_MESSAGE_RETRY_ATTEMPTS_ENV_VAR: &[u8; 37] = b"AERON_ARCHIVE_MESSAGE_RETRY_ATTEMPTS\0";
+pub const AERON_ARCHIVE_MESSAGE_RETRY_ATTEMPTS_DEFAULT: u32 = 3;
+pub const AERON_ARCHIVE_CONTROL_CHANNEL_ENV_VAR: &[u8; 30] = b"AERON_ARCHIVE_CONTROL_CHANNEL\0";
+pub const AERON_ARCHIVE_CONTROL_STREAM_ID_ENV_VAR: &[u8; 32] = b"AERON_ARCHIVE_CONTROL_STREAM_ID\0";
+pub const AERON_ARCHIVE_CONTROL_STREAM_ID_DEFAULT: u32 = 10;
+pub const AERON_ARCHIVE_CONTROL_TERM_BUFFER_LENGTH_ENV_VAR: &[u8; 41] = b"AERON_ARCHIVE_CONTROL_TERM_BUFFER_LENGTH\0";
+pub const AERON_ARCHIVE_CONTROL_TERM_BUFFER_LENGTH_DEFAULT: u32 = 65536;
+pub const AERON_ARCHIVE_CONTROL_TERM_BUFFER_SPARSE_ENV_VAR: &[u8; 41] = b"AERON_ARCHIVE_CONTROL_TERM_BUFFER_SPARSE\0";
+pub const AERON_ARCHIVE_CONTROL_TERM_BUFFER_SPARSE_DEFAULT: u32 = 1;
+pub const AERON_ARCHIVE_CONTROL_MTU_LENGTH_ENV_VAR: &[u8; 33] = b"AERON_ARCHIVE_CONTROL_MTU_LENGTH\0";
+pub const AERON_ARCHIVE_CONTROL_RESPONSE_CHANNEL_ENV_VAR: &[u8; 39] = b"AERON_ARCHIVE_CONTROL_RESPONSE_CHANNEL\0";
+pub const AERON_ARCHIVE_CONTROL_RESPONSE_STREAM_ID_ENV_VAR: &[u8; 41] = b"AERON_ARCHIVE_CONTROL_RESPONSE_STREAM_ID\0";
+pub const AERON_ARCHIVE_CONTROL_RESPONSE_STREAM_ID_DEFAULT: u32 = 20;
+pub const AERON_ARCHIVE_RECORDING_EVENTS_CHANNEL_ENV_VAR: &[u8; 39] = b"AERON_ARCHIVE_RECORDING_EVENTS_CHANNEL\0";
+pub const AERON_ARCHIVE_RECORDING_EVENTS_STREAM_ID_ENV_VAR: &[u8; 41] = b"AERON_ARCHIVE_RECORDING_EVENTS_STREAM_ID\0";
+pub const AERON_ARCHIVE_RECORDING_EVENTS_STREAM_ID_DEFAULT: u32 = 30;
+pub const AERON_ARCHIVE_CLIENT_NAME_ENV_VAR: &[u8; 26] = b"AERON_ARCHIVE_CLIENT_NAME\0";
 pub const AERON_SPY_PREFIX: &[u8; 11] = b"aeron-spy:\0";
+pub const AERON_SPY_PREFIX_LEN: u32 = 10;
 pub const AERON_IPC_CHANNEL: &[u8; 10] = b"aeron:ipc\0";
+pub const AERON_IPC_CHANNEL_LEN: u32 = 9;
 pub const AERON_UDP_CHANNEL_RELIABLE_KEY: &[u8; 9] = b"reliable\0";
 pub const AERON_UDP_CHANNEL_TTL_KEY: &[u8; 4] = b"ttl\0";
 pub const AERON_UDP_CHANNEL_ENDPOINT_KEY: &[u8; 9] = b"endpoint\0";
@@ -121,28 +175,74 @@ pub const AERON_URI_MAX_LENGTH: u32 = 4096;
 pub const AERON_CACHE_LINE_LENGTH: u32 = 64;
 pub const AERON_FORMAT_DATE_MAX_LENGTH: u32 = 100;
 pub const AERON_FORMAT_NUMBER_TO_LOCALE_STR_LEN: u32 = 32;
-pub const AERON_ERROR_MAX_TOTAL_LENGTH: u32 = 8192;
 pub const AERON_MAP_DEFAULT_LOAD_FACTOR: f64 = 0.65;
 pub const AERON_URI_STRING_BUILDER_PREFIX_KEY: &[u8; 9] = b"__prefix\0";
 pub const AERON_URI_STRING_BUILDER_MEDIA_KEY: &[u8; 8] = b"__media\0";
 pub const AERON_RES_HEADER_ADDRESS_LENGTH_IP4: u32 = 4;
 pub const AERON_RES_HEADER_ADDRESS_LENGTH_IP6: u32 = 16;
 pub const AERON_FRAME_HEADER_VERSION: u32 = 0;
+pub const AERON_HDR_TYPE_PAD: u32 = 0;
+pub const AERON_HDR_TYPE_DATA: u32 = 1;
+pub const AERON_HDR_TYPE_NAK: u32 = 2;
+pub const AERON_HDR_TYPE_SM: u32 = 3;
+pub const AERON_HDR_TYPE_ERR: u32 = 4;
+pub const AERON_HDR_TYPE_SETUP: u32 = 5;
+pub const AERON_HDR_TYPE_RTTM: u32 = 6;
+pub const AERON_HDR_TYPE_RES: u32 = 7;
+pub const AERON_HDR_TYPE_ATS_DATA: u32 = 8;
+pub const AERON_HDR_TYPE_ATS_SETUP: u32 = 9;
+pub const AERON_HDR_TYPE_ATS_SM: u32 = 10;
+pub const AERON_HDR_TYPE_RSP_SETUP: u32 = 11;
+pub const AERON_HDR_TYPE_EXT: i32 = -1;
+pub const AERON_FRAME_HEADER_LENGTH: u32 = 8;
+pub const AERON_DATA_HEADER_LENGTH: u32 = 32;
+pub const AERON_FRAME_ALIGNMENT: u32 = 32;
+pub const AERON_DATA_HEADER_BEGIN_FLAG: u32 = 128;
+pub const AERON_DATA_HEADER_END_FLAG: u32 = 64;
+pub const AERON_DATA_HEADER_EOS_FLAG: u32 = 32;
+pub const AERON_DATA_HEADER_REVOKED_FLAG: u32 = 16;
+pub const AERON_DATA_HEADER_UNFRAGMENTED: u32 = 192;
+pub const AERON_DATA_HEADER_DEFAULT_RESERVED_VALUE: u32 = 0;
+pub const AERON_STATUS_MESSAGE_HEADER_SEND_SETUP_FLAG: u32 = 128;
+pub const AERON_STATUS_MESSAGE_HEADER_EOS_FLAG: u32 = 64;
+pub const AERON_SETUP_HEADER_SEND_RESPONSE_FLAG: u32 = 128;
+pub const AERON_SETUP_HEADER_GROUP_FLAG: u32 = 64;
+pub const AERON_RTTM_HEADER_REPLY_FLAG: u32 = 128;
 pub const AERON_RES_HEADER_TYPE_NAME_TO_IP4_MD: u32 = 1;
 pub const AERON_RES_HEADER_TYPE_NAME_TO_IP6_MD: u32 = 2;
+pub const AERON_RES_HEADER_SELF_FLAG: u32 = 128;
 pub const AERON_FRAME_MAX_MESSAGE_LENGTH: u32 = 16777216;
+pub const AERON_OPTION_HEADER_IGNORE_FLAG: u32 = 32768;
+pub const AERON_OPT_HDR_TYPE_ATS_SUITE: u32 = 1;
+pub const AERON_OPT_HDR_TYPE_ATS_RSA_KEY: u32 = 2;
+pub const AERON_OPT_HDR_TYPE_ATS_RSA_KEY_ID: u32 = 3;
+pub const AERON_OPT_HDR_TYPE_ATS_EC_KEY: u32 = 4;
+pub const AERON_OPT_HDR_TYPE_ATS_EC_SIG: u32 = 5;
+pub const AERON_OPT_HDR_TYPE_ATS_SECRET: u32 = 6;
+pub const AERON_OPT_HDR_TYPE_ATS_GROUP_TAG: u32 = 7;
 pub const AERON_OPT_HDR_ALIGNMENT: u32 = 4;
 pub const AERON_ERROR_MAX_TEXT_LENGTH: u32 = 1023;
+pub const AERON_ERROR_MAX_FRAME_LENGTH: u32 = 1063;
 pub const AERON_ERROR_HAS_GROUP_TAG_FLAG: u32 = 8;
 pub const AERON_LOGBUFFER_PARTITION_COUNT: u32 = 3;
 pub const AERON_LOGBUFFER_TERM_MIN_LENGTH: u32 = 65536;
 pub const AERON_LOGBUFFER_TERM_MAX_LENGTH: u32 = 1073741824;
+pub const AERON_PAGE_MIN_SIZE: u32 = 4096;
+pub const AERON_PAGE_MAX_SIZE: u32 = 1073741824;
+pub const AERON_LOGBUFFER_PADDING_SIZE: u32 = 64;
 pub const AERON_LOGBUFFER_DEFAULT_FRAME_HEADER_MAX_LENGTH: u32 = 128;
+pub const AERON_LOGBUFFER_TYPE_CONCURRENT_PUBLICATION: u32 = 0;
+pub const AERON_LOGBUFFER_TYPE_EXCLUSIVE_PUBLICATION: u32 = 1;
+pub const AERON_LOGBUFFER_TYPE_PUBLICATION_IMAGE: u32 = 2;
 pub const AERON_MAX_UDP_PAYLOAD_LENGTH: u32 = 65504;
+pub const AERON_LOGBUFFER_META_DATA_LENGTH: u32 = 4096;
+pub const AERON_LOGBUFFER_MIN_FILE_SIZE: u32 = 200704;
+pub const AERON_LOGBUFFER_FRAME_ALIGNMENT: u32 = 32;
 pub const AERON_FILEUTIL_ERROR_ENOSPC: u32 = 28;
 pub const AERON_PUBLICATIONS_DIR: &[u8; 13] = b"publications\0";
 pub const AERON_IMAGES_DIR: &[u8; 7] = b"images\0";
 pub const AERON_CNC_FILE: &[u8; 8] = b"cnc.dat\0";
+pub const AERON_CNC_VERSION_AND_META_DATA_LENGTH: u32 = 128;
 pub const AERON_LOSS_REPORT_FILE: &[u8; 16] = b"loss-report.dat\0";
 pub const AERON_LOSS_REPORTER_ENTRY_ALIGNMENT: u32 = 64;
 pub const AERON_SYSTEM_COUNTER_ID_BYTES_SENT: u32 = 0;
@@ -284,6 +384,7 @@ pub const AERON_COUNTER_ARCHIVE_REPLAYER_MAX_READ_TIME_TYPE_ID: u32 = 108;
 pub const AERON_COUNTER_ARCHIVE_REPLAYER_TOTAL_READ_BYTES_TYPE_ID: u32 = 109;
 pub const AERON_COUNTER_ARCHIVE_REPLAYER_TOTAL_READ_TIME_TYPE_ID: u32 = 110;
 pub const AERON_COUNTER_ARCHIVE_REPLAY_SESSION_COUNT_TYPE_ID: u32 = 112;
+pub const AERON_COUNTER_ARCHIVE_CONTROL_SESSION_TYPE_ID: u32 = 113;
 pub const AERON_COUNTER_ARCHIVE_PERSISTENT_SUBSCRIPTION_STATE_TYPE_ID: u32 = 114;
 pub const AERON_COUNTER_ARCHIVE_PERSISTENT_SUBSCRIPTION_JOIN_DIFFERENCE_TYPE_ID: u32 = 115;
 pub const AERON_COUNTER_ARCHIVE_PERSISTENT_SUBSCRIPTION_LIVE_LEFT_COUNT_TYPE_ID: u32 = 116;
@@ -2782,11 +2883,6 @@ unsafe extern "C" {
 }
 pub type aeron_fptr_t = ::std::option::Option<unsafe extern "C" fn()>;
 pub type aeron_archive_t = aeron_archive_stct;
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct aeron_archive_context_stct {
-    _unused: [u8; 0],
-}
 pub type aeron_archive_context_t = aeron_archive_context_stct;
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -4926,6 +5022,237 @@ unsafe extern "C" {
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct aeron_archive_credentials_supplier_stct {
+    pub encoded_credentials: aeron_archive_credentials_encoded_credentials_supplier_func_t,
+    pub on_challenge: aeron_archive_credentials_challenge_supplier_func_t,
+    pub on_free: aeron_archive_credentials_free_func_t,
+    pub clientd: *mut ::std::os::raw::c_void,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of aeron_archive_credentials_supplier_stct"]
+        [::std::mem::size_of::<aeron_archive_credentials_supplier_stct>() - 32usize];
+    ["Alignment of aeron_archive_credentials_supplier_stct"]
+        [::std::mem::align_of::<aeron_archive_credentials_supplier_stct>() - 8usize];
+    ["Offset of field: aeron_archive_credentials_supplier_stct::encoded_credentials"]
+        [::std::mem::offset_of!(aeron_archive_credentials_supplier_stct, encoded_credentials) - 0usize];
+    ["Offset of field: aeron_archive_credentials_supplier_stct::on_challenge"]
+        [::std::mem::offset_of!(aeron_archive_credentials_supplier_stct, on_challenge) - 8usize];
+    ["Offset of field: aeron_archive_credentials_supplier_stct::on_free"]
+        [::std::mem::offset_of!(aeron_archive_credentials_supplier_stct, on_free) - 16usize];
+    ["Offset of field: aeron_archive_credentials_supplier_stct::clientd"]
+        [::std::mem::offset_of!(aeron_archive_credentials_supplier_stct, clientd) - 24usize];
+};
+impl Default for aeron_archive_credentials_supplier_stct {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+pub type aeron_archive_credentials_supplier_t = aeron_archive_credentials_supplier_stct;
+unsafe extern "C" {
+    pub fn aeron_archive_credentials_supplier_encoded_credentials(
+        supplier: *mut aeron_archive_credentials_supplier_t,
+    ) -> *mut aeron_archive_encoded_credentials_t;
+}
+unsafe extern "C" {
+    pub fn aeron_archive_credentials_supplier_on_challenge(
+        supplier: *mut aeron_archive_credentials_supplier_t,
+        encoded_challenge: *mut aeron_archive_encoded_credentials_t,
+    ) -> *mut aeron_archive_encoded_credentials_t;
+}
+unsafe extern "C" {
+    pub fn aeron_archive_credentials_supplier_on_free(
+        supplier: *mut aeron_archive_credentials_supplier_t,
+        credentials: *mut aeron_archive_encoded_credentials_t,
+    );
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct aeron_per_thread_error_stct {
+    pub errcode: ::std::os::raw::c_int,
+    pub offset: usize,
+    pub errmsg: [::std::os::raw::c_char; 8192usize],
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of aeron_per_thread_error_stct"][::std::mem::size_of::<aeron_per_thread_error_stct>() - 8208usize];
+    ["Alignment of aeron_per_thread_error_stct"][::std::mem::align_of::<aeron_per_thread_error_stct>() - 8usize];
+    ["Offset of field: aeron_per_thread_error_stct::errcode"]
+        [::std::mem::offset_of!(aeron_per_thread_error_stct, errcode) - 0usize];
+    ["Offset of field: aeron_per_thread_error_stct::offset"]
+        [::std::mem::offset_of!(aeron_per_thread_error_stct, offset) - 8usize];
+    ["Offset of field: aeron_per_thread_error_stct::errmsg"]
+        [::std::mem::offset_of!(aeron_per_thread_error_stct, errmsg) - 16usize];
+};
+impl Default for aeron_per_thread_error_stct {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+pub type aeron_per_thread_error_t = aeron_per_thread_error_stct;
+unsafe extern "C" {
+    pub fn aeron_set_errno(errcode: ::std::os::raw::c_int);
+}
+unsafe extern "C" {
+    pub fn aeron_error_code_str(errcode: ::std::os::raw::c_int) -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    pub fn aeron_err_set(
+        errcode: ::std::os::raw::c_int,
+        function: *const ::std::os::raw::c_char,
+        filename: *const ::std::os::raw::c_char,
+        line_number: ::std::os::raw::c_int,
+        format: *const ::std::os::raw::c_char,
+        ...
+    );
+}
+unsafe extern "C" {
+    pub fn aeron_err_append(
+        function: *const ::std::os::raw::c_char,
+        filename: *const ::std::os::raw::c_char,
+        line_number: ::std::os::raw::c_int,
+        format: *const ::std::os::raw::c_char,
+        ...
+    );
+}
+unsafe extern "C" {
+    pub fn aeron_err_clear();
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct aeron_archive_context_stct {
+    pub aeron: *mut aeron_t,
+    pub aeron_directory_name: [::std::os::raw::c_char; 4096usize],
+    pub client_name: [::std::os::raw::c_char; 101usize],
+    pub owns_aeron_client: bool,
+    pub control_request_channel: *mut ::std::os::raw::c_char,
+    pub control_request_channel_length: usize,
+    pub control_request_stream_id: i32,
+    pub control_response_channel: *mut ::std::os::raw::c_char,
+    pub control_response_channel_length: usize,
+    pub control_response_stream_id: i32,
+    pub recording_events_channel: *mut ::std::os::raw::c_char,
+    pub recording_events_channel_length: usize,
+    pub recording_events_stream_id: i32,
+    pub message_timeout_ns: u64,
+    pub message_retry_attempts: u32,
+    pub control_term_buffer_length: usize,
+    pub control_mtu_length: usize,
+    pub control_term_buffer_sparse: bool,
+    pub idle_strategy_func: aeron_idle_strategy_func_t,
+    pub idle_strategy_state: *mut ::std::os::raw::c_void,
+    pub owns_idle_strategy: bool,
+    pub credentials_supplier: aeron_archive_credentials_supplier_t,
+    pub on_recording_signal: aeron_archive_recording_signal_consumer_func_t,
+    pub on_recording_signal_clientd: *mut ::std::os::raw::c_void,
+    pub error_handler: aeron_error_handler_t,
+    pub error_handler_clientd: *mut ::std::os::raw::c_void,
+    pub delegating_invoker_func: aeron_archive_delegating_invoker_func_t,
+    pub delegating_invoker_func_clientd: *mut ::std::os::raw::c_void,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of aeron_archive_context_stct"][::std::mem::size_of::<aeron_archive_context_stct>() - 4424usize];
+    ["Alignment of aeron_archive_context_stct"][::std::mem::align_of::<aeron_archive_context_stct>() - 8usize];
+    ["Offset of field: aeron_archive_context_stct::aeron"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, aeron) - 0usize];
+    ["Offset of field: aeron_archive_context_stct::aeron_directory_name"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, aeron_directory_name) - 8usize];
+    ["Offset of field: aeron_archive_context_stct::client_name"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, client_name) - 4104usize];
+    ["Offset of field: aeron_archive_context_stct::owns_aeron_client"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, owns_aeron_client) - 4205usize];
+    ["Offset of field: aeron_archive_context_stct::control_request_channel"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, control_request_channel) - 4208usize];
+    ["Offset of field: aeron_archive_context_stct::control_request_channel_length"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, control_request_channel_length) - 4216usize];
+    ["Offset of field: aeron_archive_context_stct::control_request_stream_id"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, control_request_stream_id) - 4224usize];
+    ["Offset of field: aeron_archive_context_stct::control_response_channel"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, control_response_channel) - 4232usize];
+    ["Offset of field: aeron_archive_context_stct::control_response_channel_length"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, control_response_channel_length) - 4240usize];
+    ["Offset of field: aeron_archive_context_stct::control_response_stream_id"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, control_response_stream_id) - 4248usize];
+    ["Offset of field: aeron_archive_context_stct::recording_events_channel"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, recording_events_channel) - 4256usize];
+    ["Offset of field: aeron_archive_context_stct::recording_events_channel_length"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, recording_events_channel_length) - 4264usize];
+    ["Offset of field: aeron_archive_context_stct::recording_events_stream_id"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, recording_events_stream_id) - 4272usize];
+    ["Offset of field: aeron_archive_context_stct::message_timeout_ns"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, message_timeout_ns) - 4280usize];
+    ["Offset of field: aeron_archive_context_stct::message_retry_attempts"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, message_retry_attempts) - 4288usize];
+    ["Offset of field: aeron_archive_context_stct::control_term_buffer_length"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, control_term_buffer_length) - 4296usize];
+    ["Offset of field: aeron_archive_context_stct::control_mtu_length"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, control_mtu_length) - 4304usize];
+    ["Offset of field: aeron_archive_context_stct::control_term_buffer_sparse"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, control_term_buffer_sparse) - 4312usize];
+    ["Offset of field: aeron_archive_context_stct::idle_strategy_func"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, idle_strategy_func) - 4320usize];
+    ["Offset of field: aeron_archive_context_stct::idle_strategy_state"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, idle_strategy_state) - 4328usize];
+    ["Offset of field: aeron_archive_context_stct::owns_idle_strategy"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, owns_idle_strategy) - 4336usize];
+    ["Offset of field: aeron_archive_context_stct::credentials_supplier"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, credentials_supplier) - 4344usize];
+    ["Offset of field: aeron_archive_context_stct::on_recording_signal"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, on_recording_signal) - 4376usize];
+    ["Offset of field: aeron_archive_context_stct::on_recording_signal_clientd"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, on_recording_signal_clientd) - 4384usize];
+    ["Offset of field: aeron_archive_context_stct::error_handler"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, error_handler) - 4392usize];
+    ["Offset of field: aeron_archive_context_stct::error_handler_clientd"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, error_handler_clientd) - 4400usize];
+    ["Offset of field: aeron_archive_context_stct::delegating_invoker_func"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, delegating_invoker_func) - 4408usize];
+    ["Offset of field: aeron_archive_context_stct::delegating_invoker_func_clientd"]
+        [::std::mem::offset_of!(aeron_archive_context_stct, delegating_invoker_func_clientd) - 4416usize];
+};
+impl Default for aeron_archive_context_stct {
+    fn default() -> Self {
+        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
+unsafe extern "C" {
+    pub fn aeron_archive_context_duplicate(
+        dest_p: *mut *mut aeron_archive_context_t,
+        src: *mut aeron_archive_context_t,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn aeron_archive_context_conclude(ctx: *mut aeron_archive_context_t) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn aeron_archive_context_idle(ctx: *mut aeron_archive_context_t);
+}
+unsafe extern "C" {
+    pub fn aeron_archive_context_invoke_aeron_client(ctx: *mut aeron_archive_context_t) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn aeron_archive_context_invoke_error_handler(
+        ctx: *mut aeron_archive_context_t,
+        correlation_id: i64,
+        error_code: i32,
+        error_message: *const ::std::os::raw::c_char,
+    );
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct aeron_uri_param_stct {
     pub key: *const ::std::os::raw::c_char,
     pub value: *const ::std::os::raw::c_char,
@@ -5226,62 +5553,6 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn aeron_digit_count(value: u32) -> ::std::os::raw::c_int;
-}
-#[repr(C)]
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct aeron_per_thread_error_stct {
-    pub errcode: ::std::os::raw::c_int,
-    pub offset: usize,
-    pub errmsg: [::std::os::raw::c_char; 8192usize],
-}
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of aeron_per_thread_error_stct"][::std::mem::size_of::<aeron_per_thread_error_stct>() - 8208usize];
-    ["Alignment of aeron_per_thread_error_stct"][::std::mem::align_of::<aeron_per_thread_error_stct>() - 8usize];
-    ["Offset of field: aeron_per_thread_error_stct::errcode"]
-        [::std::mem::offset_of!(aeron_per_thread_error_stct, errcode) - 0usize];
-    ["Offset of field: aeron_per_thread_error_stct::offset"]
-        [::std::mem::offset_of!(aeron_per_thread_error_stct, offset) - 8usize];
-    ["Offset of field: aeron_per_thread_error_stct::errmsg"]
-        [::std::mem::offset_of!(aeron_per_thread_error_stct, errmsg) - 16usize];
-};
-impl Default for aeron_per_thread_error_stct {
-    fn default() -> Self {
-        let mut s = ::std::mem::MaybeUninit::<Self>::uninit();
-        unsafe {
-            ::std::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
-            s.assume_init()
-        }
-    }
-}
-pub type aeron_per_thread_error_t = aeron_per_thread_error_stct;
-unsafe extern "C" {
-    pub fn aeron_set_errno(errcode: ::std::os::raw::c_int);
-}
-unsafe extern "C" {
-    pub fn aeron_error_code_str(errcode: ::std::os::raw::c_int) -> *const ::std::os::raw::c_char;
-}
-unsafe extern "C" {
-    pub fn aeron_err_set(
-        errcode: ::std::os::raw::c_int,
-        function: *const ::std::os::raw::c_char,
-        filename: *const ::std::os::raw::c_char,
-        line_number: ::std::os::raw::c_int,
-        format: *const ::std::os::raw::c_char,
-        ...
-    );
-}
-unsafe extern "C" {
-    pub fn aeron_err_append(
-        function: *const ::std::os::raw::c_char,
-        filename: *const ::std::os::raw::c_char,
-        line_number: ::std::os::raw::c_int,
-        format: *const ::std::os::raw::c_char,
-        ...
-    );
-}
-unsafe extern "C" {
-    pub fn aeron_err_clear();
 }
 unsafe extern "C" {
     pub fn aeron_alloc(ptr: *mut *mut ::std::os::raw::c_void, size: usize) -> ::std::os::raw::c_int;

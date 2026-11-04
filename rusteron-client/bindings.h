@@ -1,5 +1,6 @@
 #include <stddef.h>
 #include <aeronc.h>
+#include <aeron_client_error.h>
 #include <uri/aeron_uri.h>
 #include <uri/aeron_uri_string_builder.h>
 #include <aeron_cnc_file_descriptor.h>

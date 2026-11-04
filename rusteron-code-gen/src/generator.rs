@@ -481,6 +481,8 @@ impl ReturnType {
                 return quote! {};
             }
         }
+        // Slice lengths are cast with `as _` because the C length is `usize` or `int32_t` (see
+        // `process_types`); a slice over `i32::MAX` bytes would wrap for the `int32_t` case
         if let ArgProcessing::StringWithLength(handler_client) = &self.original.processing {
             // Emit the (pointer, length) pair once, on the length argument.
             if !self.original.is_c_string_any() {
@@ -496,12 +498,12 @@ impl ReturnType {
                 if include_field_name {
                     return quote! {
                         #array_name: #ptr,
-                        #length_name: #array_name.len()
+                        #length_name: #array_name.len() as _
                     };
                 } else {
                     return quote! {
                         #ptr,
-                        #array_name.len()
+                        #array_name.len() as _
                     };
                 }
             } else {
@@ -516,12 +518,12 @@ impl ReturnType {
                 if include_field_name {
                     return quote! {
                         #array_name: #array_name.as_ptr() as *mut _,
-                        #length_name: #array_name.len()
+                        #length_name: #array_name.len() as _
                     };
                 } else {
                     return quote! {
                         #array_name.as_ptr() as *mut _,
-                        #array_name.len()
+                        #array_name.len() as _
                     };
                 }
             } else {
@@ -3602,5 +3604,51 @@ pub fn generate_rust_code(
         #default_impl
         #tests
         #common_code
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn arg(name: &str, c_type: &str) -> Arg {
+        Arg {
+            name: name.to_string(),
+            c_type: c_type.to_string(),
+            processing: ArgProcessing::Default,
+        }
+    }
+
+    /// Every (buffer, length) slice pair passes `len() as _`, so the call type-checks whether
+    /// the C length is `usize` or `int32_t`
+    #[test]
+    fn slice_length_is_cast_to_the_c_length_type() {
+        let cases: [(fn(Vec<Arg>) -> ArgProcessing, &str); 4] = [
+            (ArgProcessing::StringWithLength, Arg::C_CHAR_STR),
+            (ArgProcessing::StringWithLength, Arg::C_MUT_CHAR_STR),
+            (ArgProcessing::ByteArrayWithLength, Arg::C_BYTE_ARRAY),
+            (ArgProcessing::ByteArrayWithLength, Arg::C_BYTE_MUT_ARRAY),
+        ];
+        for (processing, buffer_type) in cases {
+            for length_type in ["usize", "i32"] {
+                let pair = vec![arg("buf", buffer_type), arg("buf_length", length_type)];
+                let length = Arg {
+                    processing: processing(pair),
+                    ..arg("buf_length", length_type)
+                };
+                let return_type = ReturnType::new(length, BTreeMap::new());
+
+                let positional = return_type.handle_rs_to_c_return(quote! {}, false).to_string();
+                assert!(
+                    positional.ends_with(", buf . len () as _"),
+                    "{buffer_type} / {length_type}: {positional}"
+                );
+                let named = return_type.handle_rs_to_c_return(quote! {}, true).to_string();
+                assert!(
+                    named.ends_with(", buf_length : buf . len () as _"),
+                    "{buffer_type} / {length_type}: {named}"
+                );
+            }
+        }
     }
 }

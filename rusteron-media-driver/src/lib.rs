@@ -462,6 +462,25 @@ mod tests {
         Ok(())
     }
 
+    /// The default validators take an `int32_t` length, so this exercises the generated
+    /// `slice.len() as _` cast for a non-`usize` C length
+    #[test]
+    fn termination_validator_defaults_take_i32_length_slices() {
+        let mut token = *b"token";
+        assert!(AeronDriver::termination_validator_default_allow(
+            std::ptr::null_mut(),
+            &mut token
+        ));
+        assert!(!AeronDriver::termination_validator_default_deny(
+            std::ptr::null_mut(),
+            &mut token
+        ));
+        assert!(AeronDriver::termination_validator_default_allow(
+            std::ptr::null_mut(),
+            &mut []
+        ));
+    }
+
     /// Affinity configuration is a no-op off Linux, including cpuset offsets.
     #[test]
     #[cfg(not(target_os = "linux"))]
