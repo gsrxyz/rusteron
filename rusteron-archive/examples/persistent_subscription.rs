@@ -13,7 +13,9 @@
 //! See the archive README's "Persistent Subscriptions" section and the upstream docs:
 //! <https://github.com/aeron-io/aeron/wiki/Persistent-Subscriptions>
 
-use rusteron_archive::testing::{EmbeddedArchiveMediaDriverProcess, find_unused_udp_port};
+use rusteron_archive::testing::{
+    EmbeddedArchiveMediaDriverProcess, find_counter_id_by_session_in_archive_blocking, find_unused_udp_port,
+};
 use rusteron_archive::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -81,7 +83,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 2. Resolve the recording id (wait for the recorder to flush what we published).
     let session_id = publication.get_constants()?.session_id;
     let counters = aeron.counters_reader();
-    let counter_id = RecordingPos::find_counter_id_by_session(&counters, session_id);
+    let counter_id = find_counter_id_by_session_in_archive_blocking(
+        &counters,
+        session_id,
+        archive.get_archive_id(),
+        Duration::from_secs(5),
+    )?;
     let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
     let published_position = publication.position();
     let deadline = Instant::now() + Duration::from_secs(5);

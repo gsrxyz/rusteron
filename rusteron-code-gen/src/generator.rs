@@ -73,7 +73,7 @@ pub const UNWIND_HANDLER_TYPES: &[&str] = &[
 /// C functions a handler panic may pass through, checked by reading the Aeron C source:
 /// they save the position only after the handler returns, so the next poll redelivers from
 /// the last saved position. Not derivable from the headers. Any other C function gets
-/// trampolines that catch the panic, so a missing entry is safe, just not zero cost
+/// trampolines that catch the panic. A missing entry is safe but adds a catch
 pub const UNWIND_POLL_FNS: &[&str] = &[
     "aeron_subscription_poll",
     "aeron_subscription_controlled_poll",
@@ -326,7 +326,7 @@ impl ReturnType {
     }
 
     /// Turns the raw C argument into the type from [`Self::get_callback_arg_type`]. For a struct
-    /// pointer `header` this gives `&AeronHeader::from_ptr(header)` when [`is_callback_only`] (no
+    /// pointer `header` this gives `&AeronHeader::from_ptr(header)` when `is_callback_only` (no
     /// safe `From` there) and `&AeronImage::from(image)` otherwise
     pub fn handle_c_to_rs_callback_arg(&self, arg: TokenStream, handlers: &[CHandler]) -> TokenStream {
         let Some(wrapper) = self.callback_wrapper() else {
@@ -408,7 +408,7 @@ impl ReturnType {
     /// Generic bounds for a handler argument. `force_static` is used by constructors,
     /// where the handler is always cloned into the created resource's dependencies
     /// (requiring `'static` for the `dyn Any` storage). For plain methods, only
-    /// *retained* handlers (see [`SYNC_HANDLER_TYPES`]) get the `'static` bound.
+    /// *retained* handlers (see `SYNC_HANDLER_TYPES`) get the `'static` bound.
     /// Synchronous handlers may borrow local state, and their `_fn` closure variants
     /// rely on that.
     pub fn method_generics_for_where(&self, force_static: bool) -> Option<TokenStream> {
@@ -650,7 +650,7 @@ impl CWrapper {
             // Determine how to log this argument
             match &arg.processing {
                 ArgProcessing::Handler(_) if !arg.is_mut_pointer() => {
-                    // Handlers - just show type
+                    // Show the type for handlers.
                     arg_names_for_logging.push(quote! {
                         concat!(#arg_name_str, ": ", stringify!(#arg_type)).to_string()
                     });
@@ -679,7 +679,7 @@ impl CWrapper {
                     arg_names_idx += 2;
                 }
                 _ => {
-                    // For primitive types, show value. For pointers/structs, just show name:type
+                    // For primitive types, show value. For pointers and structs, show name:type
                     if arg.is_primitive() && !arg.is_any_pointer() {
                         arg_names_for_logging.push(quote! {
                             format!("{} = {:?}", #arg_name_str, #arg_ident)
@@ -918,7 +918,7 @@ impl CWrapper {
                 // ideally we should return that primitive instead of forcing user to pass it in
                 let __method_tokens = if single_mut_field {
                     let mut_field = mut_primitivies.first().unwrap();
-                    // keep the qualified path (`c_int` is only valid qualified), not just the last segment
+                    // keep the qualified path (`c_int` is only valid qualified), not only its last segment
                     let rt: Type = parse_str(mut_field.c_type.trim_start_matches("* mut").trim()).unwrap();
                     let return_type = quote! { Result<#rt, AeronCError> };
 
@@ -1023,7 +1023,7 @@ impl CWrapper {
                     }
                 };
 
-                // Archive control operations surface typed errors (AeronArchiveError) so
+                // Archive control operations return typed errors (AeronArchiveError) so
                 // callers can match on the structured code. Apply uniformly at the token
                 // level to every method on `aeron_archive_t`, covering the main body plus the
                 // `additional_methods` (_fn variants, out-param getters, string getters)
@@ -1179,7 +1179,7 @@ impl CWrapper {
                 let fn_name = Ident::new(field_name, proc_macro2::Span::call_site());
 
                 let mut arg = arg.clone();
-                // for mut strings return just &str not &mut str
+                // Return &str for mutable C strings.
                 if arg.is_mut_c_string() {
                     arg.c_type = arg.c_type.replace(" mut ", " const ");
                 }
@@ -1725,7 +1725,7 @@ impl CWrapper {
                 // counterpart, so drop the `_by_id` suffix before pairing) looks for its
                 // paired `_add_` method (e.g. `..._async_add_destination`) so `found_close`
                 // can be satisfied for it too. This is purely a "does a plausible pair
-                // exist" heuristic gate. It does NOT wire remove_destination as
+                // exist" heuristic gate. It does not register remove_destination as
                 // add_destination's cleanup closure or vice versa; `cleanup_tokens` below
                 // always forces `None` for any `_destination` method regardless of what
                 // this resolves to.
@@ -2016,6 +2016,14 @@ fn get_docs(
                 .replace("<p>", "\n")
                 .replace("</p>", "\n");
 
+            // Bracketed IPv6 endpoints are examples, so rustdoc must not resolve them as links.
+            if doc.contains('[') && doc.contains(':') {
+                doc = regex::Regex::new(r"\[([0-9a-fA-F]*:[0-9a-fA-F:.]+)\](?::[0-9]+)?")
+                    .unwrap()
+                    .replace_all(&doc, "`$0`")
+                    .into_owned();
+            }
+
             doc = wrappers
                 .values()
                 .fold(doc, |acc, v| acc.replace(&v.type_name, &format!("`{}`", v.class_name)));
@@ -2032,6 +2040,34 @@ fn get_docs(
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod documentation_tests {
+    use super::*;
+
+    #[test]
+    fn ipv6_examples_render_as_code_and_rust_links_remain_links() {
+        for (input, expected) in [
+            (
+                "E.g. [fe80::7552:c06e:6bf4:4160]:12345.",
+                "E.g. `[fe80::7552:c06e:6bf4:4160]:12345`.",
+            ),
+            (
+                "Connect to [::1]:9000 or [::ffff:127.0.0.1]:8000.",
+                "Connect to `[::1]:9000` or `[::ffff:127.0.0.1]:8000`.",
+            ),
+            (
+                "See [`Self::new`] and [Aeron::new].",
+                "See [`Self::new`] and [Aeron::new].",
+            ),
+        ] {
+            let docs = BTreeSet::from([input.to_string()]);
+            let rendered = get_docs(&docs, &BTreeMap::new(), None);
+            assert_eq!(rendered.len(), 1);
+            assert_eq!(rendered[0].to_string(), quote!(#[doc = #expected]).to_string());
+        }
+    }
 }
 
 fn generate_stateless_handler_code(handler: &CHandler) -> TokenStream {
@@ -2948,16 +2984,12 @@ pub fn generate_rust_code(
 
             let cancel_method_impl = if has_cancel_method {
                 quote! {
-                    #[doc = r"Cancels this in-progress operation, releasing the pending Aeron"]
-                    #[doc = r"registration instead of waiting for `poll()`/`poll_blocking()` to"]
-                    #[doc = r"resolve it or for this value to be dropped (dropping an unresolved"]
-                    #[doc = r"poller does this automatically, so this is only needed to give up"]
-                    #[doc = r"earlier than the drop would happen naturally)."]
+                    #[doc = r"Cancels this operation and releases the pending Aeron registration."]
+                    #[doc = r"Dropping an unresolved poller also cancels it."]
                     #[doc = r""]
-                    #[doc = r"A no-op if `poll()` has already returned a terminal result (`Some`"]
-                    #[doc = r"or an `Err`), as cancelling after that point would either be invalid"]
-                    #[doc = r"(the C struct is no longer valid) or unnecessary (nothing pending"]
-                    #[doc = r"left to cancel)."]
+                    #[doc = r"Does nothing after `poll()` returns `Ok(Some(_))` or `Err(_)`."]
+                    #[doc = r"At that point Aeron has consumed the C struct and no registration"]
+                    #[doc = r"remains pending."]
                     #[inline]
                     pub fn cancel(&self) -> Result<(), AeronCError> {
                         if let Some(inner) = self.inner.as_owned() {
@@ -2996,27 +3028,16 @@ pub fn generate_rust_code(
                     impl #client_type {
                         #[doc = r"# Handler lifetime and async close"]
                         #[doc = r""]
-                        #[doc = r"If this call takes a [`Handler`], the C close for the resulting resource"]
-                        #[doc = r"(e.g. `aeron_subscription_close`) is **asynchronous**. The conductor thread"]
-                        #[doc = r"may still invoke the handler's callback (e.g. `on_available_image`) after"]
-                        #[doc = r"`close()`/`drop` has already returned on the calling thread. Releasing the"]
-                        #[doc = r"handler's value immediately on close would risk a use-after-free from that"]
-                        #[doc = r"still-in-flight callback."]
+                        #[doc = r"If this call takes a [`Handler`], the conductor may invoke its callbacks"]
+                        #[doc = r"after the resource's `close()` or `drop` returns. The C close is asynchronous."]
                         #[doc = r""]
-                        #[doc = r"To make this safe without requiring the caller to track it, this method"]
-                        #[doc = r"stores a clone of the owning [`Aeron`] client as a *dependency* on the"]
-                        #[doc = r"resource being created, which transitively keeps every [`Handler`] clone"]
-                        #[doc = r"already registered as a dependency of that resource alive for as long as"]
-                        #[doc = r"the client itself lives, regardless of when the resource closes. No manual"]
-                        #[doc = r"`release()` call is needed."]
+                        #[doc = r"The new resource retains a clone of its owning [`Aeron`] client. The client"]
+                        #[doc = r"keeps the registered handler dependencies alive until the client drops,"]
+                        #[doc = r"even if the resource closes earlier. No manual `release()` call is needed."]
                         #[doc = r""]
-                        #[doc = r"This differs from the Aeron C++ wrapper, which instead frees the handler"]
-                        #[doc = r"as the final step of `on_cmd_close_subscription` on the conductor thread,"]
-                        #[doc = r"i.e. it ties the handler's lifetime to the close completing, not to the"]
-                        #[doc = r"client. Rusteron's approach is simpler and avoids needing a conductor-side"]
-                        #[doc = r"hook, but it means handler dependencies accumulate on the client's"]
-                        #[doc = r"dependency list for the client's lifetime (they are small `Arc` clones, one"]
-                        #[doc = r"per call, and are only dropped when the client itself drops)."]
+                        #[doc = r"Handler dependencies accumulate on the client, with a small reference-counted"]
+                        #[doc = r"clone per call. They drop with the client rather than when the conductor"]
+                        #[doc = r"finishes closing the resource, as they do in the Aeron C++ wrapper."]
                         #[inline]
                         pub fn #client_type_method_name #where_clause_async(&self, #(#async_new_args_for_client),*) -> Result<#async_class_name, AeronCError> {
                             let mut result =  #async_class_name::new(self, #(#async_new_args_name_only),*);
@@ -3031,12 +3052,11 @@ pub fn generate_rust_code(
                     impl #client_type {
                         #[doc = r"Blocking convenience wrapper around the async add operation."]
                         #[doc = r""]
-                        #[doc = r"**Convenience for examples and tests only.** It blocks the calling thread"]
-                        #[doc = r"in a busy-poll loop until the resource is available or `timeout` elapses. In"]
-                        #[doc = r"production, prefer the `async_add_*` variant and drive its `poll()` from your"]
-                        #[doc = r"own event loop rather than blocking on a single operation."]
+                        #[doc = r"For examples and tests. Blocks the calling thread in a busy-poll loop until"]
+                        #[doc = r"the resource is available or `timeout` elapses. In production, call the"]
+                        #[doc = r"`async_add_*` variant and drive its `poll()` from your event loop."]
                         #[doc = r""]
-                        #[doc = r"# Production pattern (pseudo code)"]
+                        #[doc = r"# Event loop example"]
                         #[doc = r"```text"]
                         #[doc = r"// Don't block. Drive the async poller from your loop"]
                         #[doc = r"let poller = client.async_add_*(...)?;"]
@@ -3048,7 +3068,7 @@ pub fn generate_rust_code(
                         #[doc = r"}"]
                         #[doc = r"```"]
                         #[doc = r""]
-                        #[doc = r"See `poll_blocking` on the async poller for the same caveat."]
+                        #[doc = r"`poll_blocking` on the async poller also blocks the calling thread."]
                         #[inline]
                         pub fn #client_type_method_name_without_async #where_clause_async(&self #(
                     , #async_new_args_for_client)*,  timeout: std::time::Duration) -> Result<#main_class_name, AeronCError> {
@@ -3150,12 +3170,12 @@ pub fn generate_rust_code(
 
                         #[doc = r"Polls synchronously until the async operation completes or `timeout` elapses."]
                         #[doc = r""]
-                        #[doc = r"**Convenience for examples and tests only.** It blocks the calling thread"]
+                        #[doc = r"For examples and tests. Blocks the calling thread"]
                         #[doc = r"in a busy-poll loop. In production, drive `poll()` from your own event loop"]
                         #[doc = r"(between other work, on a timer, or in a dedicated duty cycle) rather than"]
                         #[doc = r"blocking on a single operation."]
                         #[doc = r""]
-                        #[doc = r"# Production pattern (pseudo code)"]
+                        #[doc = r"# Event loop example"]
                         #[doc = r"```text"]
                         #[doc = r"// Don't block. Integrate poll() into your existing loop"]
                         #[doc = r"loop {"]
@@ -3231,7 +3251,7 @@ pub fn generate_rust_code(
                         /// The C client owns and frees every child resource (publications,
                         /// subscriptions, counters) when it closes, so while children or clones
                         /// are alive this is deferred, equivalent to `drop`, and the surviving
-                        /// handles remain fully usable. The C close runs when the final
+                        /// handles remain usable. The C close runs when the final
                         /// reference (child or clone) is released.
                         pub fn close(self) -> Result<(), AeronCError> {
                             let result = #close_resource_call;
@@ -3374,6 +3394,7 @@ pub fn generate_rust_code(
         .docs
         .iter()
         .map(|doc| {
+            let doc = doc.replace("<p>", "\n").replace("</p>", "\n");
             quote! {
                 #[doc = #doc]
             }
@@ -3394,7 +3415,7 @@ pub fn generate_rust_code(
             //     }
             // };
 
-            // a shallow copy only stands on its own when the struct holds no pointers
+            // A shallow copy is independent of its source only when the struct has no pointers.
             let (unsafety, copy_docs) = if wrapper.fields.iter().any(|f| f.is_any_pointer()) {
                 (
                     quote! { unsafe },

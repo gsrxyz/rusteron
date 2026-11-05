@@ -13,7 +13,7 @@ pub enum CpuTarget {
     Baseline,
 }
 
-/// The compiler CMake actually used, rather than a potentially different `clang` on PATH.
+/// The compiler CMake used, which may differ from `clang` on PATH.
 pub fn cmake_c_compiler(cache: &str) -> Option<&str> {
     cache.lines().find_map(|line| {
         let value = line

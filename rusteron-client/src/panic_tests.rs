@@ -520,8 +520,8 @@ fn recording_delegate(
     }
 }
 
-/// The caught panic surfaces from the poll. The rest of the poll is still delivered and
-/// the panicking message is not delivered again
+/// The poll raises the caught panic after delivering the remaining fragments.
+/// It does not redeliver the panicking message.
 #[test]
 #[serial]
 fn fragment_assembler_delegate_panic_resumes_from_poll() {

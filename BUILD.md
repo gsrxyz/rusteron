@@ -1,6 +1,6 @@
 ## How to build
 
-To build rusteron-archive, ensure the following are installed:
+Install these tools to build rusteron-archive from source:
 
 ### Requirements
 
@@ -19,7 +19,7 @@ To build rusteron-archive, ensure the following are installed:
   sudo snap install cmake --classic
   ```
 
-  Java, CMake and Clang are only needed to build Aeron C from source (the default). With `features = ["static", "precompile"]` (or `precompile-rustls`) prebuilt libraries are downloaded instead (macOS and Linux); Linux still needs `uuid-dev` and `libbsd-dev` to link.
+  The default build compiles Aeron C from source. On macOS and Linux, `features = ["static", "precompile"]` or `precompile-rustls` downloads prebuilt libraries instead. Linux still needs `uuid-dev` and `libbsd-dev` to link.
 
 * just (optional): command runner for build tasks.
 
@@ -57,13 +57,13 @@ Linux:
   ```
 
 Windows:
-Install from [Adoptium](https://adoptium.net/) (Temurin 17). Ensure environment variables are set during installation.
+Install from [Adoptium](https://adoptium.net/) (Temurin 17). Set the Java environment variables during installation.
 
 ---
 
 ### Build commands
 
-With everything installed:
+Build with Cargo:
 
 ```bash
 cargo build --release

@@ -1,4 +1,4 @@
-// ─── Compilation contexts (read before adding code here) ────────────────────────────
+// Compilation contexts (read before adding code here)
 // This file compiles in TWO contexts:
 //   1. as `mod common` inside rusteron-code-gen itself (unit tests, shared types), and
 //   2. verbatim inside every generated crate's `aeron.rs` (via COMMON_CODE include_str).
@@ -6,7 +6,7 @@
 // exist only in context 2 (e.g. AeronCError's Debug/Display). That is why AeronOfferError
 // hand-rolls its Debug. Crate-specific code belongs in `aeron_custom.rs` (all crates) or
 // `aeron_custom_<crate>.rs` (one crate); build-script-only code goes in `build_common.rs`.
-// ─────────────────────────────────────────────────────────────────────────────────────
+//
 
 use crate::AeronErrorType::Unknown;
 #[cfg(feature = "backtrace")]
@@ -187,13 +187,10 @@ impl<T> std::fmt::Debug for CResource<T> {
     }
 }
 
-/// A custom struct for managing C resources with automatic cleanup.
+/// Owns a C resource and calls its cleanup closure when the last handle drops.
 ///
-/// It handles initialisation and clean-up of the resource and ensures that resources
-/// are properly released when they go out of scope. All teardown goes through the
-/// single `cleanup` closure (if set), which is the FFI close function (e.g.
-/// `aeron_close`). The Rc dependency graph ensures parents outlive children
-/// structurally. You cannot race `aeron_close` ahead of a live child handle.
+/// The closure calls the C close function, such as `aeron_close`. Reference-counted
+/// dependencies keep parent resources open until their children drop.
 #[allow(dead_code)]
 #[allow(dead_code)]
 pub struct ManagedCResource<T> {
@@ -459,11 +456,9 @@ impl<T> ManagedCResource<T> {
 
     /// Closes the resource through a shared reference.
     ///
-    /// Like `close(&mut self)` but works with `&self`, enabling explicit close
-    /// on handles that share the resource via `Rc`.  The cleanup closure is
-    /// accessed through `UnsafeCell` interior mutability; the
-    /// `close_already_called` gate ensures it is only taken once regardless of
-    /// how many clones call `close_shared()`.
+    /// Like `close(&mut self)`, but accepts `&self` for handles that share the
+    /// resource through `Rc`. It takes the cleanup closure through `UnsafeCell`.
+    /// The `close_already_called` flag prevents clones from taking it twice.
     ///
     /// This is the method called by the generated `close(self)` method on
     /// wrapper types.
@@ -829,7 +824,7 @@ pub enum AeronOfferError {
     /// The maximum stream position was reached (`-5`). Fatal: a new publication
     /// (new session) is required.
     MaxPositionExceeded,
-    /// More than [`MAX_OFFER_PARTS`] buffers passed to `offer_parts`. This is a caller
+    /// More than `MAX_OFFER_PARTS` buffers passed to `offer_parts`. This is a caller
     /// bug, not an Aeron wire error. Fatal (fix the call site).
     TooManyParts,
     /// Any other negative value (`-6` / unexpected). Fatal; inspect the inner
@@ -1182,7 +1177,7 @@ pub(crate) mod test_alloc {
     use std::os::unix::fs::OpenOptionsExt;
     use std::sync::atomic::{AtomicIsize, Ordering};
 
-    /// A simple global allocator that tracks the net allocation count.
+    /// A global allocator that tracks the net allocation count.
     /// Used mainly for testing memory leaks or unintended allocations.
     pub struct TrackingAllocator {
         allocs: AtomicIsize,
@@ -1226,7 +1221,7 @@ pub(crate) mod test_alloc {
     }
 
     /// Asserts that no allocations occur within the provided closure.
-    /// Uses a file lock to ensure exclusive access across threads/tests.
+    /// A file lock serializes access across threads and tests.
     pub fn assert_no_allocation<F: FnOnce()>(f: F) {
         let tmp = env::temp_dir().join("rusteron_allocation.lck");
 

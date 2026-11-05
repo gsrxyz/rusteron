@@ -2,22 +2,18 @@
 #
 # Keep this file present even when empty so `just test-valgrind` can run.
 #
-# Leak gate (scripts/valgrind-run.sh) fails CI on --errors-for-leak-kinds=
-# definite,possible — i.e. REAL leaks (malloc with no reachable pointer).
-# "Still reachable" allocations (Rust runtime / std bookkeeping held by
-# statics/Arcs at process exit) are shown via --show-leak-kinds=all but do
-# NOT fail, because every Rust binary has them and they are not bugs.
+# scripts/valgrind-run.sh fails CI for definite or possible leaks through
+# --errors-for-leak-kinds=definite,possible. It reports still-reachable
+# allocations with --show-leak-kinds=all without failing the build. Rust runtime
+# statics and reference-counted state can retain these allocations until exit.
 #
-# The Box::leak-class lifecycle bug (reachable, not lost — e.g. the
-# AeronCncMetadata mmap leak) is NOT caught by this gate. It is caught
-# deterministically by the manual_close_required Drop warning in
-# ManagedCResource (common.rs), which fires per-resource on every platform,
-# not just under valgrind on Linux.
+# This check misses reachable resource leaks such as a leaked AeronCncMetadata
+# mapping. ManagedCResource's manual_close_required Drop warning detects those
+# lifecycle errors on every platform.
 #
-# When valgrind DOES report a definite/possible leak, fix it in rusteron
-# code. Only suppress leaks that are genuinely external (Rust runtime, test
-# harness, system libraries) — run with VALGRIND_GEN_SUPPRESSIONS=1 to emit
-# ready-made stanzas.
+# Fix leaks in Rusteron. Suppress only external leaks in the Rust runtime, test
+# harness or system libraries. Run with VALGRIND_GEN_SUPPRESSIONS=1 to generate
+# suppression entries.
 
 # Rust test harness retains thread/runtime state until process exit.
 {
@@ -65,7 +61,7 @@
 
 # Fallback for Rust runtime stack overflow thread metadata retained to process exit.
 # The trailing `...` (instead of a rigid `fun:main` anchor) matches binaries whose
-# valgrind trace terminates at `lang_start` before reaching `main` — code_gen and
+# valgrind trace terminates at `lang_start` before reaching `main`. code_gen and
 # media_driver test binaries both truncate there. The `set_current_info` +
 # `lang_start_internal` signature is unique to this std-internal allocation, so
 # the wildcard cannot mask a real rusteron leak.
@@ -704,7 +700,7 @@
 }
 
 # Same stack-overflow thread-info allocation for the archive binary.
-# The `...` between alloc and allocate absorbs toolchain-specific frames —
+# The `...` between alloc and allocate absorbs toolchain-specific frames
 # current rustc emits an extra `alloc_impl_runtime` frame there that broke
 # an earlier exact-match variant of this stanza.
 {
@@ -742,13 +738,13 @@
    fun:*test::run_test*
 }
 
-# NOTE: the ListenerHolder definite leak is FIXED (reclaimed via an add_dependency on
-# Box<ListenerHolder> — the generated close() bypasses cleanup closures, but a field drops).
-# It was a real leak, not a false positive — do NOT re-add a suppression for it.
+# The ListenerHolder leak is fixed. add_dependency retains Box<ListenerHolder>,
+# which drops with the resource even when generated close() bypasses the cleanup
+# closure. Do not add a suppression for this allocation.
 
-# glibc pthread TLS (DTV) false positive: glibc frees the test-thread's TLS only at
-# exit. NOT a rusteron leak. NB: `*Thread::new` won't match the demangled `<...Thread>::new`
-# — the `...` bridge is why.
+# glibc frees the test thread's TLS at exit, so this DTV allocation is a false
+# positive. Use `...` to match intermediate frames because `*Thread::new` does
+# not match the demangled `<...Thread>::new`.
 {
    rust_test_thread_tls_possible_leak
    Memcheck:Leak
@@ -766,7 +762,7 @@
 }
 
 # Same glibc pthread-TLS false positive, for rusteron-spawned threads (embedded media
-# driver). Anchored on the glibc chain alone — trace truncates before the runner
+# driver). Anchored on the glibc chain alone. trace truncates before the runner
 # frames, so no trailing run_test frame.
 {
    pthread_create_tls_possible_leak
@@ -798,9 +794,8 @@
    fun:*test::run_test*
 }
 
-# `serial_test` process-global `code_lock::LockMap` — intentionally never freed, reclaimed
-# by the OS at exit. Third-party false positive, not a rusteron leak. Anchored on code_lock
-# frames only (trace truncates before the runner frames).
+# serial_test retains its process-global code_lock::LockMap until exit. Match
+# code_lock frames only because the trace ends before the test runner frames.
 {
    serial_test_code_lock_global_map_possible_leak
    Memcheck:Leak

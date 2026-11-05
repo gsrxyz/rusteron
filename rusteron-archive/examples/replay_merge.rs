@@ -15,7 +15,7 @@
 //! ```
 
 use rusteron_archive::testing::{
-    EmbeddedArchiveMediaDriverProcess, find_counter_id_by_session_blocking, find_unused_udp_port,
+    EmbeddedArchiveMediaDriverProcess, find_counter_id_by_session_in_archive_blocking, find_unused_udp_port,
 };
 use rusteron_archive::*;
 use std::thread::sleep;
@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?.poll_blocking(Duration::from_secs(20))?;
     println!("connected to archive");
 
-    // ── Publisher on an MDC (multi-destination-cast) channel, recorded remotely ──
+    // Publisher on an MDC (multi-destination-cast) channel, recorded remotely
     let publication = aeron.add_publication(
         &cformat!("aeron:udp?control={control_endpoint}|control-mode=dynamic|term-length=65536"),
         STREAM_ID,
@@ -72,7 +72,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Find the recording's counter once, rather than scanning every counter on each check.
     let counters = aeron.counters_reader();
-    let counter_id = find_counter_id_by_session_blocking(&counters, session_id, Duration::from_secs(10))?;
+    let counter_id = find_counter_id_by_session_in_archive_blocking(
+        &counters,
+        session_id,
+        archive.get_archive_id(),
+        Duration::from_secs(10),
+    )?;
     let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
 
     // Publish the history as fast as flow control allows. Everything runs on this thread:
@@ -91,7 +96,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!("{HISTORY_MESSAGES} historical messages recorded; late joiner starting");
 
-    // ── The late joiner: replay history, then merge onto the live stream ──
+    // The late joiner: replay history, then merge onto the live stream
 
     let subscription = aeron.add_subscription(
         &cformat!("aeron:udp?control-mode=manual|session-id={session_id}"),

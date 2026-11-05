@@ -1,13 +1,15 @@
 # Multi-destination subscription (MDC / MDS) guide
 
-Multi-Destination Connections (MDC) allow an Aeron publisher or subscriber to dynamically bind to multiple destination endpoints under a single publication or subscription handle. This is useful for:
-- Consuming redundant feeds (A/B feed arbitration).
-- Aggregating sharded publisher data into a single subscriber polling loop.
+Multi-destination connections let one publication send to several endpoints.
+Multi-destination subscriptions merge messages from several endpoints into one
+subscription. Use them to:
+- Consume redundant feeds, such as A/B feeds.
+- Poll sharded publishers through one subscription.
 
 ---
 
 ## Official Aeron documentation
-For in-depth concepts, architectural details, and protocol mechanics:
+For the protocol and API details, see:
 - [Aeron Wiki: Multi-Destination Connections](https://github.com/aeron-io/aeron/wiki/Multi-Destination-Connections)
 - [Aeron Wiki: C++ Programming Guide (MDC section)](https://github.com/aeron-io/aeron/wiki/Cpp-Programming-Guide#multi-destination-connections)
 - [Aeron Cookbook (aeron.io)](https://aeron.io/docs/)
@@ -18,7 +20,7 @@ For in-depth concepts, architectural details, and protocol mechanics:
 
 ### 1. Manual MDS subscriber (adding destinations programmatically)
 
-To programmatically control the destinations bound to a subscription, specify `control-mode=manual` on the channel URI.
+Set `control-mode=manual` on the channel URI to add or remove subscription destinations in code.
 
 ```rust,no_run
 use rusteron_client::*;
@@ -29,18 +31,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
 
-    // 1. A subscription in manual control mode
+    // Create a subscription in manual control mode.
     let subscription = aeron
         .async_add_subscription(c"aeron:udp?control-mode=manual", 1003, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(5))?;
 
-    // 2. Add destination endpoints dynamically
+    // Add the endpoints to the subscription.
     let destination_a = AeronUriStringBuilder::udp("127.0.0.1:20201")?.build(256)?;
     let destination_b = AeronUriStringBuilder::udp("127.0.0.1:20202")?.build(256)?;
     subscription.add_destination(&cformat!("{destination_a}"), Duration::from_secs(5))?;
     subscription.add_destination(&cformat!("{destination_b}"), Duration::from_secs(5))?;
 
-    // 3. Poll normally: messages from both ports merge
+    // Poll messages from both ports through the same subscription.
     loop {
         subscription.poll_fn(
             |buf, header| println!("Received {} bytes on stream {:?}", buf.len(), header.stream_id()),
@@ -52,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### 2. Removing destinations programmatically
 
-You can dynamically detach endpoints as network paths change or servers fail:
+Remove an endpoint when a network path changes or a server fails:
 
 ```rust,no_run
 # use rusteron_client::*;
@@ -91,4 +93,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Runnable versions: [`multi_destination_subscription.rs`](../rusteron-client/examples/multi_destination_subscription.rs) (manual MDS) and [`replay_merge.rs`](../rusteron-archive/examples/replay_merge.rs) (a replay merged onto a live MDC stream).
+Run these examples: [`multi_destination_subscription.rs`](../rusteron-client/examples/multi_destination_subscription.rs) (manual MDS) and [`replay_merge.rs`](../rusteron-archive/examples/replay_merge.rs) (a replay merged onto a live MDC stream).

@@ -14,7 +14,7 @@
 //! ```
 
 use rusteron_archive::testing::{
-    EmbeddedArchiveMediaDriverProcess, find_counter_id_by_session_blocking, find_unused_udp_port,
+    EmbeddedArchiveMediaDriverProcess, find_counter_id_by_session_in_archive_blocking, find_unused_udp_port,
 };
 use rusteron_archive::*;
 use std::thread::sleep;
@@ -78,7 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let src = start_archive("src", 9600)?;
     let dst = start_archive("dst", 9700)?;
 
-    // ── 1. Record a finished stream on the SOURCE archive ────────────────
+    // 1. Record a finished stream on the SOURCE archive
     let subscription_id = src
         .archive
         .start_recording(AERON_IPC_STREAM, STREAM_ID, SOURCE_LOCATION_LOCAL, false)?;
@@ -98,7 +98,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let session_id = publication.get_constants()?.session_id;
     let counters = src.aeron.counters_reader();
-    let counter_id = find_counter_id_by_session_blocking(&counters, session_id, Duration::from_secs(5))?;
+    let counter_id = find_counter_id_by_session_in_archive_blocking(
+        &counters,
+        session_id,
+        src.archive.get_archive_id(),
+        Duration::from_secs(5),
+    )?;
     let src_recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
     let stop_position = publication.position();
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -109,7 +114,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     src.archive.stop_recording_subscription(subscription_id)?;
     println!("[src] recording {src_recording_id} complete at position {stop_position}");
 
-    // ── 2. Ask the DESTINATION archive to replicate it from the source ───
+    // 2. Ask the DESTINATION archive to replicate it from the source
     // Builder defaults: replicate into a NEW recording, no live merge, the context's
     // default replication channel, no credentials.
     let params = AeronArchiveReplicationParams::builder().build()?;
@@ -121,7 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     println!("[dst] replication {replication_id} started");
 
-    // ── 3. Wait for the destination copy to reach the source stop position ──
+    // 3. Wait for the destination copy to reach the source stop position
     let deadline = Instant::now() + Duration::from_secs(30);
     let mut replicated: Option<AeronArchiveRecordingDescriptor> = None;
     while Instant::now() < deadline {

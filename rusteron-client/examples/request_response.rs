@@ -1,11 +1,12 @@
 //! # Request/response channels
 //!
-//! Port of Aeron's `response_server.c` + `response_client.c` samples (response channels,
-//! aeron 1.44+): a client subscribes on a `control-mode=response` channel and stamps its
+//! Port of Aeron's `response_server.c` and `response_client.c` samples.
+//! This example also sets an explicit response session ID, covered by Aeron 1.53.2 system tests.
+//! A client subscribes on a `control-mode=response` channel and stamps its
 //! subscription registration id onto the request publication (`response-correlation-id=`);
 //! the server reads each client's requests from that client's own image and answers on a
 //! response publication keyed by the image's correlation id. No addressing logic in user
-//! code. The driver wires responses back to the right requester.
+//! code. The driver wires responses back to the requester.
 //!
 //! ```bash
 //! cargo run --release --features "static precompile" --example request_response
@@ -20,6 +21,7 @@ use std::time::{Duration, Instant};
 
 const REQUEST_STREAM_ID: i32 = 10001;
 const RESPONSE_STREAM_ID: i32 = 10002;
+const RESPONSE_SESSION_ID: i32 = 71;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // embedded media driver with RAII teardown (stops + joins on drop)
@@ -37,7 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let response_control_endpoint = format!("localhost:{response_port}");
     let request_channel = AeronUriStringBuilder::udp(&request_endpoint)?.build(256)?;
 
-    // ── server (its own Aeron client, as it would be in a separate process) ──
+    // server (its own Aeron client, as it would be in a separate process)
     // Requests arrive on the request channel; each connecting client's image carries a
     // correlation id, which keys the response publication back to that client.
     let running = Arc::new(AtomicBool::new(true));
@@ -83,6 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         continue;
                     };
                     let channel = AeronUriStringBuilder::udp_control(&response_control, ControlMode::Response)?
+                        .session_id(&RESPONSE_SESSION_ID.to_string())?
                         .response_correlation_id(correlation_id)?
                         .build(256)?;
                     let pending = aeron.async_add_publication(&cformat!("{channel}"), RESPONSE_STREAM_ID)?;
@@ -141,11 +144,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
     };
 
-    // ── client ────────────────────────────────────────────────────────────
+    // client
     // 1. subscribe for responses on a control-mode=response channel
     let response_subscription = aeron
         .async_add_subscription(
             &AeronUriStringBuilder::udp_control(&response_control_endpoint, ControlMode::Response)?
+                .session_id(&RESPONSE_SESSION_ID.to_string())?
                 .build(256)?
                 .into_c_string(),
             RESPONSE_STREAM_ID,
@@ -180,7 +184,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut reply = None;
     let deadline = Instant::now() + Duration::from_secs(10);
     while reply.is_none() && Instant::now() < deadline {
-        response_subscription.poll_fn(|buf, _hdr| reply = Some(String::from_utf8_lossy(buf).into_owned()), 16)?;
+        response_subscription.poll_fn(
+            |buf, header| {
+                assert_eq!(header.session_id(), Some(RESPONSE_SESSION_ID));
+                reply = Some(String::from_utf8_lossy(buf).into_owned());
+            },
+            16,
+        )?;
         sleep(Duration::from_millis(1));
     }
     let reply = reply.ok_or("no response received")?;

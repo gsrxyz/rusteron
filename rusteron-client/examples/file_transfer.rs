@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let correlation_id = Aeron::nano_clock();
     println!("sending {file_name}: {FILE_SIZE} bytes in {CHUNK_SIZE}-byte chunks");
 
-    // ── receiver state (single-threaded like FileReceiver's agent) ────────
+    // receiver state (single-threaded like FileReceiver's agent)
     struct Receiver {
         correlation_id: i64,
         expected_len: u64,
@@ -95,7 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // chunks exceed the MTU: reassembly required
     let mut assembler = AeronFragmentClosureAssembler::new()?;
 
-    // ── sender: header, then offset-stamped chunks ────────────────────────
+    // sender: header, then offset-stamped chunks
     // `offer_parts` copies the parts straight into the term buffer: no per-message Vec to concatenate them.
     let offer = |publication: &AeronPublication, parts: &[&[u8]]| -> Result<(), AeronOfferError> {
         let deadline = Instant::now() + Duration::from_secs(10);

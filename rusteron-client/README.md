@@ -1,10 +1,11 @@
 # rusteron-client
 
-`rusteron-client` is a core component of the [Rusteron](https://github.com/gsrxyz/rusteron) project.
-It provides a Rust wrapper around the Aeron C client API for low-latency communication in distributed systems built with Rust.
+`rusteron-client` wraps the Aeron C client API for low-latency communication in
+distributed systems built with Rust. Use it to connect to a Media Driver, publish
+messages, poll subscriptions and handle driver events.
 
-This crate supports publishing, subscribing and managing Aeron resources through an idiomatic interface over `unsafe` C bindings.
-Because it relies on raw FFI, you must manage resource lifetimes and concurrency correctly.
+The wrappers manage resource references and callback lifetimes. Follow the ownership
+and concurrency rules below when using the C resources.
 
 ---
 
@@ -22,7 +23,7 @@ It runs in GSR's real-time trading stack and is developed under the GSR GitHub o
 - Send messages with `offer()`, `offer_parts()` (gathered) or zero-copy `try_claim_owned()`.
 - Poll for incoming messages and handle fragments.
 - React to driver events such as availability, errors and stream lifecycle changes.
-- All client types are cloneable and share ownership of the underlying C resources.
+- Cloning an owned handle shares the underlying C resource.
 - Objects created with `.new()` call `*_init` and `*_close` automatically, where supported.
 - Methods that return primitive C results return `Result<T, AeronCError>`.
 - Inputs use `&CStr` and outputs return `&str`, so you control allocation.
@@ -64,7 +65,7 @@ With the default dynamic configuration, the Aeron C libraries must be available 
 
 ## Handlers and callbacks
 
-Two kinds of callbacks:
+The client accepts retained and synchronous callbacks.
 
 ### 1. Retained (error handler, image/counter lifecycle, notifications)
 
@@ -118,8 +119,8 @@ at the original memory.
 
 ### 2. Synchronous (`poll`, `controlled_poll`, log readers)
 
-They are invoked only during the call, so they take a stack closure. This allocates nothing and may borrow
-local state:
+Synchronous callbacks run during the call. They accept a stack closure that can borrow
+local state without allocating:
 
 ```rust,no_run
 # use rusteron_client::*;
@@ -186,7 +187,13 @@ driver:
 ```rust,no_run
 # use rusteron_client::*;
 # fn snippet(id: i64) -> Result<(), AeronCError> {
-let channel = AeronUriStringBuilder::udp("localhost:20121")?.build(256)?;
+let channel = AeronUriStringBuilder::udp("localhost:20121")?
+    .socket_tos(0x28)?
+    .build(256)?;
+let untethered = AeronUriStringBuilder::ipc()?
+    .tether(false)?
+    .untethered_linger_timeout(1_000_000_000)?
+    .build(256)?;
 let mds_sub = AeronUriStringBuilder::udp_control("localhost:9998", ControlMode::Manual)?.build(256)?;
 let response = AeronUriStringBuilder::udp_control("localhost:9999", ControlMode::Response)?
     .response_correlation_id(id)?
@@ -194,9 +201,18 @@ let response = AeronUriStringBuilder::udp_control("localhost:9999", ControlMode:
 # Ok(()) }
 ```
 
-Constructors are `ipc()`, `udp(endpoint)` and `udp_control(control, ControlMode)`. There are also ~50 typed
-setters (`session_id`, `mtu_length`, `term_length`, `fc`, `gtag`, `reliable`, …). See
+`socket_tos` sets the UDP traffic class byte, including DSCP and ECN bits. The driver
+context's `set_socket_tos` sets the default for channels without `so-tos`.
+`untethered_linger_timeout` takes nanoseconds and configures an untethered subscription's
+linger timeout. It is separate from publication `linger`.
+
+Use `ipc()`, `udp(endpoint)` or `udp_control(control, ControlMode)` to create a builder.
+It also has about 50 typed setters (`session_id`, `mtu_length`, `term_length`, `fc`, `gtag`, `reliable`, …). See
 `examples/multi_destination_subscription.rs` and `examples/request_response.rs`.
+
+Response channels can also set `session_id`. Use the same session ID on the response
+subscription and publication. `examples/request_response.rs` uses session ID 71 and
+checks the received header. The tests cover both IPC and UDP response channels.
 
 ## Minimal pub/sub
 
@@ -247,8 +263,8 @@ while !received {
 > `poll_blocking` and `add_*(.., timeout)` block the calling thread in a
 > busy-poll loop and exist for example and test brevity. In production, drive the async poller's
 > `poll()` from your own event loop instead. See
-> [`examples/non_blocking_publisher.rs`](examples/non_blocking_publisher.rs) for the idiomatic
-> pattern.
+> [`examples/non_blocking_publisher.rs`](examples/non_blocking_publisher.rs) for an event-loop
+> example.
 
 ## AddressSanitizer
 
@@ -262,7 +278,7 @@ caught in your tests:
 export DYLD_LIBRARY_PATH="$(clang -print-resource-dir)/lib/darwin"
 ASAN_OPTIONS=detect_leaks=0 cargo test --features rusteron-client/sanitize-address
 
-# Linux: nightly, additionally instruments the Rust side:
+# Linux: nightly also instruments the Rust side:
 RUSTFLAGS="-Zsanitizer=address" cargo +nightly test -Zbuild-std \
   --target x86_64-unknown-linux-gnu --features rusteron-client/sanitize-address
 ```
@@ -271,10 +287,12 @@ Leak detection is noisy with a media driver in-process, so keep `detect_leaks=0`
 Other sanitizers (`thread`, `undefined`) can be selected with the `RUSTERON_SANITIZE`
 env var instead of the feature. In this repo, `just test-asan` runs the client suite this way.
 
-## Resource lifecycle & close()
+<a id="resource-lifecycle--close"></a>
+
+## Resource lifecycle and close()
 
 The C client owns every child resource (publications, subscriptions, counters) and frees them
-all in `aeron_close`. rusteron therefore reference-counts teardown:
+all in `aeron_close`. Rusteron keeps reference counts for resource cleanup:
 
 - `aeron.close()` (and `drop`) is deferred while any child handle or clone is alive. The
   surviving handles remain usable, and the C close runs when the last reference releases.
@@ -292,9 +310,9 @@ Which structures get which behaviour:
 | No public close. Freed when the last reference drops (the client holds an internal clone, so they always outlive it) | `AeronContext`, `AeronArchiveContext`, `AeronDriverContext` |
 | No close at all. The C client frees them when their `poll()` completes (created, errored or cancelled) | `AeronAsyncAdd*` pollers, `AeronAsyncDestination` |
 
-Ordering is structurally safe in any combination. Children hold references to the client, the
-client holds its context, and closing or dropping in any order defers the C teardown until the
-last handle releases (verified by the `complex_object_graph_close_is_safe_in_any_order` test).
+Children hold references to the client, and the client holds its context. Closing or
+dropping an owned handle defers C cleanup until the last reference drops. The
+`complex_object_graph_close_is_safe_in_any_order` test checks this behavior.
 This covers owned handles. Two exceptions:
 
 - Borrowed handles (wrapping a pointer C gave out, e.g. `AeronArchiveContext::get_aeron()`) hold
@@ -302,7 +320,9 @@ This covers owned handles. Two exceptions:
 - A buffer claim from `try_claim` / `try_claim_owned` points into the publication's log buffer
   and must be committed or aborted before the publication closes.
 
-## Migrating 0.1 → 0.2
+<a id="migrating-01--02"></a>
+
+## Migrating from 0.1 to 0.2
 
 Breaking changes, made because the old design allowed double frees and use-after-free
 (see [PR #50](https://github.com/gsrxyz/rusteron/pull/50)):
@@ -312,15 +332,15 @@ Breaking changes, made because the old design allowed double frees and use-after
 | `Handler::leak(h)` + manual `release()` | `Handler::new(h)`; freed automatically (`Arc`-counted, resources keep clones) |
 | `ctx.set_error_handler(Some(&handler))` | `ctx.set_error_handler(Some(h))`, which takes the value (closures work) and returns the `Handler` |
 | `set_error_handler_fn(closure)` (UB: C retained a stack closure) | removed; `_once` now exists only for synchronous callbacks |
-| `aeron.close()` freed children immediately (UAF on surviving handles) | deferred until the last reference drops; `unsafe close_now()` is the escape hatch |
+| `aeron.close()` freed children immediately (UAF on surviving handles) | deferred until the last reference drops; `unsafe close_now()` forces immediate cleanup |
 | `Handler` was `Sync` | `Send` only (conductor thread may invoke callbacks) |
-| `offer(buf, supplier)` returned a raw `i64` sentinel | `offer(buf)` → `Result<i64, AeronOfferError>` with `is_retryable()`. The supplier form is `offer_with_reserved_value` and the raw sentinel form is `offer_raw` |
-| `offer_result` / `offer_result_simple` / `try_claim_result` (→ `AeronCError`) | `offer_with_reserved_value` / `offer` / `try_claim` (→ typed `AeronOfferError`) |
+| `offer(buf, supplier)` returned a raw `i64` sentinel | `offer(buf)` returns `Result<i64, AeronOfferError>` with `is_retryable()`. The supplier form is `offer_with_reserved_value` and the raw sentinel form is `offer_raw` |
+| `offer_result` / `offer_result_simple` / `try_claim_result` return `AeronCError` | `offer_with_reserved_value` / `offer` / `try_claim` return typed `AeronOfferError` |
 | `poll_once(f, limit)` / `for_each_fragment(limit, f)` | `poll_fn(f, limit)` (`for_each_fragment` removed) |
 | `Handlers::no_xxx_handler()` per callback | `Handlers::NONE` for any callback parameter |
 
-The full old → new table (destinations, fragment assembler, C strings, driver guard) lives
-in the [migration guide](https://github.com/gsrxyz/rusteron/blob/main/docs/migrating_0.1.168_to_0.2.md).
+The complete table of old and new APIs covers destinations, fragment assemblers,
+C strings and driver guards in the [migration guide](https://github.com/gsrxyz/rusteron/blob/main/docs/migrating_0.1.168_to_0.2.md).
 
 ## Examples
 
@@ -328,27 +348,32 @@ in the [migration guide](https://github.com/gsrxyz/rusteron/blob/main/docs/migra
 - [`examples/basic_subscriber.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/basic_subscriber.rs): image lifecycle handlers and the zero-allocation `poll_fn` (port of `basic_subscriber.c`)
 - [`examples/non_blocking_publisher.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/non_blocking_publisher.rs): drives `async_add_publication(..).poll()` from its own loop instead of `poll_blocking`
 - [`examples/basic_pub_sub.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/basic_pub_sub.rs): minimal pub/sub with fragment assembly
-- [`examples/streaming_rate.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/streaming_rate.rs): streaming publisher + rate-reporting subscriber (port of `streaming_publisher.c` + `rate_subscriber.c`)
+- [`examples/streaming_rate.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/streaming_rate.rs): streaming publisher and rate-reporting subscriber (port of `streaming_publisher.c` + `rate_subscriber.c`)
 - [`examples/multi_destination_subscription.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/multi_destination_subscription.rs): MDS with one manual-control subscription aggregating several endpoints (port of `basic_mds_subscriber.c`)
 - [`examples/driver_stats.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/driver_stats.rs): CnC tooling covering counters, the distinct error log and the loss report (ports of `aeron_stat.c` / `error_stat.c` / `loss_stat.c`)
 - [`examples/embedded_ping_pong.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/embedded_ping_pong.rs): RTT ping/pong with `try_claim` (port of `cping`/`cpong`); starts its own driver unless `AERON_DIR` is set
 - [`examples/embedded_exclusive_ipc_throughput.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/embedded_exclusive_ipc_throughput.rs): exclusive-publication IPC throughput; starts its own driver unless `AERON_DIR` is set
-- [`examples/request_response.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/request_response.rs): response channels (aeron 1.44+), with request/response wiring via `control-mode=response` + `response-correlation-id` (port of `response_server.c`/`response_client.c`)
+- [`examples/request_response.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/request_response.rs): response channels (aeron 1.44+), with request/response routing through `control-mode=response` + `response-correlation-id` (port of `response_server.c`/`response_client.c`)
 - [`examples/file_transfer.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/file_transfer.rs): chunked file transfer with fragment reassembly and verification (port of `FileSender`/`FileReceiver`)
 - [`examples/zero_copy_claim.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/zero_copy_claim.rs): zero-copy publish with `try_claim_owned` (commit, abort on drop), a send timestamp in `set_reserved_value`, and header reads on the subscriber
 - [`examples/retained_images.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/retained_images.rs): retained image lifecycle, covering `for_each_image`, `image_by_session_id`, polling the image directly, `is_closed()` once the publisher goes, and dropping the handle before `subscription.close()`
 
 ---
 
-## Documentation & guides
+<a id="documentation--guides"></a>
 
-For detailed guides and code snippets on Aeron features in Rust, see:
-- [Multi-Destination Subscription (MDC / MDS) Guide](https://github.com/gsrxyz/rusteron/blob/main/docs/mdc_mds_guide.md)
-- [Media Driver Configuration & Back-pressure Guide](https://github.com/gsrxyz/rusteron/blob/main/docs/media_driver_configuration_and_backpressure_guide.md)
+## Documentation and guides
+
+See these guides for configuration and examples:
+
+- [Multi-destination subscription guide](https://github.com/gsrxyz/rusteron/blob/main/docs/mdc_mds_guide.md)
+- [Media Driver configuration and back-pressure guide](https://github.com/gsrxyz/rusteron/blob/main/docs/media_driver_configuration_and_backpressure_guide.md)
 
 ---
 
-## Errors & offer results
+<a id="errors--offer-results"></a>
+
+## Errors and offer results
 
 - For client errors, install an error handler on the context (`ctx.set_error_handler(Some(handler))`) so async errors are not silently lost. Aeron's samples always do.
 - `offer()` and `try_claim()` return `Result<i64, AeronOfferError>`. `Ok` is the new log position. The error is a typed sentinel, and `is_retryable()` separates retryable errors (back-pressured, admin action, not connected) from fatal ones (closed, max position exceeded). Retry the first kind, ideally with an idle strategy. This mirrors Aeron's `BasicPublisher.checkResult` without magic numbers:
@@ -378,9 +403,9 @@ For detailed guides and code snippets on Aeron features in Rust, see:
   # Ok(()) }
   ```
   For branch-free hot paths, `offer_raw()` / `try_claim_raw()` return the raw `i64` sentinel.
-  The typed path costs the same on the happy path. The error enum only materialises on the
-  error path.
-- For image handlers, `Handlers::NONE` for each image slot is a fine default, but real apps usually react to image availability (logging, synchronisation). Aeron's `Ping` sample uses one as a latch.
+  A successful typed call returns the log position. Only a failed call constructs the
+  error enum.
+- For image handlers, pass `Handlers::NONE` when you do not need image callbacks. Applications can use them to log image availability or synchronise startup. Aeron's `Ping` sample uses one as a latch.
 
 ## Idle strategies
 
@@ -401,22 +426,26 @@ loop {
 # }
 ```
 
-Available strategies are [`BusySpinIdleStrategy`] (lowest latency, pins a core), [`YieldingIdleStrategy`],
-[`SleepingIdleStrategy`] (fixed sleep), [`BackoffIdleStrategy`] (adaptive, general-purpose),
-[`NoOpIdleStrategy`]. Latency benchmarks should keep busy-spin.
+Available strategies are [`BusySpinIdleStrategy`], [`YieldingIdleStrategy`],
+[`SleepingIdleStrategy`], [`BackoffIdleStrategy`] and [`NoOpIdleStrategy`].
+`BusySpinIdleStrategy` occupies a core and gives the lowest latency. Use it for
+latency benchmarks. `SleepingIdleStrategy` sleeps for a fixed interval, and
+`BackoffIdleStrategy` progresses through spinning, yielding and sleeping.
 
 `BackoffIdleStrategy` is the default and matches Aeron's C/Java backoff (10 spins,
-20 yields, park 1µs..1ms), so there is no need for a C-backed idle strategy to get parity.
+20 yields and parks from 1 µs to 1 ms), so it uses the same timing as the C strategy.
 The conductor's own idle strategy is set on the context. Use the typed enum
-(`ctx.set_idle_strategy_kind(AeronIdleStrategyKind::Backoff)?`, which also sets coherent
-init args). The media driver's per-agent strategies work the same way
+(`ctx.set_idle_strategy_kind(AeronIdleStrategyKind::Backoff)?`, which also sets the matching
+initialisation arguments). The media driver's per-agent strategies work the same way
 (`set_conductor_idle_strategy_kind` etc. on `AeronDriverContext`).
 
 For recording, replay and persistent subscriptions (replay history, then join a live stream), see [`rusteron-archive`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/README.md#persistent-subscriptions).
 
 ---
 
-## Contributing & license
+<a id="contributing--license"></a>
+
+## Contributing and license
 
 See the root [README](https://github.com/gsrxyz/rusteron#readme) and [CONTRIBUTING.md](https://github.com/gsrxyz/rusteron/blob/main/CONTRIBUTING.md).
 Dual-licensed under MIT or Apache-2.0.

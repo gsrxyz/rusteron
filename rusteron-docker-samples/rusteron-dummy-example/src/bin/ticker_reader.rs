@@ -8,7 +8,7 @@ use websocket_lite::Result;
 fn main() -> Result<()> {
     init_logger();
 
-    // just make sure it includes media driver in binary
+    // Include the Media Driver in the binary.
     if 0 == Aeron::epoch_clock() {
         start_media_driver().unwrap();
     }

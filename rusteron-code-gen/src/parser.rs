@@ -24,8 +24,8 @@ pub fn parse_bindings(out: &PathBuf) -> CBinding {
     parse_bindings_with_custom(out, &[])
 }
 
-/// Like [`parse_bindings`], additionally scanning per-crate custom code (appended after the
-/// common `aeron_custom.rs`) so its hand-written methods are skipped during generation.
+/// Parses bindings and per-crate custom code appended after `aeron_custom.rs`.
+/// Skips generation of methods supplied by that custom code.
 pub fn parse_bindings_with_custom(out: &PathBuf, extra_custom_code: &[&str]) -> CBinding {
     let file_content = fs::read_to_string(out.clone()).expect("Unable to read file");
     let syntax_tree = syn::parse_file(&file_content).expect("Unable to parse file");

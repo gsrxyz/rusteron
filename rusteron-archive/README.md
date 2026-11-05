@@ -1,6 +1,7 @@
 # rusteron-archive
 
-rusteron-archive is a module in the [rusteron](https://github.com/gsrxyz/rusteron) project for working with Aeron's archive from Rust. It builds on rusteron-client and adds support for recording, managing and replaying archived streams.
+`rusteron-archive` wraps the Aeron C Archive client. It includes the client APIs from
+`rusteron-client` and adds recording, replay, replication and persistent subscriptions.
 
 ---
 
@@ -14,9 +15,7 @@ It runs in GSR's real-time trading stack and is developed under the GSR GitHub o
 
 ## Overview
 
-The rusteron-archive module lets Rust developers use Aeron's archive, including recording and replaying messages.
-
-On macOS, the easiest way to start is the static library with precompiled C dependencies. This avoids the need for `cmake` or Java:
+On macOS, precompiled static libraries let you build without `cmake` or Java:
 
 ```toml
 rusteron-archive = { version = "0.2", features = ["static", "precompile"] }
@@ -78,7 +77,7 @@ Wrapper types in rusteron-archive implement `Clone` and share the same underlyin
 
 ### Mutable and immutable APIs
 
-Most methods use `&self`, allowing mutation without full ownership transfer.
+Most methods take `&self` and update the C resource without transferring ownership.
 
 ### Resource management caveats
 
@@ -104,9 +103,9 @@ subscription.poll_fn(|buf: &[u8], header: &AeronHeader| println!("{} bytes", buf
 `Handlers::NONE` fits any optional callback slot.
 
 Handler registration, callbacks, error checking and idle strategies work the same way here as in rusteron-client. See these sections of its documentation:
-- [rusteron-client: Handlers and Callbacks](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/README.md#handlers-and-callbacks)
-- [rusteron-client: Errors & Offer Results](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/README.md#errors--offer-results)
-- [rusteron-client: Idle Strategies](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/README.md#idle-strategies)
+- [rusteron-client: Handlers and callbacks](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/README.md#handlers-and-callbacks)
+- [rusteron-client: Errors and offer results](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/README.md#errors--offer-results)
+- [rusteron-client: Idle strategies](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/README.md#idle-strategies)
 
 Archive control operations (`start_recording`, `start_replay`, `stop_recording_subscription`, …) return
 `Result<_, AeronArchiveError>`, which holds a typed code (`AeronArchiveErrorCode`) and the archive's
@@ -115,11 +114,14 @@ message. Constructors, async-connect and context setters return `AeronCError`;
 
 ---
 
-## Documentation & guides
+<a id="documentation--guides"></a>
 
-For detailed guides and code snippets on Aeron features in Rust, see:
-- [Multi-Destination Subscription (MDC / MDS) Guide](https://github.com/gsrxyz/rusteron/blob/main/docs/mdc_mds_guide.md)
-- [Media Driver Configuration & Back-pressure Guide](https://github.com/gsrxyz/rusteron/blob/main/docs/media_driver_configuration_and_backpressure_guide.md)
+## Documentation and guides
+
+See these guides for configuration and examples:
+
+- [Multi-destination subscription guide](https://github.com/gsrxyz/rusteron/blob/main/docs/mdc_mds_guide.md)
+- [Media Driver configuration and back-pressure guide](https://github.com/gsrxyz/rusteron/blob/main/docs/media_driver_configuration_and_backpressure_guide.md)
 - [What's new in 0.2](https://github.com/gsrxyz/rusteron/blob/main/docs/whats_new_0.2.md)
 - [Migrating from 0.1.168 to 0.2](https://github.com/gsrxyz/rusteron/blob/main/docs/migrating_0.1.168_to_0.2.md)
 - [Tuning on x86-64 Linux](https://github.com/gsrxyz/rusteron/blob/main/docs/tuning_x86_64_linux.md)
@@ -151,6 +153,38 @@ See [`examples/record_and_replay.rs`](https://github.com/gsrxyz/rusteron/blob/ma
 
 ---
 
+## Replaying an empty recording
+
+`AeronArchiveReplayParams` uses `position(-1)` to start at the recording's start position.
+Use `length(-2)` to replay all available data and stop. An empty recording returns
+`AeronArchiveErrorCode::EmptyRecording`, whether it is still recording or has stopped.
+Use `length(-1)` to follow a live recording. That replay waits for new messages when the
+recording is empty. These values come from `aeron_archive.h`.
+
+```rust
+use rusteron_archive::AeronArchiveReplayParams;
+
+let replay_available = AeronArchiveReplayParams::builder()
+    .position(-1)
+    .length(-2)
+    .build()?;
+let follow_live = AeronArchiveReplayParams::builder()
+    .position(-1)
+    .length(-1)
+    .build()?;
+# Ok::<(), rusteron_archive::AeronCError>(())
+```
+
+Truncating a recording stops its active replays. Stop recording before calling
+`truncate_recording`.
+
+An Archive context can create its own Aeron client. `set_client_name` sets that client's
+name and the name in the Archive control session counter. Names must fit in 100 UTF-8
+bytes. If you supply an Aeron client with `set_aeron`, set that client's name on its own
+`AeronContext`.
+
+---
+
 ## Duty cycle
 
 Each object is driven by its own call, once a cycle:
@@ -172,7 +206,18 @@ loop {
 # }
 ```
 
-Persistent subscriptions share none of their per-poll work. Each has its own archive client, and every poll checks its control session before it reads the live image. Idle, on two 4-vCPU Azure VMs on 2026-10-09 (an earlier run than the one in BENCHMARKS.md), a poll cost 22–24 ns on both with the client's conductor thread, against 8–12 ns for a plain subscription, and 35 ns (AMD) or 43 ns (Intel) with 100 of them. With the agent invoker every poll also runs the conductor, which costs 54–62 ns, and 69 ns (AMD) or 107 ns (Intel) with 100. The conductor thread was slower to bring 100 of them to LIVE, though (3.6–3.8 s against about 0.8 s), possibly because it sleeps 16 ms when idle (`AERON_CLIENT_IDLE_SLEEP_DURATION`).
+Each persistent subscription has its own Archive client. Every poll checks its
+control session before reading the live image. On two 4-vCPU Azure VMs on
+2026-10-09, an idle poll took 22 to 24 ns with the client's conductor thread,
+compared with 8 to 12 ns for a plain subscription. With 100 persistent subscriptions,
+the per-subscription poll took 35 ns on AMD and 43 ns on Intel.
+
+With the agent invoker, every poll also runs the conductor. An idle poll then took
+54 to 62 ns, or 69 ns on AMD and 107 ns on Intel with 100 subscriptions. The
+conductor thread took longer to bring 100 subscriptions to LIVE, 3.6 to 3.8 s
+compared with about 0.8 s for the invoker. Its 16 ms idle sleep,
+`AERON_CLIENT_IDLE_SLEEP_DURATION`, may explain that difference. These measurements
+precede the run in BENCHMARKS.md.
 
 Blocking archive calls idle with the C client's default backoff strategy between polls (Aeron C++ yields instead); `archive_context.set_idle_strategy(..)` replaces it.
 
@@ -236,9 +281,9 @@ ps.close()?;
 # Ok(()) }
 ```
 
-**Polling & errors.** `ps.poll_fn()` drives the PS state machine *and* its own archive client, so it needs nothing from your `AeronArchive`. See [Duty cycle](#duty-cycle) for what else to call each cycle. Loop on `ps.is_live()`, checking `ps.has_failed()` each iteration (reason via `get_failure_reason()`). The listener's `on_error` covers non-terminal errors; `on_live_left`/`on_live_joined` may fire repeatedly as it falls back and rejoins.
+`ps.poll_fn()` runs the persistent subscription state machine and its Archive client. It does not need calls on your `AeronArchive`. See [Duty cycle](#duty-cycle) for what else to call each cycle. Loop on `ps.is_live()`, checking `ps.has_failed()` each iteration (reason via `get_failure_reason()`). The listener's `on_error` covers non-terminal errors; `on_live_left`/`on_live_joined` may fire repeatedly as it falls back and rejoins.
 
-**Fragment assembly.** Unlike `AeronSubscription`, the persistent subscription reassembles fragments internally. The C `aeron_archive_persistent_subscription_poll` routes each image through `aeron_image_fragment_assembler_handler`, so your handler receives whole messages directly. Just poll:
+A persistent subscription reassembles fragments internally. The C `aeron_archive_persistent_subscription_poll` routes each image through `aeron_image_fragment_assembler_handler`, so your handler receives whole messages directly. Poll for complete messages:
 
 ```rust,no_run
 # use rusteron_archive::*;
@@ -267,7 +312,8 @@ loop {
 # Ok(()) }
 ```
 
-For a fully runnable version, see the example and integration tests:
+The examples and integration tests cover these cases:
+
 - [`examples/record_and_replay.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/examples/record_and_replay.rs): the typical workflow end to end, which records a stream, finds the recording and replays it
 - [`examples/persistent_subscription.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/examples/persistent_subscription.rs): standalone demo (run with `cargo run --release --features "static precompile" --example persistent_subscription`)
 - [`examples/archive_error_handling.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/examples/archive_error_handling.rs): error handlers on both contexts, recording signals, typed control-session errors (blocking calls return `AeronArchiveError` with `e.code`; `archive.poll_for_error()` drains unsolicited ones, always with `Generic` code), and reconnecting after the archive goes down
@@ -275,8 +321,8 @@ For a fully runnable version, see the example and integration tests:
 - [`examples/replay_merge.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/examples/replay_merge.rs): late-joiner catch-up that replays recorded history, then merges onto the live MDC stream (`AeronArchiveReplayMerge`)
 - [`examples/recording_throughput.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/examples/recording_throughput.rs): recording throughput measurement (publish rate vs archiver catch-up) and `list_recordings` descriptor enumeration
 - [`examples/recording_replication.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/examples/recording_replication.rs): archive-to-archive replication (`archive.replicate`), where a destination archive pulls a finished recording from a source archive and the copy is verified (port of `RecordingReplicator`)
-- `persistent_subscription_tests::test_persistent_subscription_listener_live_joined` (callback wiring)
-- `persistent_subscription_integration::test_end_to_end_persistent_subscription` (record → replay → live)
+- `persistent_subscription_tests::test_persistent_subscription_listener_live_joined` (listener callbacks)
+- `persistent_subscription_integration::test_end_to_end_persistent_subscription` (recording, replay and live delivery)
 
 ---
 
@@ -288,17 +334,10 @@ See [BENCHMARKS.md](https://github.com/gsrxyz/rusteron/blob/main/BENCHMARKS.md) 
 
 ## Contributing
 
-We welcome contributions. Please:
-
-* Submit bug reports, ideas, or improvements via GitHub Issues
-* Propose changes via pull requests
-* Read our [CONTRIBUTING.md](https://github.com/gsrxyz/rusteron/blob/main/CONTRIBUTING.md)
-
-We are especially looking for help with:
-
-* API design reviews
-* Safety and idiomatic improvements
-* Dockerised and deployment examples
+Report bugs and propose changes through GitHub Issues and pull requests.
+See [CONTRIBUTING.md](https://github.com/gsrxyz/rusteron/blob/main/CONTRIBUTING.md)
+for the workflow and required checks. Contributions can cover API design, safety,
+Rust conventions and deployment examples.
 
 ---
 

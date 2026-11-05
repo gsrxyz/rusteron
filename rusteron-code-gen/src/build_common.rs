@@ -4,7 +4,7 @@
 // This file is `include!`d by each crate's build.rs (NOT compiled as part of
 // rusteron-code-gen), so `cfg!(feature = ...)` and `env!("CARGO_MANIFEST_DIR")` resolve
 // against the crate being built, exactly as when the three build scripts were copies.
-// Each build.rs supplies a `RusteronBuildConfig` describing what actually varies:
+// Each build.rs supplies a `RusteronBuildConfig` with the per-crate settings:
 // cmake targets, header path, bindgen extras, and an optional pre-build hook.
 
 use std::path::{Path, PathBuf};
@@ -420,7 +420,7 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     }
 
     // Trying to figure out the final path is a bit weird;
-    // For Linux/OSX, it's just build/lib
+    // Linux and macOS use build/lib.
     // For Windows, the .lib file is in build/lib/{profile}, but the DLL
     // is shipped in build/binaries/{profile}
     let base_lib_dir = cmake_output.join("build");
@@ -433,11 +433,11 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
 
     let mut builder = bindgen::Builder::default()
         .clang_arg(format!("-I{}", header_path.display()))
-        // Match the CMAKE_C_STANDARD 11 used to actually compile the Aeron C sources.
+        // Match the CMAKE_C_STANDARD 11 used to compile the Aeron C sources.
         .clang_arg("-std=gnu11");
     // On Linux, libclang can end up resolving `<stdatomic.h>` to GCC's own
     // copy (found via the default system include path) instead of the one
-    // bundled with the libclang/clang version actually doing the parsing.
+    // bundled with the libclang/clang version parsing the headers.
     if cfg!(target_os = "linux")
         && let Ok(output) = std::process::Command::new("clang").arg("-print-resource-dir").output()
     {

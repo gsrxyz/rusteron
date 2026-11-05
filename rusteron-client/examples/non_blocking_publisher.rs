@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
 
-    // ── Non-blocking publication setup ──────────────────────────────────────
+    // Non-blocking publication setup
     // `add_publication(.., timeout)` would block here until the publication is ready.
     // Instead we take the async poller and drive it ourselves, so the thread is free to do
     // other things while the driver sets up the publication.
@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     println!("publishing to {} on stream id {STREAM_ID}", CHANNEL.to_str()?);
 
-    // ── Publication duty cycle ──────────────────────────────────────────────
+    // Publication duty cycle
     let mut count: u64 = 0;
     while running.load(Ordering::SeqCst) {
         let mut buf = MESSAGE.to_vec();

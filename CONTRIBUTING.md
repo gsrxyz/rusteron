@@ -1,6 +1,6 @@
 # Contributing to rusteron
 
-Thanks for your interest in contributing to rusteron. Contributions are welcome, whether they fix bugs, improve docs or add features.
+Submit bug fixes, documentation changes and new features through pull requests.
 
 ## Before you start
 
@@ -10,7 +10,7 @@ Thanks for your interest in contributing to rusteron. Contributions are welcome,
 
 ## Reporting issues
 
-Use [GitHub Issues](https://github.com/gsrxyz/rusteron/issues) to report bugs, request features, or ask questions. Include clear steps to reproduce and any relevant error messages or context.
+Use [GitHub Issues](https://github.com/gsrxyz/rusteron/issues) to report bugs, request features, or ask questions. Include reproduction steps, error messages and the relevant configuration.
 
 ## Pull request workflow
 
@@ -45,10 +45,10 @@ Use [GitHub Issues](https://github.com/gsrxyz/rusteron/issues) to report bugs, r
 
 ## Documentation
 
-To fix typos, clarify text or fill in missing details, open a PR. No test coverage required for doc-only changes.
+To fix typos, clarify text or fill in missing details, open a PR. Documentation-only changes do not need new tests.
 
 ## Code style and commit tips
 
-* Keep PRs focused and scoped.
+* Keep each pull request focused on one change.
 * Use clear commit messages (e.g. `"Fix: prevent panic on empty buffer"`).
 * Test coverage is expected for fixes or new features.
