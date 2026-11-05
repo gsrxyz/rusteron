@@ -4,6 +4,12 @@ Main changes, newest first, grouped by published crate version. Release-only
 commits, build logs, and changes later reverted or superseded are omitted.
 Early history predating the available release tags is grouped separately.
 
+## 0.2.19
+
+- Added `AeronUriStringBuilder::socket_tos` for UDP traffic class and `untethered_linger_timeout` for untethered subscription linger timeouts.
+- Update docs and general clean-up
+- More unit tests
+
 ## 0.2.18
 
 - Updated bindgen to 0.73, syn to 3 and proptest to 1.12. bindgen now mangles `C` and `C-unwind` functions alike, so the `trust_clang_mangling(false)` workaround is gone.

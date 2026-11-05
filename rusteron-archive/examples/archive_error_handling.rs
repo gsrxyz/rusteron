@@ -52,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &events_channel,
     )?;
 
-    // ── 1. Error handlers on BOTH contexts (closures are accepted directly) ──
+    // 1. Error handlers on BOTH contexts (closures are accepted directly)
     let client_errors = Arc::new(AtomicUsize::new(0));
     let aeron_context = AeronContext::new()?;
     aeron_context.set_dir(&cformat!("{aeron_dir}"))?;
@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("[archive error] {code}: {msg}");
     }))?;
 
-    // ── 2. Recording signals: the archive announces recording lifecycle events ──
+    // 2. Recording signals: the archive announces recording lifecycle events
     struct SignalLogger(Arc<AtomicUsize>);
     impl AeronArchiveRecordingSignalConsumerFuncCallback for SignalLogger {
         fn handle_aeron_archive_recording_signal_consumer_func(&mut self, signal: &AeronArchiveRecordingSignal) {
@@ -102,7 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // the recording stops with its publication; the STOP signal arrives on a later do_work
     drop(publication);
 
-    // ── 3. Control-session errors ──
+    // 3. Control-session errors
     // Ask the archive to replay a recording that does not exist. The blocking call
     // returns the refusal, typed
     let bogus_recording_id = 424242;
@@ -126,7 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert!(archive.poll_for_error()?.is_none(), "unexpected archive error");
     archive.do_work()?;
 
-    // ── 4. Archive down: a request fails, then reconnect with bounded retries ──
+    // 4. Archive down: a request fails, then reconnect with bounded retries
     println!("stopping the archive process to simulate an outage...");
     drop(process); // kills the Java archive + media driver
 

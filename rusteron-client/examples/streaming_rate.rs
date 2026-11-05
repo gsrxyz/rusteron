@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .async_add_publication(AERON_IPC_STREAM, STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
 
-    // ── rate subscriber (rate_subscriber.c) ─────────────────────────────
+    // rate subscriber (rate_subscriber.c)
     // The subscriber keeps plain counters (single writer, no atomics on the hot path) and
     // returns them when it stops. It stops once it has seen everything the publisher sent.
     // It has its own client: without `multi-threaded` a handle stays on the thread whose
@@ -103,7 +103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // ── streaming publisher (streaming_publisher.c) ─────────────────────
+    // streaming publisher (streaming_publisher.c)
     let message = vec![42u8; MESSAGE_LENGTH];
     let mut back_pressure = 0u64;
     let mut not_connected_spins = 0u64;

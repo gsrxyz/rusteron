@@ -312,12 +312,10 @@ mdc-loss-run duration='180' report_interval='30' loss='0.10' host='' force_lo0='
 
 # Run the Aeron Archive Driver using Java
 run-aeron-archive-driver:
-    cd ./rusteron-client/aeron; ./gradlew :aeron-all:build; cd -
-    cd ./rusteron-client/aeron; ./gradlew :aeron-agent:jar; cd -
+    cd ./rusteron-client/aeron && ./gradlew :aeron-all:shadowJar
     java \
       --add-opens java.base/jdk.internal.misc=ALL-UNNAMED \
-      -javaagent:./rusteron-client/aeron/aeron-agent/build/libs/aeron-agent-1.48.0-SNAPSHOT.jar \
-      -cp ./rusteron-client/aeron/aeron-all/build/libs/aeron-all-1.48.0-SNAPSHOT.jar:./rusteron-client/aeron/aeron-archive/build/libs/aeron-archive-1.48.0-SNAPSHOT.jar \
+      -cp ./rusteron-client/aeron/aeron-all/build/libs/aeron-all-{{aeron_version}}.jar \
       -Daeron.dir=target/aeron \
       -Daeron.archive.dir=target/aeron/archive \
       -Daeron.event.log=all \
@@ -487,7 +485,7 @@ aeron-stat dir:
 # =============================================================================
 
 # Update Aeron submodules to a tag, branch, or commit.
-# Usage: just update-aeron-version 1.48.5   (auto-detects tag)
+# Usage: just update-aeron-version 1.54.0   (auto-detects tag)
 #        just update-aeron-version master
 #        just update-aeron-version <commit-sha>
 update-aeron-version version:

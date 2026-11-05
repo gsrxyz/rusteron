@@ -12,7 +12,7 @@
 //! ```
 
 use rusteron_archive::testing::{
-    EmbeddedArchiveMediaDriverProcess, find_counter_id_by_session_blocking, find_unused_udp_port,
+    EmbeddedArchiveMediaDriverProcess, find_counter_id_by_session_in_archive_blocking, find_unused_udp_port,
 };
 use rusteron_archive::*;
 use std::thread::sleep;
@@ -50,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)?.poll_blocking(Duration::from_secs(20))?;
     println!("connected to archive");
 
-    // ── record an IPC stream and blast a burst through it ────────────────
+    // record an IPC stream and blast a burst through it
     let subscription_id = archive.start_recording(AERON_IPC_STREAM, STREAM_ID, SOURCE_LOCATION_LOCAL, true)?;
     let publication = aeron
         .async_add_exclusive_publication(AERON_IPC_STREAM, STREAM_ID)?
@@ -82,10 +82,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         mb / publish_elapsed.as_secs_f64()
     );
 
-    // ── how long until the archiver has everything on disk? ──────────────
+    // how long until the archiver has everything on disk?
     let session_id = publication.get_constants()?.session_id;
     let counters = aeron.counters_reader();
-    let counter_id = find_counter_id_by_session_blocking(&counters, session_id, Duration::from_secs(5))?;
+    let counter_id = find_counter_id_by_session_in_archive_blocking(
+        &counters,
+        session_id,
+        archive.get_archive_id(),
+        Duration::from_secs(5),
+    )?;
     let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
     let target = publication.position();
     let catchup_start = Instant::now();
@@ -102,7 +107,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     archive.stop_recording_subscription(subscription_id)?;
 
-    // ── list recordings, like the RecordingDescriptor utilities ──────────
+    // list recordings, like the RecordingDescriptor utilities
     println!("\nrecordings in the archive:");
     let mut count = 0i32;
     archive.list_recordings_fn(&mut count, 0, 100, |descriptor: &AeronArchiveRecordingDescriptor| {

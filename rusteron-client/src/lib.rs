@@ -18,6 +18,8 @@
 
 #[allow(improper_ctypes_definitions)]
 #[allow(unpredictable_function_pointer_comparisons)]
+// Preserve upstream Doxygen markup and bracketed IPv6 examples in the raw C comments.
+#[allow(rustdoc::broken_intra_doc_links, rustdoc::invalid_html_tags)]
 pub mod bindings {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
@@ -58,6 +60,406 @@ mod media_driver_guide_doctests {}
 mod panic_tests;
 
 #[cfg(test)]
+mod aeron_version_tests {
+    //! Regressions for the C URI changes and builder options in Aeron 1.54.
+
+    use super::*;
+    use std::ffi::CStr;
+
+    // aeron_uri_parse allocates the additional-parameter array, including on some
+    // failure paths. Keep it alive while reading its strings and always free it.
+    struct ParsedUri(AeronUri);
+
+    impl ParsedUri {
+        fn new() -> Self {
+            Self(AeronUri::default())
+        }
+
+        fn parameter(&self, key: &CStr) -> Option<&CStr> {
+            unsafe {
+                let params = match self.0.type_() {
+                    aeron_uri_type_t::AERON_URI_UDP => &(*self.0.get_inner()).params.udp.additional_params,
+                    aeron_uri_type_t::AERON_URI_IPC => &(*self.0.get_inner()).params.ipc.additional_params,
+                    _ => panic!("URI has not been parsed"),
+                };
+                let value = aeron_uri_find_param_value(params, key.as_ptr());
+                if value.is_null() {
+                    None
+                } else {
+                    Some(CStr::from_ptr(value))
+                }
+            }
+        }
+    }
+
+    impl Drop for ParsedUri {
+        fn drop(&mut self) {
+            unsafe { aeron_uri_close(self.0.get_inner()) };
+        }
+    }
+
+    #[test]
+    fn uri_parameter_lookup_matches_the_entire_key() -> Result<(), AeronCError> {
+        for channel in [
+            c"aeron:ipc?alias-extra=wrong|alias=correct",
+            c"aeron:udp?endpoint=127.0.0.1:40123|alias-extra=wrong|alias=correct",
+        ] {
+            let uri = ParsedUri::new();
+            uri.0.parse(channel.to_bytes().len(), channel)?;
+            assert_eq!(uri.parameter(c"alias"), Some(c"correct"));
+            assert_eq!(uri.parameter(c"alias-extra"), Some(c"wrong"));
+            assert_eq!(uri.parameter(c"alia"), None);
+            assert_eq!(uri.parameter(c"alias-extra-long"), None);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn uri_parser_rejects_empty_final_values() -> Result<(), AeronCError> {
+        for channel in [
+            c"aeron:ipc?alias=",
+            c"aeron:ipc?term-length=64k|alias=",
+            c"aeron:udp?endpoint=127.0.0.1:40123|alias=",
+            c"aeron:udp?endpoint=",
+        ] {
+            let uri = ParsedUri::new();
+            assert!(uri.0.parse(channel.to_bytes().len(), channel).is_err(), "{channel:?}");
+        }
+        for channel in [
+            c"aeron:ipc",
+            c"aeron:ipc?alias=valid",
+            c"aeron:udp?endpoint=127.0.0.1:40123",
+        ] {
+            let uri = ParsedUri::new();
+            uri.0.parse(channel.to_bytes().len(), channel)?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn uri_builder_round_trips_traffic_class_and_untethered_timeouts() -> Result<(), Box<dyn std::error::Error>> {
+        let builder = AeronUriStringBuilder::udp("127.0.0.1:40123")?;
+        builder
+            .tether(false)?
+            .linger_timeout(99)?
+            .untethered_window_limit_timeout(1_000_000)?
+            .untethered_linger_timeout(2_000_000)?
+            .untethered_resting_timeout(3_000_000)?;
+        // Replacing a setting must update its value, including the byte boundaries.
+        for tos in [0, 184, 255] {
+            builder.socket_tos(tos)?;
+            let channel = builder.build(1024)?.into_c_string();
+            let uri = ParsedUri::new();
+            uri.0.parse(channel.to_bytes().len(), &channel)?;
+            assert_eq!(uri.parameter(c"so-tos").unwrap().to_str()?, tos.to_string());
+            assert_eq!(uri.parameter(c"tether"), Some(c"false"));
+            assert_eq!(uri.parameter(c"linger"), Some(c"99"));
+            assert_eq!(uri.parameter(c"untethered-window-limit-timeout"), Some(c"1000000"));
+            assert_eq!(uri.parameter(c"untethered-linger-timeout"), Some(c"2000000"));
+            assert_eq!(uri.parameter(c"untethered-resting-timeout"), Some(c"3000000"));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod assembler_session_cleanup {
+    //! Exercise session-buffer deletion against fragments delivered by an embedded driver.
+
+    use super::*;
+    use rusteron_media_driver::testing::EmbeddedDriver;
+    use serial_test::serial;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use std::time::{Duration, Instant};
+
+    enum Assembler {
+        Regular(Handler<AeronFragmentAssembler>),
+        Controlled(Handler<AeronControlledFragmentAssembler>),
+    }
+
+    impl Assembler {
+        fn poll(&self, subscription: &AeronSubscription, limit: usize) -> Result<i32, AeronCError> {
+            match self {
+                Self::Regular(handler) => subscription.poll(Some(handler), limit),
+                Self::Controlled(handler) => subscription.controlled_poll(Some(handler), limit),
+            }
+        }
+
+        fn delete_session_buffer(&self, session_id: i32) -> bool {
+            match self {
+                Self::Regular(handler) => handler.delete_session_buffer(session_id),
+                Self::Controlled(handler) => handler.delete_session_buffer(session_id),
+            }
+        }
+    }
+
+    fn wait(mut done: impl FnMut() -> bool) {
+        let timeout = if std::env::var_os("RUSTERON_VALGRIND").is_some() {
+            180
+        } else {
+            5
+        };
+        let deadline = Instant::now() + Duration::from_secs(timeout);
+        while !done() {
+            assert!(Instant::now() < deadline, "timed out waiting for fragments");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    fn exercise_session_cleanup(controlled: bool) -> Result<(), Box<dyn std::error::Error>> {
+        // RAII stops the driver on assertion failure too; handles drop before it.
+        let driver = EmbeddedDriver::launch_with(|ctx| {
+            ctx.set_threading_mode(
+                rusteron_media_driver::bindings::aeron_threading_mode_t::AERON_THREADING_MODE_SHARED,
+            )?;
+            ctx.set_ipc_term_buffer_length(64 * 1024)?;
+            if std::env::var_os("RUSTERON_VALGRIND").is_some() {
+                ctx.set_client_liveness_timeout_ns(180_000_000_000)?;
+                ctx.set_image_liveness_timeout_ns(180_000_000_000)?;
+                ctx.set_publication_unblock_timeout_ns(185_000_000_000)?;
+            }
+            Ok(())
+        })?;
+        let context = AeronContext::new()?;
+        context.set_dir(&driver.dir().into_c_string())?;
+        context.set_driver_timeout_ms(180_000)?;
+        let client = Aeron::new(&context)?;
+        client.start()?;
+        let subscription = client.add_subscription(
+            AERON_IPC_STREAM,
+            1540,
+            Handlers::NONE,
+            Handlers::NONE,
+            Duration::from_secs(5),
+        )?;
+        let publication = client.add_publication(AERON_IPC_STREAM, 1540, Duration::from_secs(5))?;
+        wait(|| subscription.is_connected() && publication.is_connected());
+
+        let messages = Rc::new(RefCell::new(Vec::new()));
+        let received = messages.clone();
+        let assembler = if controlled {
+            let (assembler, _) = Handler::with_controlled_fragment_assembler(move |buffer: &[u8], _: &AeronHeader| {
+                received.borrow_mut().push(buffer.to_vec());
+                bindings::aeron_controlled_fragment_handler_action_t::AERON_ACTION_CONTINUE
+            })?;
+            Assembler::Controlled(assembler)
+        } else {
+            let (assembler, _) = Handler::with_fragment_assembler(move |buffer: &[u8], _: &AeronHeader| {
+                received.borrow_mut().push(buffer.to_vec());
+            })?;
+            Assembler::Regular(assembler)
+        };
+        let session_id = publication.session_id();
+        assert!(!assembler.delete_session_buffer(session_id));
+
+        // Exactly two fragments: discard an in-progress assembly after its BEGIN.
+        let abandoned = vec![0x11; publication.max_payload_length()? + 17];
+        wait(|| match publication.offer(&abandoned) {
+            Ok(_) => true,
+            Err(e) if e.is_retryable() => false,
+            Err(e) => panic!("offer failed: {e}"),
+        });
+        wait(|| assembler.poll(&subscription, 1).unwrap() == 1);
+        assert!(messages.borrow().is_empty());
+        assert!(assembler.delete_session_buffer(session_id));
+        assert!(!assembler.delete_session_buffer(session_id));
+
+        // The orphan END must be ignored, with no partial message delivered.
+        wait(|| assembler.poll(&subscription, 1).unwrap() == 1);
+        assert!(messages.borrow().is_empty());
+
+        // A fresh BEGIN for the same session must create a new buffer and reassemble.
+        let expected = vec![0x22; abandoned.len()];
+        wait(|| match publication.offer(&expected) {
+            Ok(_) => true,
+            Err(e) if e.is_retryable() => false,
+            Err(e) => panic!("offer failed: {e}"),
+        });
+        wait(|| {
+            assembler.poll(&subscription, 10).unwrap();
+            !messages.borrow().is_empty()
+        });
+        assert_eq!(messages.borrow().as_slice(), &[expected]);
+        assert!(assembler.delete_session_buffer(session_id));
+        assert!(!assembler.delete_session_buffer(session_id));
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn fragment_assembler_discards_partial_session_and_reassembles_again() -> Result<(), Box<dyn std::error::Error>> {
+        exercise_session_cleanup(false)
+    }
+
+    #[test]
+    #[serial]
+    fn controlled_fragment_assembler_discards_partial_session_and_reassembles_again()
+    -> Result<(), Box<dyn std::error::Error>> {
+        exercise_session_cleanup(true)
+    }
+}
+
+#[cfg(test)]
+mod udp_timestamp_tests {
+    use super::*;
+    use rusteron_media_driver::testing::EmbeddedDriver;
+    use serial_test::serial;
+    use std::net::UdpSocket;
+    use std::time::{Duration, Instant};
+
+    fn timestamps_cover_every_frame(media_timestamps: bool) -> Result<(), Box<dyn std::error::Error>> {
+        let timeout = Duration::from_secs(if std::env::var_os("RUSTERON_VALGRIND").is_some() {
+            180
+        } else {
+            10
+        });
+        let driver = EmbeddedDriver::launch_with(|ctx| {
+            ctx.set_threading_mode(
+                rusteron_media_driver::bindings::aeron_threading_mode_t::AERON_THREADING_MODE_SHARED,
+            )?;
+            ctx.set_term_buffer_length(64 * 1024)?;
+            ctx.set_client_liveness_timeout_ns(180_000_000_000)?;
+            ctx.set_image_liveness_timeout_ns(180_000_000_000)?;
+            ctx.set_publication_unblock_timeout_ns(185_000_000_000)?;
+            Ok(())
+        })?;
+        let context = AeronContext::new()?;
+        context.set_dir(&driver.dir().into_c_string())?;
+        context.set_driver_timeout_ms(timeout.as_millis() as u64)?;
+        let client = Aeron::new(&context)?;
+        client.start()?;
+
+        let endpoint = UdpSocket::bind("127.0.0.1:0")?;
+        let receiver = endpoint.local_addr()?;
+        drop(endpoint);
+        let proxy = UdpSocket::bind("127.0.0.1:0")?;
+        proxy.set_nonblocking(true)?;
+        let receive_options = if media_timestamps {
+            "media-rcv-ts-offset=reserved"
+        } else {
+            "channel-rcv-ts-offset=8"
+        };
+        let subscribe_channel = format!("aeron:udp?endpoint={receiver}|{receive_options}").into_c_string();
+        let publish_channel = format!(
+            "aeron:udp?endpoint={}|term-length=64k|mtu=1408|channel-snd-ts-offset=0",
+            proxy.local_addr()?
+        )
+        .into_c_string();
+        let subscription =
+            client.add_subscription(&subscribe_channel, 1540, Handlers::NONE, Handlers::NONE, timeout)?;
+        let publication = client.add_exclusive_publication(&publish_channel, 1540, timeout)?;
+
+        // Relay setup/status messages as well as data. Inspect the actual UDP packet
+        // so this cannot silently pass by sending each message in a separate packet.
+        let mut publisher = None;
+        let mut data_packet_lengths = Vec::new();
+        let mut relay = || -> std::io::Result<()> {
+            let mut packet = [0_u8; 2048];
+            loop {
+                let (length, source) = match proxy.recv_from(&mut packet) {
+                    Ok(packet) => packet,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                    Err(e) => return Err(e),
+                };
+                let target = if source == receiver {
+                    publisher.expect("setup must precede status messages")
+                } else {
+                    publisher = Some(source);
+                    if length >= 32 && packet[6..8] == 1_i16.to_le_bytes() && packet[..4] != [0; 4] {
+                        data_packet_lengths.push(length);
+                    }
+                    receiver
+                };
+                assert_eq!(proxy.send_to(&packet[..length], target)?, length);
+            }
+            Ok(())
+        };
+        let deadline = Instant::now() + timeout;
+        while !publication.is_connected() || !subscription.is_connected() {
+            relay()?;
+            assert!(Instant::now() < deadline, "UDP publication did not connect");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+
+        // Atomically publish two aligned, unfragmented DATA frames in one block.
+        // The sender can then batch both frames into a single datagram under the MTU.
+        let constants = publication.get_constants()?;
+        let mut block = [0xff_u8; 128];
+        for (index, frame) in block.chunks_exact_mut(64).enumerate() {
+            frame[0..4].copy_from_slice(&64_i32.to_le_bytes());
+            frame[4] = 0; // protocol version
+            frame[5] = 0xc0; // BEGIN | END
+            frame[6..8].copy_from_slice(&1_i16.to_le_bytes()); // DATA
+            frame[8..12].copy_from_slice(&(index as i32 * 64).to_le_bytes());
+            frame[12..16].copy_from_slice(&constants.session_id.to_le_bytes());
+            frame[16..20].copy_from_slice(&1540_i32.to_le_bytes());
+            frame[20..24].copy_from_slice(&constants.initial_term_id.to_le_bytes());
+            frame[48..56].copy_from_slice(&(index as i64).to_le_bytes());
+        }
+        let deadline = Instant::now() + timeout;
+        loop {
+            match AeronOfferError::from_position(publication.offer_block(&block)) {
+                Ok(position) => {
+                    assert_eq!(position, 128);
+                    break;
+                }
+                Err(e) if e.is_retryable() => (),
+                Err(e) => return Err(e.into()),
+            }
+            relay()?;
+            assert!(Instant::now() < deadline, "batched offer remained back pressured");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let mut received = Vec::new();
+        let deadline = Instant::now() + timeout;
+        while received.len() < 2 {
+            relay()?;
+            subscription.poll_fn(
+                |payload, header| {
+                    assert_eq!(payload.len(), 32);
+                    let sent = i64::from_le_bytes(payload[0..8].try_into().unwrap());
+                    let received_at = if media_timestamps {
+                        header.reserved_value().expect("DATA header has a reserved value")
+                    } else {
+                        i64::from_le_bytes(payload[8..16].try_into().unwrap())
+                    };
+                    let index = i64::from_le_bytes(payload[16..24].try_into().unwrap());
+                    assert!(sent > 0, "frame {index} has no send timestamp");
+                    assert!(received_at >= sent, "frame {index} has no valid receive timestamp");
+                    assert_eq!(&payload[24..], &[0xff; 8], "timestamp corrupted payload");
+                    received.push((index, received_at));
+                },
+                10,
+            )?;
+            assert!(Instant::now() < deadline, "batched frames were not delivered");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        drop(relay);
+        assert_eq!(data_packet_lengths, [128], "expected exactly one two-frame datagram");
+        assert_eq!(received.iter().map(|entry| entry.0).collect::<Vec<_>>(), [0, 1]);
+        assert_eq!(
+            received[0].1, received[1].1,
+            "both frames share the packet's receive time"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn batched_udp_frames_each_get_channel_timestamps() -> Result<(), Box<dyn std::error::Error>> {
+        timestamps_cover_every_frame(false)
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[serial]
+    fn batched_udp_frames_each_get_media_timestamps() -> Result<(), Box<dyn std::error::Error>> {
+        timestamps_cover_every_frame(true)
+    }
+}
+
+#[cfg(test)]
 mod idle_strategy_tests {
     use super::*;
     use std::time::Instant;
@@ -82,7 +484,7 @@ mod idle_strategy_tests {
         let mut idle = BackoffIdleStrategy::new();
         // work done -> effectively free
         idle.idle(1);
-        // no work: walk spin -> yield -> park without crashing; parking must take real time
+        // With no work, spin, yield and park. Parking must take measurable time.
         let start = Instant::now();
         for _ in 0..100 {
             idle.idle(0);
@@ -121,7 +523,7 @@ mod idle_strategy_tests {
     fn busy_spin_and_yield_return_on_work() {
         let mut s = BusySpinIdleStrategy;
         s.idle(5); // work done -> must not block
-        s.idle(0); // no work -> just a pause hint, returns immediately
+        s.idle(0); // With no work, issue a pause hint and return immediately.
 
         let mut y = YieldingIdleStrategy;
         y.idle(3); // work done
@@ -510,7 +912,7 @@ mod tests {
                     }
                     std::thread::sleep(Duration::from_millis(10));
                 }
-                // We don't assert on got, just exercise the path.
+                // Exercise the poll path without asserting on got.
             }
         }
 
@@ -1498,7 +1900,7 @@ mod tests {
         stop.store(true, Ordering::SeqCst);
         let _ = driver_handle.join().unwrap();
 
-        // Release all context handlers now that Aeron and the driver are fully stopped.
+        // Release all context handlers now that Aeron and the driver are stopped.
 
         let cnc = AeronCnc::open(&ctx.get_dir().into_c_string())?;
         cnc.counters_reader()
@@ -1797,7 +2199,7 @@ mod tests {
         Ok(())
     }
 
-    /// A simple error counter for testing error callback invocation.
+    /// Counts error callback invocations.
     #[derive(Default, Debug)]
     struct TestErrorCount {
         pub error_count: usize,
@@ -2043,7 +2445,7 @@ mod tests {
     pub fn structural_close_safety_test() -> Result<(), Box<dyn error::Error>> {
         // Under the new design, close(self) consumes the handle, so use-after-close
         // is a compile error, not a runtime check. This test verifies that
-        // structural teardown (the ManagedCResource::Drop path) frees
+        // Dropping ManagedCResource frees
         // the C resource without errors.
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
 
@@ -2064,7 +2466,7 @@ mod tests {
         let publisher = aeron.add_publication(AERON_IPC_STREAM, 123, Duration::from_secs(5))?;
 
         // Consume the publication handle. close(self) drops it, and the cleanup
-        // closure (wired at construction) calls aeron_publication_close on Drop
+        // closure registered at construction calls aeron_publication_close on Drop
         // of the last Rc. No further use of `publisher` is possible at compile
         // time (the binding is moved into close()).
         publisher.close()?;
@@ -2312,7 +2714,7 @@ mod tests {
             totals
         });
 
-        // Ensure subscriber has started before publisher setup.
+        // Wait for the subscriber before setting up the publisher.
         sleep(Duration::from_millis(250));
 
         let publisher_dir = aeron_dir;
@@ -2389,7 +2791,7 @@ mod tests {
 
     #[test]
     #[serial]
-    #[ignore] // need to work to get tags working properly, its more of testing issue then tag issue
+    #[ignore] // Investigate tag setup in this test.
     pub fn tags() -> Result<(), Box<dyn error::Error>> {
         rusteron_code_gen::test_logger::init(log::LevelFilter::Debug);
 
@@ -2569,7 +2971,7 @@ mod tests {
         // 3) Generated constants accessors return sane, consistent values.
         let constants = exclusive.get_constants().expect("publication constants");
         assert_eq!(constants.stream_id, stream_id);
-        // channel is a *const c_char into the C struct; just assert it's a valid C string.
+        // channel points into the C struct. Check that it is a valid C string.
         assert!(!constants.channel.is_null());
         assert_eq!(
             unsafe { std::ffi::CStr::from_ptr(constants.channel) }.to_str().unwrap(),
@@ -2888,7 +3290,7 @@ mod tests {
         }
     }
 
-    // ── Use-after-free tests: aeron dropped before children ───────────────
+    // Use-after-free tests: aeron dropped before children
     //
     // When `drop(aeron)` fires first, the C side calls `aeron_close()` which
     // frees every registered resource (publications, subscriptions, counters,
@@ -2901,6 +3303,185 @@ mod tests {
     // These tests save the raw C pointer before `drop(aeron)`, then call C
     // functions directly on it afterwards to eliminate intermediate Drop
     // machinery that could trigger re-allocation.
+
+    // Ported from Aeron's SessionSpecificPublicationTest and ResponseChannelsTest.
+    fn session_test_channels() -> [std::ffi::CString; 2] {
+        let port = rusteron_media_driver::testing::find_unused_udp_port(21300).expect("no UDP port available");
+        [
+            c"aeron:ipc?term-length=64k".to_owned(),
+            format!("aeron:udp?endpoint=127.0.0.1:{port}|term-length=64k").into_c_string(),
+        ]
+    }
+
+    #[test]
+    #[serial]
+    fn exclusive_publication_rejects_an_existing_session_id() -> Result<(), Box<dyn error::Error>> {
+        let (aeron, _driver, _errors) = setup_aeron_for_uaf_test();
+        for channel in session_test_channels() {
+            let publication = aeron.add_exclusive_publication(&channel, 1544, Duration::from_secs(5))?;
+            let collision =
+                ChannelUri::add_session_id(channel.to_str()?, publication.get_constants()?.session_id).into_c_string();
+            let error = aeron
+                .async_add_exclusive_publication(&collision, 1544)?
+                .poll_blocking(Duration::from_secs(5))
+                .unwrap_err()
+                .capture_errmsg();
+            assert_ne!(error.code, AeronErrorType::TimedOut.code(), "{error}");
+            assert!(error.to_string().contains("session"), "{error}");
+            assert!(!publication.is_closed());
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn exclusive_publication_rejects_a_concurrent_publication_session_id() -> Result<(), Box<dyn error::Error>> {
+        let (aeron, _driver, _errors) = setup_aeron_for_uaf_test();
+        for channel in session_test_channels() {
+            let publication = aeron.add_publication(&channel, 1545, Duration::from_secs(5))?;
+            let collision = ChannelUri::add_session_id(channel.to_str()?, publication.session_id()).into_c_string();
+            let error = aeron
+                .async_add_exclusive_publication(&collision, 1545)?
+                .poll_blocking(Duration::from_secs(5))
+                .unwrap_err()
+                .capture_errmsg();
+            assert_ne!(error.code, AeronErrorType::TimedOut.code(), "{error}");
+            assert!(error.to_string().contains("session"), "{error}");
+            assert!(!publication.is_closed());
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn concurrent_publication_rejects_different_sessions_on_one_stream() -> Result<(), Box<dyn error::Error>> {
+        let (aeron, _driver, _errors) = setup_aeron_for_uaf_test();
+        for channel in session_test_channels() {
+            let first_channel = ChannelUri::add_session_id(channel.to_str()?, 1077).into_c_string();
+            let second_channel = ChannelUri::add_session_id(channel.to_str()?, 1078).into_c_string();
+            let first = aeron.add_publication(&first_channel, 1546, Duration::from_secs(5))?;
+            let error = aeron
+                .async_add_publication(&second_channel, 1546)?
+                .poll_blocking(Duration::from_secs(5))
+                .unwrap_err()
+                .capture_errmsg();
+            assert_ne!(error.code, AeronErrorType::TimedOut.code(), "{error}");
+            assert!(error.to_string().contains("session"), "{error}");
+            assert_eq!(first.session_id(), 1077);
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn publications_allow_the_same_session_id_on_different_streams() -> Result<(), Box<dyn error::Error>> {
+        let (aeron, _driver, _errors) = setup_aeron_for_uaf_test();
+        for channel in session_test_channels() {
+            let channel = ChannelUri::add_session_id(channel.to_str()?, 1077).into_c_string();
+            let first = aeron.add_publication(&channel, 1547, Duration::from_secs(5))?;
+            let second = aeron.add_publication(&channel, 1548, Duration::from_secs(5))?;
+            assert_eq!(first.session_id(), 1077);
+            assert_eq!(second.session_id(), 1077);
+            assert_ne!(first.registration_id(), second.registration_id());
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn exclusive_publications_allocate_distinct_sessions_on_one_stream() -> Result<(), Box<dyn error::Error>> {
+        let (aeron, _driver, _errors) = setup_aeron_for_uaf_test();
+        for channel in session_test_channels() {
+            let first = aeron.add_exclusive_publication(&channel, 1549, Duration::from_secs(5))?;
+            let second = aeron.add_exclusive_publication(&channel, 1549, Duration::from_secs(5))?;
+            assert_ne!(first.get_constants()?.session_id, second.get_constants()?.session_id);
+            assert_ne!(first.registration_id(), second.registration_id());
+        }
+        Ok(())
+    }
+
+    fn response_channel_with_explicit_session(udp: bool) -> Result<(), Box<dyn error::Error>> {
+        let (aeron, _driver, _errors) = setup_aeron_for_uaf_test();
+        let channels = session_test_channels();
+        let request_channel = &channels[usize::from(udp)];
+        let response_channel = if udp {
+            let port = rusteron_media_driver::testing::find_unused_udp_port(21400).ok_or("no UDP port available")?;
+            format!("aeron:udp?control-mode=response|control=127.0.0.1:{port}|session-id=71|term-length=64k")
+                .into_c_string()
+        } else {
+            c"aeron:ipc?control-mode=response|session-id=71|term-length=64k".to_owned()
+        };
+        let requests = aeron.add_subscription(
+            request_channel,
+            1550,
+            Handlers::NONE,
+            Handlers::NONE,
+            Duration::from_secs(5),
+        )?;
+        let responses = aeron.add_subscription(
+            &response_channel,
+            1551,
+            Handlers::NONE,
+            Handlers::NONE,
+            Duration::from_secs(5),
+        )?;
+        let request_publication_channel = ChannelUri::set_param(
+            request_channel.to_str()?,
+            "response-correlation-id",
+            &responses.get_constants()?.registration_id().to_string(),
+        )
+        .into_c_string();
+        let request_publication = aeron.add_publication(&request_publication_channel, 1550, Duration::from_secs(5))?;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !requests.is_connected() || !request_publication.is_connected() {
+            assert!(Instant::now() < deadline, "request channel did not connect");
+            sleep(Duration::from_millis(1));
+        }
+        let image = requests.image_at_index(0).ok_or("request image is missing")?;
+        let response_publication_channel = ChannelUri::set_param(
+            response_channel.to_str()?,
+            "response-correlation-id",
+            &image.get_constants()?.correlation_id().to_string(),
+        )
+        .into_c_string();
+        let response_publication =
+            aeron.add_publication(&response_publication_channel, 1551, Duration::from_secs(5))?;
+        assert_eq!(response_publication.session_id(), 71);
+        let payload = b"response with session 71";
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            match response_publication.offer(payload) {
+                Ok(_) => break,
+                Err(e) if e.is_retryable() => (),
+                Err(e) => return Err(e.into()),
+            }
+            assert!(Instant::now() < deadline, "response channel did not connect");
+            sleep(Duration::from_millis(1));
+        }
+        let mut received = None;
+        while received.is_none() {
+            responses.poll_fn(
+                |buffer, header| received = Some((buffer.to_vec(), header.session_id())),
+                10,
+            )?;
+            assert!(Instant::now() < deadline, "response was not delivered");
+            sleep(Duration::from_millis(1));
+        }
+        assert_eq!(received, Some((payload.to_vec(), Some(71))));
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn udp_response_channel_accepts_an_explicit_session_id() -> Result<(), Box<dyn error::Error>> {
+        response_channel_with_explicit_session(true)
+    }
+
+    #[test]
+    #[serial]
+    fn ipc_response_channel_accepts_an_explicit_session_id() -> Result<(), Box<dyn error::Error>> {
+        response_channel_with_explicit_session(false)
+    }
 
     /// Helper: set up an embedded media driver + Aeron client.
     fn setup_aeron_for_uaf_test() -> (
@@ -2985,7 +3566,7 @@ mod tests {
         let _excl_closed = unsafe { aeron_exclusive_publication_is_closed(excl_pub_ptr) };
         let _channel = unsafe { aeron_publication_channel(pub_ptr) };
 
-        // Reaching here proves structural safety: no UAF after drop(aeron).
+        // The children remain usable after drop(aeron).
 
         // Drop the children. The last one releases Rc<Aeron>, so
         // aeron_close() fires in the correct order.
@@ -3186,9 +3767,8 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// After `aeron.close()` the surviving handles must remain usable,
-    /// not merely safe to drop. A complete offer/poll roundtrip is the strongest
-    /// proof that the deferred close left the C client fully operational.
+    /// Surviving handles can still publish and receive messages after `aeron.close()`.
+    /// Check this with an offer/poll round trip.
     #[test]
     #[serial]
     fn client_close_defers_and_children_remain_fully_usable() {
@@ -3382,9 +3962,8 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// A failed async add (invalid URI) must fail cleanly: the error surfaces from
-    /// new()/poll(), later polls are inert (the C client freed the async struct on
-    /// the errored poll), and the client stays fully usable afterwards.
+    /// An invalid URI reports an error from new() or poll(). Later polls do nothing
+    /// because C has freed the async struct. The client remains usable.
     #[test]
     #[serial]
     fn async_add_subscription_invalid_uri_fails_cleanly() {
@@ -3549,7 +4128,7 @@ mod tests {
         );
         drop(exclusive);
         assert!(counter.close().is_ok());
-        assert!(aeron_clone.close().is_ok()); // the LAST reference, so the real aeron_close runs here
+        assert!(aeron_clone.close().is_ok()); // the last reference, so aeron_close runs here
 
         assert_eq!(
             1,
@@ -3745,10 +4324,9 @@ mod tests {
             registration_id
         };
 
-        // A subscription's position counter is only materialised once it has an image
-        // (i.e. a connected publication), so connect one to force the conductor to fully
-        // complete whatever it did with the abandoned add. If the add wasn't cancelled,
-        // the leaked subscription will connect just like a normal one and get a counter.
+        // Connect a publication so the conductor creates a position counter for any
+        // subscription left by the abandoned add. A cancelled subscription must not
+        // acquire a counter.
         let publisher = aeron
             .add_publication(AERON_IPC_STREAM, stream_id, Duration::from_secs(5))
             .unwrap();
@@ -3773,7 +4351,7 @@ mod tests {
              async poller was dropped before poll() ever resolved it — this is the issue #60 leak"
         );
 
-        // client stays fully usable afterwards
+        // client stays usable afterwards
         assert!(!publisher.get_inner().is_null());
         drop(publisher);
         drop(aeron);
@@ -3862,7 +4440,7 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// Same drop-before-poll leak proof as
+    /// Same drop-before-poll leak check as
     /// `dropping_unpolled_async_subscription_does_not_leak_driver_counter`, but for
     /// `AeronAsyncAddPublication`. The publisher limit counter must never appear for a
     /// registration id whose async add was dropped unpolled.
@@ -3882,7 +4460,7 @@ mod tests {
         // Freeing an already-materialised publication's counter goes through the same
         // driver-side unlink+linger machinery as a normal close, so (unlike the
         // subscription-position counter, which never appears at all here because nothing
-        // ever connects) give it a few seconds to actually disappear rather than expecting
+        // ever connects) give it a few seconds to disappear rather than expecting
         // it to be instantaneous.
         let counters = aeron.counters_reader();
         let start = Instant::now();
@@ -3901,7 +4479,7 @@ mod tests {
              driver even though the async poller was dropped before poll() ever resolved it"
         );
 
-        // client stays fully usable afterwards
+        // client stays usable afterwards
         let publisher = aeron
             .add_publication(AERON_IPC_STREAM, stream_id, Duration::from_secs(5))
             .unwrap();
@@ -3911,7 +4489,7 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// Same drop-before-poll leak proof, but for `AeronAsyncAddExclusivePublication`.
+    /// Same drop-before-poll leak check, but for `AeronAsyncAddExclusivePublication`.
     #[test]
     #[serial]
     fn dropping_unpolled_async_exclusive_publication_does_not_leak_driver_counter() {
@@ -3951,7 +4529,7 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// Same drop-before-poll leak proof, but for `AeronAsyncAddCounter`. A user counter's
+    /// Same drop-before-poll leak check, but for `AeronAsyncAddCounter`. A user counter's
     /// key buffer (not the registration id) is the only thing we control, so match on the
     /// key bytes instead of `find_by_type_and_registration_id`.
     #[test]
@@ -4076,11 +4654,9 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// A failed async add (invalid URI) must fail cleanly for publications too: the error
-    /// surfaces from `poll()`, later polls are inert (no use-after-free), the auto-cancel
-    /// cleanup path must not double-free the C struct the errored poll already released,
-    /// and the client stays fully usable afterwards. Mirrors
-    /// `async_add_subscription_invalid_uri_fails_cleanly` for the publication side.
+    /// An invalid publication URI reports an error from `poll()`. Later polls do
+    /// nothing, and auto-cancel must not free the C struct again. The client remains
+    /// usable. Mirrors `async_add_subscription_invalid_uri_fails_cleanly`.
     #[test]
     #[serial]
     fn async_add_publication_invalid_uri_fails_cleanly() {
@@ -4145,12 +4721,9 @@ mod tests {
         )
     }
 
-    /// Repeatedly offers `msg` (ignoring transient/retryable send failures) while polling
-    /// every subscription in `subs`, until every one of them has observed it (or `timeout`
-    /// elapses). Re-offering, rather than a single blind send, absorbs the real-world
-    /// race between "the destination/image is nominally connected" and "the driver has
-    /// actually finished wiring up delivery to it", which a single fixed-count send can hit
-    /// even after `is_connected()` reports true.
+    /// Offers `msg` and polls every subscription until all receive it or `timeout` elapses.
+    /// Retries offers because the driver may not have finished setting up delivery when
+    /// `is_connected()` first reports true. Panics if any subscription misses the message.
     fn assert_all_subs_eventually_receive(
         offer: impl Fn(&[u8]) -> Result<i64, AeronOfferError>,
         msg: &str,
@@ -4176,15 +4749,10 @@ mod tests {
         }
     }
 
-    /// Repeatedly offers freshly-tagged probe messages while polling both `removed_sub`
-    /// (expected to stop receiving) and every `alive_subs` entry (expected to keep
-    /// receiving), until one probe is confirmed delivered to all `alive_subs` but absent
-    /// from `removed_sub`. This proves the destination removal has taken effect
-    /// driver-side, not merely that `remove_destination(...)` returned `Ok(())`. It
-    /// tolerates the small, real round-trip delay between that call succeeding and the
-    /// driver actually tearing down delivery to the removed destination (the same kind of
-    /// delay already observed for publication/counter cancellation elsewhere in this suite).
-    /// Panics if no such probe is confirmed within `timeout`.
+    /// Sends distinct probes until every `alive_subs` entry receives one that
+    /// `removed_sub` does not receive. This checks delivery after removal because the
+    /// driver may still deliver messages after `remove_destination()` returns `Ok(())`.
+    /// Panics if no probe meets these conditions within `timeout`.
     fn assert_destination_removal_takes_effect(
         offer: impl Fn(&[u8]) -> Result<i64, AeronOfferError>,
         removed_sub: &AeronSubscription,
@@ -4288,9 +4856,8 @@ mod tests {
             "publishers did not connect through the MDS destinations"
         );
 
-        // Both feeds must arrive through the single aggregating subscription. Retrying the
-        // offer (rather than a single blind send) absorbs the race between "is_connected()
-        // reports true" and the driver actually finishing delivery wiring.
+        // Both feeds must reach the same subscription. Retry until the driver delivers
+        // both messages, since is_connected() may precede delivery setup.
         let mut seen = std::collections::HashSet::new();
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline && !(seen.contains("feed-A-1") && seen.contains("feed-B-1")) {
@@ -4309,10 +4876,8 @@ mod tests {
             "expected both destinations to deliver before any removal, got {seen:?}"
         );
 
-        // Remove destination A; its messages must stop arriving while B keeps
-        // flowing. Probe repeatedly (rather than a single send) to tolerate the small
-        // real round trip between `remove_destination()` returning and the driver
-        // actually tearing down delivery for that destination.
+        // Remove A and check that only B's messages arrive. Retry probes until the
+        // driver finishes removing A after remove_destination() returns.
         subscription
             .remove_destination(&dest_a, Duration::from_secs(5))
             .expect("removing destination A should succeed");
@@ -4345,7 +4910,7 @@ mod tests {
             );
         }
 
-        // Removing it again (already gone) must still resolve cleanly.
+        // Removing it again (already gone) must still complete.
         let result = subscription.remove_destination(&dest_a, Duration::from_secs(2));
         assert!(
             result.is_ok() || result.is_err(),
@@ -4448,9 +5013,8 @@ mod tests {
             "publication never connected to any MDC destination"
         );
 
-        // Everything is wired: a message sent (retried) now must reach all three
-        // subscribers. Retrying absorbs the race between the destination nominally
-        // connecting and the driver actually finishing delivery wiring for it.
+        // Retry until all three subscribers receive a message, since connection
+        // notification may precede delivery setup.
         assert_all_subs_eventually_receive(
             |b| publication.offer(b),
             "to-ABC",
@@ -4483,11 +5047,9 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// Same MDC round trip as `publication_mdc_add_and_remove_destination_gates_real_data_flow`,
-    /// but for [`AeronExclusivePublication`]. The `add_destination`/`remove_destination`/
-    /// `remove_destination_by_id` trio is a separate impl block generated from a separate set
-    /// of C functions, so it needs its own real-data-flow proof rather than assuming parity
-    /// with the regular-publication path.
+    /// Checks MDC message delivery for [`AeronExclusivePublication`]. Destination
+    /// operations call different C functions than regular publications, so test their
+    /// delivery and removal separately.
     #[test]
     #[serial]
     fn exclusive_publication_mdc_add_and_remove_destination_gates_real_data_flow() {
@@ -4929,7 +5491,7 @@ mod tests {
         let _ = driver_handle.join();
     }
 
-    /// Media driver dies mid-flight: the client must surface the failure through
+    /// Media driver dies mid-flight: the client must report the failure through
     /// the error handler (driver keepalive timeout) and every handle must stay
     /// memory-safe: offers turn into errors, never UB, and teardown completes.
     #[test]
@@ -5003,7 +5565,7 @@ mod tests {
         }
     }
 
-    // ── Handler dependency tracking tests ────────────────────────────────
+    // Handler dependency tracking tests
     //
     // These tests verify that handlers registered via add_dependency()
     // are kept alive correctly. Handlers must survive aeron.close() and
@@ -5292,7 +5854,7 @@ mod tests {
         Ok(())
     }
 
-    // ── Structural teardown verification via memory protection ────────
+    // Structural teardown verification via memory protection
     //
     // Under the new design, the Rc dependency graph enforces
     // teardown order: `aeron_close()` can only fire once every child's
@@ -5390,7 +5952,7 @@ mod tests {
             let pid = fork();
             assert!(pid >= 0, "fork failed");
             if pid == 0 {
-                // ── CHILD: proof of correct Rc graph teardown ──
+                // Child process checks Rc dependency cleanup.
                 // The parent is unaffected (fork makes the child's
                 // mprotect page-private via copy-on-write).
 
@@ -5433,13 +5995,13 @@ mod tests {
                     std::process::abort();
                 }
 
-                // mprotect not supported on this platform, so exit cleanly
+                // mprotect not supported on this platform, so exit
                 drop(error_handler);
                 std::mem::forget(driver); // child process: no clean driver teardown needed
                 _exit(0);
             }
 
-            // ── PARENT: wait for child's result ──
+            // PARENT: wait for child's result
             let mut status: i32 = 0;
             let waited = waitpid(pid, &mut status as *mut i32, 0);
             assert!(waited != -1, "waitpid failed");

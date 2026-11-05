@@ -1,6 +1,8 @@
 # rusteron-media-driver
 
-rusteron-media-driver is a Rust interface to the Aeron Media Driver, which manages low-latency messaging between producers and consumers. It is part of the [Rusteron](https://github.com/gsrxyz/rusteron) project and supports both standalone and embedded drivers.
+`rusteron-media-driver` wraps the Aeron C Media Driver, which manages low-latency
+messaging between producers and consumers. Run it as a standalone process or embed
+it in a Rust application.
 
 > For production deployments, we recommend the Aeron Java or C media driver.
 > The embedded version here is best suited to integration tests and lightweight environments.
@@ -54,7 +56,9 @@ rusteron-media-driver = { version = "0.2", features = ["static", "precompile-rus
 
 </details>
 
-Make sure the Aeron C libraries are installed and available on your system.
+The default source build compiles the Aeron C libraries. Dynamic builds also need
+those shared libraries available at runtime; `static` embeds them in the binary.
+See [BUILD.md](https://github.com/gsrxyz/rusteron/blob/main/BUILD.md) for prerequisites.
 
 ---
 
@@ -105,6 +109,29 @@ For a caller-built `AeronDriverContext`, `AeronDriver::launch_embedded_guard(ctx
 
 ---
 
+## UDP polling and send batches
+
+Aeron 1.54 lets the C driver configure the threshold for iterating over sockets directly
+instead of using the platform poller. It also limits how many times each ready socket is
+polled in one duty cycle. Configure these before creating the driver.
+
+```rust
+use rusteron_media_driver::{AeronCError, AeronDriverContext};
+
+let context = AeronDriverContext::new()?;
+context.set_udp_channel_transport_poller_iteration_threshold(5)?;
+context.set_udp_channel_transport_poller_socket_poll_limit(4)?;
+context.set_sender_io_vector_capacity(64)?;
+context.set_network_publication_max_messages_per_send(4)?;
+# Ok::<(), AeronCError>(())
+```
+
+The socket poll limit defaults to 4. A send batch must fit within
+`sender_io_vector_capacity`. Driver initialization rejects a larger batch. The
+maximum send batch is 64 messages.
+
+---
+
 ## Building C against Aeron's headers
 
 Some driver extensions are C compiled against Aeron's own headers. The main one is a custom
@@ -134,12 +161,14 @@ fn main() {
 }
 ```
 
-The key has one cost. Cargo allows a single package per `links` name in a build, so two
+Cargo allows one package per `links` name in a build. Two
 semver-incompatible versions of `rusteron-media-driver` cannot share a dependency graph. The
-workspace crate [`links-test`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-media-driver/links-test) compiles a C file against these paths, so the
-export cannot break unnoticed.
+workspace crate [`links-test`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-media-driver/links-test) compiles a C file against these paths, to check that these
+header paths work.
 
-## Contributing & license
+<a id="contributing--license"></a>
+
+## Contributing and license
 
 See the root [README](https://github.com/gsrxyz/rusteron#readme) and [CONTRIBUTING.md](https://github.com/gsrxyz/rusteron/blob/main/CONTRIBUTING.md). Build requirements are in [BUILD.md](https://github.com/gsrxyz/rusteron/blob/main/BUILD.md).
 Dual-licensed under MIT or Apache-2.0.

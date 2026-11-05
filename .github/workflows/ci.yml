@@ -129,15 +129,12 @@ jobs:
       - name: Clean up any stale build artifacts
         run: rm -rf target
 
-      # Single-runtime ASan (mirrors the macOS design in build_common.rs): the
-      # `sanitize-address` feature compiles Aeron C with clang's
-      # `-fsanitize=address`, and we link clang's libasan into the test binary
-      # via the cc linker driver. There is no `-Z sanitizer=address`, so rustc does not
-      # pull in its own (incompatible) runtime. Using two runtimes (rustc's
-      # LLVM-20 vs Ubuntu 22's clang LLVM-14) aborts at startup with
-      # "linked against incompatible ASan runtimes". The C side, where the
-      # UAF/double-free risks are, is fully instrumented; Rust wrapper code is
-      # not, which is the same trade-off as the macOS ASan path.
+      # Use clang's ASan runtime, as on macOS in build_common.rs. The
+      # sanitize-address feature compiles Aeron C with -fsanitize=address and
+      # links libasan through cc. Do not add -Z sanitizer=address, which would
+      # also link rustc's incompatible runtime and abort at startup. This
+      # instruments the Aeron C code, where resource lifetime errors occur.
+      # The Rust wrappers have no ASan instrumentation in this configuration.
       - name: Test with AddressSanitizer
         env:
           CC: clang

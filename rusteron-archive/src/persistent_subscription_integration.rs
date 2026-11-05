@@ -1,14 +1,11 @@
-//! # Persistent Subscription Integration Tests
+//! # Persistent subscription integration tests
 //!
-//! This module contains integration tests for Aeron persistent subscriptions that focus on
-//! real-world scenarios and end-to-end testing.
+//! Tests replay, live-stream delivery and reconnection through a Java Aeron Archive.
 //!
-//! ## Running Tests
+//! ## Running tests
 //!
-//! These tests need a running Aeron Archive, which is a **Java** process.
-//! They are *not* `#[ignore]`d. Each test calls `skip_unless_java!()`,
-//! so it runs automatically when `java` is on `PATH` and skips (passes) when it
-//! isn't. No special flags required.
+//! Each test starts an Archive when `java` is on `PATH`. Without Java,
+//! `skip_unless_java!()` returns early and Cargo reports the test as passed.
 //!
 //! ```bash
 //! # Run all integration tests (skips automatically if java is absent)
@@ -839,7 +836,7 @@ mod tests {
 
         info!("Setup {} streams with recordings", num_streams);
 
-        // Wait a moment for recordings to be fully registered
+        // Wait for recording registration.
         sleep(Duration::from_millis(100));
 
         // Verify we have multiple recordings with retry logic
@@ -1078,7 +1075,7 @@ mod tests {
         let halfway = published_position / 2;
         info!("Truncating recording {recording_id} from {published_position} to {halfway}");
 
-        // Verify once more just before truncate to catch race conditions
+        // Check again before truncation to catch a concurrent change.
         let mut final_verified = false;
         let final_verify_deadline = Instant::now() + Duration::from_secs(3);
         while !final_verified && Instant::now() < final_verify_deadline {

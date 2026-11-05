@@ -63,14 +63,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     );
 
-    // ── aeron_stat: every counter with id, value and label ───────────────
+    // aeron_stat: every counter with id, value and label
     println!("\n===== counters =====");
     cnc.counters_reader()
         .foreach_counter_fn(|value, id, type_id, _key, label| {
             println!("{id:>4} (type {type_id:>3}): {value:>16} — {label}");
         });
 
-    // ── error_stat: the distinct error log ───────────────────────────────
+    // error_stat: the distinct error log
     println!("\n===== distinct errors =====");
     let count = cnc.error_log_read_fn(
         |observation_count, first_ts, last_ts, error| {
@@ -80,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!("({count} distinct error(s))");
 
-    // ── loss_stat: the loss report (empty unless gaps went unrecovered) ──
+    // loss_stat: the loss report (empty unless gaps went unrecovered)
     println!("\n===== loss report =====");
     let entries = cnc.loss_reporter_read_fn(
         |observations, total_bytes, first_ts, last_ts, session_id, stream_id, channel, source| {

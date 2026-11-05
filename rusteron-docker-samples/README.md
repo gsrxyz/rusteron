@@ -1,7 +1,8 @@
 # Containerised Aeron example with Podman and Kubernetes
 
-This repository provides a minimal setup for containerising and orchestrating Aeron-based components with Docker, Podman and Kubernetes.
-It is not production-ready, but it is a starting point for developing and testing Aeron-based workflows.
+These examples run an Aeron Archive Media Driver, a ticker publisher and a reader
+in containers. Use Docker or Podman locally, or deploy the supplied Kubernetes manifests.
+The configuration is for development and testing.
 
 ---
 
@@ -13,15 +14,17 @@ It runs in GSR's real-time trading stack and is developed under the GSR GitHub o
 
 ---
 
+<a id="key-features-demonstrated"></a>
+
 ## Overview
 
 The setup includes:
 
-1. Aeron Media Driver: a containerised Aeron Archive Media Driver.
-2. Ticker Writer: publishes simulated Binance ticker data and archives it.
-3. Ticker Reader: reads from both the archive and the live channel and publishes periodic stats.
+1. The Aeron Archive Media Driver records streams and handles transport.
+2. The ticker writer publishes simulated Binance ticker data for recording.
+3. The ticker reader reads recorded and live messages and publishes periodic statistics.
 
-Together, these components form a minimal end-to-end Aeron pipeline using shared memory and volumes.
+The containers share the driver directory and archive storage through volumes.
 
 ---
 
@@ -34,7 +37,7 @@ Together, these components form a minimal end-to-end Aeron pipeline using shared
 
 ### Podman (recommended for local testing)
 
-Podman is preferred because it is simple and needs no daemon.
+Podman runs these examples without a separate daemon.
 
 1. Build Podman images
    ```bash
@@ -53,7 +56,7 @@ Podman is preferred because it is simple and needs no daemon.
 
    ```bash
    just podman-stop
-   # Gracefully stops and removes all running containers and shared volumes.
+   # Stops and removes the example containers and shared volumes.
    ```
 
 ---
@@ -85,18 +88,21 @@ If you have a Kubernetes cluster available (e.g. via Docker Desktop or Minikube)
 
 ---
 
-## Key features demonstrated
+## Shared directories
 
 * Shared memory (`/dev/shm`) allows zero-copy Aeron message passing between containers.
 * Shared volumes (`/data`) hold the persistent archive storage used by the writer and reader.
 * `just` recipes build, deploy and clean up.
 * A simulated publisher and reader interact through the Aeron archive APIs.
 
-> This example is for experimentation and learning. Production use needs additional security, orchestration policies, monitoring and failover logic.
+Production deployments need access controls, orchestration policies, monitoring and
+failover logic beyond this example.
 
 ---
 
-## License & acknowledgments
+<a id="license--acknowledgments"></a>
+
+## License and acknowledgments
 
 Dual-licensed under MIT or Apache-2.0. See the root [README](https://github.com/gsrxyz/rusteron#readme).
 

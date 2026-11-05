@@ -877,7 +877,7 @@ mod tests {
         // Should succeed to create subscription
         let async_sub = subscription_result?;
 
-        // A subscription to a stream with no publisher is valid in Aeron. It simply
+        // A subscription to a stream with no publisher is valid in Aeron. It
         // never receives an image. poll_blocking resolves the async connector once
         // the subscription is registered (not on image availability), so verify the
         // no-image condition directly after giving the driver a moment.
@@ -1340,7 +1340,7 @@ mod tests {
     }
 
     /// A persistent subscription keeps its archive context open, so it connects and closes
-    /// cleanly after the caller's handle to the context has gone.
+    /// after the caller's handle to the context has gone.
     #[test]
     #[serial]
     fn persistent_subscription_keeps_its_archive_context_open() -> Result<(), Box<dyn Error>> {
@@ -1375,7 +1375,7 @@ mod tests {
         Ok(())
     }
 
-    /// A persistent subscription keeps its Aeron client open, so it closes cleanly after
+    /// A persistent subscription keeps its Aeron client open, so it closes after
     /// the caller's last handle to the client has gone.
     #[test]
     #[serial]
@@ -1430,7 +1430,7 @@ mod tests {
             archive.start_recording(&live_channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
         })?;
 
-        // Exclusive publication so we can tear it down and re-add cleanly.
+        // Exclusive publication so we can tear it down and add again.
         let mut publication = aeron_archive
             .async_add_exclusive_publication(&live_channel.into_c_string(), stream_id)?
             .poll_blocking(Duration::from_secs(5))?;

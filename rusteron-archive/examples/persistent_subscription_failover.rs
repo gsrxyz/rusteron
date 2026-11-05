@@ -17,7 +17,9 @@
 //! cargo run --release --features "static precompile" --example persistent_subscription_failover
 //! ```
 
-use rusteron_archive::testing::{EmbeddedArchiveMediaDriverProcess, find_unused_udp_port};
+use rusteron_archive::testing::{
+    EmbeddedArchiveMediaDriverProcess, find_counter_id_by_session_in_archive_blocking, find_unused_udp_port,
+};
 use rusteron_archive::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -53,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("connected to archive");
 
     // Record the live stream and seed history. An *exclusive* publication so we can
-    // tear it down (simulating the upstream service dying) and re-add it cleanly.
+    // tear it down (simulating the upstream service dying) and add it again.
     let live_channel = "aeron:ipc";
     let stream_id = 3201;
     archive.start_recording(&cformat!("{live_channel}"), stream_id, SOURCE_LOCATION_LOCAL, true)?;
@@ -77,7 +79,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let session_id = publication.get_constants()?.session_id;
     let counters_reader = aeron.counters_reader();
-    let counter_id = RecordingPos::find_counter_id_by_session(&counters_reader, session_id);
+    let counter_id = find_counter_id_by_session_in_archive_blocking(
+        &counters_reader,
+        session_id,
+        archive.get_archive_id(),
+        Duration::from_secs(5),
+    )?;
     let recording_id = RecordingPos::get_recording_id_block(&counters_reader, counter_id, Duration::from_secs(5))?;
     println!("recording id {recording_id}, seeded 10 messages");
 
@@ -122,7 +129,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })?
         .build()?;
 
-    // ── Phase 1: replay history, then join live ─────────────────────────
+    // Phase 1: replay history, then join live
     println!("phase 1: replaying history, waiting to join live...");
     let deadline = Instant::now() + Duration::from_secs(30);
     while !ps.is_live() && Instant::now() < deadline {
@@ -136,7 +143,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     assert!(joined.load(Ordering::SeqCst) >= 1, "never joined live");
 
-    // ── Phase 2: the live stream dies ────────────────────────────────────
+    // Phase 2: the live stream dies
     println!("phase 2: dropping the live publication (upstream service dies)...");
     // where the stream stopped, so the restarted publisher can resume it there
     let constants = publication.get_constants()?;
@@ -157,7 +164,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ps.is_replaying()
     );
 
-    // ── Phase 3: the live stream comes back and rejoins ─────────────────────
+    // Phase 3: the live stream comes back and rejoins
     // Aeron refuses a live stream behind what the subscription has already seen, so a
     // restarted publisher resumes the same session where it stopped.
     println!("phase 3: resuming the live publication where it stopped...");

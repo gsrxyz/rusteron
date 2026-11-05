@@ -18,6 +18,8 @@
 
 #[allow(improper_ctypes_definitions)]
 #[allow(unpredictable_function_pointer_comparisons)]
+// Preserve upstream Doxygen markup and bracketed IPv6 examples in the raw C comments.
+#[allow(rustdoc::broken_intra_doc_links, rustdoc::invalid_html_tags)]
 pub mod bindings {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
@@ -282,6 +284,24 @@ mod tests {
             ctx.set_sharednetwork_idle_strategy_kind(kind).unwrap();
             ctx.set_shared_idle_strategy_kind(kind).unwrap();
         }
+    }
+
+    #[test]
+    fn driver_rejects_a_send_batch_larger_than_its_vector_capacity() -> Result<(), AeronCError> {
+        let context = AeronDriverContext::new()?;
+        let dir = std::env::temp_dir().join(format!("rusteron-invalid-send-batch-{}", Aeron::nano_clock()));
+        context.set_dir(&dir.to_string_lossy().into_c_string())?;
+        context.set_dir_delete_on_shutdown(true)?;
+        context.set_sender_io_vector_capacity(2)?;
+        context.set_network_publication_max_messages_per_send(5)?;
+        let error = AeronDriver::new(&context).unwrap_err().capture_errmsg();
+        assert!(
+            error.to_string().contains(
+                "network_publication_max_messages_per_send may not exceed sender_io_vector_capacity (2): value=5"
+            ),
+            "{error}"
+        );
+        Ok(())
     }
 
     #[test]

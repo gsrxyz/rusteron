@@ -52,10 +52,6 @@ k8s-clean:
 # Runtime
 # =============================================================================
 
-# Run the Aeron Archive Driver manually using Java
+# Run the pinned Aeron Archive and Media Driver with Java.
 run-aeron-archive-driver:
-  java \
-    --add-opens java.base/jdk.internal.misc=ALL-UNNAMED \
-    -javaagent:../rusteron-archive/aeron/aeron-agent/build/libs/aeron-agent-1.48.5.jar \
-    -cp ../rusteron-archive/aeron/aeron-all/build/libs/aeron-all-1.48.5.jar:../rusteron-archive/aeron/aeron-archive/build/libs/aeron-archive-1.48.5.jar \
-    -Daeron.archive.dir=target/aeron/archive
+  just --justfile ../.justfile run-aeron-archive-driver

@@ -18,6 +18,8 @@
 
 #[allow(improper_ctypes_definitions)]
 #[allow(unpredictable_function_pointer_comparisons)]
+// Preserve upstream Doxygen markup and bracketed IPv6 examples in the raw C comments.
+#[allow(rustdoc::broken_intra_doc_links, rustdoc::invalid_html_tags)]
 pub mod bindings {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
@@ -410,6 +412,8 @@ macro_rules! impl_archive_position_methods {
         impl $pub_type {
             /// Retrieves the current active live archive position using the Aeron counters.
             /// Returns an error if not found.
+            /// Searches any archive; when multiple Archives record this session, use
+            /// [`RecordingPos::find_counter_id_by_session_in_archive`] to select one.
             ///
             /// Each call scans every counter for this session's recording position. In a loop,
             /// find the counter id once with [`RecordingPos::find_counter_id_by_session`] and read
@@ -425,6 +429,7 @@ macro_rules! impl_archive_position_methods {
 
             /// Retrieves the current active live archive position using the provided counter reader.
             /// Returns an error if not found.
+            /// Searches any archive, like [`Self::get_archive_position`].
             pub fn get_archive_position_with(&self, counters: &AeronCountersReader) -> Result<i64, AeronCError> {
                 let session_id = self.get_constants()?.session_id();
                 let counter_id = RecordingPos::find_counter_id_by_session(counters, session_id);
@@ -486,7 +491,7 @@ struct ListenerHolder {
     listener: Box<dyn PersistentSubscriptionListener>,
 }
 
-// Hand-written trampolines: the code generator only wires single-callback args,
+// Hand-written trampolines: the code generator only generates single-callback arguments,
 // but this listener has 3 callbacks sharing one clientd. They fire inside the persistent
 // poll, so a panic is caught (unwinding through C would break its state) and the poll
 // raises it on return
@@ -526,9 +531,8 @@ unsafe extern "C" fn persistent_subscription_on_error(
 impl AeronArchivePersistentSubscription {
     /// Create a persistent subscription from a context.
     ///
-    /// If `listener` is `Some`, it is wired into the context (the C layer copies
-    /// the callback pointers + `clientd`) and kept alive for the subscription's
-    /// lifetime; it is freed once the subscription is closed.
+    /// If `listener` is `Some`, C copies its callback pointers and `clientd` into
+    /// the context. The subscription keeps the listener alive until it closes.
     ///
     /// The context is consumed and owned by the subscription from this point on.
     /// It will be closed when the subscription is closed, so it must not be used
@@ -1022,6 +1026,86 @@ mod tests {
     }
 
     #[test]
+    fn archive_context_configuration_round_trips() -> Result<(), AeronCError> {
+        let context = AeronArchiveContext::new()?;
+        context.set_client_name(c"archive-review")?;
+        context.set_recording_events_stream_id(1540)?;
+        context.set_control_term_buffer_length(128 * 1024)?;
+        context.set_control_mtu_length(4096)?;
+        assert_eq!(context.get_client_name(), "archive-review");
+        assert_eq!(context.get_recording_events_stream_id(), 1540);
+        assert_eq!(context.get_control_term_buffer_length(), 128 * 1024);
+        assert_eq!(context.get_control_mtu_length(), 4096);
+        for sparse in [true, false] {
+            context.set_control_term_buffer_sparse(sparse)?;
+            assert_eq!(context.get_control_term_buffer_sparse(), sparse);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn archive_client_name_enforces_the_byte_limit() -> Result<(), Box<dyn std::error::Error>> {
+        let context = AeronArchiveContext::new()?;
+        let limit = AERON_COUNTER_MAX_CLIENT_NAME_LENGTH as usize;
+        for name in [String::new(), "a".repeat(limit), "é".repeat(limit / 2)] {
+            context.set_client_name(&name.as_str().into_c_string())?;
+            assert_eq!(context.get_client_name(), name);
+        }
+        let previous = context.get_client_name().to_owned();
+        for name in ["a".repeat(limit + 1), "é".repeat(limit / 2 + 1)] {
+            let error = context.set_client_name(&name.into_c_string()).unwrap_err();
+            assert_eq!(error.code, -1);
+            assert!(Aeron::errmsg().contains("client_name length"));
+            assert_eq!(context.get_client_name(), previous);
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn archive_propagates_its_client_name_and_control_session_info() -> Result<(), Box<dyn std::error::Error>> {
+        let (_client, original_context, driver, _publication_errors, _errors) = start_aeron_archive()?;
+        for name in [None, Some(c"upstream-port")] {
+            let context = AeronArchiveContext::new()?;
+            context.set_aeron_directory_name(&driver.aeron_dir)?;
+            context.set_control_request_channel(&original_context.get_control_request_channel().into_c_string())?;
+            context.set_control_response_channel(&original_context.get_control_response_channel().into_c_string())?;
+            if let Some(name) = name {
+                context.set_client_name(name)?;
+            }
+            let archive = context.aeron_archive_connect(valgrind_timeout(30))?;
+            // These borrowed views stay within the lifetime of their Archive owner.
+            let client = archive.get_archive_context().get_aeron();
+            let client_context = client.context();
+            if let Some(name) = name {
+                assert_eq!(client_context.get_client_name(), name.to_str()?);
+            } else {
+                assert!(client_context.get_client_name().contains("archive-client"));
+            }
+            let reader = client.counters_reader();
+            let mut label = None;
+            reader.foreach_counter_fn(|_, _, type_id, key, text| {
+                if type_id == AERON_COUNTER_ARCHIVE_CONTROL_SESSION_TYPE_ID as i32
+                    && key[..8] == archive.get_archive_id().to_ne_bytes()
+                    && key[8..16] == archive.control_session_id().to_ne_bytes()
+                {
+                    label = Some(text.to_owned());
+                }
+            });
+            let label = label.ok_or("Archive control session counter is missing")?;
+            assert!(
+                label.contains(&format!("name={} version=", context.get_client_name())),
+                "{label}"
+            );
+            assert!(
+                label.contains(&format!("archiveId={}", archive.get_archive_id())),
+                "{label}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     #[serial_test::serial]
     fn persistent_subscription_context_borrow_and_transfer_close_in_order() -> Result<(), Box<dyn std::error::Error>> {
         let (aeron, archive_context, media_driver, publication_errors, errors) = start_aeron_archive()?;
@@ -1097,6 +1181,13 @@ mod tests {
                     RecordingPos::find_counter_id_by_recording_id_in_archive(&reader, 42, archive_id),
                     expected
                 );
+                let found =
+                    testing::find_counter_id_by_session_in_archive_blocking(&reader, 7, archive_id, Duration::ZERO);
+                if expected >= 0 {
+                    assert_eq!(found?, expected);
+                } else {
+                    assert!(found.is_err(), "must not return another archive's recording counter");
+                }
             }
             assert_eq!(RecordingPos::find_counter_id_by_session(&reader, 99), -1);
             assert_eq!(RecordingPos::find_counter_id_by_recording_id(&reader, 99), -1);
@@ -1107,6 +1198,33 @@ mod tests {
                 assert_eq!(buffer, expected);
             }
             assert!(RecordingPos::get_source_identity(&reader, -1, &mut [0; 4]).is_err());
+            // Upstream rejects negative lengths and clamps corrupt positive lengths
+            // before copying bytes from the fixed-size counter key.
+            for length in [-13_i32, 1_000_000] {
+                let mut key = [b'x'; AERON_COUNTER_MAX_KEY_LENGTH as usize];
+                key[..8].copy_from_slice(&43_i64.to_ne_bytes());
+                key[8..12].copy_from_slice(&8_i32.to_ne_bytes());
+                key[12..16].copy_from_slice(&length.to_ne_bytes());
+                let counter = aeron.add_counter(
+                    AERON_COUNTER_ARCHIVE_RECORDING_POSITION_TYPE_ID as i32,
+                    &key,
+                    "malformed source identity",
+                    Duration::from_secs(5),
+                )?;
+                let mut destination = [0x5a; 128];
+                let result =
+                    RecordingPos::get_source_identity(&reader, counter.get_constants()?.counter_id, &mut destination);
+                if length < 0 {
+                    assert!(result.is_err());
+                    assert_eq!(destination, [0x5a; 128]);
+                } else {
+                    let maximum = key.len() - 16 - std::mem::size_of::<i64>();
+                    assert_eq!(result?, maximum);
+                    assert_eq!(&destination[..maximum], vec![b'x'; maximum]);
+                    assert_eq!(destination[maximum], 0);
+                    assert!(destination[maximum + 1..].iter().all(|byte| *byte == 0x5a));
+                }
+            }
             Ok(())
         })();
         drop(aeron);
@@ -1381,7 +1499,7 @@ mod tests {
                 }
                 // slow down publishing so can catch up
                 if message_count > 10_000 {
-                    // ensure archiver is caught up
+                    // Wait for the archiver to catch up.
                     while counters_reader.get_counter_value(counter_id).unwrap() < publication.position() {
                         assert!(
                             RecordingPos::is_active(&counters_reader, counter_id, recording_id).unwrap_or(false),
@@ -1618,7 +1736,7 @@ mod tests {
     }
 
     /// Deep-graph close: closing a *clone* of the archive client defers the C close.
-    /// The original stays fully usable (control session intact, error polling clean).
+    /// The original stays usable (control session intact, error polling clean).
     #[test]
     #[serial]
     pub fn archive_clone_close_defers_and_original_remains_usable() -> Result<(), Box<dyn error::Error>> {
@@ -1636,7 +1754,7 @@ mod tests {
             let clone = archive.clone();
             assert!(clone.close().is_ok());
 
-            // original remains fully usable after the clone's close
+            // original remains usable after the clone's close
             assert_eq!(session_id, archive.control_session_id());
             assert!(archive.poll_for_error()?.is_none());
             let subscription_id = archive.start_recording(AERON_IPC_STREAM, 42, SOURCE_LOCATION_LOCAL, true)?;
@@ -1776,6 +1894,391 @@ mod tests {
         drop(pub_error_frame_handler);
         drop(error_handler);
         test_result
+    }
+
+    #[test]
+    #[serial]
+    fn recording_counters_isolate_two_live_archives_on_one_driver() -> Result<(), Box<dyn Error>> {
+        let (aeron, context, driver, _publication_errors, _errors) = start_aeron_archive()?;
+        let first = context.aeron_archive_connect(valgrind_timeout(30))?;
+        let request = find_unused_udp_port(18000).ok_or("no request port")?;
+        let response = find_unused_udp_port(request + 1).ok_or("no response port")?;
+        let events = find_unused_udp_port(response + 1).ok_or("no events port")?;
+        let second_process = driver.start_on_existing_driver(
+            &format!("{}-second", driver.archive_dir.to_str()?),
+            &format!("aeron:udp?endpoint=localhost:{request}"),
+            &format!("aeron:udp?endpoint=localhost:{response}"),
+            &format!("aeron:udp?endpoint=localhost:{events}"),
+            first.get_archive_id() + 1,
+        )?;
+        // Both clients and both Archives use the very same driver's counter buffers.
+        let second = second_process
+            .archive_context(&aeron)?
+            .aeron_archive_connect(valgrind_timeout(30))?;
+        assert_ne!(first.get_archive_id(), second.get_archive_id());
+        let channel = c"aeron:ipc?term-length=64k";
+        let first_registration = first.start_recording(channel, 1541, SOURCE_LOCATION_LOCAL, true)?;
+        let second_registration = second.start_recording(channel, 1541, SOURCE_LOCATION_LOCAL, true)?;
+        let publication = aeron.add_exclusive_publication(channel, 1541, valgrind_timeout(10))?;
+        let session_id = publication.get_constants()?.session_id;
+        let reader = aeron.counters_reader();
+        let first_counter = testing::find_counter_id_by_session_in_archive_blocking(
+            &reader,
+            session_id,
+            first.get_archive_id(),
+            valgrind_timeout(10),
+        )?;
+        let second_counter = testing::find_counter_id_by_session_in_archive_blocking(
+            &reader,
+            session_id,
+            second.get_archive_id(),
+            valgrind_timeout(10),
+        )?;
+        assert_ne!(first_counter, second_counter);
+        let recording_id = RecordingPos::get_recording_id(&reader, first_counter)?;
+        assert_eq!(RecordingPos::get_recording_id(&reader, second_counter)?, recording_id);
+        for (archive, counter) in [(&first, first_counter), (&second, second_counter)] {
+            assert_eq!(
+                RecordingPos::find_counter_id_by_recording_id_in_archive(
+                    &reader,
+                    recording_id,
+                    archive.get_archive_id()
+                ),
+                counter
+            );
+            assert!(RecordingPos::is_active(&reader, counter, recording_id)?);
+        }
+        assert_eq!(
+            RecordingPos::find_counter_id_by_session_in_archive(&reader, session_id, i64::MAX),
+            -1
+        );
+
+        let deadline = Instant::now() + valgrind_timeout(10);
+        loop {
+            match publication.offer(b"shared-session") {
+                Ok(_) => break,
+                Err(e) if e.is_retryable() => (),
+                Err(e) => return Err(e.into()),
+            }
+            assert!(Instant::now() < deadline, "recording publication did not connect");
+            sleep(Duration::from_millis(1));
+        }
+        let position = publication.position();
+        while reader.get_counter_value(first_counter)? < position
+            || reader.get_counter_value(second_counter)? < position
+        {
+            assert!(Instant::now() < deadline, "both Archives must record the same message");
+            sleep(Duration::from_millis(1));
+        }
+        first.stop_recording_subscription(first_registration)?;
+        // Stopping the first Archive must leave the second Archive's lookup and recording intact.
+        assert_eq!(
+            RecordingPos::find_counter_id_by_session_in_archive(&reader, session_id, second.get_archive_id()),
+            second_counter
+        );
+        assert!(RecordingPos::is_active(&reader, second_counter, recording_id)?);
+        publication.offer(b"second Archive still records")?;
+        let deadline = Instant::now() + valgrind_timeout(10);
+        while reader.get_counter_value(second_counter)? < publication.position() {
+            assert!(Instant::now() < deadline, "second Archive stopped with the first");
+            sleep(Duration::from_millis(1));
+        }
+        second.stop_recording_subscription(second_registration)?;
+        drop(second);
+        drop(second_process);
+        assert!(
+            std::path::Path::new(driver.aeron_dir.to_str()?)
+                .join("cnc.dat")
+                .exists()
+        );
+        first.get_max_recorded_position(recording_id)?;
+        Ok(())
+    }
+
+    // Ported from the empty-recording replay cases in aeron_archive_test.cpp.
+    fn with_empty_recording(
+        check: impl FnOnce(&AeronArchive, &Aeron, &AeronPublication, i64, i64) -> Result<(), Box<dyn Error>>,
+    ) -> Result<(), Box<dyn Error>> {
+        let (aeron, context, _driver, _publication_errors, _errors) = start_aeron_archive()?;
+        let archive = context.aeron_archive_connect(valgrind_timeout(30))?;
+        let channel = c"aeron:ipc?term-length=64k";
+        let registration = archive.start_recording(channel, 1552, SOURCE_LOCATION_LOCAL, true)?;
+        let publication = aeron.add_publication(channel, 1552, valgrind_timeout(10))?;
+        let reader = aeron.counters_reader();
+        let counter = testing::find_counter_id_by_session_in_archive_blocking(
+            &reader,
+            publication.session_id(),
+            archive.get_archive_id(),
+            valgrind_timeout(10),
+        )?;
+        let recording_id = RecordingPos::get_recording_id(&reader, counter)?;
+        assert_eq!(reader.get_counter_value(counter)?, 0);
+        check(&archive, &aeron, &publication, recording_id, registration)
+    }
+
+    fn empty_recording_replay_is_rejected(stopped: bool) -> Result<(), Box<dyn Error>> {
+        with_empty_recording(|archive, _, _, recording_id, registration| {
+            if stopped {
+                archive.stop_recording_subscription(registration)?;
+                let deadline = Instant::now() + valgrind_timeout(10);
+                while archive.get_stop_position(recording_id)? != 0 {
+                    assert!(Instant::now() < deadline, "empty recording did not stop");
+                    sleep(Duration::from_millis(1));
+                }
+            }
+            // aeron_archive.h defines -2 as REPLAY_ALL_AND_STOP and -1 as NULL_POSITION.
+            let params = AeronArchiveReplayParams::builder().position(-1).length(-2).build()?;
+            let error = archive
+                .start_replay(recording_id, c"aeron:ipc?term-length=64k", 1553, &params)
+                .unwrap_err();
+            assert_eq!(error.code, AeronArchiveErrorCode::EmptyRecording, "{error}");
+            assert_eq!(archive.get_start_position(recording_id)?, 0);
+            if !stopped {
+                archive.stop_recording_subscription(registration)?;
+            }
+            Ok(())
+        })
+    }
+
+    #[test]
+    #[serial]
+    fn replay_all_and_stop_rejects_an_empty_stopped_recording() -> Result<(), Box<dyn Error>> {
+        empty_recording_replay_is_rejected(true)
+    }
+
+    #[test]
+    #[serial]
+    fn replay_all_and_stop_rejects_an_empty_live_recording() -> Result<(), Box<dyn Error>> {
+        empty_recording_replay_is_rejected(false)
+    }
+
+    #[test]
+    #[serial]
+    fn replay_all_and_follow_waits_for_the_first_recorded_message() -> Result<(), Box<dyn Error>> {
+        with_empty_recording(|archive, aeron, publication, recording_id, registration| {
+            // aeron_archive.h defines -1 as REPLAY_ALL_AND_FOLLOW.
+            let params = AeronArchiveReplayParams::builder().position(-1).length(-1).build()?;
+            let replay = archive.start_replay(recording_id, c"aeron:ipc?term-length=64k", 1553, &params)?;
+            let channel = format!("aeron:ipc?session-id={}", replay as i32).into_c_string();
+            let subscription =
+                aeron.add_subscription(&channel, 1553, Handlers::NONE, Handlers::NONE, valgrind_timeout(10))?;
+            let deadline = Instant::now() + valgrind_timeout(10);
+            while !subscription.is_connected() {
+                assert!(Instant::now() < deadline, "live replay did not connect");
+                sleep(Duration::from_millis(1));
+            }
+            let image = subscription.image_at_index(0).ok_or("live replay image is missing")?;
+            assert!(!image.is_end_of_stream());
+            assert_eq!(
+                subscription.poll_fn(|_, _| panic!("empty recording produced a fragment"), 10)?,
+                0
+            );
+            let payload = b"first message after replay starts";
+            loop {
+                match publication.offer(payload) {
+                    Ok(_) => break,
+                    Err(e) if e.is_retryable() => (),
+                    Err(e) => return Err(e.into()),
+                }
+                assert!(Instant::now() < deadline, "recording publication did not connect");
+                sleep(Duration::from_millis(1));
+            }
+            let mut received = None;
+            while received.is_none() {
+                subscription.poll_fn(|buffer, _| received = Some(buffer.to_vec()), 10)?;
+                assert!(
+                    Instant::now() < deadline,
+                    "live replay did not deliver its first message"
+                );
+                sleep(Duration::from_millis(1));
+            }
+            assert_eq!(received.as_deref(), Some(payload.as_slice()));
+            archive.stop_replay(replay)?;
+            archive.stop_recording_subscription(registration)?;
+            Ok(())
+        })
+    }
+
+    #[test]
+    #[serial]
+    fn truncating_a_recording_stops_its_active_replay() -> Result<(), Box<dyn Error>> {
+        with_empty_recording(|archive, aeron, publication, recording_id, registration| {
+            let deadline = Instant::now() + valgrind_timeout(10);
+            loop {
+                match publication.offer(b"recording to truncate") {
+                    Ok(_) => break,
+                    Err(e) if e.is_retryable() => (),
+                    Err(e) => return Err(e.into()),
+                }
+                assert!(Instant::now() < deadline, "recording publication did not connect");
+                sleep(Duration::from_millis(1));
+            }
+            let reader = aeron.counters_reader();
+            let counter = RecordingPos::find_counter_id_by_recording_id_in_archive(
+                &reader,
+                recording_id,
+                archive.get_archive_id(),
+            );
+            assert!(counter >= 0);
+            while reader.get_counter_value(counter)? < publication.position() {
+                assert!(Instant::now() < deadline, "Archive did not record the message");
+                sleep(Duration::from_millis(1));
+            }
+            archive.stop_recording_subscription(registration)?;
+            while archive.get_stop_position(recording_id)? != publication.position() {
+                assert!(Instant::now() < deadline, "recording did not stop");
+                sleep(Duration::from_millis(1));
+            }
+            let params = AeronArchiveReplayParams::builder().position(0).length(-1).build()?;
+            archive.start_replay(recording_id, c"aeron:ipc?term-length=64k", 1553, &params)?;
+            // With no replay subscriber, the replay stays active until the truncation.
+            let mut replay_count = None;
+            reader.foreach_counter_fn(|_, id, type_id, key, _| {
+                if type_id == AERON_COUNTER_ARCHIVE_REPLAY_SESSION_COUNT_TYPE_ID as i32
+                    && key[..8] == archive.get_archive_id().to_ne_bytes()
+                {
+                    replay_count = Some(id);
+                }
+            });
+            let replay_count = replay_count.ok_or("Archive replay session counter is missing")?;
+            while reader.get_counter_value(replay_count)? != 1 {
+                assert!(Instant::now() < deadline, "replay did not start");
+                sleep(Duration::from_millis(1));
+            }
+            archive.truncate_recording(recording_id, 0)?;
+            assert_eq!(archive.get_stop_position(recording_id)?, 0);
+            while reader.get_counter_value(replay_count)? != 0 {
+                assert!(Instant::now() < deadline, "truncation left a replay running");
+                sleep(Duration::from_millis(1));
+            }
+            Ok(())
+        })
+    }
+
+    fn replay_with_agent_invoker(response_channel: bool) -> Result<(), Box<dyn Error>> {
+        use std::sync::atomic::AtomicI64;
+
+        let (threaded, threaded_context, driver, _publication_errors, _errors) = start_aeron_archive()?;
+        let archive = threaded_context.aeron_archive_connect(valgrind_timeout(30))?;
+        let channel = c"aeron:ipc?term-length=64k";
+        let recording = archive.start_recording(channel, 1542, SOURCE_LOCATION_LOCAL, true)?;
+        let publication = threaded.add_exclusive_publication(channel, 1542, valgrind_timeout(10))?;
+        let expected = [b"first replay message".as_slice(), b"second replay message".as_slice()];
+        let deadline = Instant::now() + valgrind_timeout(10);
+        for message in expected {
+            loop {
+                match publication.offer(message) {
+                    Ok(_) => break,
+                    Err(e) if e.is_retryable() => (),
+                    Err(e) => return Err(e.into()),
+                }
+                assert!(Instant::now() < deadline, "recording publication did not connect");
+                sleep(Duration::from_millis(1));
+            }
+        }
+        let reader = threaded.counters_reader();
+        let counter = testing::find_counter_id_by_session_in_archive_blocking(
+            &reader,
+            publication.get_constants()?.session_id,
+            archive.get_archive_id(),
+            valgrind_timeout(10),
+        )?;
+        let recording_id = RecordingPos::get_recording_id(&reader, counter)?;
+        let position = publication.position();
+        while reader.get_counter_value(counter)? < position {
+            assert!(Instant::now() < deadline, "Archive did not catch up");
+            sleep(Duration::from_millis(1));
+        }
+        archive.stop_recording_subscription(recording)?;
+
+        let client_context = AeronContext::new()?;
+        client_context.set_dir(&driver.aeron_dir)?;
+        client_context.set_use_conductor_agent_invoker(true)?;
+        let client = Aeron::new(&client_context)?;
+        client.start()?;
+        let context = driver.archive_context(&client)?;
+        let replay_deadline = Arc::new(AtomicI64::new(i64::MAX));
+        let stalled = Arc::new(AtomicBool::new(false));
+        let idle_deadline = replay_deadline.clone();
+        let idle_stalled = stalled.clone();
+        let idle_client = client.clone();
+        // Rescue a stalled C wait after the deadline, then fail below. This makes
+        // an invoker regression fail instead of hanging the entire test suite.
+        context.set_idle_strategy(Some(move |_work_count: i32| {
+            sleep(Duration::from_millis(1));
+            if Aeron::nano_clock() > idle_deadline.load(Ordering::SeqCst) {
+                idle_stalled.store(true, Ordering::SeqCst);
+                let _ = idle_client.main_do_work();
+            }
+        }))?;
+        let invoker_archive = context.aeron_archive_connect(valgrind_timeout(30))?;
+        let params = AeronArchiveReplayParams::builder()
+            .position(0)
+            .length(position)
+            .build()?;
+        let replay_channel = if response_channel {
+            let port = find_unused_udp_port(18100).ok_or("no replay control port")?;
+            format!("aeron:udp?control-mode=response|control=127.0.0.1:{port}|term-length=64k").into_c_string()
+        } else {
+            channel.to_owned()
+        };
+
+        // This C API creates the subscription and waits internally. No external
+        // do_work loop can help it: each replay wait must invoke the client itself.
+        // The generated Rust API exposes start_replay, so exercise replay via bindings.
+        let mut raw_subscription = std::ptr::null_mut();
+        replay_deadline.store(
+            Aeron::nano_clock() + valgrind_timeout(10).as_nanos() as i64,
+            Ordering::SeqCst,
+        );
+        let result = unsafe {
+            aeron_archive_replay(
+                &mut raw_subscription,
+                invoker_archive.get_inner(),
+                recording_id,
+                replay_channel.as_ptr(),
+                1543,
+                params.get_inner(),
+            )
+        };
+        assert_eq!(result, 0, "{}", Aeron::errmsg());
+        assert!(!raw_subscription.is_null());
+        // Keep the client alive until this subscription has been closed, including
+        // assertion-failure paths; the borrowed Rust view never owns the C pointer.
+        struct ReplaySubscription(AeronSubscription);
+        impl Drop for ReplaySubscription {
+            fn drop(&mut self) {
+                unsafe { aeron_subscription_close(self.0.get_inner(), None, std::ptr::null_mut()) };
+            }
+        }
+        let subscription = ReplaySubscription(AeronSubscription::from(raw_subscription));
+        assert!(
+            !stalled.load(Ordering::SeqCst),
+            "replay did not drive its invoker client"
+        );
+        replay_deadline.store(i64::MAX, Ordering::SeqCst);
+        let mut received = Vec::new();
+        let deadline = Instant::now() + valgrind_timeout(10);
+        while received.len() < expected.len() {
+            invoker_archive.do_work()?;
+            subscription.0.poll_fn(|buffer, _| received.push(buffer.to_vec()), 10)?;
+            assert!(Instant::now() < deadline, "invoker replay did not deliver all messages");
+            sleep(Duration::from_millis(1));
+        }
+        assert_eq!(received, expected);
+        Ok(())
+    }
+
+    #[test]
+    #[serial]
+    fn replay_waits_drive_an_agent_invoker_client() -> Result<(), Box<dyn Error>> {
+        replay_with_agent_invoker(false)
+    }
+
+    #[test]
+    #[serial]
+    fn response_replay_waits_drive_an_agent_invoker_client() -> Result<(), Box<dyn Error>> {
+        replay_with_agent_invoker(true)
     }
 
     /// A borrowed context (e.g. from `get_archive_context()`) cannot keep a client alive, so
@@ -2511,7 +3014,7 @@ mod tests {
         // Drop all Aeron and archive children before close_now
         drop(subscription);
         drop(publication);
-        // recording_id is just a u64, not a resource handle
+        // recording_id is a u64, not a resource handle
 
         // Call close_now on the archive. It must not segfault or double-free
         unsafe {

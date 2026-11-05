@@ -49,7 +49,7 @@ unsafe impl Sync for AeronCounter {}
 /// [`AeronPublication::status`] / [`AeronSubscription::status`] derive
 /// `Disconnected` / `Connected` / `Closed` from the handle's `is_closed` /
 /// `is_connected` flags. `BackPressured` is only observable at `offer` /
-/// `try_claim` time (via the returned error) and is surfaced by
+/// `try_claim` time (via the returned error) and is reported by
 /// [`AeronStatus::from_error`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AeronStatus {
@@ -146,8 +146,8 @@ impl AeronIdleStrategyKind {
     }
 }
 
-// ─── Per-type `Send`/`Sync` under `multi-threaded` (additions beyond the block at the
-// top of this file) ────────────────────────────────────────────────────────────────
+// Per-type `Send`/`Sync` under `multi-threaded` (additions beyond the block at the
+// top of this file)
 // `Aeron` (client): `Aeron.java`, "Add a Publication ... is threadsafe."/"... is
 // threadsafe." for `addPublication`/`addSubscription` and friends; the client
 // conductor is explicitly designed to be driven from multiple registering threads.
@@ -594,10 +594,9 @@ unsafe extern "C" fn rusteron_image_visitor<F: FnMut(&AeronImage)>(
 /// Shared polling loop for the `add_destination`/`remove_destination[_by_id]` blocking
 /// convenience wrappers on `AeronSubscription`/`AeronPublication`/`AeronExclusivePublication`.
 ///
-/// Unlike a naive `poll().unwrap_or_default() > 0` check, this propagates a real C-side
-/// error (e.g. an invalid destination URI) immediately as `Err`, instead of silently
-/// treating it as "still pending" and only surfacing it later as a misleading
-/// [`AeronErrorType::TimedOut`] once `timeout` elapses.
+/// Returns C errors, such as an invalid destination URI, as `Err` immediately.
+/// Returns [`AeronErrorType::TimedOut`] if the operation remains pending until
+/// `timeout` elapses.
 fn poll_destination_op_to_completion<C: std::fmt::Debug>(
     client: &Aeron,
     result: &AeronAsyncDestination,
@@ -1293,6 +1292,15 @@ impl AeronUriStringBuilder {
         self.put_int32(key, value)?;
         Ok(self)
     }
+    /// Sets the UDP socket traffic class (`so-tos`, Aeron 1.54+).
+    /// The byte contains both the DSCP and ECN bits; the driver applies it when
+    /// creating the socket. Use the driver context's `set_socket_tos` for a default.
+    pub fn socket_tos(&self, value: u8) -> Result<&Self, AeronCError> {
+        let key = std::ffi::CStr::from_bytes_until_nul(AERON_URI_SOCKET_TOS_KEY)
+            .map_err(|_| AeronCError::from_code(PARSE_CSTR_ERROR_CODE))?;
+        self.put_int32(key, i32::from(value))?;
+        Ok(self)
+    }
     pub fn receiver_window(&self, value: i32) -> Result<&Self, AeronCError> {
         let key = std::ffi::CStr::from_bytes_until_nul(AERON_URI_RECEIVER_WINDOW_KEY)
             .map_err(|_| AeronCError::from_code(PARSE_CSTR_ERROR_CODE))?;
@@ -1343,6 +1351,14 @@ impl AeronUriStringBuilder {
     }
     pub fn untethered_resting_timeout(&self, value: i64) -> Result<&Self, AeronCError> {
         let key = std::ffi::CStr::from_bytes_until_nul(AERON_URI_UNTETHERED_RESTING_TIMEOUT_KEY)
+            .map_err(|_| AeronCError::from_code(PARSE_CSTR_ERROR_CODE))?;
+        self.put_int64(key, value)?;
+        Ok(self)
+    }
+    /// Sets the linger timeout in nanoseconds for an untethered subscription
+    /// (`untethered-linger-timeout`). This is separate from publication `linger`.
+    pub fn untethered_linger_timeout(&self, value: i64) -> Result<&Self, AeronCError> {
+        let key = std::ffi::CStr::from_bytes_until_nul(AERON_URI_UNTETHERED_LINGER_TIMEOUT_KEY)
             .map_err(|_| AeronCError::from_code(PARSE_CSTR_ERROR_CODE))?;
         self.put_int64(key, value)?;
         Ok(self)
@@ -1669,7 +1685,7 @@ impl AeronBufferClaim {
 ///
 /// Construct via [`AeronPublication::try_claim_owned`] or
 /// [`AeronExclusivePublication::try_claim_owned`]; the claim is returned only on
-/// a successful `try_claim`, so its inner buffer is always a genuinely claimed
+/// a successful `try_claim`, so its inner buffer is always a claimed
 /// slot (never a null zero-default).
 pub struct AeronClaim {
     claim: AeronBufferClaim,
@@ -1733,7 +1749,7 @@ impl Drop for AeronClaim {
         if !self.finalised {
             // Defensive backstop: abort so the term slot is released now rather
             // than after the publication unblock timeout. The claim is always a
-            // genuine claimed slot (constructed only on a successful try_claim),
+            // claimed slot (constructed only on a successful try_claim),
             // so calling abort here is safe.
             let _ = self.claim.abort();
         }
@@ -1858,7 +1874,7 @@ macro_rules! impl_publication_methods {
                 }
             }
 
-            /// Convenience accessor for the registration id (no direct C accessor exists;
+            /// Accessor for the registration id (no direct C accessor exists;
             /// backed by [`Self::get_constants`]). `session_id`, `stream_id` and `channel`
             /// have cheap direct getters, so prefer those; for `registration_id` /
             /// `max_payload_length` in a hot loop, call [`Self::get_constants`] once and
@@ -1868,7 +1884,7 @@ macro_rules! impl_publication_methods {
                 self.get_constants().map(|c| c.registration_id())
             }
 
-            /// Convenience accessor for the max payload length (see [`Self::registration_id`]).
+            /// Accessor for the max payload length (see [`Self::registration_id`]).
             #[inline]
             pub fn max_payload_length(&self) -> Result<usize, AeronCError> {
                 self.get_constants().map(|c| c.max_payload_length())
@@ -1883,7 +1899,7 @@ impl_publication_methods!(AeronExclusivePublication, aeron_exclusive_publication
 impl AeronPublication {
     /// Non-blocking publish of `buffer`, returning the new stream position.
     ///
-    /// Typed-error convenience wrapper over [`Self::offer_raw`]; see
+    /// Typed-error wrapper over [`Self::offer_raw`]; see
     /// [`AeronOfferError::is_retryable`] for retry-loop guidance.
     #[inline]
     pub fn offer(&self, buffer: &[u8]) -> Result<i64, AeronOfferError> {
@@ -1922,7 +1938,7 @@ impl AeronSubscription {
         }
     }
 
-    /// Convenience accessor for the stream id (no direct C accessor exists for
+    /// Accessor for the stream id (no direct C accessor exists for
     /// subscriptions; backed by [`Self::get_constants`]). For a hot loop, call
     /// [`Self::get_constants`] once and reuse the returned
     /// [`AeronSubscriptionConstants`].
@@ -1931,13 +1947,13 @@ impl AeronSubscription {
         self.get_constants().map(|c| c.stream_id())
     }
 
-    /// Convenience accessor for the channel (see [`Self::stream_id`]).
+    /// Accessor for the channel (see [`Self::stream_id`]).
     #[inline]
     pub fn channel(&self) -> Result<String, AeronCError> {
         self.get_constants().map(|c| c.channel().to_string())
     }
 
-    /// Convenience accessor for the registration id (see [`Self::stream_id`]).
+    /// Accessor for the registration id (see [`Self::stream_id`]).
     #[inline]
     pub fn registration_id(&self) -> Result<i64, AeronCError> {
         self.get_constants().map(|c| c.registration_id())
@@ -2119,7 +2135,7 @@ impl FnMutControlledMessageHandler {
     /// dispatches into them.
     ///
     /// # Lifetime contract (caller must uphold)
-    /// Same as [`FnMutMessageHandler::set`](super::FnMutMessageHandler::set):
+    /// Same as [`FnMutMessageHandler::set`]:
     /// `ctx` is stored as a raw pointer that escapes the borrow. The caller MUST
     /// keep `ctx` alive (and unmoved) until this handler is retired or re-`set`;
     /// calling `call` after `ctx` is dropped is use-after-free.
@@ -2369,7 +2385,7 @@ fn validate_ipv6(addr: &str) -> Result<(), AeronCError> {
     }
 
     // IPv6 allows: hexadecimal digits, `:` (single or `::` for compression).
-    // Minimal validation: ensure only valid characters and at least one colon.
+    // Require valid characters and at least one colon.
     let has_colon = addr.bytes().any(|b| b == b':');
     if !has_colon {
         return Err(AeronCError::from_code(-1));
