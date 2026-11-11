@@ -741,7 +741,7 @@ fn download_precompiled_binaries(artifacts_dir: &Path) -> Result<(), Box<dyn std
 
     if target_os == "linux" {
         target_os = "ubuntu".to_string();
-        image = "22.04";
+        image = if arch == "aarch64" { "22.04-arm" } else { "22.04" };
     }
 
     let asset = format!("https://github.com/gsrxyz/rusteron/releases/download/v{version}/artifacts-{target_os}-{image}-{feature}.tar.gz");
@@ -759,7 +759,7 @@ fn download_precompiled_binaries(artifacts_dir: &Path) -> Result<(), Box<dyn std
 
     // move files we are interested in
     let pkg_name = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME should always be set by Cargo");
-    let dir = fs::read_dir(
+    let dir = match fs::read_dir(
         artifacts_dir
             .join(format!("artifacts-{target_os}-{image}-{feature}"))
             .join(pkg_name)
@@ -767,7 +767,16 @@ fn download_precompiled_binaries(artifacts_dir: &Path) -> Result<(), Box<dyn std
             .join(feature)
             .join(target_os)
             .join(arch),
-    )?;
+    ) {
+        Ok(dir) => dir,
+        Err(e) => {
+            // wrong or missing arch in the archive: leave the dir empty so the caller builds from source
+            let _ = fs::remove_dir_all(artifacts_dir);
+            let _ = fs::create_dir_all(artifacts_dir);
+            return Err(e.into());
+        }
+    };
+    
     for file in dir {
         let file = file?;
         fs::rename(file.path(), artifacts_dir.join(file.file_name()))?;
