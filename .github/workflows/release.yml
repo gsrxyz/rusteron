@@ -143,7 +143,7 @@ jobs:
           CI_RUN: ${{ steps.find_ci.outputs.ci_run_id }}
         run: |
           # define your list here:
-          artifacts=(artifacts-macos-latest-static artifacts-ubuntu-22.04-static)
+          artifacts=(artifacts-macos-latest-static artifacts-ubuntu-22.04-static artifacts-ubuntu-22.04-arm-static)
 
           for art in "${artifacts[@]}"; do
             echo "⏬ Downloading $art into artifacts/$art"
