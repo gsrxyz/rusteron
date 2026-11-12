@@ -117,12 +117,12 @@ impl Addrinfo {
         }
     }
     #[inline]
-    pub fn ai_addr(&self) -> Sockaddr {
-        self.ai_addr.into()
+    pub fn ai_addr(&self) -> Ref<'_, Sockaddr> {
+        Ref::new(self.ai_addr.into())
     }
     #[inline]
-    pub fn ai_next(&self) -> Addrinfo {
-        self.ai_next.into()
+    pub fn ai_next(&self) -> Ref<'_, Addrinfo> {
+        Ref::new(self.ai_next.into())
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut addrinfo {
@@ -142,6 +142,16 @@ impl Addrinfo {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &addrinfo {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, Addrinfo> {
+    #[inline]
+    pub fn ai_addr(&self) -> Ref<'a, Sockaddr> {
+        Ref::new(self.value.ai_addr().value)
+    }
+    #[inline]
+    pub fn ai_next(&self) -> Ref<'a, Addrinfo> {
+        Ref::new(self.value.ai_next().value)
     }
 }
 impl std::ops::Deref for Addrinfo {
@@ -389,6 +399,52 @@ impl<T> std::fmt::Debug for CResource<T> {
                 write!(f, "{name} borrowed ({:?})", r)
             }
         }
+    }
+}
+#[doc = " A wrapper around a C object that belongs to the value it came from, such as the"]
+#[doc = " context returned by `archive.get_archive_context()`"]
+#[doc = ""]
+#[doc = " The lifetime ties it to that owner, so dropping or closing the owner while a `Ref`"]
+#[doc = " is alive does not compile. Use it through `Deref` like the wrapper itself"]
+#[doc = ""]
+#[doc = " The owner is tracked with `PhantomData` rather than an `Rc`/`Arc` clone for"]
+#[doc = " performance: getters such as `archive.aeron()` are called on the hot path (for"]
+#[doc = " example in `do_work`), and a reference count would add an increment and decrement"]
+#[doc = " (atomic under `multi-threaded`) on every call. `Ref` holds only the C pointer, so"]
+#[doc = " the borrow checker enforces the lifetime at zero runtime cost"]
+#[doc = ""]
+#[doc = " `ref.clone()` keeps the lifetime. Cloning the inner wrapper (`T::clone(&*r)`) does"]
+#[doc = " not, and that copy must not outlive the owner"]
+pub struct Ref<'a, T> {
+    value: T,
+    owner: std::marker::PhantomData<&'a ()>,
+}
+impl<T> Ref<'_, T> {
+    #[doc = " The caller picks the lifetime, which must not outlive the C object's owner"]
+    #[inline(always)]
+    pub(crate) fn new(value: T) -> Self {
+        Self {
+            value,
+            owner: std::marker::PhantomData,
+        }
+    }
+}
+impl<T> std::ops::Deref for Ref<'_, T> {
+    type Target = T;
+    #[inline(always)]
+    fn deref(&self) -> &T {
+        &self.value
+    }
+}
+impl<T: Clone> Clone for Ref<'_, T> {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        Self::new(self.value.clone())
+    }
+}
+impl<T: std::fmt::Debug> std::fmt::Debug for Ref<'_, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.value.fmt(f)
     }
 }
 #[doc = " Owns a C resource and calls its cleanup closure when the last handle drops."]
@@ -5252,8 +5308,8 @@ impl AeronBroadcastTransmitter {
         self.buffer.into()
     }
     #[inline]
-    pub fn descriptor(&self) -> AeronBroadcastDescriptor {
-        self.descriptor.into()
+    pub fn descriptor(&self) -> Ref<'_, AeronBroadcastDescriptor> {
+        Ref::new(self.descriptor.into())
     }
     #[inline]
     pub fn capacity(&self) -> usize {
@@ -5336,6 +5392,12 @@ impl AeronBroadcastTransmitter {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_broadcast_transmitter_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronBroadcastTransmitter> {
+    #[inline]
+    pub fn descriptor(&self) -> Ref<'a, AeronBroadcastDescriptor> {
+        Ref::new(self.value.descriptor().value)
     }
 }
 impl std::ops::Deref for AeronBroadcastTransmitter {
@@ -7438,7 +7500,7 @@ impl AeronCnc {
     #[doc = " are tied to the instance of aeron_cnc."]
     #[doc = ""]
     #[doc = " \n# Return\n pointer to a counters reader."]
-    pub fn counters_reader(&self) -> AeronCountersReader {
+    pub fn counters_reader(&self) -> Ref<'_, AeronCountersReader> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -7449,7 +7511,7 @@ impl AeronCnc {
             let result = aeron_cnc_counters_reader(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -7599,6 +7661,16 @@ impl AeronCnc {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_cnc_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronCnc> {
+    #[inline]
+    #[doc = "Gets a counters reader for this command and control file. This does not need to be closed manually, resources"]
+    #[doc = " are tied to the instance of aeron_cnc."]
+    #[doc = ""]
+    #[doc = " \n# Return\n pointer to a counters reader."]
+    pub fn counters_reader(&self) -> Ref<'a, AeronCountersReader> {
+        Ref::new(self.value.counters_reader().value)
     }
 }
 impl std::ops::Deref for AeronCnc {
@@ -11149,8 +11221,8 @@ impl AeronCountersManager {
         self.free_list_length.into()
     }
     #[inline]
-    pub fn cached_clock(&self) -> AeronClockCache {
-        self.cached_clock.into()
+    pub fn cached_clock(&self) -> Ref<'_, AeronClockCache> {
+        Ref::new(self.cached_clock.into())
     }
     #[inline]
     pub fn free_to_reuse_timeout_ms(&self) -> i64 {
@@ -11514,6 +11586,12 @@ impl AeronCountersManager {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_counters_manager_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronCountersManager> {
+    #[inline]
+    pub fn cached_clock(&self) -> Ref<'a, AeronClockCache> {
+        Ref::new(self.value.cached_clock().value)
     }
 }
 impl std::ops::Deref for AeronCountersManager {
@@ -13200,12 +13278,12 @@ impl AeronDataPacketDispatcher {
         self.tokens.into()
     }
     #[inline]
-    pub fn conductor_proxy(&self) -> AeronDriverConductorProxy {
-        self.conductor_proxy.into()
+    pub fn conductor_proxy(&self) -> Ref<'_, AeronDriverConductorProxy> {
+        Ref::new(self.conductor_proxy.into())
     }
     #[inline]
-    pub fn receiver(&self) -> AeronDriverReceiver {
-        self.receiver.into()
+    pub fn receiver(&self) -> Ref<'_, AeronDriverReceiver> {
+        Ref::new(self.receiver.into())
     }
     #[inline]
     pub fn stream_session_limit(&self) -> i32 {
@@ -13667,6 +13745,16 @@ impl AeronDataPacketDispatcher {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_data_packet_dispatcher_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronDataPacketDispatcher> {
+    #[inline]
+    pub fn conductor_proxy(&self) -> Ref<'a, AeronDriverConductorProxy> {
+        Ref::new(self.value.conductor_proxy().value)
+    }
+    #[inline]
+    pub fn receiver(&self) -> Ref<'a, AeronDriverReceiver> {
+        Ref::new(self.value.receiver().value)
     }
 }
 impl std::ops::Deref for AeronDataPacketDispatcher {
@@ -14547,8 +14635,8 @@ impl AeronDistinctErrorLogObservationList {
         self.num_observations.into()
     }
     #[inline]
-    pub fn observations(&self) -> AeronDistinctObservation {
-        self.observations.into()
+    pub fn observations(&self) -> Ref<'_, AeronDistinctObservation> {
+        Ref::new(self.observations.into())
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_distinct_error_log_observation_list_t {
@@ -14568,6 +14656,12 @@ impl AeronDistinctErrorLogObservationList {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_distinct_error_log_observation_list_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronDistinctErrorLogObservationList> {
+    #[inline]
+    pub fn observations(&self) -> Ref<'a, AeronDistinctObservation> {
+        Ref::new(self.value.observations().value)
     }
 }
 impl std::ops::Deref for AeronDistinctErrorLogObservationList {
@@ -14757,8 +14851,8 @@ impl AeronDistinctErrorLog {
         self.buffer.into()
     }
     #[inline]
-    pub fn observation_list(&self) -> AeronDistinctErrorLogObservationList {
-        self.observation_list.into()
+    pub fn observation_list(&self) -> Ref<'_, AeronDistinctErrorLogObservationList> {
+        Ref::new(self.observation_list.into())
     }
     #[inline]
     pub fn buffer_capacity(&self) -> usize {
@@ -14861,6 +14955,12 @@ impl AeronDistinctErrorLog {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_distinct_error_log_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronDistinctErrorLog> {
+    #[inline]
+    pub fn observation_list(&self) -> Ref<'a, AeronDistinctErrorLogObservationList> {
+        Ref::new(self.value.observation_list().value)
     }
 }
 impl std::ops::Deref for AeronDistinctErrorLog {
@@ -15419,8 +15519,8 @@ impl AeronDriverConductorClientCommand {
         self.free.into()
     }
     #[inline]
-    pub fn correlated(&self) -> AeronCorrelatedCommand {
-        self.correlated.into()
+    pub fn correlated(&self) -> Ref<'_, AeronCorrelatedCommand> {
+        Ref::new(self.correlated.into())
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_driver_conductor_client_command_t {
@@ -15440,6 +15540,12 @@ impl AeronDriverConductorClientCommand {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_conductor_client_command_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronDriverConductorClientCommand> {
+    #[inline]
+    pub fn correlated(&self) -> Ref<'a, AeronCorrelatedCommand> {
+        Ref::new(self.value.correlated().value)
     }
 }
 impl std::ops::Deref for AeronDriverConductorClientCommand {
@@ -15837,12 +15943,12 @@ impl AeronDriverConductorProxy {
         }
     }
     #[inline]
-    pub fn conductor(&self) -> AeronDriverConductor {
-        self.conductor.into()
+    pub fn conductor(&self) -> Ref<'_, AeronDriverConductor> {
+        Ref::new(self.conductor.into())
     }
     #[inline]
-    pub fn command_queue(&self) -> AeronMpscRb {
-        self.command_queue.into()
+    pub fn command_queue(&self) -> Ref<'_, AeronMpscRb> {
+        Ref::new(self.command_queue.into())
     }
     #[inline]
     pub fn fail_counter(&self) -> &mut i64 {
@@ -16189,6 +16295,16 @@ impl AeronDriverConductorProxy {
         unsafe { &*self.inner.get() }
     }
 }
+impl<'a> Ref<'a, AeronDriverConductorProxy> {
+    #[inline]
+    pub fn conductor(&self) -> Ref<'a, AeronDriverConductor> {
+        Ref::new(self.value.conductor().value)
+    }
+    #[inline]
+    pub fn command_queue(&self) -> Ref<'a, AeronMpscRb> {
+        Ref::new(self.value.command_queue().value)
+    }
+}
 impl std::ops::Deref for AeronDriverConductorProxy {
     type Target = aeron_driver_conductor_proxy_t;
     fn deref(&self) -> &Self::Target {
@@ -16465,8 +16581,8 @@ impl AeronDriverConductor {
         }
     }
     #[inline]
-    pub fn context(&self) -> AeronDriverContext {
-        self.context.into()
+    pub fn context(&self) -> Ref<'_, AeronDriverContext> {
+        Ref::new(self.context.into())
     }
     #[inline]
     pub fn to_driver_commands(&self) -> AeronMpscRb {
@@ -16593,12 +16709,12 @@ impl AeronDriverConductor {
         self.is_started.into()
     }
     #[inline]
-    pub fn client_command(&self) -> AeronDriverConductorClientCommand {
-        self.client_command.into()
+    pub fn client_command(&self) -> Ref<'_, AeronDriverConductorClientCommand> {
+        Ref::new(self.client_command.into())
     }
     #[inline]
-    pub fn driver_command(&self) -> AeronDriverConductorDriverCommand {
-        self.driver_command.into()
+    pub fn driver_command(&self) -> Ref<'_, AeronDriverConductorDriverCommand> {
+        Ref::new(self.driver_command.into())
     }
     #[inline]
     pub fn padding(&self) -> [u8; 64usize] {
@@ -18448,6 +18564,20 @@ impl AeronDriverConductor {
         unsafe { &*self.inner.get() }
     }
 }
+impl<'a> Ref<'a, AeronDriverConductor> {
+    #[inline]
+    pub fn context(&self) -> Ref<'a, AeronDriverContext> {
+        Ref::new(self.value.context().value)
+    }
+    #[inline]
+    pub fn client_command(&self) -> Ref<'a, AeronDriverConductorClientCommand> {
+        Ref::new(self.value.client_command().value)
+    }
+    #[inline]
+    pub fn driver_command(&self) -> Ref<'a, AeronDriverConductorDriverCommand> {
+        Ref::new(self.value.driver_command().value)
+    }
+}
 impl std::ops::Deref for AeronDriverConductor {
     type Target = aeron_driver_conductor_t;
     fn deref(&self) -> &Self::Target {
@@ -19478,16 +19608,16 @@ impl AeronDriverContext {
         self.epoch_clock.into()
     }
     #[inline]
-    pub fn cached_clock(&self) -> AeronClockCache {
-        self.cached_clock.into()
+    pub fn cached_clock(&self) -> Ref<'_, AeronClockCache> {
+        Ref::new(self.cached_clock.into())
     }
     #[inline]
-    pub fn sender_cached_clock(&self) -> AeronClockCache {
-        self.sender_cached_clock.into()
+    pub fn sender_cached_clock(&self) -> Ref<'_, AeronClockCache> {
+        Ref::new(self.sender_cached_clock.into())
     }
     #[inline]
-    pub fn receiver_cached_clock(&self) -> AeronClockCache {
-        self.receiver_cached_clock.into()
+    pub fn receiver_cached_clock(&self) -> Ref<'_, AeronClockCache> {
+        Ref::new(self.receiver_cached_clock.into())
     }
     #[inline]
     pub fn conductor_command_queue(&self) -> AeronMpscRb {
@@ -19738,32 +19868,32 @@ impl AeronDriverContext {
         self.congestion_control_supplier_func.into()
     }
     #[inline]
-    pub fn conductor_proxy(&self) -> AeronDriverConductorProxy {
-        self.conductor_proxy.into()
+    pub fn conductor_proxy(&self) -> Ref<'_, AeronDriverConductorProxy> {
+        Ref::new(self.conductor_proxy.into())
     }
     #[inline]
-    pub fn native_resource_agent_proxy(&self) -> AeronDriverNativeResourceAgentProxy {
-        self.native_resource_agent_proxy.into()
+    pub fn native_resource_agent_proxy(&self) -> Ref<'_, AeronDriverNativeResourceAgentProxy> {
+        Ref::new(self.native_resource_agent_proxy.into())
     }
     #[inline]
-    pub fn sender_proxy(&self) -> AeronDriverSenderProxy {
-        self.sender_proxy.into()
+    pub fn sender_proxy(&self) -> Ref<'_, AeronDriverSenderProxy> {
+        Ref::new(self.sender_proxy.into())
     }
     #[inline]
-    pub fn receiver_proxy(&self) -> AeronDriverReceiverProxy {
-        self.receiver_proxy.into()
+    pub fn receiver_proxy(&self) -> Ref<'_, AeronDriverReceiverProxy> {
+        Ref::new(self.receiver_proxy.into())
     }
     #[inline]
-    pub fn counters_manager(&self) -> AeronCountersManager {
-        self.counters_manager.into()
+    pub fn counters_manager(&self) -> Ref<'_, AeronCountersManager> {
+        Ref::new(self.counters_manager.into())
     }
     #[inline]
-    pub fn system_counters(&self) -> AeronSystemCounters {
-        self.system_counters.into()
+    pub fn system_counters(&self) -> Ref<'_, AeronSystemCounters> {
+        Ref::new(self.system_counters.into())
     }
     #[inline]
-    pub fn error_log(&self) -> AeronDistinctErrorLog {
-        self.error_log.into()
+    pub fn error_log(&self) -> Ref<'_, AeronDistinctErrorLog> {
+        Ref::new(self.error_log.into())
     }
     #[inline]
     pub fn log(&self) -> aeron_driver_context_stct__bindgen_ty_3 {
@@ -19794,12 +19924,12 @@ impl AeronDriverContext {
         self.conductor_udp_channel_transport_bindings.into()
     }
     #[inline]
-    pub fn udp_channel_outgoing_interceptor_bindings(&self) -> AeronUdpChannelInterceptorBindings {
-        self.udp_channel_outgoing_interceptor_bindings.into()
+    pub fn udp_channel_outgoing_interceptor_bindings(&self) -> Ref<'_, AeronUdpChannelInterceptorBindings> {
+        Ref::new(self.udp_channel_outgoing_interceptor_bindings.into())
     }
     #[inline]
-    pub fn udp_channel_incoming_interceptor_bindings(&self) -> AeronUdpChannelInterceptorBindings {
-        self.udp_channel_incoming_interceptor_bindings.into()
+    pub fn udp_channel_incoming_interceptor_bindings(&self) -> Ref<'_, AeronUdpChannelInterceptorBindings> {
+        Ref::new(self.udp_channel_incoming_interceptor_bindings.into())
     }
     #[inline]
     pub fn udp_channel_transport_poller_iteration_threshold(&self) -> usize {
@@ -19914,20 +20044,20 @@ impl AeronDriverContext {
         self.receive_channel_loss_supplier_clientd.into()
     }
     #[inline]
-    pub fn conductor_duty_cycle_tracker(&self) -> AeronDutyCycleTracker {
-        self.conductor_duty_cycle_tracker.into()
+    pub fn conductor_duty_cycle_tracker(&self) -> Ref<'_, AeronDutyCycleTracker> {
+        Ref::new(self.conductor_duty_cycle_tracker.into())
     }
     #[inline]
-    pub fn sender_duty_cycle_tracker(&self) -> AeronDutyCycleTracker {
-        self.sender_duty_cycle_tracker.into()
+    pub fn sender_duty_cycle_tracker(&self) -> Ref<'_, AeronDutyCycleTracker> {
+        Ref::new(self.sender_duty_cycle_tracker.into())
     }
     #[inline]
-    pub fn receiver_duty_cycle_tracker(&self) -> AeronDutyCycleTracker {
-        self.receiver_duty_cycle_tracker.into()
+    pub fn receiver_duty_cycle_tracker(&self) -> Ref<'_, AeronDutyCycleTracker> {
+        Ref::new(self.receiver_duty_cycle_tracker.into())
     }
     #[inline]
-    pub fn name_resolver_time_tracker(&self) -> AeronDutyCycleTracker {
-        self.name_resolver_time_tracker.into()
+    pub fn name_resolver_time_tracker(&self) -> Ref<'_, AeronDutyCycleTracker> {
+        Ref::new(self.name_resolver_time_tracker.into())
     }
     #[inline]
     pub fn conductor_duty_cycle_stall_tracker(&self) -> AeronDutyCycleStallTracker {
@@ -19946,12 +20076,12 @@ impl AeronDriverContext {
         self.name_resolver_time_stall_tracker.into()
     }
     #[inline]
-    pub fn sender_port_manager(&self) -> AeronPortManager {
-        self.sender_port_manager.into()
+    pub fn sender_port_manager(&self) -> Ref<'_, AeronPortManager> {
+        Ref::new(self.sender_port_manager.into())
     }
     #[inline]
-    pub fn receiver_port_manager(&self) -> AeronPortManager {
-        self.receiver_port_manager.into()
+    pub fn receiver_port_manager(&self) -> Ref<'_, AeronPortManager> {
+        Ref::new(self.receiver_port_manager.into())
     }
     #[inline]
     pub fn sender_wildcard_port_manager(&self) -> AeronWildcardPortManager {
@@ -19962,12 +20092,12 @@ impl AeronDriverContext {
         self.receiver_wildcard_port_manager.into()
     }
     #[inline]
-    pub fn dynamic_libs(&self) -> AeronDlLoadedLibsState {
-        self.dynamic_libs.into()
+    pub fn dynamic_libs(&self) -> Ref<'_, AeronDlLoadedLibsState> {
+        Ref::new(self.dynamic_libs.into())
     }
     #[inline]
-    pub fn bindings_clientd_entries(&self) -> AeronDriverContextBindingsClientdEntry {
-        self.bindings_clientd_entries.into()
+    pub fn bindings_clientd_entries(&self) -> Ref<'_, AeronDriverContextBindingsClientdEntry> {
+        Ref::new(self.bindings_clientd_entries.into())
     }
     #[inline]
     pub fn num_bindings_clientd_entries(&self) -> usize {
@@ -23247,7 +23377,7 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn get_udp_channel_outgoing_interceptors(&self) -> AeronUdpChannelInterceptorBindings {
+    pub fn get_udp_channel_outgoing_interceptors(&self) -> Ref<'_, AeronUdpChannelInterceptorBindings> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -23258,7 +23388,7 @@ impl AeronDriverContext {
             let result = aeron_driver_context_get_udp_channel_outgoing_interceptors(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -23289,7 +23419,7 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn get_udp_channel_incoming_interceptors(&self) -> AeronUdpChannelInterceptorBindings {
+    pub fn get_udp_channel_incoming_interceptors(&self) -> Ref<'_, AeronUdpChannelInterceptorBindings> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -23300,7 +23430,7 @@ impl AeronDriverContext {
             let result = aeron_driver_context_get_udp_channel_incoming_interceptors(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -23814,7 +23944,7 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn get_conductor_duty_cycle_tracker(&self) -> AeronDutyCycleTracker {
+    pub fn get_conductor_duty_cycle_tracker(&self) -> Ref<'_, AeronDutyCycleTracker> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -23825,7 +23955,7 @@ impl AeronDriverContext {
             let result = aeron_driver_context_get_conductor_duty_cycle_tracker(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -23863,7 +23993,7 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn get_sender_duty_cycle_tracker(&self) -> AeronDutyCycleTracker {
+    pub fn get_sender_duty_cycle_tracker(&self) -> Ref<'_, AeronDutyCycleTracker> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -23874,7 +24004,7 @@ impl AeronDriverContext {
             let result = aeron_driver_context_get_sender_duty_cycle_tracker(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -23912,7 +24042,7 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn get_receiver_duty_cycle_tracker(&self) -> AeronDutyCycleTracker {
+    pub fn get_receiver_duty_cycle_tracker(&self) -> Ref<'_, AeronDutyCycleTracker> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -23923,7 +24053,7 @@ impl AeronDriverContext {
             let result = aeron_driver_context_get_receiver_duty_cycle_tracker(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -23961,7 +24091,7 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn get_name_resolver_time_tracker(&self) -> AeronDutyCycleTracker {
+    pub fn get_name_resolver_time_tracker(&self) -> Ref<'_, AeronDutyCycleTracker> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -23972,7 +24102,7 @@ impl AeronDriverContext {
             let result = aeron_driver_context_get_name_resolver_time_tracker(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -24126,7 +24256,7 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn get_sender_port_manager(&self) -> AeronPortManager {
+    pub fn get_sender_port_manager(&self) -> Ref<'_, AeronPortManager> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -24137,7 +24267,7 @@ impl AeronDriverContext {
             let result = aeron_driver_context_get_sender_port_manager(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -24175,7 +24305,7 @@ impl AeronDriverContext {
         }
     }
     #[inline]
-    pub fn get_receiver_port_manager(&self) -> AeronPortManager {
+    pub fn get_receiver_port_manager(&self) -> Ref<'_, AeronPortManager> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -24186,7 +24316,7 @@ impl AeronDriverContext {
             let result = aeron_driver_context_get_receiver_port_manager(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -24996,7 +25126,7 @@ impl AeronDriverContext {
     pub fn bindings_clientd_get_or_find_first_free_entry(
         &self,
         name: &std::ffi::CStr,
-    ) -> AeronDriverContextBindingsClientdEntry {
+    ) -> Ref<'_, AeronDriverContextBindingsClientdEntry> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -25012,7 +25142,7 @@ impl AeronDriverContext {
                 aeron_driver_context_bindings_clientd_get_or_find_first_free_entry(self.get_inner(), name.as_ptr());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -25231,6 +25361,120 @@ impl AeronDriverContext {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_context_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronDriverContext> {
+    #[inline]
+    pub fn get_udp_channel_outgoing_interceptors(&self) -> Ref<'a, AeronUdpChannelInterceptorBindings> {
+        Ref::new(self.value.get_udp_channel_outgoing_interceptors().value)
+    }
+    #[inline]
+    pub fn get_udp_channel_incoming_interceptors(&self) -> Ref<'a, AeronUdpChannelInterceptorBindings> {
+        Ref::new(self.value.get_udp_channel_incoming_interceptors().value)
+    }
+    #[inline]
+    pub fn get_conductor_duty_cycle_tracker(&self) -> Ref<'a, AeronDutyCycleTracker> {
+        Ref::new(self.value.get_conductor_duty_cycle_tracker().value)
+    }
+    #[inline]
+    pub fn get_sender_duty_cycle_tracker(&self) -> Ref<'a, AeronDutyCycleTracker> {
+        Ref::new(self.value.get_sender_duty_cycle_tracker().value)
+    }
+    #[inline]
+    pub fn get_receiver_duty_cycle_tracker(&self) -> Ref<'a, AeronDutyCycleTracker> {
+        Ref::new(self.value.get_receiver_duty_cycle_tracker().value)
+    }
+    #[inline]
+    pub fn get_name_resolver_time_tracker(&self) -> Ref<'a, AeronDutyCycleTracker> {
+        Ref::new(self.value.get_name_resolver_time_tracker().value)
+    }
+    #[inline]
+    pub fn get_sender_port_manager(&self) -> Ref<'a, AeronPortManager> {
+        Ref::new(self.value.get_sender_port_manager().value)
+    }
+    #[inline]
+    pub fn get_receiver_port_manager(&self) -> Ref<'a, AeronPortManager> {
+        Ref::new(self.value.get_receiver_port_manager().value)
+    }
+    #[inline]
+    pub fn cached_clock(&self) -> Ref<'a, AeronClockCache> {
+        Ref::new(self.value.cached_clock().value)
+    }
+    #[inline]
+    pub fn sender_cached_clock(&self) -> Ref<'a, AeronClockCache> {
+        Ref::new(self.value.sender_cached_clock().value)
+    }
+    #[inline]
+    pub fn receiver_cached_clock(&self) -> Ref<'a, AeronClockCache> {
+        Ref::new(self.value.receiver_cached_clock().value)
+    }
+    #[inline]
+    pub fn conductor_proxy(&self) -> Ref<'a, AeronDriverConductorProxy> {
+        Ref::new(self.value.conductor_proxy().value)
+    }
+    #[inline]
+    pub fn native_resource_agent_proxy(&self) -> Ref<'a, AeronDriverNativeResourceAgentProxy> {
+        Ref::new(self.value.native_resource_agent_proxy().value)
+    }
+    #[inline]
+    pub fn sender_proxy(&self) -> Ref<'a, AeronDriverSenderProxy> {
+        Ref::new(self.value.sender_proxy().value)
+    }
+    #[inline]
+    pub fn receiver_proxy(&self) -> Ref<'a, AeronDriverReceiverProxy> {
+        Ref::new(self.value.receiver_proxy().value)
+    }
+    #[inline]
+    pub fn counters_manager(&self) -> Ref<'a, AeronCountersManager> {
+        Ref::new(self.value.counters_manager().value)
+    }
+    #[inline]
+    pub fn system_counters(&self) -> Ref<'a, AeronSystemCounters> {
+        Ref::new(self.value.system_counters().value)
+    }
+    #[inline]
+    pub fn error_log(&self) -> Ref<'a, AeronDistinctErrorLog> {
+        Ref::new(self.value.error_log().value)
+    }
+    #[inline]
+    pub fn udp_channel_outgoing_interceptor_bindings(&self) -> Ref<'a, AeronUdpChannelInterceptorBindings> {
+        Ref::new(self.value.udp_channel_outgoing_interceptor_bindings().value)
+    }
+    #[inline]
+    pub fn udp_channel_incoming_interceptor_bindings(&self) -> Ref<'a, AeronUdpChannelInterceptorBindings> {
+        Ref::new(self.value.udp_channel_incoming_interceptor_bindings().value)
+    }
+    #[inline]
+    pub fn conductor_duty_cycle_tracker(&self) -> Ref<'a, AeronDutyCycleTracker> {
+        Ref::new(self.value.conductor_duty_cycle_tracker().value)
+    }
+    #[inline]
+    pub fn sender_duty_cycle_tracker(&self) -> Ref<'a, AeronDutyCycleTracker> {
+        Ref::new(self.value.sender_duty_cycle_tracker().value)
+    }
+    #[inline]
+    pub fn receiver_duty_cycle_tracker(&self) -> Ref<'a, AeronDutyCycleTracker> {
+        Ref::new(self.value.receiver_duty_cycle_tracker().value)
+    }
+    #[inline]
+    pub fn name_resolver_time_tracker(&self) -> Ref<'a, AeronDutyCycleTracker> {
+        Ref::new(self.value.name_resolver_time_tracker().value)
+    }
+    #[inline]
+    pub fn sender_port_manager(&self) -> Ref<'a, AeronPortManager> {
+        Ref::new(self.value.sender_port_manager().value)
+    }
+    #[inline]
+    pub fn receiver_port_manager(&self) -> Ref<'a, AeronPortManager> {
+        Ref::new(self.value.receiver_port_manager().value)
+    }
+    #[inline]
+    pub fn dynamic_libs(&self) -> Ref<'a, AeronDlLoadedLibsState> {
+        Ref::new(self.value.dynamic_libs().value)
+    }
+    #[inline]
+    pub fn bindings_clientd_entries(&self) -> Ref<'a, AeronDriverContextBindingsClientdEntry> {
+        Ref::new(self.value.bindings_clientd_entries().value)
     }
 }
 impl std::ops::Deref for AeronDriverContext {
@@ -25778,8 +26022,8 @@ impl AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
         }
     }
     #[inline]
-    pub fn mapped_raw_log(&self) -> AeronMappedRawLog {
-        self.mapped_raw_log.into()
+    pub fn mapped_raw_log(&self) -> Ref<'_, AeronMappedRawLog> {
+        Ref::new(self.mapped_raw_log.into())
     }
     #[inline]
     pub fn log_file_name(&self) -> &str {
@@ -25807,6 +26051,12 @@ impl AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer> {
+    #[inline]
+    pub fn mapped_raw_log(&self) -> Ref<'a, AeronMappedRawLog> {
+        Ref::new(self.value.mapped_raw_log().value)
     }
 }
 impl std::ops::Deref for AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer {
@@ -26023,8 +26273,8 @@ impl AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
         self.is_sparse.into()
     }
     #[inline]
-    pub fn result(&self) -> AeronDriverNativeResourceAgentCommandResult {
-        self.result.into()
+    pub fn result(&self) -> Ref<'_, AeronDriverNativeResourceAgentCommandResult> {
+        Ref::new(self.result.into())
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t {
@@ -26044,6 +26294,12 @@ impl AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronDriverNativeResourceAgentProxyCmdMapLogBuffer> {
+    #[inline]
+    pub fn result(&self) -> Ref<'a, AeronDriverNativeResourceAgentCommandResult> {
+        Ref::new(self.value.result().value)
     }
 }
 impl std::ops::Deref for AeronDriverNativeResourceAgentProxyCmdMapLogBuffer {
@@ -26234,12 +26490,12 @@ impl AeronDriverNativeResourceAgentProxyCmdParseChannel {
         }
     }
     #[inline]
-    pub fn async_parse(&self) -> AeronUdpChannelAsyncParse {
-        self.async_parse.into()
+    pub fn async_parse(&self) -> Ref<'_, AeronUdpChannelAsyncParse> {
+        Ref::new(self.async_parse.into())
     }
     #[inline]
-    pub fn result(&self) -> AeronDriverNativeResourceAgentCommandResult {
-        self.result.into()
+    pub fn result(&self) -> Ref<'_, AeronDriverNativeResourceAgentCommandResult> {
+        Ref::new(self.result.into())
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t {
@@ -26259,6 +26515,16 @@ impl AeronDriverNativeResourceAgentProxyCmdParseChannel {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronDriverNativeResourceAgentProxyCmdParseChannel> {
+    #[inline]
+    pub fn async_parse(&self) -> Ref<'a, AeronUdpChannelAsyncParse> {
+        Ref::new(self.value.async_parse().value)
+    }
+    #[inline]
+    pub fn result(&self) -> Ref<'a, AeronDriverNativeResourceAgentCommandResult> {
+        Ref::new(self.value.result().value)
     }
 }
 impl std::ops::Deref for AeronDriverNativeResourceAgentProxyCmdParseChannel {
@@ -26453,8 +26719,8 @@ impl AeronDriverNativeResourceAgentProxyCmdResolveAddress {
         self.address_resolution_params.into()
     }
     #[inline]
-    pub fn result(&self) -> AeronDriverNativeResourceAgentCommandResult {
-        self.result.into()
+    pub fn result(&self) -> Ref<'_, AeronDriverNativeResourceAgentCommandResult> {
+        Ref::new(self.result.into())
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t {
@@ -26474,6 +26740,12 @@ impl AeronDriverNativeResourceAgentProxyCmdResolveAddress {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronDriverNativeResourceAgentProxyCmdResolveAddress> {
+    #[inline]
+    pub fn result(&self) -> Ref<'a, AeronDriverNativeResourceAgentCommandResult> {
+        Ref::new(self.value.result().value)
     }
 }
 impl std::ops::Deref for AeronDriverNativeResourceAgentProxyCmdResolveAddress {
@@ -26664,16 +26936,16 @@ impl AeronDriverNativeResourceAgentProxy {
         }
     }
     #[inline]
-    pub fn native_resource_agent(&self) -> AeronDriverNativeResourceAgent {
-        self.native_resource_agent.into()
+    pub fn native_resource_agent(&self) -> Ref<'_, AeronDriverNativeResourceAgent> {
+        Ref::new(self.native_resource_agent.into())
     }
     #[inline]
     pub fn fail_counter(&self) -> &mut i64 {
         unsafe { &mut *self.fail_counter }
     }
     #[inline]
-    pub fn command_queue(&self) -> AeronSpscRb {
-        self.command_queue.into()
+    pub fn command_queue(&self) -> Ref<'_, AeronSpscRb> {
+        Ref::new(self.command_queue.into())
     }
     #[inline]
     pub fn resolve_address(
@@ -26839,6 +27111,16 @@ impl AeronDriverNativeResourceAgentProxy {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_native_resource_agent_proxy_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronDriverNativeResourceAgentProxy> {
+    #[inline]
+    pub fn native_resource_agent(&self) -> Ref<'a, AeronDriverNativeResourceAgent> {
+        Ref::new(self.value.native_resource_agent().value)
+    }
+    #[inline]
+    pub fn command_queue(&self) -> Ref<'a, AeronSpscRb> {
+        Ref::new(self.value.command_queue().value)
     }
 }
 impl std::ops::Deref for AeronDriverNativeResourceAgentProxy {
@@ -27027,8 +27309,8 @@ impl AeronDriverNativeResourceAgent {
         self.native_resource_agent_proxy.into()
     }
     #[inline]
-    pub fn context(&self) -> AeronDriverContext {
-        self.context.into()
+    pub fn context(&self) -> Ref<'_, AeronDriverContext> {
+        Ref::new(self.context.into())
     }
     #[inline]
     pub fn name_resolver(&self) -> aeron_name_resolver_t {
@@ -27255,6 +27537,12 @@ impl AeronDriverNativeResourceAgent {
         unsafe { &*self.inner.get() }
     }
 }
+impl<'a> Ref<'a, AeronDriverNativeResourceAgent> {
+    #[inline]
+    pub fn context(&self) -> Ref<'a, AeronDriverContext> {
+        Ref::new(self.value.context().value)
+    }
+}
 impl std::ops::Deref for AeronDriverNativeResourceAgent {
     type Target = aeron_driver_native_resource_agent_t;
     fn deref(&self) -> &Self::Target {
@@ -27422,8 +27710,8 @@ impl AeronDriverReceiverImageEntry {
         }
     }
     #[inline]
-    pub fn image(&self) -> AeronPublicationImage {
-        self.image.into()
+    pub fn image(&self) -> Ref<'_, AeronPublicationImage> {
+        Ref::new(self.image.into())
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_driver_receiver_image_entry_t {
@@ -27443,6 +27731,12 @@ impl AeronDriverReceiverImageEntry {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_receiver_image_entry_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronDriverReceiverImageEntry> {
+    #[inline]
+    pub fn image(&self) -> Ref<'a, AeronPublicationImage> {
+        Ref::new(self.value.image().value)
     }
 }
 impl std::ops::Deref for AeronDriverReceiverImageEntry {
@@ -27646,12 +27940,12 @@ impl AeronDriverReceiverPendingSetupEntry {
         self.stream_id.into()
     }
     #[inline]
-    pub fn endpoint(&self) -> AeronReceiveChannelEndpoint {
-        self.endpoint.into()
+    pub fn endpoint(&self) -> Ref<'_, AeronReceiveChannelEndpoint> {
+        Ref::new(self.endpoint.into())
     }
     #[inline]
-    pub fn destination(&self) -> AeronReceiveDestination {
-        self.destination.into()
+    pub fn destination(&self) -> Ref<'_, AeronReceiveDestination> {
+        Ref::new(self.destination.into())
     }
     #[inline]
     pub fn time_of_status_message_ns(&self) -> i64 {
@@ -27679,6 +27973,16 @@ impl AeronDriverReceiverPendingSetupEntry {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_receiver_pending_setup_entry_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronDriverReceiverPendingSetupEntry> {
+    #[inline]
+    pub fn endpoint(&self) -> Ref<'a, AeronReceiveChannelEndpoint> {
+        Ref::new(self.value.endpoint().value)
+    }
+    #[inline]
+    pub fn destination(&self) -> Ref<'a, AeronReceiveDestination> {
+        Ref::new(self.value.destination().value)
     }
 }
 impl std::ops::Deref for AeronDriverReceiverPendingSetupEntry {
@@ -27830,16 +28134,16 @@ impl AeronDriverReceiverProxy {
         }
     }
     #[inline]
-    pub fn receiver(&self) -> AeronDriverReceiver {
-        self.receiver.into()
+    pub fn receiver(&self) -> Ref<'_, AeronDriverReceiver> {
+        Ref::new(self.receiver.into())
     }
     #[inline]
     pub fn log(&self) -> aeron_driver_receiver_proxy_stct__bindgen_ty_1 {
         self.log.into()
     }
     #[inline]
-    pub fn command_queue(&self) -> AeronSpscRb {
-        self.command_queue.into()
+    pub fn command_queue(&self) -> Ref<'_, AeronSpscRb> {
+        Ref::new(self.command_queue.into())
     }
     #[inline]
     pub fn fail_counter(&self) -> &mut i64 {
@@ -28263,6 +28567,16 @@ impl AeronDriverReceiverProxy {
         unsafe { &*self.inner.get() }
     }
 }
+impl<'a> Ref<'a, AeronDriverReceiverProxy> {
+    #[inline]
+    pub fn receiver(&self) -> Ref<'a, AeronDriverReceiver> {
+        Ref::new(self.value.receiver().value)
+    }
+    #[inline]
+    pub fn command_queue(&self) -> Ref<'a, AeronSpscRb> {
+        Ref::new(self.value.command_queue().value)
+    }
+}
 impl std::ops::Deref for AeronDriverReceiverProxy {
     type Target = aeron_driver_receiver_proxy_t;
     fn deref(&self) -> &Self::Target {
@@ -28476,8 +28790,8 @@ impl AeronDriverReceiver {
         self.data_paths.into()
     }
     #[inline]
-    pub fn context(&self) -> AeronDriverContext {
-        self.context.into()
+    pub fn context(&self) -> Ref<'_, AeronDriverContext> {
+        Ref::new(self.context.into())
     }
     #[inline]
     pub fn poller_poll_func(&self) -> aeron_udp_transport_poller_poll_func_t {
@@ -28488,8 +28802,8 @@ impl AeronDriverReceiver {
         self.recvmmsg_func.into()
     }
     #[inline]
-    pub fn error_log(&self) -> AeronDistinctErrorLog {
-        self.error_log.into()
+    pub fn error_log(&self) -> Ref<'_, AeronDistinctErrorLog> {
+        Ref::new(self.error_log.into())
     }
     #[inline]
     pub fn re_resolution_deadline_ns(&self) -> i64 {
@@ -28967,6 +29281,16 @@ impl AeronDriverReceiver {
         unsafe { &*self.inner.get() }
     }
 }
+impl<'a> Ref<'a, AeronDriverReceiver> {
+    #[inline]
+    pub fn context(&self) -> Ref<'a, AeronDriverContext> {
+        Ref::new(self.value.context().value)
+    }
+    #[inline]
+    pub fn error_log(&self) -> Ref<'a, AeronDistinctErrorLog> {
+        Ref::new(self.value.error_log().value)
+    }
+}
 impl std::ops::Deref for AeronDriverReceiver {
     type Target = aeron_driver_receiver_t;
     fn deref(&self) -> &Self::Target {
@@ -29136,8 +29460,8 @@ impl AeronDriverSenderNetworkPublicationEntry {
         }
     }
     #[inline]
-    pub fn publication(&self) -> AeronNetworkPublication {
-        self.publication.into()
+    pub fn publication(&self) -> Ref<'_, AeronNetworkPublication> {
+        Ref::new(self.publication.into())
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_driver_sender_network_publication_entry_t {
@@ -29157,6 +29481,12 @@ impl AeronDriverSenderNetworkPublicationEntry {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_sender_network_publication_entry_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronDriverSenderNetworkPublicationEntry> {
+    #[inline]
+    pub fn publication(&self) -> Ref<'a, AeronNetworkPublication> {
+        Ref::new(self.value.publication().value)
     }
 }
 impl std::ops::Deref for AeronDriverSenderNetworkPublicationEntry {
@@ -29337,16 +29667,16 @@ impl AeronDriverSenderProxy {
         }
     }
     #[inline]
-    pub fn sender(&self) -> AeronDriverSender {
-        self.sender.into()
+    pub fn sender(&self) -> Ref<'_, AeronDriverSender> {
+        Ref::new(self.sender.into())
     }
     #[inline]
     pub fn log(&self) -> aeron_driver_sender_proxy_stct__bindgen_ty_1 {
         self.log.into()
     }
     #[inline]
-    pub fn command_queue(&self) -> AeronSpscRb {
-        self.command_queue.into()
+    pub fn command_queue(&self) -> Ref<'_, AeronSpscRb> {
+        Ref::new(self.command_queue.into())
     }
     #[inline]
     pub fn fail_counter(&self) -> &mut i64 {
@@ -29563,6 +29893,16 @@ impl AeronDriverSenderProxy {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_sender_proxy_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronDriverSenderProxy> {
+    #[inline]
+    pub fn sender(&self) -> Ref<'a, AeronDriverSender> {
+        Ref::new(self.value.sender().value)
+    }
+    #[inline]
+    pub fn command_queue(&self) -> Ref<'a, AeronSpscRb> {
+        Ref::new(self.value.command_queue().value)
     }
 }
 impl std::ops::Deref for AeronDriverSenderProxy {
@@ -29858,8 +30198,8 @@ impl AeronDriverSender {
         unsafe { &mut *self.short_sends_counter }
     }
     #[inline]
-    pub fn context(&self) -> AeronDriverContext {
-        self.context.into()
+    pub fn context(&self) -> Ref<'_, AeronDriverContext> {
+        Ref::new(self.context.into())
     }
     #[inline]
     pub fn poller_poll_func(&self) -> aeron_udp_transport_poller_poll_func_t {
@@ -29870,8 +30210,8 @@ impl AeronDriverSender {
         self.recvmmsg_func.into()
     }
     #[inline]
-    pub fn error_log(&self) -> AeronDistinctErrorLog {
-        self.error_log.into()
+    pub fn error_log(&self) -> Ref<'_, AeronDistinctErrorLog> {
+        Ref::new(self.error_log.into())
     }
     #[inline]
     pub fn status_message_read_timeout_ns(&self) -> i64 {
@@ -30279,6 +30619,16 @@ impl AeronDriverSender {
         unsafe { &*self.inner.get() }
     }
 }
+impl<'a> Ref<'a, AeronDriverSender> {
+    #[inline]
+    pub fn context(&self) -> Ref<'a, AeronDriverContext> {
+        Ref::new(self.value.context().value)
+    }
+    #[inline]
+    pub fn error_log(&self) -> Ref<'a, AeronDistinctErrorLog> {
+        Ref::new(self.value.error_log().value)
+    }
+}
 impl std::ops::Deref for AeronDriverSender {
     type Target = aeron_driver_sender_t;
     fn deref(&self) -> &Self::Target {
@@ -30434,8 +30784,8 @@ impl AeronDriver {
         Ok(result)
     }
     #[inline]
-    pub fn context(&self) -> AeronDriverContext {
-        self.context.into()
+    pub fn context(&self) -> Ref<'_, AeronDriverContext> {
+        Ref::new(self.context.into())
     }
     #[inline]
     pub fn conductor(&self) -> AeronDriverConductor {
@@ -30752,6 +31102,12 @@ impl AeronDriver {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_driver_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronDriver> {
+    #[inline]
+    pub fn context(&self) -> Ref<'a, AeronDriverContext> {
+        Ref::new(self.value.context().value)
     }
 }
 impl std::ops::Deref for AeronDriver {
@@ -36560,8 +36916,8 @@ impl AeronImageConstants {
         }
     }
     #[inline]
-    pub fn subscription(&self) -> AeronSubscription {
-        self.subscription.into()
+    pub fn subscription(&self) -> Ref<'_, AeronSubscription> {
+        Ref::new(self.subscription.into())
     }
     #[inline]
     pub fn source_identity(&self) -> &str {
@@ -36621,6 +36977,12 @@ impl AeronImageConstants {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_image_constants_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronImageConstants> {
+    #[inline]
+    pub fn subscription(&self) -> Ref<'a, AeronSubscription> {
+        Ref::new(self.value.subscription().value)
     }
 }
 impl std::ops::Deref for AeronImageConstants {
@@ -38991,8 +39353,8 @@ impl AeronInt64ToTaggedPtrHashMap {
         unsafe { &mut *self.keys }
     }
     #[inline]
-    pub fn entries(&self) -> AeronInt64ToTaggedPtrEntry {
-        self.entries.into()
+    pub fn entries(&self) -> Ref<'_, AeronInt64ToTaggedPtrEntry> {
+        Ref::new(self.entries.into())
     }
     #[inline]
     pub fn load_factor(&self) -> f32 {
@@ -39028,6 +39390,12 @@ impl AeronInt64ToTaggedPtrHashMap {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_int64_to_tagged_ptr_hash_map_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronInt64ToTaggedPtrHashMap> {
+    #[inline]
+    pub fn entries(&self) -> Ref<'a, AeronInt64ToTaggedPtrEntry> {
+        Ref::new(self.value.entries().value)
     }
 }
 impl std::ops::Deref for AeronInt64ToTaggedPtrHashMap {
@@ -39629,12 +39997,12 @@ impl AeronIpcPublicationEntry {
         }
     }
     #[inline]
-    pub fn publication(&self) -> AeronIpcPublication {
-        self.publication.into()
+    pub fn publication(&self) -> Ref<'_, AeronIpcPublication> {
+        Ref::new(self.publication.into())
     }
     #[inline]
-    pub fn mapped_raw_log(&self) -> AeronMappedRawLog {
-        self.mapped_raw_log.into()
+    pub fn mapped_raw_log(&self) -> Ref<'_, AeronMappedRawLog> {
+        Ref::new(self.mapped_raw_log.into())
     }
     #[inline]
     pub fn log_file_name(&self) -> &str {
@@ -39662,6 +40030,16 @@ impl AeronIpcPublicationEntry {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_ipc_publication_entry_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronIpcPublicationEntry> {
+    #[inline]
+    pub fn publication(&self) -> Ref<'a, AeronIpcPublication> {
+        Ref::new(self.value.publication().value)
+    }
+    #[inline]
+    pub fn mapped_raw_log(&self) -> Ref<'a, AeronMappedRawLog> {
+        Ref::new(self.value.mapped_raw_log().value)
     }
 }
 impl std::ops::Deref for AeronIpcPublicationEntry {
@@ -39845,12 +40223,12 @@ impl AeronIpcPublication {
         }
     }
     #[inline]
-    pub fn mapped_raw_log(&self) -> AeronMappedRawLog {
-        self.mapped_raw_log.into()
+    pub fn mapped_raw_log(&self) -> Ref<'_, AeronMappedRawLog> {
+        Ref::new(self.mapped_raw_log.into())
     }
     #[inline]
-    pub fn log_meta_data(&self) -> AeronLogbufferMetadata {
-        self.log_meta_data.into()
+    pub fn log_meta_data(&self) -> Ref<'_, AeronLogbufferMetadata> {
+        Ref::new(self.log_meta_data.into())
     }
     #[inline]
     pub fn log_file_name(&self) -> &str {
@@ -40118,6 +40496,16 @@ impl AeronIpcPublication {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_ipc_publication_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronIpcPublication> {
+    #[inline]
+    pub fn mapped_raw_log(&self) -> Ref<'a, AeronMappedRawLog> {
+        Ref::new(self.value.mapped_raw_log().value)
+    }
+    #[inline]
+    pub fn log_meta_data(&self) -> Ref<'a, AeronLogbufferMetadata> {
+        Ref::new(self.value.log_meta_data().value)
     }
 }
 impl std::ops::Deref for AeronIpcPublication {
@@ -41470,8 +41858,8 @@ impl AeronLossDetector {
         self.on_gap_detected.into()
     }
     #[inline]
-    pub fn feedback_delay_state(&self) -> AeronFeedbackDelayGeneratorState {
-        self.feedback_delay_state.into()
+    pub fn feedback_delay_state(&self) -> Ref<'_, AeronFeedbackDelayGeneratorState> {
+        Ref::new(self.feedback_delay_state.into())
     }
     #[inline]
     pub fn on_gap_detected_clientd(&self) -> *mut ::std::os::raw::c_void {
@@ -41673,6 +42061,12 @@ impl AeronLossDetector {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_loss_detector_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronLossDetector> {
+    #[inline]
+    pub fn feedback_delay_state(&self) -> Ref<'a, AeronFeedbackDelayGeneratorState> {
+        Ref::new(self.value.feedback_delay_state().value)
     }
 }
 impl std::ops::Deref for AeronLossDetector {
@@ -43523,8 +43917,8 @@ impl AeronMpscRb {
         self.buffer.into()
     }
     #[inline]
-    pub fn descriptor(&self) -> AeronRbDescriptor {
-        self.descriptor.into()
+    pub fn descriptor(&self) -> Ref<'_, AeronRbDescriptor> {
+        Ref::new(self.descriptor.into())
     }
     #[inline]
     pub fn capacity(&self) -> usize {
@@ -43896,6 +44290,12 @@ impl AeronMpscRb {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_mpsc_rb_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronMpscRb> {
+    #[inline]
+    pub fn descriptor(&self) -> Ref<'a, AeronRbDescriptor> {
+        Ref::new(self.value.descriptor().value)
     }
 }
 impl std::ops::Deref for AeronMpscRb {
@@ -44493,12 +44893,12 @@ impl AeronNetworkPublicationEntry {
         }
     }
     #[inline]
-    pub fn publication(&self) -> AeronNetworkPublication {
-        self.publication.into()
+    pub fn publication(&self) -> Ref<'_, AeronNetworkPublication> {
+        Ref::new(self.publication.into())
     }
     #[inline]
-    pub fn mapped_raw_log(&self) -> AeronMappedRawLog {
-        self.mapped_raw_log.into()
+    pub fn mapped_raw_log(&self) -> Ref<'_, AeronMappedRawLog> {
+        Ref::new(self.mapped_raw_log.into())
     }
     #[inline]
     pub fn log_file_name(&self) -> &str {
@@ -44526,6 +44926,16 @@ impl AeronNetworkPublicationEntry {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_network_publication_entry_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronNetworkPublicationEntry> {
+    #[inline]
+    pub fn publication(&self) -> Ref<'a, AeronNetworkPublication> {
+        Ref::new(self.value.publication().value)
+    }
+    #[inline]
+    pub fn mapped_raw_log(&self) -> Ref<'a, AeronMappedRawLog> {
+        Ref::new(self.value.mapped_raw_log().value)
     }
 }
 impl std::ops::Deref for AeronNetworkPublicationEntry {
@@ -44775,24 +45185,24 @@ impl AeronNetworkPublication {
         self.retransmit_handler.into()
     }
     #[inline]
-    pub fn endpoint(&self) -> AeronSendChannelEndpoint {
-        self.endpoint.into()
+    pub fn endpoint(&self) -> Ref<'_, AeronSendChannelEndpoint> {
+        Ref::new(self.endpoint.into())
     }
     #[inline]
-    pub fn flow_control(&self) -> AeronFlowControlStrategy {
-        self.flow_control.into()
+    pub fn flow_control(&self) -> Ref<'_, AeronFlowControlStrategy> {
+        Ref::new(self.flow_control.into())
     }
     #[inline]
-    pub fn cached_clock(&self) -> AeronClockCache {
-        self.cached_clock.into()
+    pub fn cached_clock(&self) -> Ref<'_, AeronClockCache> {
+        Ref::new(self.cached_clock.into())
     }
     #[inline]
-    pub fn mapped_raw_log(&self) -> AeronMappedRawLog {
-        self.mapped_raw_log.into()
+    pub fn mapped_raw_log(&self) -> Ref<'_, AeronMappedRawLog> {
+        Ref::new(self.mapped_raw_log.into())
     }
     #[inline]
-    pub fn log_meta_data(&self) -> AeronLogbufferMetadata {
-        self.log_meta_data.into()
+    pub fn log_meta_data(&self) -> Ref<'_, AeronLogbufferMetadata> {
+        Ref::new(self.log_meta_data.into())
     }
     #[inline]
     pub fn log_file_name(&self) -> &str {
@@ -45369,6 +45779,28 @@ impl AeronNetworkPublication {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_network_publication_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronNetworkPublication> {
+    #[inline]
+    pub fn endpoint(&self) -> Ref<'a, AeronSendChannelEndpoint> {
+        Ref::new(self.value.endpoint().value)
+    }
+    #[inline]
+    pub fn flow_control(&self) -> Ref<'a, AeronFlowControlStrategy> {
+        Ref::new(self.value.flow_control().value)
+    }
+    #[inline]
+    pub fn cached_clock(&self) -> Ref<'a, AeronClockCache> {
+        Ref::new(self.value.cached_clock().value)
+    }
+    #[inline]
+    pub fn mapped_raw_log(&self) -> Ref<'a, AeronMappedRawLog> {
+        Ref::new(self.value.mapped_raw_log().value)
+    }
+    #[inline]
+    pub fn log_meta_data(&self) -> Ref<'a, AeronLogbufferMetadata> {
+        Ref::new(self.value.log_meta_data().value)
     }
 }
 impl std::ops::Deref for AeronNetworkPublication {
@@ -48963,12 +49395,12 @@ impl AeronPublicationImageConnection {
         self.resolved_control_address_for_implicit_unicast_channels.into()
     }
     #[inline]
-    pub fn destination(&self) -> AeronReceiveDestination {
-        self.destination.into()
+    pub fn destination(&self) -> Ref<'_, AeronReceiveDestination> {
+        Ref::new(self.destination.into())
     }
     #[inline]
-    pub fn control_addr(&self) -> SockaddrStorage {
-        self.control_addr.into()
+    pub fn control_addr(&self) -> Ref<'_, SockaddrStorage> {
+        Ref::new(self.control_addr.into())
     }
     #[inline]
     pub fn is_eos(&self) -> bool {
@@ -49008,6 +49440,16 @@ impl AeronPublicationImageConnection {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_publication_image_connection_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronPublicationImageConnection> {
+    #[inline]
+    pub fn destination(&self) -> Ref<'a, AeronReceiveDestination> {
+        Ref::new(self.value.destination().value)
+    }
+    #[inline]
+    pub fn control_addr(&self) -> Ref<'a, SockaddrStorage> {
+        Ref::new(self.value.control_addr().value)
     }
 }
 impl std::ops::Deref for AeronPublicationImageConnection {
@@ -49187,12 +49629,12 @@ impl AeronPublicationImageEntry {
         }
     }
     #[inline]
-    pub fn image(&self) -> AeronPublicationImage {
-        self.image.into()
+    pub fn image(&self) -> Ref<'_, AeronPublicationImage> {
+        Ref::new(self.image.into())
     }
     #[inline]
-    pub fn mapped_raw_log(&self) -> AeronMappedRawLog {
-        self.mapped_raw_log.into()
+    pub fn mapped_raw_log(&self) -> Ref<'_, AeronMappedRawLog> {
+        Ref::new(self.mapped_raw_log.into())
     }
     #[inline]
     pub fn log_file_name(&self) -> &str {
@@ -49220,6 +49662,16 @@ impl AeronPublicationImageEntry {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_publication_image_entry_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronPublicationImageEntry> {
+    #[inline]
+    pub fn image(&self) -> Ref<'a, AeronPublicationImage> {
+        Ref::new(self.value.image().value)
+    }
+    #[inline]
+    pub fn mapped_raw_log(&self) -> Ref<'a, AeronMappedRawLog> {
+        Ref::new(self.value.mapped_raw_log().value)
     }
 }
 impl std::ops::Deref for AeronPublicationImageEntry {
@@ -49469,12 +49921,12 @@ impl AeronPublicationImage {
         self.rcv_naks_sent.into()
     }
     #[inline]
-    pub fn endpoint(&self) -> AeronReceiveChannelEndpoint {
-        self.endpoint.into()
+    pub fn endpoint(&self) -> Ref<'_, AeronReceiveChannelEndpoint> {
+        Ref::new(self.endpoint.into())
     }
     #[inline]
-    pub fn congestion_control(&self) -> AeronCongestionControlStrategy {
-        self.congestion_control.into()
+    pub fn congestion_control(&self) -> Ref<'_, AeronCongestionControlStrategy> {
+        Ref::new(self.congestion_control.into())
     }
     #[inline]
     pub fn nano_clock(&self) -> aeron_clock_func_t {
@@ -49485,16 +49937,16 @@ impl AeronPublicationImage {
         self.epoch_clock.into()
     }
     #[inline]
-    pub fn cached_clock(&self) -> AeronClockCache {
-        self.cached_clock.into()
+    pub fn cached_clock(&self) -> Ref<'_, AeronClockCache> {
+        Ref::new(self.cached_clock.into())
     }
     #[inline]
-    pub fn mapped_raw_log(&self) -> AeronMappedRawLog {
-        self.mapped_raw_log.into()
+    pub fn mapped_raw_log(&self) -> Ref<'_, AeronMappedRawLog> {
+        Ref::new(self.mapped_raw_log.into())
     }
     #[inline]
-    pub fn log_meta_data(&self) -> AeronLogbufferMetadata {
-        self.log_meta_data.into()
+    pub fn log_meta_data(&self) -> Ref<'_, AeronLogbufferMetadata> {
+        Ref::new(self.log_meta_data.into())
     }
     #[inline]
     pub fn log_file_name(&self) -> &str {
@@ -50069,6 +50521,28 @@ impl AeronPublicationImage {
         unsafe { &*self.inner.get() }
     }
 }
+impl<'a> Ref<'a, AeronPublicationImage> {
+    #[inline]
+    pub fn endpoint(&self) -> Ref<'a, AeronReceiveChannelEndpoint> {
+        Ref::new(self.value.endpoint().value)
+    }
+    #[inline]
+    pub fn congestion_control(&self) -> Ref<'a, AeronCongestionControlStrategy> {
+        Ref::new(self.value.congestion_control().value)
+    }
+    #[inline]
+    pub fn cached_clock(&self) -> Ref<'a, AeronClockCache> {
+        Ref::new(self.value.cached_clock().value)
+    }
+    #[inline]
+    pub fn mapped_raw_log(&self) -> Ref<'a, AeronMappedRawLog> {
+        Ref::new(self.value.mapped_raw_log().value)
+    }
+    #[inline]
+    pub fn log_meta_data(&self) -> Ref<'a, AeronLogbufferMetadata> {
+        Ref::new(self.value.log_meta_data().value)
+    }
+}
 impl std::ops::Deref for AeronPublicationImage {
     type Target = aeron_publication_image_t;
     fn deref(&self) -> &Self::Target {
@@ -50194,8 +50668,8 @@ impl AeronPublicationLink {
         }
     }
     #[inline]
-    pub fn resource(&self) -> AeronDriverManagedResource {
-        self.resource.into()
+    pub fn resource(&self) -> Ref<'_, AeronDriverManagedResource> {
+        Ref::new(self.resource.into())
     }
     #[inline]
     pub fn registration_id(&self) -> i64 {
@@ -50219,6 +50693,12 @@ impl AeronPublicationLink {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_publication_link_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronPublicationLink> {
+    #[inline]
+    pub fn resource(&self) -> Ref<'a, AeronDriverManagedResource> {
+        Ref::new(self.value.resource().value)
     }
 }
 impl std::ops::Deref for AeronPublicationLink {
@@ -51338,8 +51818,8 @@ impl AeronReceiveChannelEndpointEntry {
         }
     }
     #[inline]
-    pub fn endpoint(&self) -> AeronReceiveChannelEndpoint {
-        self.endpoint.into()
+    pub fn endpoint(&self) -> Ref<'_, AeronReceiveChannelEndpoint> {
+        Ref::new(self.endpoint.into())
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_receive_channel_endpoint_entry_t {
@@ -51359,6 +51839,12 @@ impl AeronReceiveChannelEndpointEntry {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_receive_channel_endpoint_entry_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronReceiveChannelEndpointEntry> {
+    #[inline]
+    pub fn endpoint(&self) -> Ref<'a, AeronReceiveChannelEndpoint> {
+        Ref::new(self.value.endpoint().value)
     }
 }
 impl std::ops::Deref for AeronReceiveChannelEndpointEntry {
@@ -51553,16 +52039,16 @@ impl AeronReceiveChannelEndpoint {
         self.channel_status.into()
     }
     #[inline]
-    pub fn receiver_proxy(&self) -> AeronDriverReceiverProxy {
-        self.receiver_proxy.into()
+    pub fn receiver_proxy(&self) -> Ref<'_, AeronDriverReceiverProxy> {
+        Ref::new(self.receiver_proxy.into())
     }
     #[inline]
     pub fn transport_bindings(&self) -> *mut aeron_udp_channel_transport_bindings_t {
         self.transport_bindings.into()
     }
     #[inline]
-    pub fn cached_clock(&self) -> AeronClockCache {
-        self.cached_clock.into()
+    pub fn cached_clock(&self) -> Ref<'_, AeronClockCache> {
+        Ref::new(self.cached_clock.into())
     }
     #[inline]
     pub fn send_nak_message(&self) -> aeron_driver_nak_message_func_t {
@@ -52585,6 +53071,16 @@ impl AeronReceiveChannelEndpoint {
         unsafe { &*self.inner.get() }
     }
 }
+impl<'a> Ref<'a, AeronReceiveChannelEndpoint> {
+    #[inline]
+    pub fn receiver_proxy(&self) -> Ref<'a, AeronDriverReceiverProxy> {
+        Ref::new(self.value.receiver_proxy().value)
+    }
+    #[inline]
+    pub fn cached_clock(&self) -> Ref<'a, AeronClockCache> {
+        Ref::new(self.value.cached_clock().value)
+    }
+}
 impl std::ops::Deref for AeronReceiveChannelEndpoint {
     type Target = aeron_receive_channel_endpoint_t;
     fn deref(&self) -> &Self::Target {
@@ -52717,8 +53213,8 @@ impl AeronReceiveDestinationEntry {
         }
     }
     #[inline]
-    pub fn destination(&self) -> AeronReceiveDestination {
-        self.destination.into()
+    pub fn destination(&self) -> Ref<'_, AeronReceiveDestination> {
+        Ref::new(self.destination.into())
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_receive_destination_entry_t {
@@ -52738,6 +53234,12 @@ impl AeronReceiveDestinationEntry {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_receive_destination_entry_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronReceiveDestinationEntry> {
+    #[inline]
+    pub fn destination(&self) -> Ref<'a, AeronReceiveDestination> {
+        Ref::new(self.value.destination().value)
     }
 }
 impl std::ops::Deref for AeronReceiveDestinationEntry {
@@ -52903,12 +53405,12 @@ impl AeronReceiveDestination {
         self.transport.into()
     }
     #[inline]
-    pub fn data_paths(&self) -> AeronUdpChannelDataPaths {
-        self.data_paths.into()
+    pub fn data_paths(&self) -> Ref<'_, AeronUdpChannelDataPaths> {
+        Ref::new(self.data_paths.into())
     }
     #[inline]
-    pub fn port_manager(&self) -> AeronPortManager {
-        self.port_manager.into()
+    pub fn port_manager(&self) -> Ref<'_, AeronPortManager> {
+        Ref::new(self.port_manager.into())
     }
     #[inline]
     pub fn local_sockaddr_indicator(&self) -> AeronAtomicCounter {
@@ -52975,6 +53477,16 @@ impl AeronReceiveDestination {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_receive_destination_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronReceiveDestination> {
+    #[inline]
+    pub fn data_paths(&self) -> Ref<'a, AeronUdpChannelDataPaths> {
+        Ref::new(self.value.data_paths().value)
+    }
+    #[inline]
+    pub fn port_manager(&self) -> Ref<'a, AeronPortManager> {
+        Ref::new(self.value.port_manager().value)
     }
 }
 impl std::ops::Deref for AeronReceiveDestination {
@@ -54994,8 +55506,8 @@ impl AeronRetransmitHandler {
         }
     }
     #[inline]
-    pub fn retransmit_action_pool(&self) -> AeronRetransmitAction {
-        self.retransmit_action_pool.into()
+    pub fn retransmit_action_pool(&self) -> Ref<'_, AeronRetransmitAction> {
+        Ref::new(self.retransmit_action_pool.into())
     }
     #[inline]
     pub fn delay_timeout_ns(&self) -> u64 {
@@ -55225,6 +55737,12 @@ impl AeronRetransmitHandler {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_retransmit_handler_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronRetransmitHandler> {
+    #[inline]
+    pub fn retransmit_action_pool(&self) -> Ref<'a, AeronRetransmitAction> {
+        Ref::new(self.value.retransmit_action_pool().value)
     }
 }
 impl std::ops::Deref for AeronRetransmitHandler {
@@ -55621,8 +56139,8 @@ impl AeronSendChannelEndpointEntry {
         }
     }
     #[inline]
-    pub fn endpoint(&self) -> AeronSendChannelEndpoint {
-        self.endpoint.into()
+    pub fn endpoint(&self) -> Ref<'_, AeronSendChannelEndpoint> {
+        Ref::new(self.endpoint.into())
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_send_channel_endpoint_entry_t {
@@ -55642,6 +56160,12 @@ impl AeronSendChannelEndpointEntry {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_send_channel_endpoint_entry_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronSendChannelEndpointEntry> {
+    #[inline]
+    pub fn endpoint(&self) -> Ref<'a, AeronSendChannelEndpoint> {
+        Ref::new(self.value.endpoint().value)
     }
 }
 impl std::ops::Deref for AeronSendChannelEndpointEntry {
@@ -55827,12 +56351,12 @@ impl AeronSendChannelEndpoint {
         self.tracker_num_destinations.into()
     }
     #[inline]
-    pub fn destination_tracker(&self) -> AeronUdpDestinationTracker {
-        self.destination_tracker.into()
+    pub fn destination_tracker(&self) -> Ref<'_, AeronUdpDestinationTracker> {
+        Ref::new(self.destination_tracker.into())
     }
     #[inline]
-    pub fn sender_proxy(&self) -> AeronDriverSenderProxy {
-        self.sender_proxy.into()
+    pub fn sender_proxy(&self) -> Ref<'_, AeronDriverSenderProxy> {
+        Ref::new(self.sender_proxy.into())
     }
     #[inline]
     pub fn publication_dispatch_map(&self) -> AeronInt64ToPtrHashMap {
@@ -55843,8 +56367,8 @@ impl AeronSendChannelEndpoint {
         self.transport_bindings.into()
     }
     #[inline]
-    pub fn data_paths(&self) -> AeronUdpChannelDataPaths {
-        self.data_paths.into()
+    pub fn data_paths(&self) -> Ref<'_, AeronUdpChannelDataPaths> {
+        Ref::new(self.data_paths.into())
     }
     #[inline]
     pub fn current_data_addr(&self) -> SockaddrStorage {
@@ -55855,12 +56379,12 @@ impl AeronSendChannelEndpoint {
         self.bind_addr.into()
     }
     #[inline]
-    pub fn port_manager(&self) -> AeronPortManager {
-        self.port_manager.into()
+    pub fn port_manager(&self) -> Ref<'_, AeronPortManager> {
+        Ref::new(self.port_manager.into())
     }
     #[inline]
-    pub fn cached_clock(&self) -> AeronClockCache {
-        self.cached_clock.into()
+    pub fn cached_clock(&self) -> Ref<'_, AeronClockCache> {
+        Ref::new(self.cached_clock.into())
     }
     #[inline]
     pub fn time_of_last_sm_ns(&self) -> i64 {
@@ -56124,6 +56648,28 @@ impl AeronSendChannelEndpoint {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_send_channel_endpoint_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronSendChannelEndpoint> {
+    #[inline]
+    pub fn destination_tracker(&self) -> Ref<'a, AeronUdpDestinationTracker> {
+        Ref::new(self.value.destination_tracker().value)
+    }
+    #[inline]
+    pub fn sender_proxy(&self) -> Ref<'a, AeronDriverSenderProxy> {
+        Ref::new(self.value.sender_proxy().value)
+    }
+    #[inline]
+    pub fn data_paths(&self) -> Ref<'a, AeronUdpChannelDataPaths> {
+        Ref::new(self.value.data_paths().value)
+    }
+    #[inline]
+    pub fn port_manager(&self) -> Ref<'a, AeronPortManager> {
+        Ref::new(self.value.port_manager().value)
+    }
+    #[inline]
+    pub fn cached_clock(&self) -> Ref<'a, AeronClockCache> {
+        Ref::new(self.value.cached_clock().value)
     }
 }
 impl std::ops::Deref for AeronSendChannelEndpoint {
@@ -56773,8 +57319,8 @@ impl AeronSpscRb {
         self.buffer.into()
     }
     #[inline]
-    pub fn descriptor(&self) -> AeronRbDescriptor {
-        self.descriptor.into()
+    pub fn descriptor(&self) -> Ref<'_, AeronRbDescriptor> {
+        Ref::new(self.descriptor.into())
     }
     #[inline]
     pub fn capacity(&self) -> usize {
@@ -57116,6 +57662,12 @@ impl AeronSpscRb {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_spsc_rb_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronSpscRb> {
+    #[inline]
+    pub fn descriptor(&self) -> Ref<'a, AeronRbDescriptor> {
+        Ref::new(self.value.descriptor().value)
     }
 }
 impl std::ops::Deref for AeronSpscRb {
@@ -58349,8 +58901,8 @@ impl AeronStrToPtrHashMap {
         }
     }
     #[inline]
-    pub fn keys(&self) -> AeronStrToPtrHashMapKey {
-        self.keys.into()
+    pub fn keys(&self) -> Ref<'_, AeronStrToPtrHashMapKey> {
+        Ref::new(self.keys.into())
     }
     #[inline]
     pub fn values(&self) -> *mut *mut ::std::os::raw::c_void {
@@ -58390,6 +58942,12 @@ impl AeronStrToPtrHashMap {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_str_to_ptr_hash_map_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronStrToPtrHashMap> {
+    #[inline]
+    pub fn keys(&self) -> Ref<'a, AeronStrToPtrHashMapKey> {
+        Ref::new(self.value.keys().value)
     }
 }
 impl std::ops::Deref for AeronStrToPtrHashMap {
@@ -58784,8 +59342,8 @@ impl AeronSubscribableListEntry {
         self.counter_id.into()
     }
     #[inline]
-    pub fn subscribable(&self) -> AeronSubscribable {
-        self.subscribable.into()
+    pub fn subscribable(&self) -> Ref<'_, AeronSubscribable> {
+        Ref::new(self.subscribable.into())
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_subscribable_list_entry_t {
@@ -58805,6 +59363,12 @@ impl AeronSubscribableListEntry {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_subscribable_list_entry_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronSubscribableListEntry> {
+    #[inline]
+    pub fn subscribable(&self) -> Ref<'a, AeronSubscribable> {
+        Ref::new(self.value.subscribable().value)
     }
 }
 impl std::ops::Deref for AeronSubscribableListEntry {
@@ -59012,8 +59576,8 @@ impl AeronSubscribable {
         self.capacity.into()
     }
     #[inline]
-    pub fn array(&self) -> AeronTetherablePosition {
-        self.array.into()
+    pub fn array(&self) -> Ref<'_, AeronTetherablePosition> {
+        Ref::new(self.array.into())
     }
     #[inline]
     pub fn inactive_count(&self) -> usize {
@@ -59152,6 +59716,12 @@ impl AeronSubscribable {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_subscribable_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronSubscribable> {
+    #[inline]
+    pub fn array(&self) -> Ref<'a, AeronTetherablePosition> {
+        Ref::new(self.value.array().value)
     }
 }
 impl std::ops::Deref for AeronSubscribable {
@@ -59880,12 +60450,12 @@ impl AeronSubscriptionLink {
         self.client_id.into()
     }
     #[inline]
-    pub fn endpoint(&self) -> AeronReceiveChannelEndpoint {
-        self.endpoint.into()
+    pub fn endpoint(&self) -> Ref<'_, AeronReceiveChannelEndpoint> {
+        Ref::new(self.endpoint.into())
     }
     #[inline]
-    pub fn spy_channel(&self) -> AeronUdpChannel {
-        self.spy_channel.into()
+    pub fn spy_channel(&self) -> Ref<'_, AeronUdpChannel> {
+        Ref::new(self.spy_channel.into())
     }
     #[inline]
     pub fn subscribable_list(&self) -> aeron_subscription_link_stct_subscribable_list_stct {
@@ -59928,6 +60498,16 @@ impl AeronSubscriptionLink {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_subscription_link_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronSubscriptionLink> {
+    #[inline]
+    pub fn endpoint(&self) -> Ref<'a, AeronReceiveChannelEndpoint> {
+        Ref::new(self.value.endpoint().value)
+    }
+    #[inline]
+    pub fn spy_channel(&self) -> Ref<'a, AeronUdpChannel> {
+        Ref::new(self.value.spy_channel().value)
     }
 }
 impl std::ops::Deref for AeronSubscriptionLink {
@@ -61345,8 +61925,8 @@ impl AeronSystemCounters {
         }
     }
     #[inline]
-    pub fn manager(&self) -> AeronCountersManager {
-        self.manager.into()
+    pub fn manager(&self) -> Ref<'_, AeronCountersManager> {
+        Ref::new(self.manager.into())
     }
     #[inline]
     pub fn init(&self, manager: &AeronCountersManager) -> Result<i32, AeronCError> {
@@ -61389,6 +61969,12 @@ impl AeronSystemCounters {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_system_counters_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronSystemCounters> {
+    #[inline]
+    pub fn manager(&self) -> Ref<'a, AeronCountersManager> {
+        Ref::new(self.value.manager().value)
     }
 }
 impl std::ops::Deref for AeronSystemCounters {
@@ -61734,7 +62320,7 @@ impl Aeron {
     #[doc = "Return the `AeronContext` that is in use by the given client."]
     #[doc = ""]
     #[doc = " \n# Return\n the `AeronContext` for the given client or NULL for an error."]
-    pub fn context(&self) -> AeronContext {
+    pub fn context(&self) -> Ref<'_, AeronContext> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -61745,7 +62331,7 @@ impl Aeron {
             let result = aeron_context(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -62087,7 +62673,7 @@ impl Aeron {
     #[doc = " The `AeronCountersReader` is maintained by the client. And should not be freed."]
     #[doc = ""]
     #[doc = " \n# Return\n `AeronCountersReader` or NULL for error."]
-    pub fn counters_reader(&self) -> AeronCountersReader {
+    pub fn counters_reader(&self) -> Ref<'_, AeronCountersReader> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -62098,7 +62684,7 @@ impl Aeron {
             let result = aeron_counters_reader(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -64811,6 +65397,24 @@ impl Aeron {
         unsafe { &*self.inner.get() }
     }
 }
+impl<'a> Ref<'a, Aeron> {
+    #[inline]
+    #[doc = "Return the `AeronContext` that is in use by the given client."]
+    #[doc = ""]
+    #[doc = " \n# Return\n the `AeronContext` for the given client or NULL for an error."]
+    pub fn context(&self) -> Ref<'a, AeronContext> {
+        Ref::new(self.value.context().value)
+    }
+    #[inline]
+    #[doc = "Return a reference to the counters reader of the given client."]
+    #[doc = ""]
+    #[doc = " The `AeronCountersReader` is maintained by the client. And should not be freed."]
+    #[doc = ""]
+    #[doc = " \n# Return\n `AeronCountersReader` or NULL for error."]
+    pub fn counters_reader(&self) -> Ref<'a, AeronCountersReader> {
+        Ref::new(self.value.counters_reader().value)
+    }
+}
 impl std::ops::Deref for Aeron {
     type Target = aeron_t;
     fn deref(&self) -> &Self::Target {
@@ -65395,8 +65999,8 @@ impl AeronUdpChannelAsyncParse {
         }
     }
     #[inline]
-    pub fn channel(&self) -> AeronUdpChannel {
-        self.channel.into()
+    pub fn channel(&self) -> Ref<'_, AeronUdpChannel> {
+        Ref::new(self.channel.into())
     }
     #[inline]
     pub fn is_destination(&self) -> bool {
@@ -65420,6 +66024,12 @@ impl AeronUdpChannelAsyncParse {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_udp_channel_async_parse_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronUdpChannelAsyncParse> {
+    #[inline]
+    pub fn channel(&self) -> Ref<'a, AeronUdpChannel> {
+        Ref::new(self.value.channel().value)
     }
 }
 impl std::ops::Deref for AeronUdpChannelAsyncParse {
@@ -65600,12 +66210,12 @@ impl AeronUdpChannelDataPaths {
         }
     }
     #[inline]
-    pub fn outgoing_interceptors(&self) -> AeronUdpChannelOutgoingInterceptor {
-        self.outgoing_interceptors.into()
+    pub fn outgoing_interceptors(&self) -> Ref<'_, AeronUdpChannelOutgoingInterceptor> {
+        Ref::new(self.outgoing_interceptors.into())
     }
     #[inline]
-    pub fn incoming_interceptors(&self) -> AeronUdpChannelIncomingInterceptor {
-        self.incoming_interceptors.into()
+    pub fn incoming_interceptors(&self) -> Ref<'_, AeronUdpChannelIncomingInterceptor> {
+        Ref::new(self.incoming_interceptors.into())
     }
     #[inline]
     pub fn send_func(&self) -> aeron_udp_channel_transport_send_func_t {
@@ -65883,6 +66493,16 @@ impl AeronUdpChannelDataPaths {
         unsafe { &*self.inner.get() }
     }
 }
+impl<'a> Ref<'a, AeronUdpChannelDataPaths> {
+    #[inline]
+    pub fn outgoing_interceptors(&self) -> Ref<'a, AeronUdpChannelOutgoingInterceptor> {
+        Ref::new(self.value.outgoing_interceptors().value)
+    }
+    #[inline]
+    pub fn incoming_interceptors(&self) -> Ref<'a, AeronUdpChannelIncomingInterceptor> {
+        Ref::new(self.value.incoming_interceptors().value)
+    }
+}
 impl std::ops::Deref for AeronUdpChannelDataPaths {
     type Target = aeron_udp_channel_data_paths_t;
     fn deref(&self) -> &Self::Target {
@@ -66092,8 +66712,8 @@ impl AeronUdpChannelIncomingInterceptor {
         self.incoming_image_notification_func.into()
     }
     #[inline]
-    pub fn next_interceptor(&self) -> AeronUdpChannelIncomingInterceptor {
-        self.next_interceptor.into()
+    pub fn next_interceptor(&self) -> Ref<'_, AeronUdpChannelIncomingInterceptor> {
+        Ref::new(self.next_interceptor.into())
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_udp_channel_incoming_interceptor_t {
@@ -66113,6 +66733,12 @@ impl AeronUdpChannelIncomingInterceptor {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_udp_channel_incoming_interceptor_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronUdpChannelIncomingInterceptor> {
+    #[inline]
+    pub fn next_interceptor(&self) -> Ref<'a, AeronUdpChannelIncomingInterceptor> {
+        Ref::new(self.value.next_interceptor().value)
     }
 }
 impl std::ops::Deref for AeronUdpChannelIncomingInterceptor {
@@ -66365,7 +66991,7 @@ impl AeronUdpChannelInterceptorBindings {
         self.meta_info.into()
     }
     #[inline]
-    pub fn load(&self, interceptors: &std::ffi::CStr) -> AeronUdpChannelInterceptorBindings {
+    pub fn load(&self, interceptors: &std::ffi::CStr) -> Ref<'_, AeronUdpChannelInterceptorBindings> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -66385,7 +67011,7 @@ impl AeronUdpChannelInterceptorBindings {
             let result = aeron_udp_channel_interceptor_bindings_load(self.get_inner(), interceptors.as_ptr());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline(always)]
@@ -66613,8 +67239,8 @@ impl AeronUdpChannelOutgoingInterceptor {
         self.outgoing_image_notification_func.into()
     }
     #[inline]
-    pub fn next_interceptor(&self) -> AeronUdpChannelOutgoingInterceptor {
-        self.next_interceptor.into()
+    pub fn next_interceptor(&self) -> Ref<'_, AeronUdpChannelOutgoingInterceptor> {
+        Ref::new(self.next_interceptor.into())
     }
     #[inline(always)]
     pub fn get_inner(&self) -> *mut aeron_udp_channel_outgoing_interceptor_t {
@@ -66634,6 +67260,12 @@ impl AeronUdpChannelOutgoingInterceptor {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_udp_channel_outgoing_interceptor_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronUdpChannelOutgoingInterceptor> {
+    #[inline]
+    pub fn next_interceptor(&self) -> Ref<'a, AeronUdpChannelOutgoingInterceptor> {
+        Ref::new(self.value.next_interceptor().value)
     }
 }
 impl std::ops::Deref for AeronUdpChannelOutgoingInterceptor {
@@ -67449,8 +68081,8 @@ impl AeronUdpDestinationEntry {
         self.is_receiver_id_valid.into()
     }
     #[inline]
-    pub fn uri(&self) -> AeronUri {
-        self.uri.into()
+    pub fn uri(&self) -> Ref<'_, AeronUri> {
+        Ref::new(self.uri.into())
     }
     #[inline]
     pub fn addr(&self) -> SockaddrStorage {
@@ -67478,6 +68110,12 @@ impl AeronUdpDestinationEntry {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_udp_destination_entry_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronUdpDestinationEntry> {
+    #[inline]
+    pub fn uri(&self) -> Ref<'a, AeronUri> {
+        Ref::new(self.value.uri().value)
     }
 }
 impl std::ops::Deref for AeronUdpDestinationEntry {
@@ -67644,16 +68282,16 @@ impl AeronUdpDestinationTracker {
         self.is_manual_control_mode.into()
     }
     #[inline]
-    pub fn cached_clock(&self) -> AeronClockCache {
-        self.cached_clock.into()
+    pub fn cached_clock(&self) -> Ref<'_, AeronClockCache> {
+        Ref::new(self.cached_clock.into())
     }
     #[inline]
     pub fn destination_timeout_ns(&self) -> i64 {
         self.destination_timeout_ns.into()
     }
     #[inline]
-    pub fn data_paths(&self) -> AeronUdpChannelDataPaths {
-        self.data_paths.into()
+    pub fn data_paths(&self) -> Ref<'_, AeronUdpChannelDataPaths> {
+        Ref::new(self.data_paths.into())
     }
     #[inline]
     pub fn num_destinations_addr(&self) -> &mut i64 {
@@ -67906,6 +68544,16 @@ impl AeronUdpDestinationTracker {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_udp_destination_tracker_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronUdpDestinationTracker> {
+    #[inline]
+    pub fn cached_clock(&self) -> Ref<'a, AeronClockCache> {
+        Ref::new(self.value.cached_clock().value)
+    }
+    #[inline]
+    pub fn data_paths(&self) -> Ref<'a, AeronUdpChannelDataPaths> {
+        Ref::new(self.value.data_paths().value)
     }
 }
 impl std::ops::Deref for AeronUdpDestinationTracker {
@@ -68243,8 +68891,8 @@ impl AeronUriParams {
         self.length.into()
     }
     #[inline]
-    pub fn array(&self) -> AeronUriParam {
-        self.array.into()
+    pub fn array(&self) -> Ref<'_, AeronUriParam> {
+        Ref::new(self.array.into())
     }
     #[inline]
     #[doc = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
@@ -68468,6 +69116,12 @@ impl AeronUriParams {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_uri_params_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronUriParams> {
+    #[inline]
+    pub fn array(&self) -> Ref<'a, AeronUriParam> {
+        Ref::new(self.value.array().value)
     }
 }
 impl std::ops::Deref for AeronUriParams {
@@ -69756,8 +70410,8 @@ impl Ifaddrs {
         }
     }
     #[inline]
-    pub fn ifa_next(&self) -> Ifaddrs {
-        self.ifa_next.into()
+    pub fn ifa_next(&self) -> Ref<'_, Ifaddrs> {
+        Ref::new(self.ifa_next.into())
     }
     #[inline]
     pub fn ifa_name(&self) -> &str {
@@ -69772,16 +70426,16 @@ impl Ifaddrs {
         self.ifa_flags.into()
     }
     #[inline]
-    pub fn ifa_addr(&self) -> Sockaddr {
-        self.ifa_addr.into()
+    pub fn ifa_addr(&self) -> Ref<'_, Sockaddr> {
+        Ref::new(self.ifa_addr.into())
     }
     #[inline]
-    pub fn ifa_netmask(&self) -> Sockaddr {
-        self.ifa_netmask.into()
+    pub fn ifa_netmask(&self) -> Ref<'_, Sockaddr> {
+        Ref::new(self.ifa_netmask.into())
     }
     #[inline]
-    pub fn ifa_dstaddr(&self) -> Sockaddr {
-        self.ifa_dstaddr.into()
+    pub fn ifa_dstaddr(&self) -> Ref<'_, Sockaddr> {
+        Ref::new(self.ifa_dstaddr.into())
     }
     #[inline]
     pub fn ifa_data(&self) -> *mut ::std::os::raw::c_void {
@@ -69820,6 +70474,24 @@ impl Ifaddrs {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &ifaddrs {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, Ifaddrs> {
+    #[inline]
+    pub fn ifa_next(&self) -> Ref<'a, Ifaddrs> {
+        Ref::new(self.value.ifa_next().value)
+    }
+    #[inline]
+    pub fn ifa_addr(&self) -> Ref<'a, Sockaddr> {
+        Ref::new(self.value.ifa_addr().value)
+    }
+    #[inline]
+    pub fn ifa_netmask(&self) -> Ref<'a, Sockaddr> {
+        Ref::new(self.value.ifa_netmask().value)
+    }
+    #[inline]
+    pub fn ifa_dstaddr(&self) -> Ref<'a, Sockaddr> {
+        Ref::new(self.value.ifa_dstaddr().value)
     }
 }
 impl std::ops::Deref for Ifaddrs {
@@ -70706,8 +71378,8 @@ impl Msghdr {
         self.msg_namelen.into()
     }
     #[inline]
-    pub fn msg_iov(&self) -> Iovec {
-        self.msg_iov.into()
+    pub fn msg_iov(&self) -> Ref<'_, Iovec> {
+        Ref::new(self.msg_iov.into())
     }
     #[inline]
     pub fn msg_iovlen(&self) -> ::std::os::raw::c_int {
@@ -70743,6 +71415,12 @@ impl Msghdr {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &msghdr {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, Msghdr> {
+    #[inline]
+    pub fn msg_iov(&self) -> Ref<'a, Iovec> {
+        Ref::new(self.value.msg_iov().value)
     }
 }
 impl std::ops::Deref for Msghdr {

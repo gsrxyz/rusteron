@@ -273,7 +273,45 @@ impl RecordingPos {
 impl AeronArchiveReplayMerge {}
 
 impl AeronArchive {
-    pub fn aeron(&self) -> Aeron {
+    /// The client this archive uses. Getters chain without binding each step:
+    ///
+    /// ```
+    /// # use rusteron_archive::{AeronArchive, Aeron, Ref};
+    /// fn client(archive: &AeronArchive) -> Ref<'_, Aeron> {
+    ///     archive.get_archive_context().get_aeron()
+    /// }
+    /// ```
+    ///
+    /// Like every getter returning a [`Ref`], the result cannot outlive the archive (issue #81):
+    ///
+    /// ```compile_fail,E0505
+    /// fn use_after_drop(archive: rusteron_archive::AeronArchive) {
+    ///     let context = archive.get_archive_context();
+    ///     drop(archive);
+    ///     context.get_control_request_stream_id();
+    /// }
+    /// ```
+    ///
+    /// `close()` takes the archive by value, so it is rejected the same way:
+    ///
+    /// ```compile_fail,E0505
+    /// fn use_after_close(archive: rusteron_archive::AeronArchive) {
+    ///     let context = archive.get_archive_context();
+    ///     let _ = archive.close();
+    ///     context.get_control_request_stream_id();
+    /// }
+    /// ```
+    ///
+    /// `Ref::clone` keeps the lifetime, rather than auto-dereferencing to the wrapper's `clone`:
+    ///
+    /// ```compile_fail,E0505
+    /// fn use_clone_after_drop(archive: rusteron_archive::AeronArchive) {
+    ///     let context = archive.get_archive_context().clone();
+    ///     drop(archive);
+    ///     context.get_control_request_stream_id();
+    /// }
+    /// ```
+    pub fn aeron(&self) -> Ref<'_, Aeron> {
         self.get_archive_context().get_aeron()
     }
 

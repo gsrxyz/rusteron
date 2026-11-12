@@ -33,7 +33,7 @@ need to follow Aeron's ownership, thread-safety and polling rules.
 Since 0.2, owned handles can close or drop in any order. `aeron.close()` is deferred while any publication, subscription, counter or clone is alive, and those handles stay usable until the last one drops (see [Resource lifecycle](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/README.md#resource-lifecycle--close)). Observe these lifetime requirements:
 
 - `unsafe close_now()` frees children immediately.
-- Borrowed handles do not keep their owner alive. For example, an `Aeron` from `archive_context.get_aeron()` or a descriptor poller from `AeronArchive` must not outlive the context or archive it came from.
+- Getters such as `archive.get_archive_context()` or `archive_context.get_aeron()` return a `Ref` that borrows the object it came from, so it cannot outlive it.
 - A buffer claim (`try_claim` / `try_claim_owned`) must be committed or aborted before its publication closes.
 - A panic in a callback never aborts the process (unless you build with `panic = "abort"`). See [Panics in callbacks](#panics-in-callbacks) for what happens to the panic and to the message.
 - A retained image must be dropped before `subscription.close()`.
