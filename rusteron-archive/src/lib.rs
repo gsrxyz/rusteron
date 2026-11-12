@@ -910,7 +910,6 @@ mod tests {
         let (driver, root) = start_archive_driver()?;
         // Wait for archive startup.
         let (ready_archive, aeron) = driver.archive_connect()?;
-        drop(ready_archive);
 
         let context = driver.archive_context(&aeron)?;
         let old_calls = Arc::new(AtomicUsize::new(0));
@@ -932,6 +931,7 @@ mod tests {
         }))?;
 
         let archive = connecting.poll_blocking(valgrind_timeout(5))?;
+        drop(ready_archive);
         assert!(archive.get_archive_id() > 0);
         assert_eq!(old_calls.load(Ordering::SeqCst), 0);
         assert_eq!(new_calls.load(Ordering::SeqCst), 0);
