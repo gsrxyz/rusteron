@@ -5259,6 +5259,84 @@ mod tests {
         drop(driver);
     }
 
+    /// An unavailable image can be retained inside `on_unavailable_image` and read after the
+    /// callback returns
+    #[test]
+    #[serial]
+    fn image_retained_in_unavailable_callback_outlives_the_callback() {
+        unsafe extern "C" {
+            fn aeron_image_refcnt_acquire(image: *mut aeron_image_t) -> i64;
+        }
+        let driver = rusteron_media_driver::testing::EmbeddedDriver::launch_with(|ctx| {
+            ctx.set_publication_linger_timeout_ns(Duration::from_millis(50).as_nanos() as u64)
+                .map(|_| ())
+        })
+        .unwrap();
+        let ctx = AeronContext::new().unwrap();
+        ctx.set_dir(&driver.dir().into_c_string()).unwrap();
+        let aeron = Aeron::new(&ctx).unwrap();
+        aeron.start().unwrap();
+
+        let retained = Arc::new(std::sync::atomic::AtomicPtr::new(std::ptr::null_mut::<aeron_image_t>()));
+        let retain_result = Arc::new(std::sync::Mutex::new(None));
+        let unavailable = {
+            let retained = retained.clone();
+            let retain_result = retain_result.clone();
+            Handler::new(move |subscription: &AeronSubscription, image: &AeronImage| {
+                let result = subscription.image_retain(image);
+                if result.is_ok() {
+                    retained.store(image.get_inner(), Ordering::Release);
+                }
+                *retain_result.lock().unwrap() = Some(result);
+            })
+        };
+        let publication = aeron
+            .add_publication(AERON_IPC_STREAM, 1904, Duration::from_secs(5))
+            .unwrap();
+        let subscription = aeron
+            .add_subscription(
+                AERON_IPC_STREAM,
+                1904,
+                Handlers::NONE,
+                Some(&unavailable),
+                Duration::from_secs(5),
+            )
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while subscription.image_count().unwrap_or(0) == 0 && Instant::now() < deadline {
+            sleep(Duration::from_millis(10));
+        }
+        assert!(subscription.image_count().unwrap() >= 1);
+
+        drop(publication);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while retain_result.lock().unwrap().is_none() && Instant::now() < deadline {
+            sleep(Duration::from_millis(10));
+        }
+        let result = retain_result.lock().unwrap().take();
+        assert!(
+            matches!(result, Some(Ok(_))),
+            "retain inside the unavailable callback should succeed, got {result:?}"
+        );
+
+        let image = AeronImage::from(retained.load(Ordering::Acquire));
+        // SAFETY: the retain taken in the callback keeps the image alive until the release below
+        let refcnt = || unsafe { aeron_image_refcnt_acquire(image.get_inner()) };
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while refcnt() > 1 && Instant::now() < deadline {
+            // polling lets the client drop the subscription's own reference
+            let _ = subscription.poll_fn(|_, _| {}, 1);
+            sleep(Duration::from_millis(10));
+        }
+        assert!(image.is_closed());
+        assert_eq!(refcnt(), 1, "only the callback's retain holds the image");
+
+        subscription.image_release(&image).unwrap();
+        drop(subscription);
+        drop(aeron);
+        drop(driver);
+    }
+
     /// Closing the subscription releases a retained image with it, and the C client then
     /// frees the image, so dropping the handle afterwards must not release it again.
     #[test]
@@ -5545,6 +5623,8 @@ mod tests {
         stop.store(true, Ordering::SeqCst);
         let _ = driver_handle.join();
 
+        let pending = aeron.async_add_publication(AERON_IPC_STREAM, 1702);
+
         // the conductor must notice the driver is gone and invoke the error handler
         let start = Instant::now();
         while errors.load(Ordering::SeqCst) == 0 && start.elapsed() < Duration::from_secs(15) {
@@ -5557,6 +5637,21 @@ mod tests {
             errors.load(Ordering::SeqCst) > 0,
             "client error handler should have reported the driver keepalive timeout"
         );
+
+        // An add issued after the conductor closed fails straight away, which is also correct
+        if let Ok(pending) = pending {
+            let start = Instant::now();
+            let outcome = loop {
+                match pending.poll() {
+                    Ok(None) if start.elapsed() < Duration::from_secs(5) => sleep(Duration::from_millis(10)),
+                    other => break other,
+                }
+            };
+            assert!(
+                outcome.is_err(),
+                "pending add should fail after driver loss, got {outcome:?}"
+            );
+        }
 
         // handles remain safe after the client flags the failure
         match publisher.offer(b"after-error") {
