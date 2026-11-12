@@ -707,7 +707,7 @@ impl CWrapper {
         &self,
         wrappers: &BTreeMap<String, CWrapper>,
         closure_handlers: &Vec<CHandler>,
-        additional_outer_impls: &mut Vec<TokenStream>,
+        ref_getters: &mut Vec<TokenStream>,
         debug_fields: &mut Vec<TokenStream>,
     ) -> Vec<TokenStream> {
         self.methods
@@ -779,6 +779,18 @@ impl CWrapper {
                     };
                 }
 
+                // A C object reached through `self` belongs to `self`'s owner, so the lifetime stops
+                // it outliving that owner (issue #81) without a reference count on the hot path
+                let borrowed_child = if uses_self && owned_retained_handler.is_none() {
+                    return_type_helper.pointee_wrapper().map(|w| format_ident!("{}", w.class_name))
+                } else {
+                    None
+                };
+                if let Some(child) = &borrowed_child {
+                    return_type = quote! { Ref<'_, #child> };
+                    converter = quote! { Ref::new(#converter) };
+                }
+
                 let mut method_docs: Vec<TokenStream> = get_docs(&method.docs, wrappers, Some(&fn_arguments) );
 
                 if owned_retained_handler.is_some() {
@@ -787,6 +799,13 @@ impl CWrapper {
                     method_docs.push(quote! { #[doc = "If the wrapper is borrowed, keep the returned [`Handler`] alive while C can call it."] });
                     method_docs.push(quote! { #[doc = "Dropping the handler does not unregister the callback."] });
                     method_docs.push(quote! { #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."] });
+                }
+
+                if let Some(child) = &borrowed_child
+                    && fn_arguments.is_empty()
+                    && generic_types.is_empty()
+                {
+                    ref_getters.push(Self::ref_getter(&fn_name, child, &method_docs));
                 }
 
                 // Generate logging expression for arguments
@@ -1067,6 +1086,20 @@ impl CWrapper {
             .collect()
     }
 
+    /// The same getter for `impl<'a> Ref<'a, Parent>`, returning `Ref<'a, Child>`. Through `Deref`
+    /// the child would borrow the `Ref` itself, so `archive.get_archive_context().get_aeron()`
+    /// would be tied to a temporary and fail with E0716
+    fn ref_getter(fn_name: &Ident, child: &Ident, docs: &[TokenStream]) -> TokenStream {
+        quote! {
+            #[inline]
+            #(#docs)*
+            pub fn #fn_name(&self) -> Ref<'a, #child> {
+                // `self` is valid for `'a`, so its child is too
+                Ref::new(self.value.#fn_name().value)
+            }
+        }
+    }
+
     fn add_getter_instead_of_mut_arg_if_applicable(
         wrappers: &BTreeMap<String, CWrapper>,
         method: &Method,
@@ -1170,6 +1203,7 @@ impl CWrapper {
         &self,
         cwrappers: &BTreeMap<String, CWrapper>,
         debug_fields: &mut Vec<TokenStream>,
+        ref_getters: &mut Vec<TokenStream>,
     ) -> Vec<TokenStream> {
         self.fields
             .iter()
@@ -1202,7 +1236,12 @@ impl CWrapper {
                     );
                     return_type = rt.get_new_return_type(false, false);
                 }
-                let converter = rt.handle_c_to_rs_return(quote! { self.#fn_name }, false, true);
+                let mut converter = rt.handle_c_to_rs_return(quote! { self.#fn_name }, false, true);
+                if let Some(child) = rt.pointee_wrapper().map(|w| format_ident!("{}", w.class_name)) {
+                    return_type = quote! { Ref<'_, #child> };
+                    converter = quote! { Ref::new(#converter) };
+                    ref_getters.push(Self::ref_getter(&fn_name, &child, &[]));
+                }
 
                 if rt.original.is_primitive()
                     || rt.original.is_c_string_any()
@@ -2665,15 +2704,10 @@ pub fn generate_rust_code(
     let class_name = Ident::new(&wrapper.class_name, proc_macro2::Span::call_site());
     let type_name = Ident::new(&wrapper.type_name, proc_macro2::Span::call_site());
 
-    let mut additional_outer_impls = vec![];
+    let mut ref_getters = vec![];
     let mut debug_fields = vec![];
 
-    let methods = wrapper.generate_methods(
-        wrappers,
-        closure_handlers,
-        &mut additional_outer_impls,
-        &mut debug_fields,
-    );
+    let methods = wrapper.generate_methods(wrappers, closure_handlers, &mut ref_getters, &mut debug_fields);
     let tests = wrapper.generate_allocation_test();
     let mut constructor_fields = vec![];
     let mut new_ref_set_none = vec![];
@@ -2742,7 +2776,9 @@ pub fn generate_rust_code(
                     .or_else(|| {
                         self.inner
                             .get_dependency::<#client_type>()
-                            .map(|owner| owner.get_aeron())
+                            // Unbound copy: `self` holds `owner` as a dependency, and the client is
+                            // only used inside `poll_blocking`, so it cannot outlive its owner
+                            .map(|owner| (*owner.get_aeron()).clone())
                             .filter(|aeron| !aeron.get_inner().is_null())
                     })
                 }
@@ -3404,7 +3440,16 @@ pub fn generate_rust_code(
         })
         .collect();
 
-    let fields = wrapper.generate_fields(&wrappers, &mut debug_fields);
+    let fields = wrapper.generate_fields(&wrappers, &mut debug_fields, &mut ref_getters);
+    let ref_impl = if ref_getters.is_empty() {
+        quote! {}
+    } else {
+        quote! {
+            impl<'a> Ref<'a, #class_name> {
+                #(#ref_getters)*
+            }
+        }
+    };
 
     let default_impl =
         if wrapper.has_default_method() && !constructor.iter().map(|x| x.to_string()).join("").trim().is_empty() {
@@ -3606,6 +3651,8 @@ pub fn generate_rust_code(
                 unsafe { &*self.inner.get() }
             }
         }
+
+        #ref_impl
 
         impl std::ops::Deref for #class_name {
             type Target = #type_name;

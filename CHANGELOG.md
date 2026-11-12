@@ -4,6 +4,10 @@ Main changes, newest first, grouped by published crate version. Release-only
 commits, build logs, and changes later reverted or superseded are omitted.
 Early history predating the available release tags is grouped separately.
 
+## 0.2.21
+
+- Breaking: getters that return a C object owned by `self`, such as `archive.get_archive_context()`, `get_aeron()`, `context()`, `counters_reader()` and the archive pollers, now return `Ref<'_, T>`. It borrows the owner, so using the result after dropping or closing the owner no longer compiles (#81). `AeronArchive::aeron()` returns `Ref<'_, Aeron>`.
+
 ## 0.2.20
 
 - Documented why registered handlers survive replacement and asynchronous close. Added an archive regression test for copied handler pointers and final callback cleanup.

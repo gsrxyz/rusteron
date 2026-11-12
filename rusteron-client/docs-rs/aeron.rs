@@ -543,6 +543,52 @@ impl<T> std::fmt::Debug for CResource<T> {
         }
     }
 }
+#[doc = " A wrapper around a C object that belongs to the value it came from, such as the"]
+#[doc = " context returned by `archive.get_archive_context()`"]
+#[doc = ""]
+#[doc = " The lifetime ties it to that owner, so dropping or closing the owner while a `Ref`"]
+#[doc = " is alive does not compile. Use it through `Deref` like the wrapper itself"]
+#[doc = ""]
+#[doc = " The owner is tracked with `PhantomData` rather than an `Rc`/`Arc` clone for"]
+#[doc = " performance: getters such as `archive.aeron()` are called on the hot path (for"]
+#[doc = " example in `do_work`), and a reference count would add an increment and decrement"]
+#[doc = " (atomic under `multi-threaded`) on every call. `Ref` holds only the C pointer, so"]
+#[doc = " the borrow checker enforces the lifetime at zero runtime cost"]
+#[doc = ""]
+#[doc = " `ref.clone()` keeps the lifetime. Cloning the inner wrapper (`T::clone(&*r)`) does"]
+#[doc = " not, and that copy must not outlive the owner"]
+pub struct Ref<'a, T> {
+    value: T,
+    owner: std::marker::PhantomData<&'a ()>,
+}
+impl<T> Ref<'_, T> {
+    #[doc = " The caller picks the lifetime, which must not outlive the C object's owner"]
+    #[inline(always)]
+    pub(crate) fn new(value: T) -> Self {
+        Self {
+            value,
+            owner: std::marker::PhantomData,
+        }
+    }
+}
+impl<T> std::ops::Deref for Ref<'_, T> {
+    type Target = T;
+    #[inline(always)]
+    fn deref(&self) -> &T {
+        &self.value
+    }
+}
+impl<T: Clone> Clone for Ref<'_, T> {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        Self::new(self.value.clone())
+    }
+}
+impl<T: std::fmt::Debug> std::fmt::Debug for Ref<'_, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.value.fmt(f)
+    }
+}
 #[doc = " Owns a C resource and calls its cleanup closure when the last handle drops."]
 #[doc = ""]
 #[doc = " The closure calls the C close function, such as `aeron_close`. Reference-counted"]
@@ -5526,7 +5572,7 @@ impl AeronCnc {
     #[doc = " are tied to the instance of aeron_cnc."]
     #[doc = ""]
     #[doc = " \n# Return\n pointer to a counters reader."]
-    pub fn counters_reader(&self) -> AeronCountersReader {
+    pub fn counters_reader(&self) -> Ref<'_, AeronCountersReader> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -5537,7 +5583,7 @@ impl AeronCnc {
             let result = aeron_cnc_counters_reader(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -5687,6 +5733,16 @@ impl AeronCnc {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_cnc_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronCnc> {
+    #[inline]
+    #[doc = "Gets a counters reader for this command and control file. This does not need to be closed manually, resources"]
+    #[doc = " are tied to the instance of aeron_cnc."]
+    #[doc = ""]
+    #[doc = " \n# Return\n pointer to a counters reader."]
+    pub fn counters_reader(&self) -> Ref<'a, AeronCountersReader> {
+        Ref::new(self.value.counters_reader().value)
     }
 }
 impl std::ops::Deref for AeronCnc {
@@ -11565,8 +11621,8 @@ impl AeronImageConstants {
         }
     }
     #[inline]
-    pub fn subscription(&self) -> AeronSubscription {
-        self.subscription.into()
+    pub fn subscription(&self) -> Ref<'_, AeronSubscription> {
+        Ref::new(self.subscription.into())
     }
     #[inline]
     pub fn source_identity(&self) -> &str {
@@ -11626,6 +11682,12 @@ impl AeronImageConstants {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_image_constants_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronImageConstants> {
+    #[inline]
+    pub fn subscription(&self) -> Ref<'a, AeronSubscription> {
+        Ref::new(self.value.subscription().value)
     }
 }
 impl std::ops::Deref for AeronImageConstants {
@@ -19825,8 +19887,8 @@ impl AeronStrToPtrHashMap {
         }
     }
     #[inline]
-    pub fn keys(&self) -> AeronStrToPtrHashMapKey {
-        self.keys.into()
+    pub fn keys(&self) -> Ref<'_, AeronStrToPtrHashMapKey> {
+        Ref::new(self.keys.into())
     }
     #[inline]
     pub fn values(&self) -> *mut *mut ::std::os::raw::c_void {
@@ -19866,6 +19928,12 @@ impl AeronStrToPtrHashMap {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_str_to_ptr_hash_map_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronStrToPtrHashMap> {
+    #[inline]
+    pub fn keys(&self) -> Ref<'a, AeronStrToPtrHashMapKey> {
+        Ref::new(self.value.keys().value)
     }
 }
 impl std::ops::Deref for AeronStrToPtrHashMap {
@@ -21277,7 +21345,7 @@ impl Aeron {
     #[doc = "Return the `AeronContext` that is in use by the given client."]
     #[doc = ""]
     #[doc = " \n# Return\n the `AeronContext` for the given client or NULL for an error."]
-    pub fn context(&self) -> AeronContext {
+    pub fn context(&self) -> Ref<'_, AeronContext> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -21288,7 +21356,7 @@ impl Aeron {
             let result = aeron_context(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -21630,7 +21698,7 @@ impl Aeron {
     #[doc = " The `AeronCountersReader` is maintained by the client. And should not be freed."]
     #[doc = ""]
     #[doc = " \n# Return\n `AeronCountersReader` or NULL for error."]
-    pub fn counters_reader(&self) -> AeronCountersReader {
+    pub fn counters_reader(&self) -> Ref<'_, AeronCountersReader> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -21641,7 +21709,7 @@ impl Aeron {
             let result = aeron_counters_reader(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -23197,6 +23265,24 @@ impl Aeron {
         unsafe { &*self.inner.get() }
     }
 }
+impl<'a> Ref<'a, Aeron> {
+    #[inline]
+    #[doc = "Return the `AeronContext` that is in use by the given client."]
+    #[doc = ""]
+    #[doc = " \n# Return\n the `AeronContext` for the given client or NULL for an error."]
+    pub fn context(&self) -> Ref<'a, AeronContext> {
+        Ref::new(self.value.context().value)
+    }
+    #[inline]
+    #[doc = "Return a reference to the counters reader of the given client."]
+    #[doc = ""]
+    #[doc = " The `AeronCountersReader` is maintained by the client. And should not be freed."]
+    #[doc = ""]
+    #[doc = " \n# Return\n `AeronCountersReader` or NULL for error."]
+    pub fn counters_reader(&self) -> Ref<'a, AeronCountersReader> {
+        Ref::new(self.value.counters_reader().value)
+    }
+}
 impl std::ops::Deref for Aeron {
     type Target = aeron_t;
     fn deref(&self) -> &Self::Target {
@@ -23831,8 +23917,8 @@ impl AeronUriParams {
         self.length.into()
     }
     #[inline]
-    pub fn array(&self) -> AeronUriParam {
-        self.array.into()
+    pub fn array(&self) -> Ref<'_, AeronUriParam> {
+        Ref::new(self.array.into())
     }
     #[inline]
     #[doc = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
@@ -24056,6 +24142,12 @@ impl AeronUriParams {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_uri_params_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronUriParams> {
+    #[inline]
+    pub fn array(&self) -> Ref<'a, AeronUriParam> {
+        Ref::new(self.value.array().value)
     }
 }
 impl std::ops::Deref for AeronUriParams {

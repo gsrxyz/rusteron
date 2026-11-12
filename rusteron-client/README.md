@@ -333,8 +333,9 @@ dropping an owned handle defers C cleanup until the last reference drops. The
 `complex_object_graph_close_is_safe_in_any_order` test checks this behavior.
 This covers owned handles. Two exceptions:
 
-- Borrowed handles (wrapping a pointer C gave out, e.g. `AeronArchiveContext::get_aeron()`) hold
-  no reference, so they must not outlive their owner.
+- Getters returning a C object the owner holds (e.g. `Aeron::context()`,
+  `AeronArchiveContext::get_aeron()`) return a `Ref` that borrows the owner, so the compiler
+  stops it outliving the owner.
 - A buffer claim from `try_claim` / `try_claim_owned` points into the publication's log buffer
   and must be committed or aborted before the publication closes.
 

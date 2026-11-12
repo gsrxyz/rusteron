@@ -83,9 +83,10 @@ Most methods take `&self` and update the C resource without transferring ownersh
 
 Automatic cleanup applies only to `new()` constructors. Setters that take another wrapper (e.g. `set_aeron()`) keep it alive for as long as the context.
 
-`archive.get_archive_context()` returns a borrowed context. Keep the archive open
-while using that context or its clones. Borrowed wrappers do not retain callbacks.
-Keep any returned `Handler` alive while C can use it.
+`archive.get_archive_context()`, the pollers and other getters return a `Ref`, which
+borrows the archive. The compiler stops you from dropping or closing the archive while
+you still use the result. Borrowed wrappers do not retain callbacks. Keep any returned
+`Handler` alive while C can use it.
 
 ### Handlers and errors
 

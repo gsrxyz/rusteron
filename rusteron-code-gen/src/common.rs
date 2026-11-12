@@ -187,6 +187,59 @@ impl<T> std::fmt::Debug for CResource<T> {
     }
 }
 
+/// A wrapper around a C object that belongs to the value it came from, such as the
+/// context returned by `archive.get_archive_context()`
+///
+/// The lifetime ties it to that owner, so dropping or closing the owner while a `Ref`
+/// is alive does not compile. Use it through `Deref` like the wrapper itself
+///
+/// The owner is tracked with `PhantomData` rather than an `Rc`/`Arc` clone for
+/// performance: getters such as `archive.aeron()` are called on the hot path (for
+/// example in `do_work`), and a reference count would add an increment and decrement
+/// (atomic under `multi-threaded`) on every call. `Ref` holds only the C pointer, so
+/// the borrow checker enforces the lifetime at zero runtime cost
+///
+/// `ref.clone()` keeps the lifetime. Cloning the inner wrapper (`T::clone(&*r)`) does
+/// not, and that copy must not outlive the owner
+pub struct Ref<'a, T> {
+    value: T,
+    owner: std::marker::PhantomData<&'a ()>,
+}
+
+impl<T> Ref<'_, T> {
+    /// The caller picks the lifetime, which must not outlive the C object's owner
+    #[inline(always)]
+    pub(crate) fn new(value: T) -> Self {
+        Self {
+            value,
+            owner: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<T> std::ops::Deref for Ref<'_, T> {
+    type Target = T;
+
+    #[inline(always)]
+    fn deref(&self) -> &T {
+        &self.value
+    }
+}
+
+// Without this, `r.clone()` would auto-deref to `T::clone` and silently drop the lifetime
+impl<T: Clone> Clone for Ref<'_, T> {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        Self::new(self.value.clone())
+    }
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for Ref<'_, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.value.fmt(f)
+    }
+}
+
 /// Owns a C resource and calls its cleanup closure when the last handle drops.
 ///
 /// The closure calls the C close function, such as `aeron_close`. Reference-counted

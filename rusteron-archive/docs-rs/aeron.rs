@@ -543,6 +543,52 @@ impl<T> std::fmt::Debug for CResource<T> {
         }
     }
 }
+#[doc = " A wrapper around a C object that belongs to the value it came from, such as the"]
+#[doc = " context returned by `archive.get_archive_context()`"]
+#[doc = ""]
+#[doc = " The lifetime ties it to that owner, so dropping or closing the owner while a `Ref`"]
+#[doc = " is alive does not compile. Use it through `Deref` like the wrapper itself"]
+#[doc = ""]
+#[doc = " The owner is tracked with `PhantomData` rather than an `Rc`/`Arc` clone for"]
+#[doc = " performance: getters such as `archive.aeron()` are called on the hot path (for"]
+#[doc = " example in `do_work`), and a reference count would add an increment and decrement"]
+#[doc = " (atomic under `multi-threaded`) on every call. `Ref` holds only the C pointer, so"]
+#[doc = " the borrow checker enforces the lifetime at zero runtime cost"]
+#[doc = ""]
+#[doc = " `ref.clone()` keeps the lifetime. Cloning the inner wrapper (`T::clone(&*r)`) does"]
+#[doc = " not, and that copy must not outlive the owner"]
+pub struct Ref<'a, T> {
+    value: T,
+    owner: std::marker::PhantomData<&'a ()>,
+}
+impl<T> Ref<'_, T> {
+    #[doc = " The caller picks the lifetime, which must not outlive the C object's owner"]
+    #[inline(always)]
+    pub(crate) fn new(value: T) -> Self {
+        Self {
+            value,
+            owner: std::marker::PhantomData,
+        }
+    }
+}
+impl<T> std::ops::Deref for Ref<'_, T> {
+    type Target = T;
+    #[inline(always)]
+    fn deref(&self) -> &T {
+        &self.value
+    }
+}
+impl<T: Clone> Clone for Ref<'_, T> {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        Self::new(self.value.clone())
+    }
+}
+impl<T: std::fmt::Debug> std::fmt::Debug for Ref<'_, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.value.fmt(f)
+    }
+}
 #[doc = " Owns a C resource and calls its cleanup closure when the last handle drops."]
 #[doc = ""]
 #[doc = " The closure calls the C close function, such as `aeron_close`. Reference-counted"]
@@ -2115,7 +2161,7 @@ impl AeronArchiveAsyncConnect {
             .or_else(|| {
                 self.inner
                     .get_dependency::<AeronArchiveContext>()
-                    .map(|owner| owner.get_aeron())
+                    .map(|owner| (*owner.get_aeron()).clone())
                     .filter(|aeron| !aeron.get_inner().is_null())
             })
             .filter(Aeron::uses_agent_invoker)
@@ -2222,8 +2268,8 @@ impl AeronArchiveContext {
         Ok(result)
     }
     #[inline]
-    pub fn aeron(&self) -> Aeron {
-        self.aeron.into()
+    pub fn aeron(&self) -> Ref<'_, Aeron> {
+        Ref::new(self.aeron.into())
     }
     #[inline]
     pub fn aeron_directory_name(&self) -> [::std::os::raw::c_char; 4096usize] {
@@ -2398,7 +2444,7 @@ impl AeronArchiveContext {
         }
     }
     #[inline]
-    pub fn get_aeron(&self) -> Aeron {
+    pub fn get_aeron(&self) -> Ref<'_, Aeron> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -2409,7 +2455,7 @@ impl AeronArchiveContext {
             let result = aeron_archive_context_get_aeron(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -3420,6 +3466,16 @@ impl AeronArchiveContext {
         unsafe { &*self.inner.get() }
     }
 }
+impl<'a> Ref<'a, AeronArchiveContext> {
+    #[inline]
+    pub fn get_aeron(&self) -> Ref<'a, Aeron> {
+        Ref::new(self.value.get_aeron().value)
+    }
+    #[inline]
+    pub fn aeron(&self) -> Ref<'a, Aeron> {
+        Ref::new(self.value.aeron().value)
+    }
+}
 impl std::ops::Deref for AeronArchiveContext {
     type Target = aeron_archive_context_t;
     fn deref(&self) -> &Self::Target {
@@ -3551,16 +3607,16 @@ impl AeronArchiveControlResponsePoller {
         }
     }
     #[inline]
-    pub fn subscription(&self) -> AeronSubscription {
-        self.subscription.into()
+    pub fn subscription(&self) -> Ref<'_, AeronSubscription> {
+        Ref::new(self.subscription.into())
     }
     #[inline]
     pub fn fragment_limit(&self) -> ::std::os::raw::c_int {
         self.fragment_limit.into()
     }
     #[inline]
-    pub fn fragment_assembler(&self) -> AeronControlledFragmentAssembler {
-        self.fragment_assembler.into()
+    pub fn fragment_assembler(&self) -> Ref<'_, AeronControlledFragmentAssembler> {
+        Ref::new(self.fragment_assembler.into())
     }
     #[inline]
     pub fn error_on_fragment(&self) -> bool {
@@ -3696,6 +3752,16 @@ impl AeronArchiveControlResponsePoller {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_archive_control_response_poller_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronArchiveControlResponsePoller> {
+    #[inline]
+    pub fn subscription(&self) -> Ref<'a, AeronSubscription> {
+        Ref::new(self.value.subscription().value)
+    }
+    #[inline]
+    pub fn fragment_assembler(&self) -> Ref<'a, AeronControlledFragmentAssembler> {
+        Ref::new(self.value.fragment_assembler().value)
     }
 }
 impl std::ops::Deref for AeronArchiveControlResponsePoller {
@@ -3856,7 +3922,7 @@ impl AeronArchiveCredentialsSupplier {
         self.clientd.into()
     }
     #[inline]
-    pub fn encoded_credentials(&self) -> AeronArchiveEncodedCredentials {
+    pub fn encoded_credentials(&self) -> Ref<'_, AeronArchiveEncodedCredentials> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -3868,11 +3934,14 @@ impl AeronArchiveCredentialsSupplier {
             let result = aeron_archive_credentials_supplier_encoded_credentials(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
-    pub fn on_challenge(&self, encoded_challenge: &AeronArchiveEncodedCredentials) -> AeronArchiveEncodedCredentials {
+    pub fn on_challenge(
+        &self,
+        encoded_challenge: &AeronArchiveEncodedCredentials,
+    ) -> Ref<'_, AeronArchiveEncodedCredentials> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -3893,7 +3962,7 @@ impl AeronArchiveCredentialsSupplier {
                 aeron_archive_credentials_supplier_on_challenge(self.get_inner(), encoded_challenge.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -3938,6 +4007,12 @@ impl AeronArchiveCredentialsSupplier {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_archive_credentials_supplier_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronArchiveCredentialsSupplier> {
+    #[inline]
+    pub fn encoded_credentials(&self) -> Ref<'a, AeronArchiveEncodedCredentials> {
+        Ref::new(self.value.encoded_credentials().value)
     }
 }
 impl std::ops::Deref for AeronArchiveCredentialsSupplier {
@@ -4879,7 +4954,7 @@ impl AeronArchivePersistentSubscriptionContext {
     #[doc = ""]
     #[doc = " \n# Return\n the state counter."]
     #[doc = " @see aeron_archive_persistent_subscription_context_set_state_counter"]
-    pub fn get_state_counter(&self) -> AeronCounter {
+    pub fn get_state_counter(&self) -> Ref<'_, AeronCounter> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -4896,7 +4971,7 @@ impl AeronArchivePersistentSubscriptionContext {
             let result = aeron_archive_persistent_subscription_context_get_state_counter(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -4941,7 +5016,7 @@ impl AeronArchivePersistentSubscriptionContext {
     #[doc = ""]
     #[doc = " \n# Return\n the join difference counter."]
     #[doc = " @see aeron_archive_persistent_subscription_context_set_join_difference_counter"]
-    pub fn get_join_difference_counter(&self) -> AeronCounter {
+    pub fn get_join_difference_counter(&self) -> Ref<'_, AeronCounter> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -4958,7 +5033,7 @@ impl AeronArchivePersistentSubscriptionContext {
             let result = aeron_archive_persistent_subscription_context_get_join_difference_counter(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -5001,7 +5076,7 @@ impl AeronArchivePersistentSubscriptionContext {
     #[doc = ""]
     #[doc = " \n# Return\n the live left counter."]
     #[doc = " @see aeron_archive_persistent_subscription_context_set_live_left_counter"]
-    pub fn get_live_left_counter(&self) -> AeronCounter {
+    pub fn get_live_left_counter(&self) -> Ref<'_, AeronCounter> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -5018,7 +5093,7 @@ impl AeronArchivePersistentSubscriptionContext {
             let result = aeron_archive_persistent_subscription_context_get_live_left_counter(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -5061,7 +5136,7 @@ impl AeronArchivePersistentSubscriptionContext {
     #[doc = ""]
     #[doc = " \n# Return\n the live joined counter."]
     #[doc = " @see aeron_archive_persistent_subscription_context_set_live_joined_counter"]
-    pub fn get_live_joined_counter(&self) -> AeronCounter {
+    pub fn get_live_joined_counter(&self) -> Ref<'_, AeronCounter> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -5078,7 +5153,7 @@ impl AeronArchivePersistentSubscriptionContext {
             let result = aeron_archive_persistent_subscription_context_get_live_joined_counter(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline(always)]
@@ -5099,6 +5174,40 @@ impl AeronArchivePersistentSubscriptionContext {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_archive_persistent_subscription_context_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronArchivePersistentSubscriptionContext> {
+    #[inline]
+    #[doc = "Get the counter for tracking the current state of the persistent subscription."]
+    #[doc = ""]
+    #[doc = " \n# Return\n the state counter."]
+    #[doc = " @see aeron_archive_persistent_subscription_context_set_state_counter"]
+    pub fn get_state_counter(&self) -> Ref<'a, AeronCounter> {
+        Ref::new(self.value.get_state_counter().value)
+    }
+    #[inline]
+    #[doc = "Get the counter for tracking the join difference of the persistent subscription."]
+    #[doc = ""]
+    #[doc = " \n# Return\n the join difference counter."]
+    #[doc = " @see aeron_archive_persistent_subscription_context_set_join_difference_counter"]
+    pub fn get_join_difference_counter(&self) -> Ref<'a, AeronCounter> {
+        Ref::new(self.value.get_join_difference_counter().value)
+    }
+    #[inline]
+    #[doc = "Get the counter for tracking the number of times the live stream has been left."]
+    #[doc = ""]
+    #[doc = " \n# Return\n the live left counter."]
+    #[doc = " @see aeron_archive_persistent_subscription_context_set_live_left_counter"]
+    pub fn get_live_left_counter(&self) -> Ref<'a, AeronCounter> {
+        Ref::new(self.value.get_live_left_counter().value)
+    }
+    #[inline]
+    #[doc = "Get the counter for tracking the number of times live has been joined."]
+    #[doc = ""]
+    #[doc = " \n# Return\n the live joined counter."]
+    #[doc = " @see aeron_archive_persistent_subscription_context_set_live_joined_counter"]
+    pub fn get_live_joined_counter(&self) -> Ref<'a, AeronCounter> {
+        Ref::new(self.value.get_live_joined_counter().value)
     }
 }
 impl std::ops::Deref for AeronArchivePersistentSubscriptionContext {
@@ -5924,12 +6033,12 @@ impl AeronArchiveProxy {
         Ok(result)
     }
     #[inline]
-    pub fn ctx(&self) -> AeronArchiveContext {
-        self.ctx.into()
+    pub fn ctx(&self) -> Ref<'_, AeronArchiveContext> {
+        Ref::new(self.ctx.into())
     }
     #[inline]
-    pub fn exclusive_publication(&self) -> AeronExclusivePublication {
-        self.exclusive_publication.into()
+    pub fn exclusive_publication(&self) -> Ref<'_, AeronExclusivePublication> {
+        Ref::new(self.exclusive_publication.into())
     }
     #[inline]
     pub fn control_session_id(&self) -> i64 {
@@ -6916,6 +7025,16 @@ impl AeronArchiveProxy {
         unsafe { &*self.inner.get() }
     }
 }
+impl<'a> Ref<'a, AeronArchiveProxy> {
+    #[inline]
+    pub fn ctx(&self) -> Ref<'a, AeronArchiveContext> {
+        Ref::new(self.value.ctx().value)
+    }
+    #[inline]
+    pub fn exclusive_publication(&self) -> Ref<'a, AeronExclusivePublication> {
+        Ref::new(self.value.exclusive_publication().value)
+    }
+}
 impl std::ops::Deref for AeronArchiveProxy {
     type Target = aeron_archive_proxy_t;
     fn deref(&self) -> &Self::Target {
@@ -7031,12 +7150,12 @@ impl AeronArchiveRecordingDescriptorPoller {
         }
     }
     #[inline]
-    pub fn ctx(&self) -> AeronArchiveContext {
-        self.ctx.into()
+    pub fn ctx(&self) -> Ref<'_, AeronArchiveContext> {
+        Ref::new(self.ctx.into())
     }
     #[inline]
-    pub fn subscription(&self) -> AeronSubscription {
-        self.subscription.into()
+    pub fn subscription(&self) -> Ref<'_, AeronSubscription> {
+        Ref::new(self.subscription.into())
     }
     #[inline]
     pub fn control_session_id(&self) -> i64 {
@@ -7047,8 +7166,8 @@ impl AeronArchiveRecordingDescriptorPoller {
         self.fragment_limit.into()
     }
     #[inline]
-    pub fn fragment_assembler(&self) -> AeronControlledFragmentAssembler {
-        self.fragment_assembler.into()
+    pub fn fragment_assembler(&self) -> Ref<'_, AeronControlledFragmentAssembler> {
+        Ref::new(self.fragment_assembler.into())
     }
     #[inline]
     pub fn error_on_fragment(&self) -> bool {
@@ -7092,6 +7211,20 @@ impl AeronArchiveRecordingDescriptorPoller {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_archive_recording_descriptor_poller_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronArchiveRecordingDescriptorPoller> {
+    #[inline]
+    pub fn ctx(&self) -> Ref<'a, AeronArchiveContext> {
+        Ref::new(self.value.ctx().value)
+    }
+    #[inline]
+    pub fn subscription(&self) -> Ref<'a, AeronSubscription> {
+        Ref::new(self.value.subscription().value)
+    }
+    #[inline]
+    pub fn fragment_assembler(&self) -> Ref<'a, AeronControlledFragmentAssembler> {
+        Ref::new(self.value.fragment_assembler().value)
     }
 }
 impl std::ops::Deref for AeronArchiveRecordingDescriptorPoller {
@@ -7982,12 +8115,12 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
         }
     }
     #[inline]
-    pub fn ctx(&self) -> AeronArchiveContext {
-        self.ctx.into()
+    pub fn ctx(&self) -> Ref<'_, AeronArchiveContext> {
+        Ref::new(self.ctx.into())
     }
     #[inline]
-    pub fn subscription(&self) -> AeronSubscription {
-        self.subscription.into()
+    pub fn subscription(&self) -> Ref<'_, AeronSubscription> {
+        Ref::new(self.subscription.into())
     }
     #[inline]
     pub fn control_session_id(&self) -> i64 {
@@ -7998,8 +8131,8 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
         self.fragment_limit.into()
     }
     #[inline]
-    pub fn fragment_assembler(&self) -> AeronControlledFragmentAssembler {
-        self.fragment_assembler.into()
+    pub fn fragment_assembler(&self) -> Ref<'_, AeronControlledFragmentAssembler> {
+        Ref::new(self.fragment_assembler.into())
     }
     #[inline]
     pub fn error_on_fragment(&self) -> bool {
@@ -8045,6 +8178,20 @@ impl AeronArchiveRecordingSubscriptionDescriptorPoller {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_archive_recording_subscription_descriptor_poller_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronArchiveRecordingSubscriptionDescriptorPoller> {
+    #[inline]
+    pub fn ctx(&self) -> Ref<'a, AeronArchiveContext> {
+        Ref::new(self.value.ctx().value)
+    }
+    #[inline]
+    pub fn subscription(&self) -> Ref<'a, AeronSubscription> {
+        Ref::new(self.value.subscription().value)
+    }
+    #[inline]
+    pub fn fragment_assembler(&self) -> Ref<'a, AeronControlledFragmentAssembler> {
+        Ref::new(self.value.fragment_assembler().value)
     }
 }
 impl std::ops::Deref for AeronArchiveRecordingSubscriptionDescriptorPoller {
@@ -8595,7 +8742,7 @@ impl AeronArchiveReplayMerge {
     #[doc = "The image used for the replay and live stream."]
     #[doc = ""]
     #[doc = " \n# Return\n the `AeronImage`"]
-    pub fn image(&self) -> AeronImage {
+    pub fn image(&self) -> Ref<'_, AeronImage> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -8606,7 +8753,7 @@ impl AeronArchiveReplayMerge {
             let result = aeron_archive_replay_merge_image(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -8681,6 +8828,15 @@ impl AeronArchiveReplayMerge {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_archive_replay_merge_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronArchiveReplayMerge> {
+    #[inline]
+    #[doc = "The image used for the replay and live stream."]
+    #[doc = ""]
+    #[doc = " \n# Return\n the `AeronImage`"]
+    pub fn image(&self) -> Ref<'a, AeronImage> {
+        Ref::new(self.value.image().value)
     }
 }
 impl std::ops::Deref for AeronArchiveReplayMerge {
@@ -9141,8 +9297,8 @@ impl AeronArchiveReplicationParams {
         self.replication_session_id.into()
     }
     #[inline]
-    pub fn encoded_credentials(&self) -> AeronArchiveEncodedCredentials {
-        self.encoded_credentials.into()
+    pub fn encoded_credentials(&self) -> Ref<'_, AeronArchiveEncodedCredentials> {
+        Ref::new(self.encoded_credentials.into())
     }
     #[inline]
     #[doc = "Initialize an `AeronArchiveReplicationParams` with the default values"]
@@ -9182,6 +9338,12 @@ impl AeronArchiveReplicationParams {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_archive_replication_params_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronArchiveReplicationParams> {
+    #[inline]
+    pub fn encoded_credentials(&self) -> Ref<'a, AeronArchiveEncodedCredentials> {
+        Ref::new(self.value.encoded_credentials().value)
     }
 }
 impl std::ops::Deref for AeronArchiveReplicationParams {
@@ -9342,32 +9504,34 @@ impl AeronArchive {
         self.owns_ctx.into()
     }
     #[inline]
-    pub fn ctx(&self) -> AeronArchiveContext {
-        self.ctx.into()
+    pub fn ctx(&self) -> Ref<'_, AeronArchiveContext> {
+        Ref::new(self.ctx.into())
     }
     #[inline]
     pub fn lock(&self) -> aeron_mutex_t {
         self.lock.into()
     }
     #[inline]
-    pub fn archive_proxy(&self) -> AeronArchiveProxy {
-        self.archive_proxy.into()
+    pub fn archive_proxy(&self) -> Ref<'_, AeronArchiveProxy> {
+        Ref::new(self.archive_proxy.into())
     }
     #[inline]
     pub fn owns_control_response_subscription(&self) -> bool {
         self.owns_control_response_subscription.into()
     }
     #[inline]
-    pub fn subscription(&self) -> AeronSubscription {
-        self.subscription.into()
+    pub fn subscription(&self) -> Ref<'_, AeronSubscription> {
+        Ref::new(self.subscription.into())
     }
     #[inline]
-    pub fn recording_descriptor_poller(&self) -> AeronArchiveRecordingDescriptorPoller {
-        self.recording_descriptor_poller.into()
+    pub fn recording_descriptor_poller(&self) -> Ref<'_, AeronArchiveRecordingDescriptorPoller> {
+        Ref::new(self.recording_descriptor_poller.into())
     }
     #[inline]
-    pub fn recording_subscription_descriptor_poller(&self) -> AeronArchiveRecordingSubscriptionDescriptorPoller {
-        self.recording_subscription_descriptor_poller.into()
+    pub fn recording_subscription_descriptor_poller(
+        &self,
+    ) -> Ref<'_, AeronArchiveRecordingSubscriptionDescriptorPoller> {
+        Ref::new(self.recording_subscription_descriptor_poller.into())
     }
     #[inline]
     pub fn archive_id(&self) -> i64 {
@@ -9383,7 +9547,7 @@ impl AeronArchive {
     }
     #[inline]
     #[doc = "Retrieve the underlying `AeronArchiveContext` used to configure the provided `AeronArchive`."]
-    pub fn get_archive_context(&self) -> AeronArchiveContext {
+    pub fn get_archive_context(&self) -> Ref<'_, AeronArchiveContext> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -9394,7 +9558,7 @@ impl AeronArchive {
             let result = aeron_archive_get_archive_context(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -9403,7 +9567,7 @@ impl AeronArchive {
     #[doc = " Additionally, calling this function transfers ownership of the returned `AeronArchiveContext` to the caller."]
     #[doc = " i.e. it is now the caller's responsibility to close the context."]
     #[doc = " This is useful when wrapping the C library in other, higher level languages."]
-    pub fn get_and_own_archive_context(&self) -> AeronArchiveContext {
+    pub fn get_and_own_archive_context(&self) -> Ref<'_, AeronArchiveContext> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -9414,7 +9578,7 @@ impl AeronArchive {
             let result = aeron_archive_get_and_own_archive_context(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -9435,7 +9599,7 @@ impl AeronArchive {
     }
     #[inline]
     #[doc = "Retrieve the underlying `AeronSubscription` used for reading responses from the connected Aeron Archive."]
-    pub fn get_control_response_subscription(&self) -> AeronSubscription {
+    pub fn get_control_response_subscription(&self) -> Ref<'_, AeronSubscription> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -9446,7 +9610,7 @@ impl AeronArchive {
             let result = aeron_archive_get_control_response_subscription(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -9455,7 +9619,7 @@ impl AeronArchive {
     #[doc = " Additionally, calling this function transfers ownership of the returned `AeronSubscription` to the caller."]
     #[doc = " i.e. it is now the caller's responsibility to close the subscription."]
     #[doc = " This is useful when wrapping the C library in other, high level languages."]
-    pub fn get_and_own_control_response_subscription(&self) -> AeronSubscription {
+    pub fn get_and_own_control_response_subscription(&self) -> Ref<'_, AeronSubscription> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -9466,7 +9630,7 @@ impl AeronArchive {
             let result = aeron_archive_get_and_own_control_response_subscription(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -11374,7 +11538,7 @@ impl AeronArchive {
         }
     }
     #[inline]
-    pub fn control_response_poller(&self) -> AeronArchiveControlResponsePoller {
+    pub fn control_response_poller(&self) -> Ref<'_, AeronArchiveControlResponsePoller> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -11385,11 +11549,11 @@ impl AeronArchive {
             let result = aeron_archive_control_response_poller(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
-    pub fn proxy(&self) -> AeronArchiveProxy {
+    pub fn proxy(&self) -> Ref<'_, AeronArchiveProxy> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -11400,7 +11564,7 @@ impl AeronArchive {
             let result = aeron_archive_proxy(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -11568,6 +11732,66 @@ impl AeronArchive {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_archive_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronArchive> {
+    #[inline]
+    #[doc = "Retrieve the underlying `AeronArchiveContext` used to configure the provided `AeronArchive`."]
+    pub fn get_archive_context(&self) -> Ref<'a, AeronArchiveContext> {
+        Ref::new(self.value.get_archive_context().value)
+    }
+    #[inline]
+    #[doc = "Retrieve the underlying `AeronArchiveContext` used to configure the provided `AeronArchive`."]
+    #[doc = " \n"]
+    #[doc = " Additionally, calling this function transfers ownership of the returned `AeronArchiveContext` to the caller."]
+    #[doc = " i.e. it is now the caller's responsibility to close the context."]
+    #[doc = " This is useful when wrapping the C library in other, higher level languages."]
+    pub fn get_and_own_archive_context(&self) -> Ref<'a, AeronArchiveContext> {
+        Ref::new(self.value.get_and_own_archive_context().value)
+    }
+    #[inline]
+    #[doc = "Retrieve the underlying `AeronSubscription` used for reading responses from the connected Aeron Archive."]
+    pub fn get_control_response_subscription(&self) -> Ref<'a, AeronSubscription> {
+        Ref::new(self.value.get_control_response_subscription().value)
+    }
+    #[inline]
+    #[doc = "Retrieve the underlying `AeronSubscription` used for reading responses from the connected Aeron Archive."]
+    #[doc = " \n"]
+    #[doc = " Additionally, calling this function transfers ownership of the returned `AeronSubscription` to the caller."]
+    #[doc = " i.e. it is now the caller's responsibility to close the subscription."]
+    #[doc = " This is useful when wrapping the C library in other, high level languages."]
+    pub fn get_and_own_control_response_subscription(&self) -> Ref<'a, AeronSubscription> {
+        Ref::new(self.value.get_and_own_control_response_subscription().value)
+    }
+    #[inline]
+    pub fn control_response_poller(&self) -> Ref<'a, AeronArchiveControlResponsePoller> {
+        Ref::new(self.value.control_response_poller().value)
+    }
+    #[inline]
+    pub fn proxy(&self) -> Ref<'a, AeronArchiveProxy> {
+        Ref::new(self.value.proxy().value)
+    }
+    #[inline]
+    pub fn ctx(&self) -> Ref<'a, AeronArchiveContext> {
+        Ref::new(self.value.ctx().value)
+    }
+    #[inline]
+    pub fn archive_proxy(&self) -> Ref<'a, AeronArchiveProxy> {
+        Ref::new(self.value.archive_proxy().value)
+    }
+    #[inline]
+    pub fn subscription(&self) -> Ref<'a, AeronSubscription> {
+        Ref::new(self.value.subscription().value)
+    }
+    #[inline]
+    pub fn recording_descriptor_poller(&self) -> Ref<'a, AeronArchiveRecordingDescriptorPoller> {
+        Ref::new(self.value.recording_descriptor_poller().value)
+    }
+    #[inline]
+    pub fn recording_subscription_descriptor_poller(
+        &self,
+    ) -> Ref<'a, AeronArchiveRecordingSubscriptionDescriptorPoller> {
+        Ref::new(self.value.recording_subscription_descriptor_poller().value)
     }
 }
 impl std::ops::Deref for AeronArchive {
@@ -15177,7 +15401,7 @@ impl AeronCnc {
     #[doc = " are tied to the instance of aeron_cnc."]
     #[doc = ""]
     #[doc = " \n# Return\n pointer to a counters reader."]
-    pub fn counters_reader(&self) -> AeronCountersReader {
+    pub fn counters_reader(&self) -> Ref<'_, AeronCountersReader> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -15188,7 +15412,7 @@ impl AeronCnc {
             let result = aeron_cnc_counters_reader(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -15338,6 +15562,16 @@ impl AeronCnc {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_cnc_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronCnc> {
+    #[inline]
+    #[doc = "Gets a counters reader for this command and control file. This does not need to be closed manually, resources"]
+    #[doc = " are tied to the instance of aeron_cnc."]
+    #[doc = ""]
+    #[doc = " \n# Return\n pointer to a counters reader."]
+    pub fn counters_reader(&self) -> Ref<'a, AeronCountersReader> {
+        Ref::new(self.value.counters_reader().value)
     }
 }
 impl std::ops::Deref for AeronCnc {
@@ -21344,8 +21578,8 @@ impl AeronImageConstants {
         }
     }
     #[inline]
-    pub fn subscription(&self) -> AeronSubscription {
-        self.subscription.into()
+    pub fn subscription(&self) -> Ref<'_, AeronSubscription> {
+        Ref::new(self.subscription.into())
     }
     #[inline]
     pub fn source_identity(&self) -> &str {
@@ -21405,6 +21639,12 @@ impl AeronImageConstants {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_image_constants_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronImageConstants> {
+    #[inline]
+    pub fn subscription(&self) -> Ref<'a, AeronSubscription> {
+        Ref::new(self.value.subscription().value)
     }
 }
 impl std::ops::Deref for AeronImageConstants {
@@ -29604,8 +29844,8 @@ impl AeronStrToPtrHashMap {
         }
     }
     #[inline]
-    pub fn keys(&self) -> AeronStrToPtrHashMapKey {
-        self.keys.into()
+    pub fn keys(&self) -> Ref<'_, AeronStrToPtrHashMapKey> {
+        Ref::new(self.keys.into())
     }
     #[inline]
     pub fn values(&self) -> *mut *mut ::std::os::raw::c_void {
@@ -29645,6 +29885,12 @@ impl AeronStrToPtrHashMap {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_str_to_ptr_hash_map_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronStrToPtrHashMap> {
+    #[inline]
+    pub fn keys(&self) -> Ref<'a, AeronStrToPtrHashMapKey> {
+        Ref::new(self.value.keys().value)
     }
 }
 impl std::ops::Deref for AeronStrToPtrHashMap {
@@ -31056,7 +31302,7 @@ impl Aeron {
     #[doc = "Return the `AeronContext` that is in use by the given client."]
     #[doc = ""]
     #[doc = " \n# Return\n the `AeronContext` for the given client or NULL for an error."]
-    pub fn context(&self) -> AeronContext {
+    pub fn context(&self) -> Ref<'_, AeronContext> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -31067,7 +31313,7 @@ impl Aeron {
             let result = aeron_context(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -31409,7 +31655,7 @@ impl Aeron {
     #[doc = " The `AeronCountersReader` is maintained by the client. And should not be freed."]
     #[doc = ""]
     #[doc = " \n# Return\n `AeronCountersReader` or NULL for error."]
-    pub fn counters_reader(&self) -> AeronCountersReader {
+    pub fn counters_reader(&self) -> Ref<'_, AeronCountersReader> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -31420,7 +31666,7 @@ impl Aeron {
             let result = aeron_counters_reader(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ref::new(result.into())
         }
     }
     #[inline]
@@ -32976,6 +33222,24 @@ impl Aeron {
         unsafe { &*self.inner.get() }
     }
 }
+impl<'a> Ref<'a, Aeron> {
+    #[inline]
+    #[doc = "Return the `AeronContext` that is in use by the given client."]
+    #[doc = ""]
+    #[doc = " \n# Return\n the `AeronContext` for the given client or NULL for an error."]
+    pub fn context(&self) -> Ref<'a, AeronContext> {
+        Ref::new(self.value.context().value)
+    }
+    #[inline]
+    #[doc = "Return a reference to the counters reader of the given client."]
+    #[doc = ""]
+    #[doc = " The `AeronCountersReader` is maintained by the client. And should not be freed."]
+    #[doc = ""]
+    #[doc = " \n# Return\n `AeronCountersReader` or NULL for error."]
+    pub fn counters_reader(&self) -> Ref<'a, AeronCountersReader> {
+        Ref::new(self.value.counters_reader().value)
+    }
+}
 impl std::ops::Deref for Aeron {
     type Target = aeron_t;
     fn deref(&self) -> &Self::Target {
@@ -33610,8 +33874,8 @@ impl AeronUriParams {
         self.length.into()
     }
     #[inline]
-    pub fn array(&self) -> AeronUriParam {
-        self.array.into()
+    pub fn array(&self) -> Ref<'_, AeronUriParam> {
+        Ref::new(self.array.into())
     }
     #[inline]
     #[doc = "SAFETY: this is static for performance reasons, so you should not store this without copying it!!"]
@@ -33835,6 +34099,12 @@ impl AeronUriParams {
     #[inline(always)]
     pub fn get_inner_ref(&self) -> &aeron_uri_params_t {
         unsafe { &*self.inner.get() }
+    }
+}
+impl<'a> Ref<'a, AeronUriParams> {
+    #[inline]
+    pub fn array(&self) -> Ref<'a, AeronUriParam> {
+        Ref::new(self.value.array().value)
     }
 }
 impl std::ops::Deref for AeronUriParams {
