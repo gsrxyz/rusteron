@@ -229,6 +229,12 @@ jobs:
         run: |
           cargo test -p rusteron-client --features strict-lifecycle --lib -- --nocapture
 
+      - name: Test precompiled libraries and bindings
+        if: matrix.features == 'static'
+        run: |
+          cargo install just --locked
+          just test-precompiled-bindings
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:

@@ -4,6 +4,11 @@ Main changes, newest first, grouped by published crate version. Release-only
 commits, build logs, and changes later reverted or superseded are omitted.
 Early history predating the available release tags is grouped separately.
 
+## 0.2.20
+
+- Fixed static precompiled builds to load Rust bindings for the same Cargo target as the C libraries. Linux builds no longer use the Darwin documentation snapshots.
+- Added `just test-precompiled-bindings` and CI checks for Linux x86_64, Linux ARM64, and macOS.
+
 ## 0.2.19
 
 - Added `AeronUriStringBuilder::socket_tos` for UDP traffic class and `untethered_linger_timeout` for untethered subscription linger timeouts.
