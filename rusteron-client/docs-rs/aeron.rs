@@ -1153,25 +1153,29 @@ impl std::fmt::Debug for AeronOfferError {
     }
 }
 impl std::error::Error for AeronOfferError {}
-#[doc = " Heap-allocated, reference-counted holder for a callback the C client keeps and"]
-#[doc = " fires later, possibly many times, from the conductor thread."]
+#[doc = " A reference-counted callback that C stores and calls later."]
 #[doc = ""]
-#[doc = " C is handed a pointer to the value ([`Handler::as_raw`]), so the value must outlive"]
-#[doc = " C's use of it. Methods that register a retained callback store a clone in the"]
-#[doc = " client's dependencies: a close is asynchronous, and the conductor may still fire"]
-#[doc = " the callback after the resource's handle has dropped. The clones therefore live"]
-#[doc = " until the client drops, one small `Arc` per registration."]
+#[doc = " Clones share one heap allocation. C uses the pointer from [`Handler::as_raw`],"]
+#[doc = " so the callback must stay alive until C stops using it. Dropping a `Handler`"]
+#[doc = " does not unregister it, and the callback is freed when its last clone drops."]
 #[doc = ""]
-#[doc = " For callbacks C fires only during the call, prefer the `*_fn` / `*_once` methods:"]
-#[doc = " the closure stays on the stack, may borrow local state, and allocates nothing."]
+#[doc = " Owned resources retain handler clones until their last owner drops and C cleanup"]
+#[doc = " finishes. The client also retains publication, subscription and counter handlers,"]
+#[doc = " because the conductor can call them after `close()` returns. An archive connection"]
+#[doc = " copies handler pointers when it starts, so replacing a handler on the original"]
+#[doc = " context neither updates that copy nor frees the old handler. Borrowed wrappers"]
+#[doc = " retain nothing, so keep your `Handler` alive while C can call it."]
 #[doc = ""]
-#[doc = " `Send` when `T` is; `Sync` only under the `multi-threaded` feature, since callbacks"]
-#[doc = " fire on the conductor thread."]
+#[doc = " Use `*_fn` or `*_once` for callbacks that run during the call. Their closures"]
+#[doc = " stay on the stack, can borrow local variables and need no heap allocation."]
+#[doc = ""]
+#[doc = " `Handler<T>` is `Send` when `T` is `Send`. It is also `Sync` when `T` is `Send`"]
+#[doc = " and the `multi-threaded` feature is enabled."]
 #[doc = ""]
 #[doc = " ```no_compile"]
 #[doc = " use rusteron_code_gen::Handler;"]
 #[doc = " let handler = Handler::new(your_value);"]
-#[doc = " // the value is freed when the last clone of `handler` goes out of scope"]
+#[doc = " // The callback is freed when its last Handler clone drops."]
 #[doc = " ```"]
 pub struct Handler<T> {
     inner: std::sync::Arc<UnsafeCell<T>>,
@@ -2161,13 +2165,14 @@ impl Aeron {
     #[doc = r"If this call takes a [`Handler`], the conductor may invoke its callbacks"]
     #[doc = r"after the resource's `close()` or `drop` returns. The C close is asynchronous."]
     #[doc = r""]
-    #[doc = r"The new resource retains a clone of its owning [`Aeron`] client. The client"]
-    #[doc = r"keeps the registered handler dependencies alive until the client drops,"]
-    #[doc = r"even if the resource closes earlier. No manual `release()` call is needed."]
+    #[doc = r"The new resource keeps a clone of its [`Aeron`] client. The client keeps"]
+    #[doc = r"registered handlers alive until its last owning reference drops and C cleanup"]
+    #[doc = r"finishes. Closing the resource earlier does not free its handlers."]
+    #[doc = r"You do not need to call `release()`."]
     #[doc = r""]
-    #[doc = r"Handler dependencies accumulate on the client, with a small reference-counted"]
-    #[doc = r"clone per call. They drop with the client rather than when the conductor"]
-    #[doc = r"finishes closing the resource, as they do in the Aeron C++ wrapper."]
+    #[doc = r"Each registration adds a handler clone to the client. The closures and any"]
+    #[doc = r"values they capture stay in memory until client cleanup, even after the"]
+    #[doc = r"conductor finishes closing the resource."]
     #[inline]
     pub fn async_add_counter(
         &self,
@@ -2550,13 +2555,14 @@ impl Aeron {
     #[doc = r"If this call takes a [`Handler`], the conductor may invoke its callbacks"]
     #[doc = r"after the resource's `close()` or `drop` returns. The C close is asynchronous."]
     #[doc = r""]
-    #[doc = r"The new resource retains a clone of its owning [`Aeron`] client. The client"]
-    #[doc = r"keeps the registered handler dependencies alive until the client drops,"]
-    #[doc = r"even if the resource closes earlier. No manual `release()` call is needed."]
+    #[doc = r"The new resource keeps a clone of its [`Aeron`] client. The client keeps"]
+    #[doc = r"registered handlers alive until its last owning reference drops and C cleanup"]
+    #[doc = r"finishes. Closing the resource earlier does not free its handlers."]
+    #[doc = r"You do not need to call `release()`."]
     #[doc = r""]
-    #[doc = r"Handler dependencies accumulate on the client, with a small reference-counted"]
-    #[doc = r"clone per call. They drop with the client rather than when the conductor"]
-    #[doc = r"finishes closing the resource, as they do in the Aeron C++ wrapper."]
+    #[doc = r"Each registration adds a handler clone to the client. The closures and any"]
+    #[doc = r"values they capture stay in memory until client cleanup, even after the"]
+    #[doc = r"conductor finishes closing the resource."]
     #[inline]
     pub fn async_add_exclusive_publication(
         &self,
@@ -2925,13 +2931,14 @@ impl Aeron {
     #[doc = r"If this call takes a [`Handler`], the conductor may invoke its callbacks"]
     #[doc = r"after the resource's `close()` or `drop` returns. The C close is asynchronous."]
     #[doc = r""]
-    #[doc = r"The new resource retains a clone of its owning [`Aeron`] client. The client"]
-    #[doc = r"keeps the registered handler dependencies alive until the client drops,"]
-    #[doc = r"even if the resource closes earlier. No manual `release()` call is needed."]
+    #[doc = r"The new resource keeps a clone of its [`Aeron`] client. The client keeps"]
+    #[doc = r"registered handlers alive until its last owning reference drops and C cleanup"]
+    #[doc = r"finishes. Closing the resource earlier does not free its handlers."]
+    #[doc = r"You do not need to call `release()`."]
     #[doc = r""]
-    #[doc = r"Handler dependencies accumulate on the client, with a small reference-counted"]
-    #[doc = r"clone per call. They drop with the client rather than when the conductor"]
-    #[doc = r"finishes closing the resource, as they do in the Aeron C++ wrapper."]
+    #[doc = r"Each registration adds a handler clone to the client. The closures and any"]
+    #[doc = r"values they capture stay in memory until client cleanup, even after the"]
+    #[doc = r"conductor finishes closing the resource."]
     #[inline]
     pub fn async_add_publication(
         &self,
@@ -3300,13 +3307,14 @@ impl Aeron {
     #[doc = r"If this call takes a [`Handler`], the conductor may invoke its callbacks"]
     #[doc = r"after the resource's `close()` or `drop` returns. The C close is asynchronous."]
     #[doc = r""]
-    #[doc = r"The new resource retains a clone of its owning [`Aeron`] client. The client"]
-    #[doc = r"keeps the registered handler dependencies alive until the client drops,"]
-    #[doc = r"even if the resource closes earlier. No manual `release()` call is needed."]
+    #[doc = r"The new resource keeps a clone of its [`Aeron`] client. The client keeps"]
+    #[doc = r"registered handlers alive until its last owning reference drops and C cleanup"]
+    #[doc = r"finishes. Closing the resource earlier does not free its handlers."]
+    #[doc = r"You do not need to call `release()`."]
     #[doc = r""]
-    #[doc = r"Handler dependencies accumulate on the client, with a small reference-counted"]
-    #[doc = r"clone per call. They drop with the client rather than when the conductor"]
-    #[doc = r"finishes closing the resource, as they do in the Aeron C++ wrapper."]
+    #[doc = r"Each registration adds a handler clone to the client. The closures and any"]
+    #[doc = r"values they capture stay in memory until client cleanup, even after the"]
+    #[doc = r"conductor finishes closing the resource."]
     #[inline]
     pub fn async_add_subscription<
         AeronAvailableImageHandlerImpl: AeronAvailableImageCallback + 'static,
@@ -6138,8 +6146,10 @@ impl AeronContext {
     }
     #[inline]
     #[doc = ""]
-    #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
+    #[doc = "If the wrapper is borrowed, keep the returned [`Handler`] alive while C can call it."]
+    #[doc = "Dropping the handler does not unregister the callback."]
+    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_error_handler<AeronErrorHandlerHandlerImpl: AeronErrorHandlerCallback + 'static>(
         &self,
         handler: Option<AeronErrorHandlerHandlerImpl>,
@@ -6218,8 +6228,10 @@ impl AeronContext {
     }
     #[inline]
     #[doc = ""]
-    #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
+    #[doc = "If the wrapper is borrowed, keep the returned [`Handler`] alive while C can call it."]
+    #[doc = "Dropping the handler does not unregister the callback."]
+    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_publication_error_frame_handler<
         AeronPublicationErrorFrameHandlerHandlerImpl: AeronPublicationErrorFrameHandlerCallback + 'static,
     >(
@@ -6304,8 +6316,10 @@ impl AeronContext {
     }
     #[inline]
     #[doc = ""]
-    #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
+    #[doc = "If the wrapper is borrowed, keep the returned [`Handler`] alive while C can call it."]
+    #[doc = "Dropping the handler does not unregister the callback."]
+    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_on_new_publication<AeronNewPublicationHandlerImpl: AeronNewPublicationCallback + 'static>(
         &self,
         handler: Option<AeronNewPublicationHandlerImpl>,
@@ -6384,8 +6398,10 @@ impl AeronContext {
     }
     #[inline]
     #[doc = ""]
-    #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
+    #[doc = "If the wrapper is borrowed, keep the returned [`Handler`] alive while C can call it."]
+    #[doc = "Dropping the handler does not unregister the callback."]
+    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_on_new_exclusive_publication<AeronNewPublicationHandlerImpl: AeronNewPublicationCallback + 'static>(
         &self,
         handler: Option<AeronNewPublicationHandlerImpl>,
@@ -6464,8 +6480,10 @@ impl AeronContext {
     }
     #[inline]
     #[doc = ""]
-    #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
+    #[doc = "If the wrapper is borrowed, keep the returned [`Handler`] alive while C can call it."]
+    #[doc = "Dropping the handler does not unregister the callback."]
+    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_on_new_subscription<AeronNewSubscriptionHandlerImpl: AeronNewSubscriptionCallback + 'static>(
         &self,
         handler: Option<AeronNewSubscriptionHandlerImpl>,
@@ -6544,8 +6562,10 @@ impl AeronContext {
     }
     #[inline]
     #[doc = ""]
-    #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
+    #[doc = "If the wrapper is borrowed, keep the returned [`Handler`] alive while C can call it."]
+    #[doc = "Dropping the handler does not unregister the callback."]
+    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_on_available_counter<AeronAvailableCounterHandlerImpl: AeronAvailableCounterCallback + 'static>(
         &self,
         handler: Option<AeronAvailableCounterHandlerImpl>,
@@ -6624,8 +6644,10 @@ impl AeronContext {
     }
     #[inline]
     #[doc = ""]
-    #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
+    #[doc = "If the wrapper is borrowed, keep the returned [`Handler`] alive while C can call it."]
+    #[doc = "Dropping the handler does not unregister the callback."]
+    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_on_unavailable_counter<AeronUnavailableCounterHandlerImpl: AeronUnavailableCounterCallback + 'static>(
         &self,
         handler: Option<AeronUnavailableCounterHandlerImpl>,
@@ -6704,8 +6726,10 @@ impl AeronContext {
     }
     #[inline]
     #[doc = ""]
-    #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
+    #[doc = "If the wrapper is borrowed, keep the returned [`Handler`] alive while C can call it."]
+    #[doc = "Dropping the handler does not unregister the callback."]
+    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_on_close_client<AeronCloseClientHandlerImpl: AeronCloseClientCallback + 'static>(
         &self,
         handler: Option<AeronCloseClientHandlerImpl>,
@@ -6823,8 +6847,10 @@ impl AeronContext {
     }
     #[inline]
     #[doc = ""]
-    #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
+    #[doc = "If the wrapper is borrowed, keep the returned [`Handler`] alive while C can call it."]
+    #[doc = "Dropping the handler does not unregister the callback."]
+    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_agent_on_start_function<AeronAgentStartFuncHandlerImpl: AeronAgentStartFuncCallback + 'static>(
         &self,
         value: Option<AeronAgentStartFuncHandlerImpl>,
@@ -9884,8 +9910,10 @@ impl AeronExclusivePublication {
     #[doc = " \n - `on_close_complete_clientd` parameter to pass to the on_complete callback."]
     #[doc = " \n# Return\n 0 for success or -1 for error."]
     #[doc = ""]
-    #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
+    #[doc = "If the wrapper is borrowed, keep the returned [`Handler`] alive while C can call it."]
+    #[doc = "Dropping the handler does not unregister the callback."]
+    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn revoke<AeronNotificationHandlerImpl: AeronNotificationCallback + 'static>(
         &self,
         on_close_complete: Option<AeronNotificationHandlerImpl>,
@@ -12256,7 +12284,7 @@ impl AeronImage {
     #[doc = "The position the stream reached when EOS was received from the publisher. The position will be"]
     #[doc = " INT64_MAX until the stream ends and EOS is set."]
     #[doc = ""]
-    #[doc = " \n# Return\n position the stream reached when EOS was received from the publisher."]
+    #[doc = " \n# Return\n position the stream reached when EOS was received from the publisher. Or -1 for error."]
     pub fn end_of_stream_position(&self) -> i64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -21344,8 +21372,10 @@ impl Aeron {
     #[doc = " \n - `on_complete_clientd` parameter to pass to the on_complete callback."]
     #[doc = " \n# Return\n 0 for success or -1 for error."]
     #[doc = ""]
-    #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
+    #[doc = "If the wrapper is borrowed, keep the returned [`Handler`] alive while C can call it."]
+    #[doc = "Dropping the handler does not unregister the callback."]
+    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn async_remove_publication<AeronNotificationHandlerImpl: AeronNotificationCallback + 'static>(
         &self,
         registration_id: i64,
@@ -21443,8 +21473,10 @@ impl Aeron {
     #[doc = " \n - `on_complete_clientd` parameter to pass to the on_complete callback."]
     #[doc = " \n# Return\n 0 for success or -1 for error."]
     #[doc = ""]
-    #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
+    #[doc = "If the wrapper is borrowed, keep the returned [`Handler`] alive while C can call it."]
+    #[doc = "Dropping the handler does not unregister the callback."]
+    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn async_remove_exclusive_publication<AeronNotificationHandlerImpl: AeronNotificationCallback + 'static>(
         &self,
         registration_id: i64,
@@ -21539,8 +21571,10 @@ impl Aeron {
     #[doc = " \n - `on_complete_clientd` parameter to pass to the on_complete callback."]
     #[doc = " \n# Return\n 0 for success or -1 for error."]
     #[doc = ""]
-    #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
+    #[doc = "If the wrapper is borrowed, keep the returned [`Handler`] alive while C can call it."]
+    #[doc = "Dropping the handler does not unregister the callback."]
+    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn async_remove_subscription<AeronNotificationHandlerImpl: AeronNotificationCallback + 'static>(
         &self,
         registration_id: i64,
@@ -21656,8 +21690,10 @@ impl Aeron {
     #[doc = " \n - `on_complete_clientd` parameter to pass to the on_complete callback."]
     #[doc = " \n# Return\n 0 for success or -1 for error."]
     #[doc = ""]
-    #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."]
-    #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."]
+    #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
+    #[doc = "If the wrapper is borrowed, keep the returned [`Handler`] alive while C can call it."]
+    #[doc = "Dropping the handler does not unregister the callback."]
+    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn async_remove_counter<AeronNotificationHandlerImpl: AeronNotificationCallback + 'static>(
         &self,
         registration_id: i64,

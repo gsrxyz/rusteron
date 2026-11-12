@@ -38,6 +38,19 @@ Since 0.2, owned handles can close or drop in any order. `aeron.close()` is defe
 - A panic in a callback never aborts the process (unless you build with `panic = "abort"`). See [Panics in callbacks](#panics-in-callbacks) for what happens to the panic and to the message.
 - A retained image must be dropped before `subscription.close()`.
 
+### Handler lifetime
+
+Aeron can call a registered handler after a subscription's `close()` returns because
+the conductor closes subscriptions asynchronously. Rusteron keeps these handlers
+alive until the last owning `Aeron` handle drops and the C client finishes cleanup.
+Dropping the returned `Handler` does not unregister it.
+
+Archive connections copy their context's handler pointers when connection starts.
+Replacing a handler on the original context does not change an existing connection.
+Rusteron keeps earlier handlers alive until the registering context's final owner
+drops, including any connections that retain that context. Captured values stay
+allocated for that long. See [the archive handler example](rusteron-archive/README.md#why-replaced-handlers-stay-alive).
+
 ### Panics in callbacks
 
 Aeron calls your Rust code from C. A Rust panic is handled one of three ways, picked per C function when the bindings are generated:

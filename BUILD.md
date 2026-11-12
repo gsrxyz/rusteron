@@ -69,6 +69,16 @@ Build with Cargo:
 cargo build --release
 ```
 
+To build and verify the precompiled bundles for the current machine:
+
+```bash
+just test-precompiled-bindings
+```
+
+This command builds Aeron's C libraries and Rust bindings, then tests the bundles
+with `static,precompile`. It sets `CMAKE` to a nonexistent path. A source fallback
+then fails the test.
+
 If using `just`:
 
 ```bash

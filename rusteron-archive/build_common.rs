@@ -4,7 +4,7 @@
 // This file is `include!`d by each crate's build.rs (NOT compiled as part of
 // rusteron-code-gen), so `cfg!(feature = ...)` and `env!("CARGO_MANIFEST_DIR")` resolve
 // against the crate being built, exactly as when the three build scripts were copies.
-// Each build.rs supplies a `RusteronBuildConfig` describing what actually varies:
+// Each build.rs supplies a `RusteronBuildConfig` with the per-crate settings:
 // cmake targets, header path, bindgen extras, and an optional pre-build hook.
 
 use std::path::{Path, PathBuf};
@@ -160,27 +160,21 @@ pub fn rusteron_build_main(config: &RusteronBuildConfig) {
         let artifacts_dir = get_artifact_path();
         let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
 
-        if fs::read_dir(&artifacts_dir)
-            .as_mut()
-            .map(|s| s.next().is_none())
-            .unwrap_or_default()
-            && !force_source
-            && let Err(e) = download_precompiled_binaries(&artifacts_dir) {
-                eprintln!("Error downloading precompiled binaries: {e:?}");
-                println!("Error downloading precompiled binaries: {e:?}");
-            }
-        if artifacts_dir.exists()
-            && fs::read_dir(&artifacts_dir)
-                .as_mut()
-                .map(|s| s.next().is_some())
-                .unwrap_or_default()
-            && !force_source
+        if !force_source
+            && validate_artifacts(&artifacts_dir, config).is_err()
+            && let Err(e) = download_precompiled_binaries(&artifacts_dir, config)
         {
+            eprintln!("Error downloading precompiled binaries: {e:?}");
+            println!("Error downloading precompiled binaries: {e:?}");
+        }
+        if !force_source && validate_artifacts(&artifacts_dir, config).is_ok() {
             println!(
                 "Artifacts found in {}. Using published artifacts.",
                 artifacts_dir.display()
             );
-            if rusteron_code_gen::c_build::wants_linker_plugin_lto(&env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default()) {
+            if rusteron_code_gen::c_build::wants_linker_plugin_lto(
+                &env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default(),
+            ) {
                 println!(
                     "cargo:warning=-Clinker-plugin-lto is set but the precompiled Aeron C is native code, \
                      so it cannot be inlined into Rust; set RUSTERON_BUILD_FROM_SOURCE=1 for cross-language LTO"
@@ -208,12 +202,17 @@ pub fn rusteron_build_main(config: &RusteronBuildConfig) {
                 }
             }
             if cfg!(target_os = "linux")
-                && let Some(lib) = config.precompile_linux_extra_lib {
-                    println!("cargo:rustc-link-lib={lib}");
-                }
+                && let Some(lib) = config.precompile_linux_extra_lib
+            {
+                println!("cargo:rustc-link-lib={lib}");
+            }
 
-            // Copy generated Rust files (*.rs) from the artifacts folder into OUT_DIR.
-            copy_rs_files(&docs_rs, &out_path);
+            // Load the bundle's bindings so their ABI matches the C libraries.
+            rusteron_code_gen::artifacts::copy_bindings(
+                &artifacts_dir.join(rusteron_code_gen::artifacts::BINDINGS_DIR),
+                &out_path,
+            )
+            .expect("Failed to copy generated Rust files from precompiled artifacts");
 
             // Exit early to skip rebuild since artifacts are already published.
             return;
@@ -420,7 +419,7 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     }
 
     // Trying to figure out the final path is a bit weird;
-    // For Linux/OSX, it's just build/lib
+    // Linux and macOS use build/lib.
     // For Windows, the .lib file is in build/lib/{profile}, but the DLL
     // is shipped in build/binaries/{profile}
     let base_lib_dir = cmake_output.join("build");
@@ -433,11 +432,11 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
 
     let mut builder = bindgen::Builder::default()
         .clang_arg(format!("-I{}", header_path.display()))
-        // Match the CMAKE_C_STANDARD 11 used to actually compile the Aeron C sources.
+        // Match the CMAKE_C_STANDARD 11 used to compile the Aeron C sources.
         .clang_arg("-std=gnu11");
     // On Linux, libclang can end up resolving `<stdatomic.h>` to GCC's own
     // copy (found via the default system include path) instead of the one
-    // bundled with the libclang/clang version actually doing the parsing.
+    // bundled with the libclang/clang version parsing the headers.
     if cfg!(target_os = "linux")
         && let Ok(output) = std::process::Command::new("clang").arg("-print-resource-dir").output()
     {
@@ -582,7 +581,7 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
             );
         }
 
-        // copy generated source so docs.rs / precompile paths don't need to build C
+        // Copy the documentation snapshots. Release bundles use this build's OUT_DIR.
         let _ = std::fs::create_dir_all(docs_rs);
         for rs in [&aeron, &aeron_custom, &out] {
             fs::copy(rs, docs_rs.join(rs.file_name().unwrap())).expect("Failed to copy source code for docs-rs");
@@ -592,7 +591,7 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     #[cfg(feature = "static")]
     if publish_binaries {
         let cmake_lib_dir = cmake_output;
-        publish_artifacts(&cmake_lib_dir).expect("Failed to publish artifacts");
+        publish_artifacts(&cmake_lib_dir, &out_path).expect("Failed to publish artifacts");
     }
 }
 
@@ -679,23 +678,19 @@ fn get_artifact_path() -> PathBuf {
     } else {
         "default"
     };
-    let mut target_os = env::var("CARGO_CFG_TARGET_OS").unwrap(); // e.g., "macos", "linux", "windows"
-    if target_os == "linux" {
-        target_os = "ubuntu".to_string();
-    }
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap(); // e.g., "x86_64", "aarch64"
+    // Use the full target triple to keep GNU and musl bindings separate.
+    let target = env::var("TARGET").expect("Cargo should set TARGET");
     let artifacts_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("artifacts")
         .join(feature)
-        .join(&target_os)
-        .join(&target_arch);
+        .join(target);
     let _ = fs::create_dir_all(&artifacts_dir);
     artifacts_dir
 }
 
 #[cfg(feature = "build-from-source")]
 #[allow(dead_code)]
-fn publish_artifacts(cmake_build_path: &Path) -> std::io::Result<()> {
+fn publish_artifacts(cmake_build_path: &Path, out_path: &Path) -> std::io::Result<()> {
     let publish_dir = get_artifact_path();
 
     let lib_extensions = ["a", "so", "dylib", "lib"];
@@ -718,12 +713,42 @@ fn publish_artifacts(cmake_build_path: &Path) -> std::io::Result<()> {
     }
 
     assert!(libs_copied > 0, "No libraries found in the cmake build directory.");
+    rusteron_code_gen::artifacts::publish_bindings(
+        out_path,
+        &publish_dir,
+        &env::var("TARGET").expect("Cargo should set TARGET"),
+        &env::var("CARGO_PKG_VERSION").expect("Cargo should set CARGO_PKG_VERSION"),
+    )?;
     println!("Artifacts published to: {}", publish_dir.display());
     Ok(())
 }
 
 #[cfg(all(any(feature = "precompile", feature = "precompile-rustls"), feature = "static"))]
-fn download_precompiled_binaries(artifacts_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn validate_artifacts(artifacts_dir: &Path, config: &RusteronBuildConfig) -> std::io::Result<()> {
+    let windows = env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
+    let libraries: Vec<String> = std::iter::once(config.target_static)
+        .chain(config.base_target_static)
+        .map(|name| {
+            if windows {
+                format!("{name}.lib")
+            } else {
+                format!("lib{name}.a")
+            }
+        })
+        .collect();
+    rusteron_code_gen::artifacts::validate_bundle(
+        artifacts_dir,
+        &env::var("TARGET").expect("Cargo should set TARGET"),
+        &env::var("CARGO_PKG_VERSION").expect("Cargo should set CARGO_PKG_VERSION"),
+        &libraries,
+    )
+}
+
+#[cfg(all(any(feature = "precompile", feature = "precompile-rustls"), feature = "static"))]
+fn download_precompiled_binaries(
+    artifacts_dir: &Path,
+    config: &RusteronBuildConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
     let version = env::var("CARGO_PKG_VERSION").unwrap();
     let mut target_os = env::var("CARGO_CFG_TARGET_OS").unwrap(); // e.g., "macos", "linux", "windows"
     let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap(); // e.g., "x86_64", "aarch64"
@@ -744,7 +769,9 @@ fn download_precompiled_binaries(artifacts_dir: &Path) -> Result<(), Box<dyn std
         image = if arch == "aarch64" { "22.04-arm" } else { "22.04" };
     }
 
-    let asset = format!("https://github.com/gsrxyz/rusteron/releases/download/v{version}/artifacts-{target_os}-{image}-{feature}.tar.gz");
+    let asset = format!(
+        "https://github.com/gsrxyz/rusteron/releases/download/v{version}/artifacts-{target_os}-{image}-{feature}.tar.gz"
+    );
 
     println!("downloading from {asset}");
     eprintln!("downloading from {asset}");
@@ -755,31 +782,29 @@ fn download_precompiled_binaries(artifacts_dir: &Path) -> Result<(), Box<dyn std
     let cursor = std::io::Cursor::new(bytes);
     let decoder = flate2::bufread::GzDecoder::new(cursor);
     let mut archive = tar::Archive::new(decoder);
-    archive.unpack(artifacts_dir)?;
-
-    // move files we are interested in
-    let pkg_name = std::env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME should always be set by Cargo");
-    let dir = match fs::read_dir(
-        artifacts_dir
+    // Validate the extracted bundle before replacing the cached files.
+    let staging_dir = artifacts_dir.with_extension("download");
+    if staging_dir.exists() {
+        fs::remove_dir_all(&staging_dir)?;
+    }
+    let result = (|| -> Result<(), Box<dyn std::error::Error>> {
+        archive.unpack(&staging_dir)?;
+        let pkg_name = env::var("CARGO_PKG_NAME").expect("Cargo should set CARGO_PKG_NAME");
+        let bundle = staging_dir
             .join(format!("artifacts-{target_os}-{image}-{feature}"))
             .join(pkg_name)
             .join("artifacts")
             .join(feature)
-            .join(target_os)
-            .join(arch),
-    ) {
-        Ok(dir) => dir,
-        Err(e) => {
-            let _ = fs::remove_dir_all(artifacts_dir);
-            let _ = fs::create_dir_all(artifacts_dir);
-            return Err(e.into());
+            .join(env::var("TARGET").expect("Cargo should set TARGET"));
+        validate_artifacts(&bundle, config)?;
+        if artifacts_dir.exists() {
+            fs::remove_dir_all(artifacts_dir)?;
         }
-    };
-        
-    for file in dir {
-        let file = file?;
-        fs::rename(file.path(), artifacts_dir.join(file.file_name()))?;
-    }
+        fs::rename(bundle, artifacts_dir)?;
+        Ok(())
+    })();
+    let _ = fs::remove_dir_all(staging_dir);
+    result?;
 
     println!("extracted to {artifacts_dir:?}");
     eprintln!("extracted to {artifacts_dir:?}");

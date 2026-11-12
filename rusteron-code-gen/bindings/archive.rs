@@ -2420,7 +2420,7 @@ unsafe extern "C" {
     pub fn aeron_image_is_end_of_stream(image: *mut aeron_image_t) -> bool;
 }
 unsafe extern "C" {
-    #[doc = " The position the stream reached when EOS was received from the publisher. The position will be\n INT64_MAX until the stream ends and EOS is set.\n\n @param image to check.\n @return position the stream reached when EOS was received from the publisher."]
+    #[doc = " The position the stream reached when EOS was received from the publisher. The position will be\n INT64_MAX until the stream ends and EOS is set.\n\n @param image to check.\n @return position the stream reached when EOS was received from the publisher. Or -1 for error."]
     pub fn aeron_image_end_of_stream_position(image: *mut aeron_image_t) -> i64;
 }
 unsafe extern "C" {

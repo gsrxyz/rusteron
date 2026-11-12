@@ -4,6 +4,14 @@ Main changes, newest first, grouped by published crate version. Release-only
 commits, build logs, and changes later reverted or superseded are omitted.
 Early history predating the available release tags is grouped separately.
 
+## 0.2.20
+
+- Documented why registered handlers survive replacement and asynchronous close. Added an archive regression test for copied handler pointers and final callback cleanup.
+- Renamed the generated Rust directory in release bundles to `rust-bindings`. The committed `docs-rs` directories remain documentation snapshots.
+- Fixed static precompiled builds to load Rust bindings for the same Cargo target as the C libraries. Linux builds no longer use the Darwin documentation snapshots.
+- Added `just test-precompiled-bindings` and CI checks for Linux x86_64, Linux ARM64, and macOS.
+- Upgraded Aeron to 1.54.2.
+
 ## 0.2.19
 
 - Added `AeronUriStringBuilder::socket_tos` for UDP traffic class and `untethered_linger_timeout` for untethered subscription linger timeouts.

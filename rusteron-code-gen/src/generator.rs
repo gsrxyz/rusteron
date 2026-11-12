@@ -783,8 +783,10 @@ impl CWrapper {
 
                 if owned_retained_handler.is_some() {
                     method_docs.push(quote! { #[doc = ""] });
-                    method_docs.push(quote! { #[doc = " The callback is retained by the C client; this resource keeps it alive automatically."] });
-                    method_docs.push(quote! { #[doc = " Returns the created [`Handler`] for optional state access, safe to ignore. Closures with a matching signature are accepted directly."] });
+                    method_docs.push(quote! { #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."] });
+                    method_docs.push(quote! { #[doc = "If the wrapper is borrowed, keep the returned [`Handler`] alive while C can call it."] });
+                    method_docs.push(quote! { #[doc = "Dropping the handler does not unregister the callback."] });
+                    method_docs.push(quote! { #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."] });
                 }
 
                 // Generate logging expression for arguments
@@ -3031,13 +3033,14 @@ pub fn generate_rust_code(
                         #[doc = r"If this call takes a [`Handler`], the conductor may invoke its callbacks"]
                         #[doc = r"after the resource's `close()` or `drop` returns. The C close is asynchronous."]
                         #[doc = r""]
-                        #[doc = r"The new resource retains a clone of its owning [`Aeron`] client. The client"]
-                        #[doc = r"keeps the registered handler dependencies alive until the client drops,"]
-                        #[doc = r"even if the resource closes earlier. No manual `release()` call is needed."]
+                        #[doc = r"The new resource keeps a clone of its [`Aeron`] client. The client keeps"]
+                        #[doc = r"registered handlers alive until its last owning reference drops and C cleanup"]
+                        #[doc = r"finishes. Closing the resource earlier does not free its handlers."]
+                        #[doc = r"You do not need to call `release()`."]
                         #[doc = r""]
-                        #[doc = r"Handler dependencies accumulate on the client, with a small reference-counted"]
-                        #[doc = r"clone per call. They drop with the client rather than when the conductor"]
-                        #[doc = r"finishes closing the resource, as they do in the Aeron C++ wrapper."]
+                        #[doc = r"Each registration adds a handler clone to the client. The closures and any"]
+                        #[doc = r"values they capture stay in memory until client cleanup, even after the"]
+                        #[doc = r"conductor finishes closing the resource."]
                         #[inline]
                         pub fn #client_type_method_name #where_clause_async(&self, #(#async_new_args_for_client),*) -> Result<#async_class_name, AeronCError> {
                             let mut result =  #async_class_name::new(self, #(#async_new_args_name_only),*);

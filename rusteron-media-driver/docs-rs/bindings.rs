@@ -2754,7 +2754,7 @@ unsafe extern "C" {
     pub fn aeron_image_is_end_of_stream(image: *mut aeron_image_t) -> bool;
 }
 unsafe extern "C" {
-    #[doc = " The position the stream reached when EOS was received from the publisher. The position will be\n INT64_MAX until the stream ends and EOS is set.\n\n @param image to check.\n @return position the stream reached when EOS was received from the publisher."]
+    #[doc = " The position the stream reached when EOS was received from the publisher. The position will be\n INT64_MAX until the stream ends and EOS is set.\n\n @param image to check.\n @return position the stream reached when EOS was received from the publisher. Or -1 for error."]
     pub fn aeron_image_end_of_stream_position(image: *mut aeron_image_t) -> i64;
 }
 unsafe extern "C" {
@@ -16644,6 +16644,7 @@ pub struct aeron_udp_transport_poller_stct {
     pub iteration_threshold: usize,
     pub socket_poll_limit: i32,
     pub fd: ::std::os::raw::c_int,
+    pub is_epoll_registered: bool,
     pub bindings_clientd: *mut ::std::os::raw::c_void,
 }
 #[repr(C)]
@@ -16681,7 +16682,7 @@ impl Default for aeron_udp_transport_poller_stct_aeron_udp_channel_transports_st
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of aeron_udp_transport_poller_stct"][::std::mem::size_of::<aeron_udp_transport_poller_stct>() - 48usize];
+    ["Size of aeron_udp_transport_poller_stct"][::std::mem::size_of::<aeron_udp_transport_poller_stct>() - 56usize];
     ["Alignment of aeron_udp_transport_poller_stct"]
         [::std::mem::align_of::<aeron_udp_transport_poller_stct>() - 8usize];
     ["Offset of field: aeron_udp_transport_poller_stct::transports"]
@@ -16692,8 +16693,10 @@ const _: () = {
         [::std::mem::offset_of!(aeron_udp_transport_poller_stct, socket_poll_limit) - 32usize];
     ["Offset of field: aeron_udp_transport_poller_stct::fd"]
         [::std::mem::offset_of!(aeron_udp_transport_poller_stct, fd) - 36usize];
+    ["Offset of field: aeron_udp_transport_poller_stct::is_epoll_registered"]
+        [::std::mem::offset_of!(aeron_udp_transport_poller_stct, is_epoll_registered) - 40usize];
     ["Offset of field: aeron_udp_transport_poller_stct::bindings_clientd"]
-        [::std::mem::offset_of!(aeron_udp_transport_poller_stct, bindings_clientd) - 40usize];
+        [::std::mem::offset_of!(aeron_udp_transport_poller_stct, bindings_clientd) - 48usize];
 };
 impl Default for aeron_udp_transport_poller_stct {
     fn default() -> Self {
@@ -16898,60 +16901,60 @@ impl Default for aeron_driver_sender_stct_aeron_driver_sender_buffers_stct {
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of aeron_driver_sender_stct"][::std::mem::size_of::<aeron_driver_sender_stct>() - 10152usize];
+    ["Size of aeron_driver_sender_stct"][::std::mem::size_of::<aeron_driver_sender_stct>() - 10160usize];
     ["Alignment of aeron_driver_sender_stct"][::std::mem::align_of::<aeron_driver_sender_stct>() - 8usize];
     ["Offset of field: aeron_driver_sender_stct::sender_proxy"]
         [::std::mem::offset_of!(aeron_driver_sender_stct, sender_proxy) - 0usize];
     ["Offset of field: aeron_driver_sender_stct::poller"]
         [::std::mem::offset_of!(aeron_driver_sender_stct, poller) - 40usize];
     ["Offset of field: aeron_driver_sender_stct::network_publications"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, network_publications) - 88usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, network_publications) - 96usize];
     ["Offset of field: aeron_driver_sender_stct::recv_buffers"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, recv_buffers) - 112usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, recv_buffers) - 120usize];
     ["Offset of field: aeron_driver_sender_stct::control_msgvec"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, control_msgvec) - 9848usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, control_msgvec) - 9856usize];
     ["Offset of field: aeron_driver_sender_stct::data_paths"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, data_paths) - 9904usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, data_paths) - 9912usize];
     ["Offset of field: aeron_driver_sender_stct::total_bytes_sent_counter"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, total_bytes_sent_counter) - 9936usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, total_bytes_sent_counter) - 9944usize];
     ["Offset of field: aeron_driver_sender_stct::errors_counter"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, errors_counter) - 9944usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, errors_counter) - 9952usize];
     ["Offset of field: aeron_driver_sender_stct::invalid_frames_counter"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, invalid_frames_counter) - 9952usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, invalid_frames_counter) - 9960usize];
     ["Offset of field: aeron_driver_sender_stct::status_messages_received_counter"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, status_messages_received_counter) - 9960usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, status_messages_received_counter) - 9968usize];
     ["Offset of field: aeron_driver_sender_stct::status_messages_rejected_counter"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, status_messages_rejected_counter) - 9968usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, status_messages_rejected_counter) - 9976usize];
     ["Offset of field: aeron_driver_sender_stct::nak_messages_received_counter"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, nak_messages_received_counter) - 9976usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, nak_messages_received_counter) - 9984usize];
     ["Offset of field: aeron_driver_sender_stct::error_messages_received_counter"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, error_messages_received_counter) - 9984usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, error_messages_received_counter) - 9992usize];
     ["Offset of field: aeron_driver_sender_stct::resolution_changes_counter"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, resolution_changes_counter) - 9992usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, resolution_changes_counter) - 10000usize];
     ["Offset of field: aeron_driver_sender_stct::short_sends_counter"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, short_sends_counter) - 10000usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, short_sends_counter) - 10008usize];
     ["Offset of field: aeron_driver_sender_stct::context"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, context) - 10008usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, context) - 10016usize];
     ["Offset of field: aeron_driver_sender_stct::poller_poll_func"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, poller_poll_func) - 10016usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, poller_poll_func) - 10024usize];
     ["Offset of field: aeron_driver_sender_stct::recvmmsg_func"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, recvmmsg_func) - 10024usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, recvmmsg_func) - 10032usize];
     ["Offset of field: aeron_driver_sender_stct::error_log"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, error_log) - 10032usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, error_log) - 10040usize];
     ["Offset of field: aeron_driver_sender_stct::status_message_read_timeout_ns"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, status_message_read_timeout_ns) - 10040usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, status_message_read_timeout_ns) - 10048usize];
     ["Offset of field: aeron_driver_sender_stct::control_poll_timeout_ns"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, control_poll_timeout_ns) - 10048usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, control_poll_timeout_ns) - 10056usize];
     ["Offset of field: aeron_driver_sender_stct::re_resolution_deadline_ns"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, re_resolution_deadline_ns) - 10056usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, re_resolution_deadline_ns) - 10064usize];
     ["Offset of field: aeron_driver_sender_stct::round_robin_index"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, round_robin_index) - 10064usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, round_robin_index) - 10072usize];
     ["Offset of field: aeron_driver_sender_stct::duty_cycle_counter"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, duty_cycle_counter) - 10072usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, duty_cycle_counter) - 10080usize];
     ["Offset of field: aeron_driver_sender_stct::duty_cycle_ratio"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, duty_cycle_ratio) - 10080usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, duty_cycle_ratio) - 10088usize];
     ["Offset of field: aeron_driver_sender_stct::padding"]
-        [::std::mem::offset_of!(aeron_driver_sender_stct, padding) - 10088usize];
+        [::std::mem::offset_of!(aeron_driver_sender_stct, padding) - 10096usize];
 };
 impl Default for aeron_driver_sender_stct {
     fn default() -> Self {
@@ -17607,46 +17610,46 @@ impl Default for aeron_driver_receiver_stct_aeron_driver_receiver_pending_setups
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of aeron_driver_receiver_stct"][::std::mem::size_of::<aeron_driver_receiver_stct>() - 13592usize];
+    ["Size of aeron_driver_receiver_stct"][::std::mem::size_of::<aeron_driver_receiver_stct>() - 13600usize];
     ["Alignment of aeron_driver_receiver_stct"][::std::mem::align_of::<aeron_driver_receiver_stct>() - 8usize];
     ["Offset of field: aeron_driver_receiver_stct::receiver_proxy"]
         [::std::mem::offset_of!(aeron_driver_receiver_stct, receiver_proxy) - 0usize];
     ["Offset of field: aeron_driver_receiver_stct::poller"]
         [::std::mem::offset_of!(aeron_driver_receiver_stct, poller) - 40usize];
     ["Offset of field: aeron_driver_receiver_stct::recv_buffers"]
-        [::std::mem::offset_of!(aeron_driver_receiver_stct, recv_buffers) - 88usize];
+        [::std::mem::offset_of!(aeron_driver_receiver_stct, recv_buffers) - 96usize];
     ["Offset of field: aeron_driver_receiver_stct::images"]
-        [::std::mem::offset_of!(aeron_driver_receiver_stct, images) - 13408usize];
+        [::std::mem::offset_of!(aeron_driver_receiver_stct, images) - 13416usize];
     ["Offset of field: aeron_driver_receiver_stct::pending_setups"]
-        [::std::mem::offset_of!(aeron_driver_receiver_stct, pending_setups) - 13432usize];
+        [::std::mem::offset_of!(aeron_driver_receiver_stct, pending_setups) - 13440usize];
     ["Offset of field: aeron_driver_receiver_stct::data_paths"]
-        [::std::mem::offset_of!(aeron_driver_receiver_stct, data_paths) - 13456usize];
+        [::std::mem::offset_of!(aeron_driver_receiver_stct, data_paths) - 13464usize];
     ["Offset of field: aeron_driver_receiver_stct::context"]
-        [::std::mem::offset_of!(aeron_driver_receiver_stct, context) - 13488usize];
+        [::std::mem::offset_of!(aeron_driver_receiver_stct, context) - 13496usize];
     ["Offset of field: aeron_driver_receiver_stct::poller_poll_func"]
-        [::std::mem::offset_of!(aeron_driver_receiver_stct, poller_poll_func) - 13496usize];
+        [::std::mem::offset_of!(aeron_driver_receiver_stct, poller_poll_func) - 13504usize];
     ["Offset of field: aeron_driver_receiver_stct::recvmmsg_func"]
-        [::std::mem::offset_of!(aeron_driver_receiver_stct, recvmmsg_func) - 13504usize];
+        [::std::mem::offset_of!(aeron_driver_receiver_stct, recvmmsg_func) - 13512usize];
     ["Offset of field: aeron_driver_receiver_stct::error_log"]
-        [::std::mem::offset_of!(aeron_driver_receiver_stct, error_log) - 13512usize];
+        [::std::mem::offset_of!(aeron_driver_receiver_stct, error_log) - 13520usize];
     ["Offset of field: aeron_driver_receiver_stct::re_resolution_deadline_ns"]
-        [::std::mem::offset_of!(aeron_driver_receiver_stct, re_resolution_deadline_ns) - 13520usize];
+        [::std::mem::offset_of!(aeron_driver_receiver_stct, re_resolution_deadline_ns) - 13528usize];
     ["Offset of field: aeron_driver_receiver_stct::slow_tick_work_deadline_ns"]
-        [::std::mem::offset_of!(aeron_driver_receiver_stct, slow_tick_work_deadline_ns) - 13528usize];
+        [::std::mem::offset_of!(aeron_driver_receiver_stct, slow_tick_work_deadline_ns) - 13536usize];
     ["Offset of field: aeron_driver_receiver_stct::status_message_send_timeout_ns"]
-        [::std::mem::offset_of!(aeron_driver_receiver_stct, status_message_send_timeout_ns) - 13536usize];
+        [::std::mem::offset_of!(aeron_driver_receiver_stct, status_message_send_timeout_ns) - 13544usize];
     ["Offset of field: aeron_driver_receiver_stct::duty_cycle_counter"]
-        [::std::mem::offset_of!(aeron_driver_receiver_stct, duty_cycle_counter) - 13544usize];
+        [::std::mem::offset_of!(aeron_driver_receiver_stct, duty_cycle_counter) - 13552usize];
     ["Offset of field: aeron_driver_receiver_stct::duty_cycle_ratio"]
-        [::std::mem::offset_of!(aeron_driver_receiver_stct, duty_cycle_ratio) - 13552usize];
+        [::std::mem::offset_of!(aeron_driver_receiver_stct, duty_cycle_ratio) - 13560usize];
     ["Offset of field: aeron_driver_receiver_stct::errors_counter"]
-        [::std::mem::offset_of!(aeron_driver_receiver_stct, errors_counter) - 13560usize];
+        [::std::mem::offset_of!(aeron_driver_receiver_stct, errors_counter) - 13568usize];
     ["Offset of field: aeron_driver_receiver_stct::invalid_frames_counter"]
-        [::std::mem::offset_of!(aeron_driver_receiver_stct, invalid_frames_counter) - 13568usize];
+        [::std::mem::offset_of!(aeron_driver_receiver_stct, invalid_frames_counter) - 13576usize];
     ["Offset of field: aeron_driver_receiver_stct::total_bytes_received_counter"]
-        [::std::mem::offset_of!(aeron_driver_receiver_stct, total_bytes_received_counter) - 13576usize];
+        [::std::mem::offset_of!(aeron_driver_receiver_stct, total_bytes_received_counter) - 13584usize];
     ["Offset of field: aeron_driver_receiver_stct::resolution_changes_counter"]
-        [::std::mem::offset_of!(aeron_driver_receiver_stct, resolution_changes_counter) - 13584usize];
+        [::std::mem::offset_of!(aeron_driver_receiver_stct, resolution_changes_counter) - 13592usize];
 };
 impl Default for aeron_driver_receiver_stct {
     fn default() -> Self {
@@ -18132,15 +18135,15 @@ pub struct aeron_driver_stct {
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of aeron_driver_stct"][::std::mem::size_of::<aeron_driver_stct>() - 25192usize];
+    ["Size of aeron_driver_stct"][::std::mem::size_of::<aeron_driver_stct>() - 25208usize];
     ["Alignment of aeron_driver_stct"][::std::mem::align_of::<aeron_driver_stct>() - 8usize];
     ["Offset of field: aeron_driver_stct::context"][::std::mem::offset_of!(aeron_driver_stct, context) - 0usize];
     ["Offset of field: aeron_driver_stct::conductor"][::std::mem::offset_of!(aeron_driver_stct, conductor) - 8usize];
     ["Offset of field: aeron_driver_stct::native_resource_agent"]
         [::std::mem::offset_of!(aeron_driver_stct, native_resource_agent) - 1000usize];
     ["Offset of field: aeron_driver_stct::sender"][::std::mem::offset_of!(aeron_driver_stct, sender) - 1128usize];
-    ["Offset of field: aeron_driver_stct::receiver"][::std::mem::offset_of!(aeron_driver_stct, receiver) - 11280usize];
-    ["Offset of field: aeron_driver_stct::runners"][::std::mem::offset_of!(aeron_driver_stct, runners) - 24872usize];
+    ["Offset of field: aeron_driver_stct::receiver"][::std::mem::offset_of!(aeron_driver_stct, receiver) - 11288usize];
+    ["Offset of field: aeron_driver_stct::runners"][::std::mem::offset_of!(aeron_driver_stct, runners) - 24888usize];
 };
 impl Default for aeron_driver_stct {
     fn default() -> Self {

@@ -678,8 +678,7 @@ impl AeronSubscription {
             },
             Some(Box::new(move |ctx| unsafe {
                 // skip the release if the subscription was closed first, as the C client
-                // reclaimed the image during the subscription close. Unlike
-                // `aeron_subscription_image_release`, this also releases an unavailable image.
+                // reclaimed the image during the subscription close
                 if !subscription.get_inner().is_null() {
                     aeron_image_release(*ctx)
                 } else {

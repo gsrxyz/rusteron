@@ -81,7 +81,22 @@ build:
 
 # Build artifacts
 build-artifacts:
-  PUBLISH_ARTIFACTS=true cargo build --release --workspace --all-targets --features static,precompile
+  PUBLISH_ARTIFACTS=true cargo build --release --workspace --all-targets --features static
+
+# Build bundles and test their C libraries and Rust bindings without CMake
+[positional-arguments]
+test-precompiled-bindings *args:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  PUBLISH_ARTIFACTS=true cargo build --release --workspace --features static
+  # Remove cached builds so each crate's build script loads its bundle.
+  cargo clean --profile dev -p rusteron-client -p rusteron-archive -p rusteron-media-driver
+  # Use temporary files because /dev/shm can be too small for Aeron term buffers.
+  test_dir=$(mktemp -d "${TMPDIR:-/tmp}/rusteron-precompiled.XXXXXX")
+  trap 'rm -r -- "$test_dir"' EXIT
+  export AERON_DIR="$test_dir/aeron"
+  CMAKE=/rusteron-precompile-must-not-run-cmake \
+      cargo test --workspace --lib --features static,precompile "$@"
 
 # Build Docker Samples
 build-docker-samples:

@@ -163,6 +163,24 @@ jobs:
           find artifacts
 
 
+      - name: Extract version
+        id: extract_version
+        run: |
+          version=$(grep '"rusteron-code-gen", version = ' Cargo.toml | sed -E 's/.*version = "=([^"]+)".*/\1/g')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "found $version"
+
+      - name: Set the release version in binding metadata
+        env:
+          RELEASE_VERSION: ${{ steps.extract_version.outputs.version }}
+        run: |
+          # cargo-release changes the crate version after CI builds these files.
+          # The C API stays the same. Update the metadata to match the published crate.
+          while IFS= read -r -d '' metadata; do
+            target=$(head -n 1 "$metadata")
+            printf '%s\n%s\n' "$target" "$RELEASE_VERSION" > "$metadata"
+          done < <(find artifacts -type f -name bindings-target.txt -print0)
+
       - name: Package artifacts
         shell: bash
         run: |
@@ -175,12 +193,6 @@ jobs:
             tar -czf "$archive" -C artifacts "$(basename "$artifact_dir")"
           done
 
-      - name: Extract version
-        id: extract_version
-        run: |
-          version=$(grep '"rusteron-code-gen", version = ' Cargo.toml | sed -E 's/.*version = "=([^"]+)".*/\1/g')
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "found $version"
       - uses: actions/create-release@v1
         id: create_release
         with:

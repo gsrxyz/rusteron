@@ -315,6 +315,16 @@ mod tests {
         assert_eq!(aeron_version, cargo_version);
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn socket_bindings_match_the_native_library() {
+        let address = SockaddrStorage::new_zeroed_on_heap();
+        address.aeron_set_ipv4_wildcard_host_and_port();
+        // Linux writes a 16-bit AF_INET at offset zero. Darwin bindings read
+        // an 8-bit family at offset one and return zero.
+        assert_eq!(address.ss_family(), 2);
+    }
+
     #[test]
     fn send_message() -> Result<(), AeronCError> {
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
