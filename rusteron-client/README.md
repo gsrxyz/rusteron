@@ -67,12 +67,14 @@ With the default dynamic configuration, the Aeron C libraries must be available 
 
 The client accepts retained and synchronous callbacks.
 
-### 1. Retained (error handler, image/counter lifecycle, notifications)
+### Retained callbacks
 
 The C client stores these and invokes them later from the conductor thread. Setters take the
 callback by value (a closure or any `impl Trait`), heap-allocate it into a reference-counted
-`Handler`, and keep a clone inside the registering resource. It is freed when that resource
-drops, so there is no manual `release()`:
+`Handler`, and keep a clone inside the registering resource. Dropping the returned
+`Handler` does not unregister the callback. Rusteron releases its clone after C cleanup,
+when the last owning reference to the registering resource drops. There is no manual
+`release()`:
 
 ```rust,no_run
 # use rusteron_client::*;
@@ -103,7 +105,23 @@ println!("{} errors", errors.load(Ordering::Relaxed));
 ```
 
 Registration methods that return a resource (e.g. `add_subscription` with image handlers) take
-`Option<&Handler<T>>` and clone it into the resource, with the same lifetime guarantee.
+`Option<&Handler<T>>` and retain it for later callbacks.
+
+### Why handlers stay alive until the client closes
+
+Closing a publication, subscription or counter asks the conductor to close it.
+The conductor can still call its handlers after `close()` returns. Rusteron therefore
+also keeps these handlers on the owning `Aeron` client. It releases them after C
+cleanup when the last owning client reference drops, even if their subscription or
+other resource closed earlier. Child handles keep the client alive too.
+
+Each registration adds a retained handler reference. Repeated registrations on a
+long-lived client keep their closures and captured values allocated until that client
+closes. Share large application state through an `Arc` rather than copying it into
+each closure. Dropping your own `Handler` reference does not free the registered copy.
+
+Archive contexts also retain earlier handlers after replacement because connections
+can still use copied callback pointers. See [the archive example](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/README.md#why-replaced-handlers-stay-alive).
 
 ### Callback arguments are borrowed
 
@@ -117,7 +135,7 @@ where you need a second handle and can promise it is not used after the callback
 copies the struct, and is `unsafe` when it has pointer fields such as strings, as those still point
 at the original memory.
 
-### 2. Synchronous (`poll`, `controlled_poll`, log readers)
+### Synchronous callbacks
 
 Synchronous callbacks run during the call. They accept a stack closure that can borrow
 local state without allocating:

@@ -886,25 +886,29 @@ impl std::fmt::Debug for AeronOfferError {
 
 impl std::error::Error for AeronOfferError {}
 
-/// Heap-allocated, reference-counted holder for a callback the C client keeps and
-/// fires later, possibly many times, from the conductor thread.
+/// A reference-counted callback that C stores and calls later.
 ///
-/// C is handed a pointer to the value ([`Handler::as_raw`]), so the value must outlive
-/// C's use of it. Methods that register a retained callback store a clone in the
-/// client's dependencies: a close is asynchronous, and the conductor may still fire
-/// the callback after the resource's handle has dropped. The clones therefore live
-/// until the client drops, one small `Arc` per registration.
+/// Clones share one heap allocation. C uses the pointer from [`Handler::as_raw`],
+/// so the callback must stay alive until C stops using it. Dropping a `Handler`
+/// does not unregister it, and the callback is freed when its last clone drops.
 ///
-/// For callbacks C fires only during the call, prefer the `*_fn` / `*_once` methods:
-/// the closure stays on the stack, may borrow local state, and allocates nothing.
+/// Owned resources retain handler clones until their last owner drops and C cleanup
+/// finishes. The client also retains publication, subscription and counter handlers,
+/// because the conductor can call them after `close()` returns. An archive connection
+/// copies handler pointers when it starts, so replacing a handler on the original
+/// context neither updates that copy nor frees the old handler. Borrowed wrappers
+/// retain nothing, so keep your `Handler` alive while C can call it.
 ///
-/// `Send` when `T` is; `Sync` only under the `multi-threaded` feature, since callbacks
-/// fire on the conductor thread.
+/// Use `*_fn` or `*_once` for callbacks that run during the call. Their closures
+/// stay on the stack, can borrow local variables and need no heap allocation.
+///
+/// `Handler<T>` is `Send` when `T` is `Send`. It is also `Sync` when `T` is `Send`
+/// and the `multi-threaded` feature is enabled.
 ///
 /// ```no_compile
 /// use rusteron_code_gen::Handler;
 /// let handler = Handler::new(your_value);
-/// // the value is freed when the last clone of `handler` goes out of scope
+/// // The callback is freed when its last Handler clone drops.
 /// ```
 pub struct Handler<T> {
     inner: std::sync::Arc<UnsafeCell<T>>,

@@ -208,8 +208,11 @@ pub fn rusteron_build_main(config: &RusteronBuildConfig) {
             }
 
             // Load the bundle's bindings so their ABI matches the C libraries.
-            rusteron_code_gen::artifacts::copy_bindings(&artifacts_dir.join("docs-rs"), &out_path)
-                .expect("Failed to copy generated Rust files from precompiled artifacts");
+            rusteron_code_gen::artifacts::copy_bindings(
+                &artifacts_dir.join(rusteron_code_gen::artifacts::BINDINGS_DIR),
+                &out_path,
+            )
+            .expect("Failed to copy generated Rust files from precompiled artifacts");
 
             // Exit early to skip rebuild since artifacts are already published.
             return;
@@ -578,7 +581,7 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
             );
         }
 
-        // copy generated source so docs.rs / precompile paths don't need to build C
+        // Copy the documentation snapshots. Release bundles use this build's OUT_DIR.
         let _ = std::fs::create_dir_all(docs_rs);
         for rs in [&aeron, &aeron_custom, &out] {
             fs::copy(rs, docs_rs.join(rs.file_name().unwrap())).expect("Failed to copy source code for docs-rs");

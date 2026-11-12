@@ -380,8 +380,12 @@ impl AeronArchive {
 }
 
 impl AeronArchiveAsyncConnect {
+    /// Start an archive connection that keeps `ctx` and `aeron` alive.
+    ///
+    /// Aeron copies the context's handler pointers during this call, so replacing
+    /// a handler on `ctx` afterwards does not affect this connection. `ctx` must
+    /// already use `aeron`.
     #[inline]
-    /// recommend using this method instead of standard `new` as it will link the archive to aeron so if a drop occurs archive is dropped before aeron
     pub fn new_with_aeron(ctx: &AeronArchiveContext, aeron: &Aeron) -> Result<Self, AeronCError> {
         // SAFETY: a terminal poll frees the connect and marks it released, so the cleanup
         // deletes only an abandoned one. The held client outlives it, which keeps cancelling
@@ -897,7 +901,90 @@ mod tests {
     use super::*;
     use log::{error, info};
 
-    use crate::testing::{EmbeddedArchiveMediaDriverProcess, valgrind_timeout};
+    use crate::testing::{EmbeddedArchiveMediaDriverProcess, find_unused_udp_port, valgrind_timeout};
+
+    // Uses a real archive because Aeron copies the callback pointers inside async connect.
+    #[test]
+    #[serial_test::serial]
+    fn connected_archive_keeps_replaced_handler_until_context_owners_drop() -> Result<(), Box<dyn std::error::Error>> {
+        let (driver, root) = start_archive_driver()?;
+        // Wait for archive startup.
+        let (ready_archive, aeron) = driver.archive_connect()?;
+        drop(ready_archive);
+
+        let context = driver.archive_context(&aeron)?;
+        let old_calls = Arc::new(AtomicUsize::new(0));
+        let new_calls = Arc::new(AtomicUsize::new(0));
+        let old_lifetime = Arc::downgrade(&old_calls);
+        let new_lifetime = Arc::downgrade(&new_calls);
+
+        let old_capture = old_calls.clone();
+        // Ignore the returned Handler. The context must retain the closure itself.
+        context.set_error_handler(Some(move |_, _: &str| {
+            old_capture.fetch_add(1, Ordering::SeqCst);
+        }))?;
+
+        // C copies the context and its old callback pointer here, before polling.
+        let connecting = AeronArchiveAsyncConnect::new_with_aeron(&context, &aeron)?;
+        let new_capture = new_calls.clone();
+        context.set_error_handler(Some(move |_, _: &str| {
+            new_capture.fetch_add(1, Ordering::SeqCst);
+        }))?;
+
+        let archive = connecting.poll_blocking(valgrind_timeout(5))?;
+        assert!(archive.get_archive_id() > 0);
+        assert_eq!(old_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(new_calls.load(Ordering::SeqCst), 0);
+
+        // Invoke directly to check which callback each context stored.
+        archive
+            .get_archive_context()
+            .invoke_error_handler(1, 0, c"connected archive context");
+        assert_eq!(old_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(new_calls.load(Ordering::SeqCst), 0);
+        context.invoke_error_handler(2, 0, c"original context");
+        assert_eq!(old_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(new_calls.load(Ordering::SeqCst), 1);
+
+        // Weak probes check the closures outlive replacement and drop with the last owner.
+        drop(old_calls);
+        drop(new_calls);
+        drop(context);
+        assert!(old_lifetime.upgrade().is_some());
+        assert!(new_lifetime.upgrade().is_some());
+        drop(connecting);
+        assert!(old_lifetime.upgrade().is_some());
+        assert!(new_lifetime.upgrade().is_some());
+
+        // The archive retains the source context, so its C cleanup runs before either closure drops.
+        drop(archive);
+        assert!(old_lifetime.upgrade().is_none());
+        assert!(new_lifetime.upgrade().is_none());
+        drop(aeron);
+        drop(driver);
+        std::fs::remove_dir(root)?;
+        Ok(())
+    }
+
+    fn start_archive_driver()
+    -> Result<(EmbeddedArchiveMediaDriverProcess, std::path::PathBuf), Box<dyn std::error::Error>> {
+        let root = std::env::temp_dir().join(format!(
+            "rusteron-context-{}-{}",
+            std::process::id(),
+            Aeron::nano_clock()
+        ));
+        let request = find_unused_udp_port(19000).unwrap();
+        let response = find_unused_udp_port(request + 1).unwrap();
+        let events = find_unused_udp_port(response + 1).unwrap();
+        let driver = EmbeddedArchiveMediaDriverProcess::start(
+            root.join("driver").to_str().unwrap(),
+            root.join("archive").to_str().unwrap(),
+            &format!("aeron:udp?endpoint=localhost:{request}"),
+            &format!("aeron:udp?endpoint=localhost:{response}"),
+            &format!("aeron:udp?endpoint=localhost:{events}"),
+        )?;
+        Ok((driver, root))
+    }
 
     // a pointer-free struct gets a safe `clone_struct` whose copy is independent of the source
     #[test]
@@ -1284,7 +1371,7 @@ mod tests {
     use std::rc::Rc;
     use std::str::FromStr;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::thread::{JoinHandle, sleep};
     use std::time::{Duration, Instant};
 

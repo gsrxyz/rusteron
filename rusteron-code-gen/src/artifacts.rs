@@ -6,6 +6,7 @@ use std::io;
 use std::path::Path;
 
 pub const RUST_FILES: [&str; 3] = ["bindings.rs", "aeron.rs", "aeron_custom.rs"];
+pub const BINDINGS_DIR: &str = "rust-bindings";
 const METADATA_FILE: &str = "bindings-target.txt";
 
 fn metadata(target: &str, version: &str) -> String {
@@ -36,7 +37,12 @@ pub fn copy_bindings(source: &Path, destination: &Path) -> io::Result<()> {
 
 /// Copy generated bindings into the bundle and record the target and crate version.
 pub fn publish_bindings(out_dir: &Path, bundle: &Path, target: &str, version: &str) -> io::Result<()> {
-    copy_bindings(out_dir, &bundle.join("docs-rs"))?;
+    copy_bindings(out_dir, &bundle.join(BINDINGS_DIR))?;
+    match fs::remove_dir_all(bundle.join("docs-rs")) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
     fs::write(bundle.join(METADATA_FILE), metadata(target, version))
 }
 
@@ -52,7 +58,7 @@ pub fn validate_bundle(bundle: &Path, target: &str, version: &str, libraries: &[
         ));
     }
     for file in RUST_FILES {
-        require_file(&bundle.join("docs-rs").join(file))?;
+        require_file(&bundle.join(BINDINGS_DIR).join(file))?;
     }
     for library in libraries {
         require_file(&bundle.join(library))?;
@@ -114,7 +120,8 @@ mod tests {
             let bundle = temp.bundle(target);
             validate_bundle(&bundle, target, "0.2.20", &libraries()).unwrap();
             let output = temp.0.join(format!("consumer-{target}"));
-            copy_bindings(&bundle.join("docs-rs"), &output).unwrap();
+            assert!(!bundle.join("docs-rs").exists());
+            copy_bindings(&bundle.join(BINDINGS_DIR), &output).unwrap();
             assert_eq!(
                 fs::read_to_string(output.join("bindings.rs")).unwrap(),
                 format!("// {target}: bindings.rs\n")
@@ -143,11 +150,23 @@ mod tests {
     }
 
     #[test]
+    fn republishing_removes_the_old_docs_directory() {
+        let temp = TestDir::new();
+        let target = "aarch64-unknown-linux-gnu";
+        let bundle = temp.bundle(target);
+        fs::rename(bundle.join(BINDINGS_DIR), bundle.join("docs-rs")).unwrap();
+        assert!(validate_bundle(&bundle, target, "0.2.20", &libraries()).is_err());
+        let bundle = temp.bundle(target);
+        assert!(!bundle.join("docs-rs").exists());
+        validate_bundle(&bundle, target, "0.2.20", &libraries()).unwrap();
+    }
+
+    #[test]
     fn rejects_incomplete_or_empty_artifacts() {
         let temp = TestDir::new();
         let target = "aarch64-unknown-linux-gnu";
         let bundle = temp.bundle(target);
-        fs::remove_file(bundle.join("docs-rs/aeron.rs")).unwrap();
+        fs::remove_file(bundle.join(BINDINGS_DIR).join("aeron.rs")).unwrap();
         assert!(validate_bundle(&bundle, target, "0.2.20", &libraries()).is_err());
         let bundle = temp.bundle(target);
         fs::write(bundle.join("libaeron_static.a"), b"").unwrap();

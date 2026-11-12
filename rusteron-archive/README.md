@@ -83,6 +83,10 @@ Most methods take `&self` and update the C resource without transferring ownersh
 
 Automatic cleanup applies only to `new()` constructors. Setters that take another wrapper (e.g. `set_aeron()`) keep it alive for as long as the context.
 
+`archive.get_archive_context()` returns a borrowed context. Keep the archive open
+while using that context or its clones. Borrowed wrappers do not retain callbacks.
+Keep any returned `Handler` alive while C can use it.
+
 ### Handlers and errors
 
 Retained-callback setters take the callback by value (a closure or trait impl), keep it
@@ -101,6 +105,54 @@ subscription.poll_fn(|buf: &[u8], header: &AeronHeader| println!("{} bytes", buf
 ```
 
 `Handlers::NONE` fits any optional callback slot.
+
+### Why replaced handlers stay alive
+
+`AeronArchiveAsyncConnect::new_with_aeron()` copies the C archive context, including
+its handler pointers, before you poll for the connection. Replacing a handler on the
+original context only changes that context. The connection keeps using the earlier
+handler. Configure handlers before starting a connection if it should use them.
+
+Rusteron keeps every registered handler until the last owner of the registering
+context drops. Async-connect handles and connected archives own that context, so
+dropping your own context variable does not free its handlers while a connection
+needs them. Dropping the returned `Handler`, replacing it, or setting it to `None`
+does not release the earlier closure or its captured values. A `Handler` clone held
+by your code keeps it alive longer.
+
+This example assumes `ctx` contains the channels of a running archive and uses `aeron`:
+
+```rust,no_run
+# use rusteron_archive::*;
+# use std::time::Duration;
+# fn snippet(ctx: &AeronArchiveContext, aeron: &Aeron) -> Result<(), AeronCError> {
+use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+
+let old_calls = Arc::new(AtomicUsize::new(0));
+let old_capture = old_calls.clone();
+ctx.set_error_handler(Some(move |_, _: &str| {
+    old_capture.fetch_add(1, Ordering::SeqCst);
+}))?;
+
+// Aeron copies the old handler pointer here, before poll_blocking().
+let connecting = AeronArchiveAsyncConnect::new_with_aeron(ctx, aeron)?;
+let new_calls = Arc::new(AtomicUsize::new(0));
+let new_capture = new_calls.clone();
+ctx.set_error_handler(Some(move |_, _: &str| {
+    new_capture.fetch_add(1, Ordering::SeqCst);
+}))?;
+let archive = connecting.poll_blocking(Duration::from_secs(5))?;
+
+// Invoke each context's handler directly to check which callback it holds.
+archive.get_archive_context().invoke_error_handler(1, 0, c"connected context");
+ctx.invoke_error_handler(2, 0, c"original context");
+assert_eq!(old_calls.load(Ordering::SeqCst), 1);
+assert_eq!(new_calls.load(Ordering::SeqCst), 1);
+# Ok(()) }
+```
+
+The [regression test](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/src/lib.rs) starts an archive and checks
+that both closures stay alive until the last context owner drops, then get freed.
 
 Handler registration, callbacks, error checking and idle strategies work the same way here as in rusteron-client. See these sections of its documentation:
 - [rusteron-client: Handlers and callbacks](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/README.md#handlers-and-callbacks)
@@ -134,7 +186,7 @@ See these guides for configuration and examples:
 1. **Aeron lifetime.** Connect with `AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron)`. The archive then keeps the client alive, and the two close in any order. `set_aeron()` also keeps the client alive, so `AeronArchiveAsyncConnect::new()` and `aeron_archive_connect()` are safe after the caller drops its `Aeron`. A client obtained with `get_aeron()` is borrowed. Publications and subscriptions made from it must drop before the context.
 2. **Persistent subscription lifetime.** A persistent subscription keeps the `Aeron` client and archive context given to its builder open until it closes. Building it also points the archive context at the subscription's client, so build with `PersistentSubscriptionBuilder::new_with_aeron(&archive_context, &aeron)`, which sets one client on both. Without a client the subscription makes its own and closes it, and the archive context must not be used again afterwards.
 3. **Deferred close.** `archive.close()` is deferred while a clone is alive and does not close the `Aeron` client. `unsafe close_now()` frees it immediately, so any surviving handle then dangles.
-4. **Automatic handler cleanup.** Handlers are reference-counted. Registered callbacks live as long as the resource that registered them and are freed automatically. A panic in a `ReplayMerge` poll handler unwinds to the caller and the fragments are delivered again on the next poll. A panic in a persistent subscription handler or listener is caught and raised by its `poll`. A panic in an archive callback fired later (recording signals, credentials, errors) is logged and the client continues. See [Panics in callbacks](https://github.com/gsrxyz/rusteron/blob/main/README.md#panics-in-callbacks).
+4. **Automatic handler cleanup.** Handlers are reference-counted. Owned contexts keep registered callbacks alive through C cleanup. Replacing a handler on an owned context keeps the earlier closure alive too. See [Why replaced handlers stay alive](#why-replaced-handlers-stay-alive). A panic in a `ReplayMerge` poll handler unwinds to the caller and the fragments are delivered again on the next poll. A panic in a persistent subscription handler or listener is caught and raised by its `poll`. A panic in an archive callback fired later is logged and the client continues. See [Panics in callbacks](https://github.com/gsrxyz/rusteron/blob/main/README.md#panics-in-callbacks).
 5. **Thread safety.** Handles use `Rc` and stay on the thread that created them, unless the `multi-threaded` feature is enabled (see the [root README](https://github.com/gsrxyz/rusteron/blob/main/README.md#multi-threaded-send-and-sync-handles)).
 
 ---
