@@ -8,6 +8,7 @@ Early history predating the available release tags is grouped separately.
 
 - Fixed static precompiled builds to load Rust bindings for the same Cargo target as the C libraries. Linux builds no longer use the Darwin documentation snapshots.
 - Added `just test-precompiled-bindings` and CI checks for Linux x86_64, Linux ARM64, and macOS.
+- Upgrade to aeron 1.54.2
 
 ## 0.2.19
 
