@@ -30,6 +30,38 @@ pub const CUSTOM_AERON_CODE: &str = include_str!("./aeron_custom.rs");
 pub const CUSTOM_ARCHIVE_CODE: &str = include_str!("./aeron_custom_archive.rs");
 pub const COMMON_CODE: &str = include_str!("./common.rs");
 
+/// Generate the current Rust wrappers from parsed, target-specific C bindings.
+/// This does not run bindgen, rustfmt, or any native build tools.
+pub fn generate_wrappers(bindings: &mut CBinding, wrapper_type_filter: fn(&str) -> bool) -> TokenStream {
+    // Populate callback signatures before generating methods that use them.
+    let bindings_copy = bindings.clone();
+    for handler in bindings.handlers.iter_mut() {
+        let _ = generate_handlers(handler, &bindings_copy);
+    }
+
+    let mut stream = TokenStream::new();
+    for (p, wrapper) in bindings
+        .wrappers
+        .values()
+        .filter(|wrapper| wrapper_type_filter(&wrapper.type_name))
+        .enumerate()
+    {
+        stream.extend(generate_rust_code(
+            wrapper,
+            &bindings.wrappers,
+            p == 0,
+            false,
+            true,
+            &bindings.handlers,
+        ));
+    }
+    let bindings_copy = bindings.clone();
+    for handler in bindings.handlers.iter_mut() {
+        stream.extend(generate_handlers(handler, &bindings_copy));
+    }
+    stream
+}
+
 /// Minimal `AeronArchiveError` stub for the `archive` trybuild test only. The real
 /// type (with typed codes, parsing, Display) lives in `aeron_custom_archive.rs` and is
 /// pulled into rusteron-archive via its build.rs. The trybuild test compiles generated
@@ -284,37 +316,7 @@ mod tests {
             .join(bindings_file);
 
         let mut bindings = crate::parse_bindings_with_custom(&bindings_path, extra_custom_code);
-        // First pass: populate FnMut(...) names required by generate_rust_code.
-        let bindings_copy = bindings.clone();
-        for handler in bindings.handlers.iter_mut() {
-            let _ = crate::generate_handlers(handler, &bindings_copy);
-        }
-
-        // Mirror build.rs: build ONE stream, format in a single rustfmt pass.
-        let mut stream = TokenStream::new();
-        for (p, w) in bindings
-            .wrappers
-            .values()
-            .filter(|w| skip_filter(&w.type_name))
-            .enumerate()
-        {
-            let code = crate::generate_rust_code(
-                w,
-                &bindings.wrappers,
-                p == 0,
-                false, // build.rs uses `false` (no test modules) for the committed snapshot
-                true,
-                &bindings.handlers,
-            );
-            stream.extend(code);
-        }
-        let bindings_copy = bindings.clone();
-        for handler in bindings.handlers.iter_mut() {
-            let code = crate::generate_handlers(handler, &bindings_copy);
-            stream.extend(code);
-        }
-
-        format_with_rustfmt(&stream.to_string())
+        format_with_rustfmt(&crate::generate_wrappers(&mut bindings, skip_filter).to_string())
             .unwrap_or_else(|_| panic!("rustfmt failed on regenerated {bindings_file}"))
     }
 

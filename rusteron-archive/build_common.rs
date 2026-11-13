@@ -127,8 +127,10 @@ pub fn rusteron_build_main(config: &RusteronBuildConfig) {
 
     // Skip build script when building on docs.rs
     let docs_rs = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("docs-rs");
+    println!("cargo:rerun-if-env-changed=DOCS_RS");
     if std::env::var("DOCS_RS").is_ok() {
         let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
+        println!("cargo:rerun-if-changed=docs-rs");
         println!("cargo:warning=docs.rs build detected, skipping build script");
         copy_rs_files(&docs_rs, &out_path);
         return;
@@ -207,12 +209,14 @@ pub fn rusteron_build_main(config: &RusteronBuildConfig) {
                 println!("cargo:rustc-link-lib={lib}");
             }
 
-            // Load the bundle's bindings so their ABI matches the C libraries.
-            rusteron_code_gen::artifacts::copy_bindings(
+            // Keep the bundle's C ABI, but generate wrappers for the current Rust crate.
+            rusteron_code_gen::artifacts::prepare_bindings(
                 &artifacts_dir.join(rusteron_code_gen::artifacts::BINDINGS_DIR),
                 &out_path,
+                config.wrapper_type_filter,
+                config.extra_custom_code,
             )
-            .expect("Failed to copy generated Rust files from precompiled artifacts");
+            .expect("Failed to prepare Rust bindings from precompiled artifacts");
 
             // Exit early to skip rebuild since artifacts are already published.
             return;
@@ -238,7 +242,6 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     use bindgen::EnumVariation;
     use cmake::Config;
     use dunce::canonicalize;
-    use proc_macro2::TokenStream;
     use rusteron_code_gen::{append_to_file, format_with_rustfmt};
 
     #[cfg(feature = "static")]
@@ -502,29 +505,7 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     }
 
     let _ = fs::remove_file(aeron.clone());
-    let mut stream = TokenStream::new();
-    let bindings_copy = bindings.clone();
-    for handler in bindings.handlers.iter_mut() {
-        // need to run this first so I know the FnMut(xxxx) which is required in generate_rust_code
-        let _ = rusteron_code_gen::generate_handlers(handler, &bindings_copy);
-    }
-    for (p, w) in bindings
-        .wrappers
-        .values()
-        .filter(|w| (config.wrapper_type_filter)(&w.type_name))
-        .enumerate()
-    {
-        let code =
-            rusteron_code_gen::generate_rust_code(w, &bindings.wrappers, p == 0, false, true, &bindings.handlers);
-        stream.extend(code);
-    }
-    let bindings_copy = bindings.clone();
-    for handler in bindings.handlers.iter_mut() {
-        let code = rusteron_code_gen::generate_handlers(handler, &bindings_copy);
-        stream.extend(code);
-    }
-
-    let generated_code = stream.to_string();
+    let generated_code = rusteron_code_gen::generate_wrappers(&mut bindings, config.wrapper_type_filter).to_string();
     if generated_code.trim().is_empty() {
         panic!("ERROR: Generated code is empty! This indicates a problem with code generation.");
     }
