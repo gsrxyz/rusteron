@@ -129,12 +129,9 @@ jobs:
       - name: Clean up any stale build artifacts
         run: rm -rf target
 
-      # Use clang's ASan runtime, as on macOS in build_common.rs. The
-      # sanitize-address feature compiles Aeron C with -fsanitize=address and
-      # links libasan through cc. Do not add -Z sanitizer=address, which would
-      # also link rustc's incompatible runtime and abort at startup. This
-      # instruments the Aeron C code, where resource lifetime errors occur.
-      # The Rust wrappers have no ASan instrumentation in this configuration.
+      # sanitize-address instruments the Aeron C code, not the Rust wrappers.
+      # Link and preload Clang's ASan runtime. Adding -Zsanitizer=address
+      # would also link Rust's incompatible ASan runtime.
       - name: Test with AddressSanitizer
         env:
           CC: clang
@@ -142,11 +139,16 @@ jobs:
           RUSTERON_SANITIZE: address
           RUSTFLAGS: "-C target-cpu=x86-64"
           ASAN_OPTIONS: "detect_leaks=0:symbolize=1:allocator_may_return_null=1"
+          # Load ASan into test programs. Preloading it into Cargo also loads
+          # it into rustc, which crashes with Clang 14's runtime.
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: "env LD_PRELOAD=${{ steps.asan-path.outputs.path }}"
         run: |
           set -o pipefail
-          cargo test -p rusteron-client --features sanitize-address --no-run
+          # Cargo's runner applies to unit and integration tests. The lint job
+          # runs doc tests, which do not use this runner.
+          cargo test -p rusteron-client --features sanitize-address --tests --no-run
           for attempt in 1 2 3; do
-            if LD_PRELOAD=${{ steps.asan-path.outputs.path }} cargo test -p rusteron-client --features sanitize-address -- --nocapture 2>&1 | tee asan-output.txt; then
+            if cargo test -p rusteron-client --features sanitize-address --tests -- --nocapture 2>&1 | tee asan-output.txt; then
               exit 0
             fi
             if grep -q "Shadow memory range interleaves" asan-output.txt; then

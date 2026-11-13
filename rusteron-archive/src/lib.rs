@@ -16,6 +16,9 @@
 //! - **`log-c-bindings`**: When enabled will log every C binding call with arguments and return values. Useful for debugging FFI interactions
 //! - **`precompile`**: When enabled will use precompiled C code instead of requiring cmake and java to be installed
 
+#[cfg(test)]
+mod replaceable_error_handler_tests;
+
 #[allow(improper_ctypes_definitions)]
 #[allow(unpredictable_function_pointer_comparisons)]
 // Preserve upstream Doxygen markup and bracketed IPv6 examples in the raw C comments.

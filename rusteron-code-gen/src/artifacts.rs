@@ -1,5 +1,6 @@
 //! Each download contains compiled C libraries and Rust bindings for the same platform.
 //! For example, a Linux ARM64 download contains Linux ARM64 libraries and bindings.
+//! Consumers keep the raw C bindings and regenerate wrappers with their current code generator.
 
 use std::fs;
 use std::io;
@@ -33,6 +34,44 @@ pub fn copy_bindings(source: &Path, destination: &Path) -> io::Result<()> {
         fs::copy(source.join(file), destination.join(file))?;
     }
     Ok(())
+}
+
+/// Copy `bindings.rs` from the downloaded files and generate fresh `aeron.rs` and
+/// `aeron_custom.rs` files using the current code generator.
+///
+/// For example, an older download may have no `Ref` type. Generating these files
+/// again adds `Ref` when the current Rust code needs it.
+pub fn prepare_bindings(
+    source: &Path,
+    destination: &Path,
+    wrapper_type_filter: fn(&str) -> bool,
+    extra_custom_code: &[&str],
+) -> io::Result<()> {
+    let raw_bindings = source.join("bindings.rs");
+    require_file(&raw_bindings)?;
+    fs::create_dir_all(destination)?;
+    let output_bindings = destination.join("bindings.rs");
+    fs::copy(raw_bindings, &output_bindings)?;
+
+    // Keep bindings.rs because it describes the C functions and types in the downloaded libraries.
+    // Generate the other Rust files again so they match the current Rust code.
+    let mut bindings = crate::parse_bindings_with_custom(&output_bindings, extra_custom_code);
+    let wrappers = crate::generate_wrappers(&mut bindings, wrapper_type_filter);
+    if wrappers.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Generated Rust wrappers are empty",
+        ));
+    }
+    // Format in-process so generated diagnostics and docs remain readable without rustfmt.
+    let syntax =
+        syn::parse2(wrappers).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
+    fs::write(destination.join("aeron.rs"), prettyplease::unparse(&syntax))?;
+    let custom_code = std::iter::once(crate::CUSTOM_AERON_CODE)
+        .chain(extra_custom_code.iter().copied())
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(destination.join("aeron_custom.rs"), custom_code)
 }
 
 /// Copy generated bindings into the bundle and record the target and crate version.
@@ -127,6 +166,51 @@ mod tests {
                 format!("// {target}: bindings.rs\n")
             );
         }
+    }
+
+    #[test]
+    fn prepares_current_wrappers_from_the_bundles_raw_bindings() {
+        let temp = TestDir::new();
+        let bundle = temp.bundle("x86_64-unknown-linux-gnu");
+        let source = bundle.join(BINDINGS_DIR);
+        fs::write(source.join("bindings.rs"), crate::ARCHIVE_BINDINGS).unwrap();
+        fs::write(source.join("aeron.rs"), "compile_error!(\"stale wrappers\");").unwrap();
+        fs::write(source.join("aeron_custom.rs"), "compile_error!(\"stale custom code\");").unwrap();
+
+        let output = temp.0.join("consumer");
+        prepare_bindings(
+            &source,
+            &output,
+            |name| name.starts_with("aeron_"),
+            &[crate::CUSTOM_ARCHIVE_CODE],
+        )
+        .unwrap();
+
+        // Keep the exact ABI supplied with the native libraries.
+        assert_eq!(
+            fs::read(output.join("bindings.rs")).unwrap(),
+            crate::ARCHIVE_BINDINGS.as_bytes()
+        );
+        let wrappers = fs::read_to_string(output.join("aeron.rs")).unwrap();
+        let parsed = syn::parse_file(&wrappers).unwrap();
+        assert!(
+            parsed
+                .items
+                .iter()
+                .any(|item| matches!(item, syn::Item::Struct(item) if item.ident == "Ref"))
+        );
+        assert!(!wrappers.contains("stale wrappers"));
+
+        let custom = fs::read_to_string(output.join("aeron_custom.rs")).unwrap();
+        assert!(custom.contains(crate::CUSTOM_AERON_CODE));
+        assert!(custom.contains(crate::CUSTOM_ARCHIVE_CODE));
+        assert!(!custom.contains("stale custom code"));
+        // Reading a release bundle must not modify it.
+        assert!(
+            fs::read_to_string(source.join("aeron.rs"))
+                .unwrap()
+                .contains("stale wrappers")
+        );
     }
 
     #[test]

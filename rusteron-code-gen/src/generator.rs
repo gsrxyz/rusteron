@@ -2504,6 +2504,32 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
         quote! {}
     };
 
+    let slot_type_name = format_ident!("{}Slot", snake_to_pascal_case(&handler.type_name));
+    let slot_constructor = if return_type_str == "()" {
+        quote! {
+            /// Creates an empty slot. Calls do nothing until you use `set`.
+            pub fn new() -> Self {
+                Self { callback: CallbackSlot::new(), on_empty: || () }
+            }
+        }
+    } else {
+        quote! {
+            /// Creates an empty slot. Calls return `on_empty()` until you use `set`.
+            pub fn new(on_empty: fn() -> #closure_return_type) -> Self {
+                Self { callback: CallbackSlot::new(), on_empty }
+            }
+        }
+    };
+    let slot_default = if return_type_str == "()" {
+        quote! {
+            impl Default for #slot_type_name {
+                fn default() -> Self { Self::new() }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     quote! {
         #(#doc_comments)*
         ///
@@ -2545,6 +2571,47 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
             fn #handle_method_name(&mut self, #(#closure_args),*) -> #closure_return_type {
                 let inner = unsafe { &mut *self.inner.get() };
                 inner.#handle_method_name(#(#wrapper_closure_args),*)
+            }
+        }
+
+        /// A callback you can replace without registering another handler.
+        ///
+        /// Register a clone once, then use `set` or `clear`. Clones share the callback.
+        /// Old callbacks are freed after their last call. The handler stays registered.
+        ///
+        /// Calls to the same callback run one at a time. It can replace or clear itself,
+        /// but calling itself again will deadlock.
+        /// Calling a callback takes two mutex locks and clones an `Arc`.
+        #[derive(Clone)]
+        pub struct #slot_type_name {
+            callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(#(#fn_mut_args),*) -> #closure_return_type + Send>>>,
+            on_empty: fn() -> #closure_return_type,
+        }
+
+        impl #slot_type_name {
+            #slot_constructor
+
+            /// Replaces the callback. Calls already using it can finish.
+            pub fn set<F>(&self, callback: F)
+            where F: FnMut(#(#fn_mut_args),*) -> #closure_return_type + Send + 'static {
+                self.callback.set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+            }
+
+            /// Removes the callback. Calls already using it can finish.
+            pub fn clear(&self) {
+                self.callback.clear();
+            }
+        }
+
+        #slot_default
+
+        impl #closure_type_name for #slot_type_name {
+            fn #handle_method_name(&mut self, #(#closure_args),*) -> #closure_return_type {
+                self.callback.with(|callback| {
+                    // Keep using the callback after a panic.
+                    let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    callback(#(#wrapper_closure_args),*)
+                }).unwrap_or_else(self.on_empty)
             }
         }
 

@@ -939,6 +939,68 @@ impl std::fmt::Debug for AeronOfferError {
 
 impl std::error::Error for AeronOfferError {}
 
+/// Lets you replace a callback without registering another handler with Aeron.
+///
+/// Helpers such as `AeronErrorHandlerSlot` keep their callback here. If you replace
+/// it while a call is running, that call finishes with the old callback. Later
+/// calls use the new one.
+///
+/// ```
+/// # use rusteron_code_gen::CallbackSlot;
+/// use std::sync::Arc;
+///
+/// let slot = CallbackSlot::new();
+/// slot.set(Arc::new(str::len));
+/// assert_eq!(slot.with(|callback| callback("aeron")), Some(5));
+/// slot.clear();
+/// assert_eq!(slot.with(|callback| callback("aeron")), None);
+/// ```
+pub struct CallbackSlot<T: ?Sized> {
+    callback: std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<T>>>>,
+}
+
+impl<T: ?Sized> CallbackSlot<T> {
+    /// Creates an empty slot.
+    pub fn new() -> Self {
+        Self {
+            callback: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        }
+    }
+
+    /// Replaces the callback. Drops the old `Arc` after unlocking the mutex.
+    pub fn set(&self, callback: std::sync::Arc<T>) {
+        let previous = self.callback.lock().unwrap().replace(callback);
+        drop(previous);
+    }
+
+    /// Removes the callback. Calls already using it can finish.
+    pub fn clear(&self) {
+        let previous = self.callback.lock().unwrap().take();
+        drop(previous);
+    }
+
+    /// Calls `f` with the callback after unlocking the mutex.
+    /// Returns `None` if empty. A panic in `f` does not poison the mutex.
+    pub fn with<R>(&self, f: impl FnOnce(&T) -> R) -> Option<R> {
+        let callback = self.callback.lock().unwrap().clone()?;
+        Some(f(&callback))
+    }
+}
+
+impl<T: ?Sized> Default for CallbackSlot<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: ?Sized> Clone for CallbackSlot<T> {
+    fn clone(&self) -> Self {
+        Self {
+            callback: self.callback.clone(),
+        }
+    }
+}
+
 /// A reference-counted callback that C stores and calls later.
 ///
 /// Clones share one heap allocation. C uses the pointer from [`Handler::as_raw`],
@@ -951,6 +1013,15 @@ impl std::error::Error for AeronOfferError {}
 /// copies handler pointers when it starts, so replacing a handler on the original
 /// context neither updates that copy nor frees the old handler. Borrowed wrappers
 /// retain nothing, so keep your `Handler` alive while C can call it.
+///
+/// Earlier manual cleanup often freed handlers while C could still call them,
+/// causing crashes or memory corruption. Keeping them through cleanup avoids this
+/// mistake, but keeps replaced closures and their captured values in memory too.
+/// Earlier release needs to track every C user through connection setup and cleanup.
+/// An `Arc` alone cannot track C's raw pointer copies.
+///
+/// To replace callbacks often, register an `AeronErrorHandlerSlot` once.
+/// Use `set` or `clear` to free old callbacks after their last call.
 ///
 /// Use `*_fn` or `*_once` for callbacks that run during the call. Their closures
 /// stay on the stack, can borrow local variables and need no heap allocation.
@@ -1587,6 +1658,82 @@ impl IdleStrategy for BackoffIdleStrategy {
         self.yields = 0;
         self.park = self.min_park;
         self.state = BACKOFF_NOT_IDLE;
+    }
+}
+
+#[cfg(test)]
+mod callback_slot_tests {
+    use super::CallbackSlot;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex, Weak};
+
+    #[test]
+    fn callback_slot_clones_share_replacements_and_return_values() {
+        let delegate: CallbackSlot<dyn Fn(&str) -> usize + Send + Sync> = CallbackSlot::default();
+        let registered = delegate.clone();
+        assert_eq!(registered.with(|callback| callback("aeron")), None);
+
+        delegate.set(Arc::new(str::len));
+        assert_eq!(registered.with(|callback| callback("aeron")), Some(5));
+        delegate.set(Arc::new(|message: &str| message.len() * 2));
+        assert_eq!(registered.with(|callback| callback("aeron")), Some(10));
+
+        delegate.clear();
+        assert_eq!(registered.with(|callback| callback("aeron")), None);
+    }
+
+    #[test]
+    fn callback_slot_supports_mutable_callbacks() {
+        let delegate: CallbackSlot<Mutex<Box<dyn FnMut(u32) -> u32 + Send>>> = CallbackSlot::new();
+        let mut total = 0;
+        delegate.set(Arc::new(Mutex::new(Box::new(move |value| {
+            total += value;
+            total
+        }))));
+        assert_eq!(delegate.with(|callback| callback.lock().unwrap()(2)), Some(2));
+        assert_eq!(delegate.with(|callback| callback.lock().unwrap()(3)), Some(5));
+    }
+
+    #[test]
+    fn callback_slot_panics_do_not_poison_its_lock() {
+        let delegate: CallbackSlot<dyn Fn() -> u32 + Send + Sync> = CallbackSlot::new();
+        delegate.set(Arc::new(|| panic!("delegate panic")));
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                delegate.with(|callback| callback())
+            }))
+            .is_err()
+        );
+
+        delegate.set(Arc::new(|| 42));
+        assert_eq!(delegate.with(|callback| callback()), Some(42));
+        delegate.clear();
+    }
+
+    #[test]
+    fn callback_slot_drops_replaced_and_cleared_values_outside_its_lock() {
+        struct CheckDrop {
+            slot: Weak<Mutex<Option<Arc<CheckDrop>>>>,
+            drops: Arc<AtomicUsize>,
+        }
+        impl Drop for CheckDrop {
+            fn drop(&mut self) {
+                assert!(self.slot.upgrade().unwrap().try_lock().is_ok());
+                self.drops.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let delegate = CallbackSlot::new();
+        let drops = Arc::new(AtomicUsize::new(0));
+        for expected in 0..2 {
+            delegate.set(Arc::new(CheckDrop {
+                slot: Arc::downgrade(&delegate.callback),
+                drops: drops.clone(),
+            }));
+            assert_eq!(drops.load(Ordering::SeqCst), expected);
+        }
+        delegate.clear();
+        assert_eq!(drops.load(Ordering::SeqCst), 2);
     }
 }
 

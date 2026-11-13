@@ -64,6 +64,10 @@ See [BUILD.md](https://github.com/gsrxyz/rusteron/blob/main/BUILD.md) for prereq
 
 ## Usage examples
 
+Use `AeronErrorHandlerSlot` to replace callbacks without registering again.
+Old callbacks are freed after their last call. See the
+[example](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/examples/replaceable_error_handler.rs).
+
 <details>
 <summary>Standard Media Driver</summary>
 

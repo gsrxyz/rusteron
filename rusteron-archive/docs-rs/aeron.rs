@@ -1199,6 +1199,61 @@ impl std::fmt::Debug for AeronOfferError {
     }
 }
 impl std::error::Error for AeronOfferError {}
+#[doc = " Lets you replace a callback without registering another handler with Aeron."]
+#[doc = ""]
+#[doc = " Helpers such as `AeronErrorHandlerSlot` keep their callback here. If you replace"]
+#[doc = " it while a call is running, that call finishes with the old callback. Later"]
+#[doc = " calls use the new one."]
+#[doc = ""]
+#[doc = " ```"]
+#[doc = " # use rusteron_code_gen::CallbackSlot;"]
+#[doc = " use std::sync::Arc;"]
+#[doc = ""]
+#[doc = " let slot = CallbackSlot::new();"]
+#[doc = " slot.set(Arc::new(str::len));"]
+#[doc = " assert_eq!(slot.with(|callback| callback(\"aeron\")), Some(5));"]
+#[doc = " slot.clear();"]
+#[doc = " assert_eq!(slot.with(|callback| callback(\"aeron\")), None);"]
+#[doc = " ```"]
+pub struct CallbackSlot<T: ?Sized> {
+    callback: std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<T>>>>,
+}
+impl<T: ?Sized> CallbackSlot<T> {
+    #[doc = " Creates an empty slot."]
+    pub fn new() -> Self {
+        Self {
+            callback: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        }
+    }
+    #[doc = " Replaces the callback. Drops the old `Arc` after unlocking the mutex."]
+    pub fn set(&self, callback: std::sync::Arc<T>) {
+        let previous = self.callback.lock().unwrap().replace(callback);
+        drop(previous);
+    }
+    #[doc = " Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        let previous = self.callback.lock().unwrap().take();
+        drop(previous);
+    }
+    #[doc = " Calls `f` with the callback after unlocking the mutex."]
+    #[doc = " Returns `None` if empty. A panic in `f` does not poison the mutex."]
+    pub fn with<R>(&self, f: impl FnOnce(&T) -> R) -> Option<R> {
+        let callback = self.callback.lock().unwrap().clone()?;
+        Some(f(&callback))
+    }
+}
+impl<T: ?Sized> Default for CallbackSlot<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl<T: ?Sized> Clone for CallbackSlot<T> {
+    fn clone(&self) -> Self {
+        Self {
+            callback: self.callback.clone(),
+        }
+    }
+}
 #[doc = " A reference-counted callback that C stores and calls later."]
 #[doc = ""]
 #[doc = " Clones share one heap allocation. C uses the pointer from [`Handler::as_raw`],"]
@@ -1211,6 +1266,15 @@ impl std::error::Error for AeronOfferError {}
 #[doc = " copies handler pointers when it starts, so replacing a handler on the original"]
 #[doc = " context neither updates that copy nor frees the old handler. Borrowed wrappers"]
 #[doc = " retain nothing, so keep your `Handler` alive while C can call it."]
+#[doc = ""]
+#[doc = " Earlier manual cleanup often freed handlers while C could still call them,"]
+#[doc = " causing crashes or memory corruption. Keeping them through cleanup avoids this"]
+#[doc = " mistake, but keeps replaced closures and their captured values in memory too."]
+#[doc = " Earlier release needs to track every C user through connection setup and cleanup."]
+#[doc = " An `Arc` alone cannot track C's raw pointer copies."]
+#[doc = ""]
+#[doc = " To replace callbacks often, register an `AeronErrorHandlerSlot` once."]
+#[doc = " Use `set` or `clear` to free old callbacks after their last call."]
 #[doc = ""]
 #[doc = " Use `*_fn` or `*_once` for callbacks that run during the call. Their closures"]
 #[doc = " stay on the stack, can borrow local variables and need no heap allocation."]
@@ -1761,6 +1825,73 @@ impl IdleStrategy for BackoffIdleStrategy {
         self.yields = 0;
         self.park = self.min_park;
         self.state = BACKOFF_NOT_IDLE;
+    }
+}
+#[cfg(test)]
+mod callback_slot_tests {
+    use super::CallbackSlot;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex, Weak};
+    #[test]
+    fn callback_slot_clones_share_replacements_and_return_values() {
+        let delegate: CallbackSlot<dyn Fn(&str) -> usize + Send + Sync> = CallbackSlot::default();
+        let registered = delegate.clone();
+        assert_eq!(registered.with(|callback| callback("aeron")), None);
+        delegate.set(Arc::new(str::len));
+        assert_eq!(registered.with(|callback| callback("aeron")), Some(5));
+        delegate.set(Arc::new(|message: &str| message.len() * 2));
+        assert_eq!(registered.with(|callback| callback("aeron")), Some(10));
+        delegate.clear();
+        assert_eq!(registered.with(|callback| callback("aeron")), None);
+    }
+    #[test]
+    fn callback_slot_supports_mutable_callbacks() {
+        let delegate: CallbackSlot<Mutex<Box<dyn FnMut(u32) -> u32 + Send>>> = CallbackSlot::new();
+        let mut total = 0;
+        delegate.set(Arc::new(Mutex::new(Box::new(move |value| {
+            total += value;
+            total
+        }))));
+        assert_eq!(delegate.with(|callback| callback.lock().unwrap()(2)), Some(2));
+        assert_eq!(delegate.with(|callback| callback.lock().unwrap()(3)), Some(5));
+    }
+    #[test]
+    fn callback_slot_panics_do_not_poison_its_lock() {
+        let delegate: CallbackSlot<dyn Fn() -> u32 + Send + Sync> = CallbackSlot::new();
+        delegate.set(Arc::new(|| panic!("delegate panic")));
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                delegate.with(|callback| callback())
+            }))
+            .is_err()
+        );
+        delegate.set(Arc::new(|| 42));
+        assert_eq!(delegate.with(|callback| callback()), Some(42));
+        delegate.clear();
+    }
+    #[test]
+    fn callback_slot_drops_replaced_and_cleared_values_outside_its_lock() {
+        struct CheckDrop {
+            slot: Weak<Mutex<Option<Arc<CheckDrop>>>>,
+            drops: Arc<AtomicUsize>,
+        }
+        impl Drop for CheckDrop {
+            fn drop(&mut self) {
+                assert!(self.slot.upgrade().unwrap().try_lock().is_ok());
+                self.drops.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let delegate = CallbackSlot::new();
+        let drops = Arc::new(AtomicUsize::new(0));
+        for expected in 0..2 {
+            delegate.set(Arc::new(CheckDrop {
+                slot: Arc::downgrade(&delegate.callback),
+                drops: drops.clone(),
+            }));
+            assert_eq!(drops.load(Ordering::SeqCst), expected);
+        }
+        delegate.clear();
+        assert_eq!(drops.load(Ordering::SeqCst), 2);
     }
 }
 #[cfg(test)]
@@ -34980,6 +35111,58 @@ impl<T: AeronFprintfHandlerCallback> AeronFprintfHandlerCallback for Handler<T> 
         inner.handle_aeron_fprintf_handler(arg1, arg2, arg4, arg5)
     }
 }
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronFprintfHandlerSlot {
+    callback: CallbackSlot<
+        std::sync::Mutex<Box<dyn FnMut(&str, u64, &str, *mut ::std::os::raw::c_char) -> ::std::os::raw::c_int + Send>>,
+    >,
+    on_empty: fn() -> ::std::os::raw::c_int,
+}
+impl AeronFprintfHandlerSlot {
+    #[doc = r" Creates an empty slot. Calls return `on_empty()` until you use `set`."]
+    pub fn new(on_empty: fn() -> ::std::os::raw::c_int) -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty,
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&str, u64, &str, *mut ::std::os::raw::c_char) -> ::std::os::raw::c_int + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl AeronFprintfHandlerCallback for AeronFprintfHandlerSlot {
+    fn handle_aeron_fprintf_handler(
+        &mut self,
+        arg1: &str,
+        arg2: u64,
+        arg4: &str,
+        arg5: *mut ::std::os::raw::c_char,
+    ) -> ::std::os::raw::c_int {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(arg1, arg2, arg4, arg5)
+            })
+            .unwrap_or_else(self.on_empty)
+    }
+}
 impl AeronFprintfHandlerCallback for NoHandler {
     fn handle_aeron_fprintf_handler(
         &mut self,
@@ -35178,6 +35361,55 @@ impl<T: AeronErrorHandlerCallback> AeronErrorHandlerCallback for Handler<T> {
         inner.handle_aeron_error_handler(errcode, message)
     }
 }
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronErrorHandlerSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(::std::os::raw::c_int, &str) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronErrorHandlerSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(::std::os::raw::c_int, &str) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronErrorHandlerSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronErrorHandlerCallback for AeronErrorHandlerSlot {
+    fn handle_aeron_error_handler(&mut self, errcode: ::std::os::raw::c_int, message: &str) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(errcode, message)
+            })
+            .unwrap_or_else(self.on_empty)
+    }
+}
 impl AeronErrorHandlerCallback for NoHandler {
     fn handle_aeron_error_handler(&mut self, errcode: ::std::os::raw::c_int, message: &str) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -35341,6 +35573,55 @@ impl<T: AeronPublicationErrorFrameHandlerCallback> AeronPublicationErrorFrameHan
         inner.handle_aeron_publication_error_frame_handler(error_frame)
     }
 }
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronPublicationErrorFrameHandlerSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(&AeronPublicationErrorValues) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronPublicationErrorFrameHandlerSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&AeronPublicationErrorValues) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronPublicationErrorFrameHandlerSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronPublicationErrorFrameHandlerCallback for AeronPublicationErrorFrameHandlerSlot {
+    fn handle_aeron_publication_error_frame_handler(&mut self, error_frame: &AeronPublicationErrorValues) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(error_frame)
+            })
+            .unwrap_or_else(self.on_empty)
+    }
+}
 impl AeronPublicationErrorFrameHandlerCallback for NoHandler {
     fn handle_aeron_publication_error_frame_handler(&mut self, error_frame: &AeronPublicationErrorValues) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -35487,6 +35768,55 @@ impl<T: AeronNotificationCallback> AeronNotificationCallback for Handler<T> {
     fn handle_aeron_notification(&mut self) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_notification()
+    }
+}
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronNotificationSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut() -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronNotificationSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut() -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronNotificationSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronNotificationCallback for AeronNotificationSlot {
+    fn handle_aeron_notification(&mut self) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback()
+            })
+            .unwrap_or_else(self.on_empty)
     }
 }
 impl AeronNotificationCallback for NoHandler {
@@ -35639,6 +35969,61 @@ impl<T: AeronNewPublicationCallback> AeronNewPublicationCallback for Handler<T> 
     ) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_on_new_publication(channel, stream_id, session_id, correlation_id)
+    }
+}
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronNewPublicationSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(&str, i32, i32, i64) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronNewPublicationSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&str, i32, i32, i64) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronNewPublicationSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronNewPublicationCallback for AeronNewPublicationSlot {
+    fn handle_aeron_on_new_publication(
+        &mut self,
+        channel: &str,
+        stream_id: i32,
+        session_id: i32,
+        correlation_id: i64,
+    ) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(channel, stream_id, session_id, correlation_id)
+            })
+            .unwrap_or_else(self.on_empty)
     }
 }
 impl AeronNewPublicationCallback for NoHandler {
@@ -35865,6 +36250,55 @@ impl<T: AeronNewSubscriptionCallback> AeronNewSubscriptionCallback for Handler<T
         inner.handle_aeron_on_new_subscription(channel, stream_id, correlation_id)
     }
 }
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronNewSubscriptionSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(&str, i32, i64) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronNewSubscriptionSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&str, i32, i64) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronNewSubscriptionSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronNewSubscriptionCallback for AeronNewSubscriptionSlot {
+    fn handle_aeron_on_new_subscription(&mut self, channel: &str, stream_id: i32, correlation_id: i64) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(channel, stream_id, correlation_id)
+            })
+            .unwrap_or_else(self.on_empty)
+    }
+}
 impl AeronNewSubscriptionCallback for NoHandler {
     fn handle_aeron_on_new_subscription(&mut self, channel: &str, stream_id: i32, correlation_id: i64) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -36068,6 +36502,55 @@ impl<T: AeronAvailableImageCallback> AeronAvailableImageCallback for Handler<T> 
         inner.handle_aeron_on_available_image(subscription, image)
     }
 }
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronAvailableImageSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(&AeronSubscription, &AeronImage) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronAvailableImageSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&AeronSubscription, &AeronImage) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronAvailableImageSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronAvailableImageCallback for AeronAvailableImageSlot {
+    fn handle_aeron_on_available_image(&mut self, subscription: &AeronSubscription, image: &AeronImage) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(subscription, image)
+            })
+            .unwrap_or_else(self.on_empty)
+    }
+}
 impl AeronAvailableImageCallback for NoHandler {
     fn handle_aeron_on_available_image(&mut self, subscription: &AeronSubscription, image: &AeronImage) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -36227,6 +36710,55 @@ impl<T: AeronUnavailableImageCallback> AeronUnavailableImageCallback for Handler
     fn handle_aeron_on_unavailable_image(&mut self, subscription: &AeronSubscription, image: &AeronImage) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_on_unavailable_image(subscription, image)
+    }
+}
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronUnavailableImageSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(&AeronSubscription, &AeronImage) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronUnavailableImageSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&AeronSubscription, &AeronImage) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronUnavailableImageSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronUnavailableImageCallback for AeronUnavailableImageSlot {
+    fn handle_aeron_on_unavailable_image(&mut self, subscription: &AeronSubscription, image: &AeronImage) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(subscription, image)
+            })
+            .unwrap_or_else(self.on_empty)
     }
 }
 impl AeronUnavailableImageCallback for NoHandler {
@@ -36412,6 +36944,60 @@ impl<T: AeronAvailableCounterCallback> AeronAvailableCounterCallback for Handler
     ) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_on_available_counter(counters_reader, registration_id, counter_id)
+    }
+}
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronAvailableCounterSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(&AeronCountersReader, i64, i32) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronAvailableCounterSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&AeronCountersReader, i64, i32) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronAvailableCounterSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronAvailableCounterCallback for AeronAvailableCounterSlot {
+    fn handle_aeron_on_available_counter(
+        &mut self,
+        counters_reader: &AeronCountersReader,
+        registration_id: i64,
+        counter_id: i32,
+    ) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(counters_reader, registration_id, counter_id)
+            })
+            .unwrap_or_else(self.on_empty)
     }
 }
 impl AeronAvailableCounterCallback for NoHandler {
@@ -36622,6 +37208,60 @@ impl<T: AeronUnavailableCounterCallback> AeronUnavailableCounterCallback for Han
         inner.handle_aeron_on_unavailable_counter(counters_reader, registration_id, counter_id)
     }
 }
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronUnavailableCounterSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(&AeronCountersReader, i64, i32) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronUnavailableCounterSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&AeronCountersReader, i64, i32) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronUnavailableCounterSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronUnavailableCounterCallback for AeronUnavailableCounterSlot {
+    fn handle_aeron_on_unavailable_counter(
+        &mut self,
+        counters_reader: &AeronCountersReader,
+        registration_id: i64,
+        counter_id: i32,
+    ) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(counters_reader, registration_id, counter_id)
+            })
+            .unwrap_or_else(self.on_empty)
+    }
+}
 impl AeronUnavailableCounterCallback for NoHandler {
     fn handle_aeron_on_unavailable_counter(
         &mut self,
@@ -36798,6 +37438,55 @@ impl<T: AeronCloseClientCallback> AeronCloseClientCallback for Handler<T> {
         inner.handle_aeron_on_close_client()
     }
 }
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronCloseClientSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut() -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronCloseClientSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut() -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronCloseClientSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronCloseClientCallback for AeronCloseClientSlot {
+    fn handle_aeron_on_close_client(&mut self) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback()
+            })
+            .unwrap_or_else(self.on_empty)
+    }
+}
 impl AeronCloseClientCallback for NoHandler {
     fn handle_aeron_on_close_client(&mut self) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -36914,6 +37603,55 @@ impl<T: AeronAgentStartFuncCallback> AeronAgentStartFuncCallback for Handler<T> 
     fn handle_aeron_agent_on_start_func(&mut self, role_name: &str) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_agent_on_start_func(role_name)
+    }
+}
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronAgentStartFuncSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(&str) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronAgentStartFuncSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&str) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronAgentStartFuncSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronAgentStartFuncCallback for AeronAgentStartFuncSlot {
+    fn handle_aeron_agent_on_start_func(&mut self, role_name: &str) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(role_name)
+            })
+            .unwrap_or_else(self.on_empty)
     }
 }
 impl AeronAgentStartFuncCallback for NoHandler {
@@ -37096,6 +37834,62 @@ impl<T: AeronCountersReaderForeachCounterFuncCallback> AeronCountersReaderForeac
     ) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_counters_reader_foreach_counter_func(value, id, type_id, key, label)
+    }
+}
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronCountersReaderForeachCounterFuncSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(i64, i32, i32, &[u8], &str) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronCountersReaderForeachCounterFuncSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(i64, i32, i32, &[u8], &str) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronCountersReaderForeachCounterFuncSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronCountersReaderForeachCounterFuncCallback for AeronCountersReaderForeachCounterFuncSlot {
+    fn handle_aeron_counters_reader_foreach_counter_func(
+        &mut self,
+        value: i64,
+        id: i32,
+        type_id: i32,
+        key: &[u8],
+        label: &str,
+    ) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(value, id, type_id, key, label)
+            })
+            .unwrap_or_else(self.on_empty)
     }
 }
 impl AeronCountersReaderForeachCounterFuncCallback for NoHandler {
@@ -37368,6 +38162,50 @@ impl<T: AeronReservedValueSupplierCallback> AeronReservedValueSupplierCallback f
         inner.handle_aeron_reserved_value_supplier(buffer)
     }
 }
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronReservedValueSupplierSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(&mut [u8]) -> i64 + Send>>>,
+    on_empty: fn() -> i64,
+}
+impl AeronReservedValueSupplierSlot {
+    #[doc = r" Creates an empty slot. Calls return `on_empty()` until you use `set`."]
+    pub fn new(on_empty: fn() -> i64) -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty,
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&mut [u8]) -> i64 + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl AeronReservedValueSupplierCallback for AeronReservedValueSupplierSlot {
+    fn handle_aeron_reserved_value_supplier(&mut self, buffer: &mut [u8]) -> i64 {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(buffer)
+            })
+            .unwrap_or_else(self.on_empty)
+    }
+}
 impl AeronReservedValueSupplierCallback for NoHandler {
     fn handle_aeron_reserved_value_supplier(&mut self, buffer: &mut [u8]) -> i64 {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -37553,6 +38391,55 @@ impl<T: AeronFragmentHandlerCallback> AeronFragmentHandlerCallback for Handler<T
     fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_fragment_handler(buffer, header)
+    }
+}
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronFragmentHandlerSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(&[u8], &AeronHeader) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronFragmentHandlerSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&[u8], &AeronHeader) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronFragmentHandlerSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronFragmentHandlerCallback for AeronFragmentHandlerSlot {
+    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(buffer, header)
+            })
+            .unwrap_or_else(self.on_empty)
     }
 }
 impl AeronFragmentHandlerCallback for NoHandler {
@@ -37875,6 +38762,56 @@ impl<T: AeronControlledFragmentHandlerCallback> AeronControlledFragmentHandlerCa
     ) -> aeron_controlled_fragment_handler_action_t {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_controlled_fragment_handler(buffer, header)
+    }
+}
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronControlledFragmentHandlerSlot {
+    callback: CallbackSlot<
+        std::sync::Mutex<Box<dyn FnMut(&[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t + Send>>,
+    >,
+    on_empty: fn() -> aeron_controlled_fragment_handler_action_t,
+}
+impl AeronControlledFragmentHandlerSlot {
+    #[doc = r" Creates an empty slot. Calls return `on_empty()` until you use `set`."]
+    pub fn new(on_empty: fn() -> aeron_controlled_fragment_handler_action_t) -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty,
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl AeronControlledFragmentHandlerCallback for AeronControlledFragmentHandlerSlot {
+    fn handle_aeron_controlled_fragment_handler(
+        &mut self,
+        buffer: &[u8],
+        header: &AeronHeader,
+    ) -> aeron_controlled_fragment_handler_action_t {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(buffer, header)
+            })
+            .unwrap_or_else(self.on_empty)
     }
 }
 impl AeronControlledFragmentHandlerCallback for NoHandler {
@@ -38201,6 +39138,55 @@ impl<T: AeronBlockHandlerCallback> AeronBlockHandlerCallback for Handler<T> {
     fn handle_aeron_block_handler(&mut self, buffer: &[u8], session_id: i32, term_id: i32) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_block_handler(buffer, session_id, term_id)
+    }
+}
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronBlockHandlerSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(&[u8], i32, i32) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronBlockHandlerSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&[u8], i32, i32) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronBlockHandlerSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronBlockHandlerCallback for AeronBlockHandlerSlot {
+    fn handle_aeron_block_handler(&mut self, buffer: &[u8], session_id: i32, term_id: i32) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(buffer, session_id, term_id)
+            })
+            .unwrap_or_else(self.on_empty)
     }
 }
 impl AeronBlockHandlerCallback for NoHandler {
@@ -38544,6 +39530,66 @@ impl<T: AeronErrorLogReaderFuncCallback> AeronErrorLogReaderFuncCallback for Han
         )
     }
 }
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronErrorLogReaderFuncSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(i32, i64, i64, &str) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronErrorLogReaderFuncSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(i32, i64, i64, &str) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronErrorLogReaderFuncSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronErrorLogReaderFuncCallback for AeronErrorLogReaderFuncSlot {
+    fn handle_aeron_error_log_reader_func(
+        &mut self,
+        observation_count: i32,
+        first_observation_timestamp: i64,
+        last_observation_timestamp: i64,
+        error: &str,
+    ) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(
+                    observation_count,
+                    first_observation_timestamp,
+                    last_observation_timestamp,
+                    error,
+                )
+            })
+            .unwrap_or_else(self.on_empty)
+    }
+}
 impl AeronErrorLogReaderFuncCallback for NoHandler {
     fn handle_aeron_error_log_reader_func(
         &mut self,
@@ -38844,6 +39890,74 @@ impl<T: AeronLossReporterReadEntryFuncCallback> AeronLossReporterReadEntryFuncCa
             channel,
             source,
         )
+    }
+}
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronLossReporterReadEntryFuncSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(i64, i64, i64, i64, i32, i32, &str, &str) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronLossReporterReadEntryFuncSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(i64, i64, i64, i64, i32, i32, &str, &str) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronLossReporterReadEntryFuncSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronLossReporterReadEntryFuncCallback for AeronLossReporterReadEntryFuncSlot {
+    fn handle_aeron_loss_reporter_read_entry_func(
+        &mut self,
+        observation_count: i64,
+        total_bytes_lost: i64,
+        first_observation_timestamp: i64,
+        last_observation_timestamp: i64,
+        session_id: i32,
+        stream_id: i32,
+        channel: &str,
+        source: &str,
+    ) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(
+                    observation_count,
+                    total_bytes_lost,
+                    first_observation_timestamp,
+                    last_observation_timestamp,
+                    session_id,
+                    stream_id,
+                    channel,
+                    source,
+                )
+            })
+            .unwrap_or_else(self.on_empty)
     }
 }
 impl AeronLossReporterReadEntryFuncCallback for NoHandler {
@@ -39148,6 +40262,55 @@ impl<T: AeronIdleStrategyFuncCallback> AeronIdleStrategyFuncCallback for Handler
         inner.handle_aeron_idle_strategy_func(work_count)
     }
 }
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronIdleStrategyFuncSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(::std::os::raw::c_int) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronIdleStrategyFuncSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(::std::os::raw::c_int) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronIdleStrategyFuncSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronIdleStrategyFuncCallback for AeronIdleStrategyFuncSlot {
+    fn handle_aeron_idle_strategy_func(&mut self, work_count: ::std::os::raw::c_int) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(work_count)
+            })
+            .unwrap_or_else(self.on_empty)
+    }
+}
 impl AeronIdleStrategyFuncCallback for NoHandler {
     fn handle_aeron_idle_strategy_func(&mut self, work_count: ::std::os::raw::c_int) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -39289,6 +40452,54 @@ impl<T: AeronArchiveCredentialsEncodedCredentialsSupplierFuncCallback>
     ) -> *mut aeron_archive_encoded_credentials_t {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_archive_credentials_encoded_credentials_supplier_func()
+    }
+}
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronArchiveCredentialsEncodedCredentialsSupplierFuncSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut() -> *mut aeron_archive_encoded_credentials_t + Send>>>,
+    on_empty: fn() -> *mut aeron_archive_encoded_credentials_t,
+}
+impl AeronArchiveCredentialsEncodedCredentialsSupplierFuncSlot {
+    #[doc = r" Creates an empty slot. Calls return `on_empty()` until you use `set`."]
+    pub fn new(on_empty: fn() -> *mut aeron_archive_encoded_credentials_t) -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty,
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut() -> *mut aeron_archive_encoded_credentials_t + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl AeronArchiveCredentialsEncodedCredentialsSupplierFuncCallback
+    for AeronArchiveCredentialsEncodedCredentialsSupplierFuncSlot
+{
+    fn handle_aeron_archive_credentials_encoded_credentials_supplier_func(
+        &mut self,
+    ) -> *mut aeron_archive_encoded_credentials_t {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback()
+            })
+            .unwrap_or_else(self.on_empty)
     }
 }
 impl AeronArchiveCredentialsEncodedCredentialsSupplierFuncCallback for NoHandler {
@@ -39445,6 +40656,57 @@ impl<T: AeronArchiveCredentialsChallengeSupplierFuncCallback> AeronArchiveCreden
     ) -> *mut aeron_archive_encoded_credentials_t {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_archive_credentials_challenge_supplier_func(encoded_challenge)
+    }
+}
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronArchiveCredentialsChallengeSupplierFuncSlot {
+    callback: CallbackSlot<
+        std::sync::Mutex<
+            Box<dyn FnMut(&AeronArchiveEncodedCredentials) -> *mut aeron_archive_encoded_credentials_t + Send>,
+        >,
+    >,
+    on_empty: fn() -> *mut aeron_archive_encoded_credentials_t,
+}
+impl AeronArchiveCredentialsChallengeSupplierFuncSlot {
+    #[doc = r" Creates an empty slot. Calls return `on_empty()` until you use `set`."]
+    pub fn new(on_empty: fn() -> *mut aeron_archive_encoded_credentials_t) -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty,
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&AeronArchiveEncodedCredentials) -> *mut aeron_archive_encoded_credentials_t + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl AeronArchiveCredentialsChallengeSupplierFuncCallback for AeronArchiveCredentialsChallengeSupplierFuncSlot {
+    fn handle_aeron_archive_credentials_challenge_supplier_func(
+        &mut self,
+        encoded_challenge: &AeronArchiveEncodedCredentials,
+    ) -> *mut aeron_archive_encoded_credentials_t {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(encoded_challenge)
+            })
+            .unwrap_or_else(self.on_empty)
     }
 }
 impl AeronArchiveCredentialsChallengeSupplierFuncCallback for NoHandler {
@@ -39613,6 +40875,55 @@ impl<T: AeronArchiveCredentialsFreeFuncCallback> AeronArchiveCredentialsFreeFunc
         inner.handle_aeron_archive_credentials_free_func(credentials)
     }
 }
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronArchiveCredentialsFreeFuncSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(&AeronArchiveEncodedCredentials) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronArchiveCredentialsFreeFuncSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&AeronArchiveEncodedCredentials) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronArchiveCredentialsFreeFuncSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronArchiveCredentialsFreeFuncCallback for AeronArchiveCredentialsFreeFuncSlot {
+    fn handle_aeron_archive_credentials_free_func(&mut self, credentials: &AeronArchiveEncodedCredentials) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(credentials)
+            })
+            .unwrap_or_else(self.on_empty)
+    }
+}
 impl AeronArchiveCredentialsFreeFuncCallback for NoHandler {
     fn handle_aeron_archive_credentials_free_func(&mut self, credentials: &AeronArchiveEncodedCredentials) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -39756,6 +41067,55 @@ impl<T: AeronArchiveDelegatingInvokerFuncCallback> AeronArchiveDelegatingInvoker
         inner.handle_aeron_archive_delegating_invoker_func()
     }
 }
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronArchiveDelegatingInvokerFuncSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut() -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronArchiveDelegatingInvokerFuncSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut() -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronArchiveDelegatingInvokerFuncSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronArchiveDelegatingInvokerFuncCallback for AeronArchiveDelegatingInvokerFuncSlot {
+    fn handle_aeron_archive_delegating_invoker_func(&mut self) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback()
+            })
+            .unwrap_or_else(self.on_empty)
+    }
+}
 impl AeronArchiveDelegatingInvokerFuncCallback for NoHandler {
     fn handle_aeron_archive_delegating_invoker_func(&mut self) -> () {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -39894,6 +41254,58 @@ impl<T: AeronArchiveRecordingDescriptorConsumerFuncCallback> AeronArchiveRecordi
     ) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_archive_recording_descriptor_consumer_func(recording_descriptor)
+    }
+}
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronArchiveRecordingDescriptorConsumerFuncSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(&AeronArchiveRecordingDescriptor) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronArchiveRecordingDescriptorConsumerFuncSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&AeronArchiveRecordingDescriptor) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronArchiveRecordingDescriptorConsumerFuncSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronArchiveRecordingDescriptorConsumerFuncCallback for AeronArchiveRecordingDescriptorConsumerFuncSlot {
+    fn handle_aeron_archive_recording_descriptor_consumer_func(
+        &mut self,
+        recording_descriptor: &AeronArchiveRecordingDescriptor,
+    ) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(recording_descriptor)
+            })
+            .unwrap_or_else(self.on_empty)
     }
 }
 impl AeronArchiveRecordingDescriptorConsumerFuncCallback for NoHandler {
@@ -40072,6 +41484,60 @@ impl<T: AeronArchiveRecordingSubscriptionDescriptorConsumerFuncCallback>
     ) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_archive_recording_subscription_descriptor_consumer_func(recording_subscription_descriptor)
+    }
+}
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronArchiveRecordingSubscriptionDescriptorConsumerFuncSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(&AeronArchiveRecordingSubscriptionDescriptor) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronArchiveRecordingSubscriptionDescriptorConsumerFuncSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&AeronArchiveRecordingSubscriptionDescriptor) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronArchiveRecordingSubscriptionDescriptorConsumerFuncSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronArchiveRecordingSubscriptionDescriptorConsumerFuncCallback
+    for AeronArchiveRecordingSubscriptionDescriptorConsumerFuncSlot
+{
+    fn handle_aeron_archive_recording_subscription_descriptor_consumer_func(
+        &mut self,
+        recording_subscription_descriptor: &AeronArchiveRecordingSubscriptionDescriptor,
+    ) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(recording_subscription_descriptor)
+            })
+            .unwrap_or_else(self.on_empty)
     }
 }
 impl AeronArchiveRecordingSubscriptionDescriptorConsumerFuncCallback for NoHandler {
@@ -40255,6 +41721,58 @@ impl<T: AeronArchiveRecordingSignalConsumerFuncCallback> AeronArchiveRecordingSi
         inner.handle_aeron_archive_recording_signal_consumer_func(recording_signal)
     }
 }
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronArchiveRecordingSignalConsumerFuncSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(&AeronArchiveRecordingSignal) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronArchiveRecordingSignalConsumerFuncSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&AeronArchiveRecordingSignal) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronArchiveRecordingSignalConsumerFuncSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronArchiveRecordingSignalConsumerFuncCallback for AeronArchiveRecordingSignalConsumerFuncSlot {
+    fn handle_aeron_archive_recording_signal_consumer_func(
+        &mut self,
+        recording_signal: &AeronArchiveRecordingSignal,
+    ) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(recording_signal)
+            })
+            .unwrap_or_else(self.on_empty)
+    }
+}
 impl AeronArchiveRecordingSignalConsumerFuncCallback for NoHandler {
     fn handle_aeron_archive_recording_signal_consumer_func(
         &mut self,
@@ -40411,6 +41929,50 @@ impl<T: AeronUriParseCallbackCallback> AeronUriParseCallbackCallback for Handler
     fn handle_aeron_uri_parse_callback(&mut self, key: &str, value: &str) -> ::std::os::raw::c_int {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_uri_parse_callback(key, value)
+    }
+}
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronUriParseCallbackSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(&str, &str) -> ::std::os::raw::c_int + Send>>>,
+    on_empty: fn() -> ::std::os::raw::c_int,
+}
+impl AeronUriParseCallbackSlot {
+    #[doc = r" Creates an empty slot. Calls return `on_empty()` until you use `set`."]
+    pub fn new(on_empty: fn() -> ::std::os::raw::c_int) -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty,
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&str, &str) -> ::std::os::raw::c_int + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl AeronUriParseCallbackCallback for AeronUriParseCallbackSlot {
+    fn handle_aeron_uri_parse_callback(&mut self, key: &str, value: &str) -> ::std::os::raw::c_int {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(key, value)
+            })
+            .unwrap_or_else(self.on_empty)
     }
 }
 impl AeronUriParseCallbackCallback for NoHandler {
@@ -40588,6 +42150,55 @@ impl<T: AeronStrToPtrHashMapForEachFuncCallback> AeronStrToPtrHashMapForEachFunc
     fn handle_aeron_str_to_ptr_hash_map_for_each_func(&mut self, key: &str, value: *mut ::std::os::raw::c_void) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_str_to_ptr_hash_map_for_each_func(key, value)
+    }
+}
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronStrToPtrHashMapForEachFuncSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut(&str, *mut ::std::os::raw::c_void) -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronStrToPtrHashMapForEachFuncSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut(&str, *mut ::std::os::raw::c_void) -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronStrToPtrHashMapForEachFuncSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronStrToPtrHashMapForEachFuncCallback for AeronStrToPtrHashMapForEachFuncSlot {
+    fn handle_aeron_str_to_ptr_hash_map_for_each_func(&mut self, key: &str, value: *mut ::std::os::raw::c_void) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback(key, value)
+            })
+            .unwrap_or_else(self.on_empty)
     }
 }
 impl AeronStrToPtrHashMapForEachFuncCallback for NoHandler {
@@ -40776,6 +42387,50 @@ impl<T: AeronAgentDoWorkFuncCallback> AeronAgentDoWorkFuncCallback for Handler<T
         inner.handle_aeron_agent_do_work_func()
     }
 }
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronAgentDoWorkFuncSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut() -> ::std::os::raw::c_int + Send>>>,
+    on_empty: fn() -> ::std::os::raw::c_int,
+}
+impl AeronAgentDoWorkFuncSlot {
+    #[doc = r" Creates an empty slot. Calls return `on_empty()` until you use `set`."]
+    pub fn new(on_empty: fn() -> ::std::os::raw::c_int) -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty,
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut() -> ::std::os::raw::c_int + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl AeronAgentDoWorkFuncCallback for AeronAgentDoWorkFuncSlot {
+    fn handle_aeron_agent_do_work_func(&mut self) -> ::std::os::raw::c_int {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback()
+            })
+            .unwrap_or_else(self.on_empty)
+    }
+}
 impl AeronAgentDoWorkFuncCallback for NoHandler {
     fn handle_aeron_agent_do_work_func(&mut self) -> ::std::os::raw::c_int {
         unreachable!("NoHandler is a None sentinel; its callback must never be invoked")
@@ -40885,6 +42540,55 @@ impl<T: AeronAgentCloseFuncCallback> AeronAgentCloseFuncCallback for Handler<T> 
     fn handle_aeron_agent_on_close_func(&mut self) -> () {
         let inner = unsafe { &mut *self.inner.get() };
         inner.handle_aeron_agent_on_close_func()
+    }
+}
+#[doc = r" A callback you can replace without registering another handler."]
+#[doc = r""]
+#[doc = r" Register a clone once, then use `set` or `clear`. Clones share the callback."]
+#[doc = r" Old callbacks are freed after their last call. The handler stays registered."]
+#[doc = r""]
+#[doc = r" Calls to the same callback run one at a time. It can replace or clear itself,"]
+#[doc = r" but calling itself again will deadlock."]
+#[doc = r" Calling a callback takes two mutex locks and clones an `Arc`."]
+#[derive(Clone)]
+pub struct AeronAgentCloseFuncSlot {
+    callback: CallbackSlot<std::sync::Mutex<Box<dyn FnMut() -> () + Send>>>,
+    on_empty: fn() -> (),
+}
+impl AeronAgentCloseFuncSlot {
+    #[doc = r" Creates an empty slot. Calls do nothing until you use `set`."]
+    pub fn new() -> Self {
+        Self {
+            callback: CallbackSlot::new(),
+            on_empty: || (),
+        }
+    }
+    #[doc = r" Replaces the callback. Calls already using it can finish."]
+    pub fn set<F>(&self, callback: F)
+    where
+        F: FnMut() -> () + Send + 'static,
+    {
+        self.callback
+            .set(std::sync::Arc::new(std::sync::Mutex::new(Box::new(callback))));
+    }
+    #[doc = r" Removes the callback. Calls already using it can finish."]
+    pub fn clear(&self) {
+        self.callback.clear();
+    }
+}
+impl Default for AeronAgentCloseFuncSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl AeronAgentCloseFuncCallback for AeronAgentCloseFuncSlot {
+    fn handle_aeron_agent_on_close_func(&mut self) -> () {
+        self.callback
+            .with(|callback| {
+                let mut callback = callback.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                callback()
+            })
+            .unwrap_or_else(self.on_empty)
     }
 }
 impl AeronAgentCloseFuncCallback for NoHandler {

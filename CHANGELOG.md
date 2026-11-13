@@ -7,6 +7,7 @@ Early history predating the available release tags is grouped separately.
 ## 0.2.21
 
 - Breaking: getters that return a C object owned by `self`, such as `archive.get_archive_context()`, `get_aeron()`, `context()`, `counters_reader()` and the archive pollers, now return `Ref<'_, T>`. It borrows the owner, so using the result after dropping or closing the owner no longer compiles (#81). `AeronArchive::aeron()` returns `Ref<'_, Aeron>`.
+- Added callback slots such as `AeronErrorHandlerSlot`. Use `set` or `clear` to change a callback without registering again. Old callbacks are freed after their last call. See the [example](rusteron-archive/examples/replaceable_error_handler.rs).
 
 ## 0.2.20
 
