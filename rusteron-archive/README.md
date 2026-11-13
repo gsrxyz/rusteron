@@ -163,6 +163,54 @@ assert_eq!(new_calls.load(Ordering::SeqCst), 1);
 The [regression test](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/src/lib.rs) starts an archive and checks
 that both closures stay alive until the last context owner drops, then get freed.
 
+### Changing a callback without registering another handler
+
+Register an `AeronErrorHandlerSlot` once, then use `set` to replace its callback
+or `clear` to remove it. The C handler stays registered.
+
+```rust
+use rusteron_archive::{AeronArchiveContext, AeronErrorHandlerSlot};
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let ctx = AeronArchiveContext::new()?;
+let handler = AeronErrorHandlerSlot::new();
+ctx.set_error_handler(Some(handler.clone()))?;
+
+let label = String::from("first");
+handler.set(move |code, message| eprintln!("{label}: {code}: {message}"));
+handler.set(|code, message| eprintln!("second: {code}: {message}"));
+handler.clear();
+# Ok(())
+# }
+```
+
+Old callbacks and their captured values are freed after their last call finishes.
+Archive connections share the slot, so they also use the new callback.
+
+Callbacks can change captured values. Captures must be owned and safe to move
+between threads. Calls to the same callback run one at a time. It can replace
+or clear itself, but calling itself again will deadlock. Each call takes two
+mutex locks and clones an `Arc`.
+
+The [runnable example](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/examples/replaceable_error_handler.rs)
+needs no archive server:
+
+```sh
+cargo run -p rusteron-archive --features precompile,static --example replaceable_error_handler
+```
+
+The client, archive and media driver crates provide named slots for callbacks.
+For callbacks that return a value, choose what to return when empty. This slot
+returns `AERON_ACTION_ABORT` until you set a callback:
+
+```rust
+use rusteron_archive::{
+    AeronControlledFragmentHandlerSlot,
+    bindings::aeron_controlled_fragment_handler_action_t::AERON_ACTION_ABORT,
+};
+
+let handler = AeronControlledFragmentHandlerSlot::new(|| AERON_ACTION_ABORT);
+```
+
 Handler registration, callbacks, error checking and idle strategies work the same way here as in rusteron-client. See these sections of its documentation:
 - [rusteron-client: Handlers and callbacks](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/README.md#handlers-and-callbacks)
 - [rusteron-client: Errors and offer results](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/README.md#errors--offer-results)

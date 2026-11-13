@@ -54,6 +54,11 @@ allocated for that long. See [the archive handler example](rusteron-archive/READ
 This costs memory, but avoids freeing handlers while C can still call them. See
 [why handlers stay alive until the client closes](rusteron-client/README.md#why-handlers-stay-alive-until-the-client-closes).
 
+Use `AeronErrorHandlerSlot` to replace callbacks without registering again.
+Old callbacks are freed after their last call. See the
+[example](rusteron-archive/examples/replaceable_error_handler.rs) and
+[callback docs](rusteron-archive/README.md#changing-a-callback-without-registering-another-handler).
+
 ### Panics in callbacks
 
 Aeron calls your Rust code from C. A Rust panic is handled one of three ways, picked per C function when the bindings are generated:

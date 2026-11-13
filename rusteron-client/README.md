@@ -130,6 +130,11 @@ This costs memory, but avoids tracking exactly when C stops using each handler.
 Archive contexts also retain earlier handlers after replacement because connections
 can still use copied callback pointers. See [the archive example](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/README.md#why-replaced-handlers-stay-alive).
 
+Use `AeronErrorHandlerSlot` with `AeronContext::set_error_handler` to replace
+callbacks without registering again. Old callbacks are freed after their last
+call. See the [example](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/examples/replaceable_error_handler.rs)
+and [callback docs](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/README.md#changing-a-callback-without-registering-another-handler).
+
 ### Callback arguments are borrowed
 
 Wrapper arguments (`&AeronHeader`, `&AeronImage`, `&AeronArchiveRecordingDescriptor`, ...) are
