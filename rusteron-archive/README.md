@@ -114,12 +114,20 @@ its handler pointers, before you poll for the connection. Replacing a handler on
 original context only changes that context. The connection keeps using the earlier
 handler. Configure handlers before starting a connection if it should use them.
 
+`Handler` uses `Arc`, but C copies raw pointers. Those copies do not increase the
+Rust reference count or tell Rust when C has finished using the handler.
+
 Rusteron keeps every registered handler until the last owner of the registering
 context drops. Async-connect handles and connected archives own that context, so
 dropping your own context variable does not free its handlers while a connection
 needs them. Dropping the returned `Handler`, replacing it, or setting it to `None`
 does not release the earlier closure or its captured values. A `Handler` clone held
 by your code keeps it alive longer.
+
+This keeps old handlers even if no connection used them. It costs memory, but
+avoids tracking each copied pointer through connection setup, failure, cancellation
+and cleanup. Applications that set a handler once have no replaced handlers to
+reclaim. See [why Rusteron manages handler cleanup](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/README.md#why-handlers-stay-alive-until-the-client-closes).
 
 This example assumes `ctx` contains the channels of a running archive and uses `aeron`:
 

@@ -109,6 +109,11 @@ Registration methods that return a resource (e.g. `add_subscription` with image 
 
 ### Why handlers stay alive until the client closes
 
+Earlier versions left handler cleanup to developers. They often released a handler
+after closing its resource, while C could still call it. Calling a freed handler
+is undefined behaviour. It can cause a segfault or corrupt memory. Rusteron now
+keeps handlers through client cleanup to avoid this mistake.
+
 Closing a publication, subscription or counter asks the conductor to close it.
 The conductor can still call its handlers after `close()` returns. Rusteron therefore
 also keeps these handlers on the owning `Aeron` client. It releases them after C
@@ -119,6 +124,8 @@ Each registration adds a retained handler reference. Repeated registrations on a
 long-lived client keep their closures and captured values allocated until that client
 closes. Share large application state through an `Arc` rather than copying it into
 each closure. Dropping your own `Handler` reference does not free the registered copy.
+
+This costs memory, but avoids tracking exactly when C stops using each handler.
 
 Archive contexts also retain earlier handlers after replacement because connections
 can still use copied callback pointers. See [the archive example](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/README.md#why-replaced-handlers-stay-alive).

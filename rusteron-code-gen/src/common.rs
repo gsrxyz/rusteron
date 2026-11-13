@@ -952,6 +952,12 @@ impl std::error::Error for AeronOfferError {}
 /// context neither updates that copy nor frees the old handler. Borrowed wrappers
 /// retain nothing, so keep your `Handler` alive while C can call it.
 ///
+/// Earlier manual cleanup often freed handlers while C could still call them,
+/// causing crashes or memory corruption. Keeping them through cleanup avoids this
+/// mistake, but keeps replaced closures and their captured values in memory too.
+/// Earlier release needs to track every C user through connection setup and cleanup.
+/// An `Arc` alone cannot track C's raw pointer copies.
+///
 /// Use `*_fn` or `*_once` for callbacks that run during the call. Their closures
 /// stay on the stack, can borrow local variables and need no heap allocation.
 ///
