@@ -953,6 +953,7 @@ impl<T> Drop for ManagedCResource<T> {
     }
 }
 #[derive(Debug, PartialOrd, Eq, PartialEq, Clone)]
+#[non_exhaustive]
 pub enum AeronErrorType {
     GenericError,
     ClientErrorDriverTimeout,
@@ -1128,6 +1129,7 @@ impl AeronCError {
 #[doc = " errno-style codes. Here `-1` means \"not connected\", not a generic error, hence"]
 #[doc = " this dedicated type. Use [`Self::is_retryable`] to drive retry loops."]
 #[derive(Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum AeronOfferError {
     #[doc = " No subscriber is connected (`-1`). Usually transient: a subscriber may"]
     #[doc = " connect later. Retryable."]
@@ -1480,6 +1482,7 @@ pub const SPY_PREFIX: &str = "aeron-spy:";
 pub const TAG_PREFIX: &str = "tag:";
 #[doc = " Enum for media types."]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Media {
     Ipc,
     Udp,
@@ -1494,6 +1497,7 @@ impl Media {
 }
 #[doc = " Enum for control modes."]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ControlMode {
     Manual,
     Dynamic,

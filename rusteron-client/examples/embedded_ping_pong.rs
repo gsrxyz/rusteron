@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         None => std::env::var("AERON_DIR")?,
     };
     println!(
-        "Glide latency workload: message_length={MESSAGE_LENGTH} poll_limit={FRAGMENT_COUNT_LIMIT} warmup={} messages={} clients=2",
+        "latency workload: message_length={MESSAGE_LENGTH} poll_limit={FRAGMENT_COUNT_LIMIT} warmup={} messages={} clients=2",
         counts.warmup, counts.measured
     );
     let running = Arc::new(AtomicBool::new(true));
