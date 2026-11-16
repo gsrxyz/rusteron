@@ -73132,9 +73132,9 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback<F: AeronPu
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     log_panic(stringify!(aeron_publication_error_frame_handler_t_callback), (), || {
-        closure.handle_aeron_publication_error_frame_handler(&unsafe {
+        closure.handle_aeron_publication_error_frame_handler(&*std::mem::ManuallyDrop::new(unsafe {
             AeronPublicationErrorValues::from_ptr(error_frame)
-        })
+        }))
     })
 }
 #[allow(dead_code)]
@@ -73170,9 +73170,9 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_catch<
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure.handle_aeron_publication_error_frame_handler(&unsafe {
+        closure.handle_aeron_publication_error_frame_handler(&*std::mem::ManuallyDrop::new(unsafe {
             AeronPublicationErrorValues::from_ptr(error_frame)
-        })
+        }))
     })
 }
 #[allow(dead_code)]
@@ -73208,7 +73208,9 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_for_once_c
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure(&unsafe { AeronPublicationErrorValues::from_ptr(error_frame) })
+        closure(&*std::mem::ManuallyDrop::new(unsafe {
+            AeronPublicationErrorValues::from_ptr(error_frame)
+        }))
     })
 }
 #[doc = "Generalised notification callback."]
@@ -75965,7 +75967,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback<F: AeronFragmentHa
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            &unsafe { AeronHeader::from_ptr(header) },
+            &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
         )
     })
 }
@@ -76013,7 +76015,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_catch<F: AeronFrag
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            &unsafe { AeronHeader::from_ptr(header) },
+            &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
         )
     })
 }
@@ -76066,7 +76068,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_c
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            &unsafe { AeronHeader::from_ptr(header) },
+            &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
         )
     })
 }
@@ -76113,7 +76115,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_unwind<F: AeronFra
         } else {
             std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
-        &unsafe { AeronHeader::from_ptr(header) },
+        &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
     )
 }
 #[allow(dead_code)]
@@ -76164,7 +76166,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_u
         } else {
             std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
-        &unsafe { AeronHeader::from_ptr(header) },
+        &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
     )
 }
 #[doc = "Callback for handling fragments of data being read from a log."]
@@ -76345,7 +76347,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback<F: Aero
                 } else {
                     std::slice::from_raw_parts(buffer, length.try_into().unwrap())
                 },
-                &unsafe { AeronHeader::from_ptr(header) },
+                &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
             )
         },
     )
@@ -76400,7 +76402,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_catch<
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            &unsafe { AeronHeader::from_ptr(header) },
+            &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
         )
     })
 }
@@ -76454,7 +76456,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_onc
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            &unsafe { AeronHeader::from_ptr(header) },
+            &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
         )
     })
 }
@@ -76507,7 +76509,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_unwind<
         } else {
             std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
-        &unsafe { AeronHeader::from_ptr(header) },
+        &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
     )
 }
 #[allow(dead_code)]
@@ -76559,7 +76561,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_onc
         } else {
             std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
-        &unsafe { AeronHeader::from_ptr(header) },
+        &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
     )
 }
 #[doc = "Callback for handling a block of messages being read from a log."]

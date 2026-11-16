@@ -35662,9 +35662,9 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback<F: AeronPu
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     log_panic(stringify!(aeron_publication_error_frame_handler_t_callback), (), || {
-        closure.handle_aeron_publication_error_frame_handler(&unsafe {
+        closure.handle_aeron_publication_error_frame_handler(&*std::mem::ManuallyDrop::new(unsafe {
             AeronPublicationErrorValues::from_ptr(error_frame)
-        })
+        }))
     })
 }
 #[allow(dead_code)]
@@ -35700,9 +35700,9 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_catch<
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure.handle_aeron_publication_error_frame_handler(&unsafe {
+        closure.handle_aeron_publication_error_frame_handler(&*std::mem::ManuallyDrop::new(unsafe {
             AeronPublicationErrorValues::from_ptr(error_frame)
-        })
+        }))
     })
 }
 #[allow(dead_code)]
@@ -35738,7 +35738,9 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_for_once_c
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure(&unsafe { AeronPublicationErrorValues::from_ptr(error_frame) })
+        closure(&*std::mem::ManuallyDrop::new(unsafe {
+            AeronPublicationErrorValues::from_ptr(error_frame)
+        }))
     })
 }
 #[doc = "Generalised notification callback."]
@@ -38495,7 +38497,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback<F: AeronFragmentHa
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            &unsafe { AeronHeader::from_ptr(header) },
+            &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
         )
     })
 }
@@ -38543,7 +38545,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_catch<F: AeronFrag
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            &unsafe { AeronHeader::from_ptr(header) },
+            &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
         )
     })
 }
@@ -38596,7 +38598,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_c
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            &unsafe { AeronHeader::from_ptr(header) },
+            &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
         )
     })
 }
@@ -38643,7 +38645,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_unwind<F: AeronFra
         } else {
             std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
-        &unsafe { AeronHeader::from_ptr(header) },
+        &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
     )
 }
 #[allow(dead_code)]
@@ -38694,7 +38696,7 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_u
         } else {
             std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
-        &unsafe { AeronHeader::from_ptr(header) },
+        &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
     )
 }
 #[doc = "Callback for handling fragments of data being read from a log."]
@@ -38875,7 +38877,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback<F: Aero
                 } else {
                     std::slice::from_raw_parts(buffer, length.try_into().unwrap())
                 },
-                &unsafe { AeronHeader::from_ptr(header) },
+                &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
             )
         },
     )
@@ -38930,7 +38932,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_catch<
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            &unsafe { AeronHeader::from_ptr(header) },
+            &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
         )
     })
 }
@@ -38984,7 +38986,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_onc
             } else {
                 std::slice::from_raw_parts(buffer, length.try_into().unwrap())
             },
-            &unsafe { AeronHeader::from_ptr(header) },
+            &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
         )
     })
 }
@@ -39037,7 +39039,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_unwind<
         } else {
             std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
-        &unsafe { AeronHeader::from_ptr(header) },
+        &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
     )
 }
 #[allow(dead_code)]
@@ -39089,7 +39091,7 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_onc
         } else {
             std::slice::from_raw_parts(buffer, length.try_into().unwrap())
         },
-        &unsafe { AeronHeader::from_ptr(header) },
+        &*std::mem::ManuallyDrop::new(unsafe { AeronHeader::from_ptr(header) }),
     )
 }
 #[doc = "Callback for handling a block of messages being read from a log."]
@@ -41354,9 +41356,9 @@ unsafe extern "C" fn aeron_archive_recording_descriptor_consumer_func_t_callback
         stringify!(aeron_archive_recording_descriptor_consumer_func_t_callback),
         (),
         || {
-            closure.handle_aeron_archive_recording_descriptor_consumer_func(&unsafe {
+            closure.handle_aeron_archive_recording_descriptor_consumer_func(&*std::mem::ManuallyDrop::new(unsafe {
                 AeronArchiveRecordingDescriptor::from_ptr(recording_descriptor)
-            })
+            }))
         },
     )
 }
@@ -41391,9 +41393,9 @@ unsafe extern "C" fn aeron_archive_recording_descriptor_consumer_func_t_callback
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure.handle_aeron_archive_recording_descriptor_consumer_func(&unsafe {
+        closure.handle_aeron_archive_recording_descriptor_consumer_func(&*std::mem::ManuallyDrop::new(unsafe {
             AeronArchiveRecordingDescriptor::from_ptr(recording_descriptor)
-        })
+        }))
     })
 }
 #[allow(dead_code)]
@@ -41427,7 +41429,9 @@ unsafe extern "C" fn aeron_archive_recording_descriptor_consumer_func_t_callback
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure(&unsafe { AeronArchiveRecordingDescriptor::from_ptr(recording_descriptor) })
+        closure(&*std::mem::ManuallyDrop::new(unsafe {
+            AeronArchiveRecordingDescriptor::from_ptr(recording_descriptor)
+        }))
     })
 }
 #[doc = "Callback to return recording subscription descriptors."]
@@ -41590,9 +41594,9 @@ unsafe extern "C" fn aeron_archive_recording_subscription_descriptor_consumer_fu
         stringify!(aeron_archive_recording_subscription_descriptor_consumer_func_t_callback),
         (),
         || {
-            closure.handle_aeron_archive_recording_subscription_descriptor_consumer_func(&unsafe {
-                AeronArchiveRecordingSubscriptionDescriptor::from_ptr(recording_subscription_descriptor)
-            })
+            closure.handle_aeron_archive_recording_subscription_descriptor_consumer_func(&*std::mem::ManuallyDrop::new(
+                unsafe { AeronArchiveRecordingSubscriptionDescriptor::from_ptr(recording_subscription_descriptor) },
+            ))
         },
     )
 }
@@ -41631,9 +41635,9 @@ unsafe extern "C" fn aeron_archive_recording_subscription_descriptor_consumer_fu
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure.handle_aeron_archive_recording_subscription_descriptor_consumer_func(&unsafe {
-            AeronArchiveRecordingSubscriptionDescriptor::from_ptr(recording_subscription_descriptor)
-        })
+        closure.handle_aeron_archive_recording_subscription_descriptor_consumer_func(&*std::mem::ManuallyDrop::new(
+            unsafe { AeronArchiveRecordingSubscriptionDescriptor::from_ptr(recording_subscription_descriptor) },
+        ))
     })
 }
 #[allow(dead_code)]
@@ -41671,7 +41675,9 @@ unsafe extern "C" fn aeron_archive_recording_subscription_descriptor_consumer_fu
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure(&unsafe { AeronArchiveRecordingSubscriptionDescriptor::from_ptr(recording_subscription_descriptor) })
+        closure(&*std::mem::ManuallyDrop::new(unsafe {
+            AeronArchiveRecordingSubscriptionDescriptor::from_ptr(recording_subscription_descriptor)
+        }))
     })
 }
 #[doc = "Callback to return recording signals."]
@@ -41819,9 +41825,9 @@ unsafe extern "C" fn aeron_archive_recording_signal_consumer_func_t_callback<
         stringify!(aeron_archive_recording_signal_consumer_func_t_callback),
         (),
         || {
-            closure.handle_aeron_archive_recording_signal_consumer_func(&unsafe {
+            closure.handle_aeron_archive_recording_signal_consumer_func(&*std::mem::ManuallyDrop::new(unsafe {
                 AeronArchiveRecordingSignal::from_ptr(recording_signal)
-            })
+            }))
         },
     )
 }
@@ -41856,9 +41862,9 @@ unsafe extern "C" fn aeron_archive_recording_signal_consumer_func_t_callback_cat
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure.handle_aeron_archive_recording_signal_consumer_func(&unsafe {
+        closure.handle_aeron_archive_recording_signal_consumer_func(&*std::mem::ManuallyDrop::new(unsafe {
             AeronArchiveRecordingSignal::from_ptr(recording_signal)
-        })
+        }))
     })
 }
 #[allow(dead_code)]
@@ -41892,7 +41898,9 @@ unsafe extern "C" fn aeron_archive_recording_signal_consumer_func_t_callback_for
     );
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     catch_panic((), || {
-        closure(&unsafe { AeronArchiveRecordingSignal::from_ptr(recording_signal) })
+        closure(&*std::mem::ManuallyDrop::new(unsafe {
+            AeronArchiveRecordingSignal::from_ptr(recording_signal)
+        }))
     })
 }
 #[doc = r""]
