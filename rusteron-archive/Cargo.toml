@@ -8,7 +8,7 @@ repository = "https://github.com/gsrxyz/rusteron"
 homepage = "https://github.com/gsrxyz/rusteron"
 readme = "README.md"
 documentation = "https://gsrxyz.github.io/rusteron/rusteron_archive/index.html"
-description = "Extends the Aeron client to include archiving features, such as recording streams and handling replay capabilities. It uses the Aeron C bindings from aeron-archive module."
+description = "Fast, idiomatic Rust client for Aeron Archive recording, replay and replication, built on the Aeron C API."
 keywords = ["aeron", "low-latency", "aeron-archive", "aeron-c-bindings", "networking"]
 categories = ["network-programming"]
 

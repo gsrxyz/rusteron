@@ -8,7 +8,7 @@ repository = "https://github.com/gsrxyz/rusteron"
 homepage = "https://github.com/gsrxyz/rusteron"
 readme = "README.md"
 documentation = "https://gsrxyz.github.io/rusteron/rusteron_client/index.html"
-description = "Provides core client functionalities for interacting with the Aeron protocol, such as establishing connections, subscribing, and publishing. It uses the Aeron C bindings from aeron-client module."
+description = "Fast, idiomatic Rust client for Aeron messaging over IPC and UDP, built on the Aeron C API."
 keywords = ["aeron", "low-latency", "aeron-client", "aeron-c-bindings", "networking"]
 categories = ["network-programming"]
 
@@ -91,6 +91,16 @@ required-features = ["examples"]
 [[example]]
 name              = "embedded_ping_pong"
 path              = "examples/embedded_ping_pong.rs"
+required-features = ["examples"]
+
+[[example]]
+name              = "latency"
+path              = "examples/latency.rs"
+required-features = ["examples"]
+
+[[example]]
+name              = "aeron_ping_pong"
+path              = "examples/aeron_ping_pong.rs"
 required-features = ["examples"]
 
 [[example]]

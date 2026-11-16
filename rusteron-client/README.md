@@ -1,8 +1,8 @@
 # rusteron-client
 
-`rusteron-client` wraps the Aeron C client API for low-latency communication in
-distributed systems built with Rust. Use it to connect to a Media Driver, publish
-messages, poll subscriptions and handle driver events.
+`rusteron-client` provides a fast, idiomatic Rust API over the Aeron C client for
+low-latency communication in distributed systems. Use it to connect to a Media
+Driver, publish messages, poll subscriptions and handle driver events.
 
 The wrappers manage resource references and callback lifetimes. Follow the ownership
 and concurrency rules below when using the C resources.
@@ -13,7 +13,9 @@ and concurrency rules below when using the C resources.
 
 Rusteron is sponsored and maintained by [GSR](https://www.gsr.io), a global leader in algorithmic trading and market making in digital assets.
 
-It runs in GSR's real-time trading stack and is developed under the GSR GitHub organisation. We welcome contributions, feedback and discussion. To integrate or contribute, open an issue or reach out directly.
+Rusteron has been running in production in GSR's low-latency trading system since the beginning of 2025. It is mature and battle tested.
+
+It is developed under the GSR GitHub organisation. We welcome contributions, feedback and discussion. To integrate or contribute, open an issue or reach out directly.
 
 ---
 
@@ -240,6 +242,9 @@ Use `ipc()`, `udp(endpoint)` or `udp_control(control, ControlMode)` to create a 
 It also has about 50 typed setters (`session_id`, `mtu_length`, `term_length`, `fc`, `gtag`, `reliable`, …). See
 `examples/multi_destination_subscription.rs` and `examples/request_response.rs`.
 
+The `*_duration` URI helpers (for example, `linger_timeout_duration`) accept
+`Duration` and check that the nanosecond value fits Aeron's signed 64-bit range.
+
 Response channels can also set `session_id`. Use the same session ID on the response
 subscription and publication. `examples/request_response.rs` uses session ID 71 and
 checks the received header. The tests cover both IPC and UDP response channels.
@@ -252,6 +257,7 @@ use rusteron_client::*;
 use std::time::Duration;
 
 let ctx = AeronContext::new()?;
+ctx.set_driver_timeout(Duration::from_secs(10))?;
 // Reuse the built-in logger for async client errors (Aeron samples always set one).
 ctx.set_error_handler(Some(AeronErrorHandlerLogger))?;
 let aeron = Aeron::new(&ctx)?;
@@ -382,12 +388,13 @@ C strings and driver guards in the [migration guide](https://github.com/gsrxyz/r
 - [`examples/streaming_rate.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/streaming_rate.rs): streaming publisher and rate-reporting subscriber (port of `streaming_publisher.c` + `rate_subscriber.c`)
 - [`examples/multi_destination_subscription.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/multi_destination_subscription.rs): MDS with one manual-control subscription aggregating several endpoints (port of `basic_mds_subscriber.c`)
 - [`examples/driver_stats.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/driver_stats.rs): CnC tooling covering counters, the distinct error log and the loss report (ports of `aeron_stat.c` / `error_stat.c` / `loss_stat.c`)
-- [`examples/embedded_ping_pong.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/embedded_ping_pong.rs): RTT ping/pong with `try_claim` (port of `cping`/`cpong`); starts its own driver unless `AERON_DIR` is set
+- [`examples/aeron_ping_pong.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/aeron_ping_pong.rs): Aeron C `cping`/`cpong` workload with image assembly and `offer` echoes; starts its own driver unless `AERON_DIR` is set
+- [`examples/embedded_ping_pong.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/embedded_ping_pong.rs)
+- [`examples/latency.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/latency.rs): raw subscription polls and claim-then-offer echoes
 - [`examples/embedded_exclusive_ipc_throughput.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/embedded_exclusive_ipc_throughput.rs): exclusive-publication IPC throughput; starts its own driver unless `AERON_DIR` is set
 - [`examples/request_response.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/request_response.rs): response channels (aeron 1.44+), with request/response routing through `control-mode=response` + `response-correlation-id` (port of `response_server.c`/`response_client.c`)
 - [`examples/file_transfer.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/file_transfer.rs): chunked file transfer with fragment reassembly and verification (port of `FileSender`/`FileReceiver`)
 - [`examples/zero_copy_claim.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/zero_copy_claim.rs): zero-copy publish with `try_claim_owned` (commit, abort on drop), a send timestamp in `set_reserved_value`, and header reads on the subscriber
-- [`examples/retained_images.rs`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/retained_images.rs): retained image lifecycle, covering `for_each_image`, `image_by_session_id`, polling the image directly, `is_closed()` once the publisher goes, and dropping the handle before `subscription.close()`
 
 ---
 
@@ -418,7 +425,7 @@ See these guides for configuration and examples:
   }
   # Ok(()) }
   ```
-  Zero-copy `try_claim_owned()` returns an RAII `AeronClaim`; an uncommitted claim aborts on drop:
+  Zero-copy `try_claim_owned()` returns an RAII `AeronClaim<'_>` that borrows the publication; an uncommitted claim aborts on drop. Other aliases must not close the shared publication while a claim is live:
   ```rust,no_run
   # use rusteron_client::*;
   # fn snippet(publication: &AeronPublication, msg: &[u8], idle: &mut BackoffIdleStrategy) -> Result<(), Box<dyn std::error::Error>> {

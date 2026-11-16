@@ -56,6 +56,30 @@ mod mdc_mds_guide_doctests {}
 #[doc = include_str!("../../docs/media_driver_configuration_and_backpressure_guide.md")]
 mod media_driver_guide_doctests {}
 
+/// An owned claim borrows its publication until it is committed or aborted.
+///
+/// ```compile_fail,E0505
+/// # use rusteron_client::*;
+/// fn close_with_live_claim(publication: AeronPublication) -> Result<(), Box<dyn std::error::Error>> {
+///     let claim = publication.try_claim_owned(16)?;
+///     publication.close()?;
+///     claim.abort()?;
+///     Ok(())
+/// }
+/// ```
+///
+/// ```compile_fail,E0505
+/// # use rusteron_client::*;
+/// fn drop_with_live_claim(publication: AeronExclusivePublication) -> Result<(), Box<dyn std::error::Error>> {
+///     let claim = publication.try_claim_owned(16)?;
+///     drop(publication);
+///     claim.abort()?;
+///     Ok(())
+/// }
+/// ```
+#[cfg(doctest)]
+mod claim_borrow_contract {}
+
 #[cfg(test)]
 mod panic_tests;
 

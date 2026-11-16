@@ -1,10 +1,11 @@
 //! Latency micro-benchmarks for the publish/claim hot paths.
 //!
-//! The typed `offer` / `try_claim_owned` must cost no more than the raw `i64`-returning
-//! `offer_raw` / `try_claim_raw`, and those no more than the same Aeron C calls made directly.
+//! Compare typed, raw and direct C APIs with the same application work. `claim`
+//! measures reservation and commit; `claim_copy` also copies the same 32-byte payload.
+//! These are amortized operation costs, not message latency percentiles.
 //! Each arm publishes in batches; between them, untimed, it drains the subscription and waits
 //! for room in the publication window, so every publish lands instead of returning back pressure.
-//! Run with `cargo bench -p rusteron-client --bench offer_claim_poll`.
+//! Run with `cargo bench -p rusteron-client --features static --bench offer_claim_poll`.
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use rusteron_client::bindings::{aeron_buffer_claim_commit, aeron_publication_offer, aeron_publication_try_claim};
@@ -32,7 +33,17 @@ struct Harness {
 }
 
 fn harness() -> Harness {
-    let driver = EmbeddedDriver::launch().unwrap();
+    // The default three 64 MiB IPC terms can exceed a container's /dev/shm.
+    let directory = std::env::temp_dir().join(format!(
+        "rusteron-claim-bench-{}-{}",
+        std::process::id(),
+        Aeron::nano_clock()
+    ));
+    let driver = EmbeddedDriver::launch_with(|ctx| {
+        ctx.set_dir(&directory.to_string_lossy().into_c_string())?;
+        Ok(())
+    })
+    .unwrap();
     let ctx = AeronContext::new().unwrap();
     ctx.set_dir(&driver.dir().into_c_string()).unwrap();
     let aeron = Aeron::new(&ctx).unwrap();
@@ -65,9 +76,9 @@ fn harness() -> Harness {
     }
 }
 
-/// Times `iters` calls of `publish` in batches, draining and waiting for window between
-/// batches untimed, and checks that the calls published.
-fn timed(h: &Harness, iters: u64, mut publish: impl FnMut()) -> Duration {
+/// Times `iters` successful publishes, including identical retry behaviour in
+/// every arm. Window waits and receive draining stay outside the timer.
+fn timed(h: &Harness, iters: u64, mut publish: impl FnMut() -> bool) -> Duration {
     let mut elapsed = Duration::ZERO;
     let mut left = iters;
     while left > 0 {
@@ -77,19 +88,19 @@ fn timed(h: &Harness, iters: u64, mut publish: impl FnMut()) -> Duration {
         while h.publisher.position_limit() - h.publisher.position() < batch as i64 * FRAME_LEN {
             std::thread::yield_now();
         }
-        let before = h.publisher.position();
         let start = Instant::now();
         for _ in 0..batch {
-            publish();
+            // Occasional ADMIN_ACTION at term rotation is part of every arm.
+            while !publish() {}
         }
         elapsed += start.elapsed();
-        // a term rotation turns one publish into ADMIN_ACTION; any more means back pressure
-        let published = (h.publisher.position() - before) / FRAME_LEN;
-        assert!(
-            published + 1 >= batch as i64,
-            "only {published} of {batch} publishes landed, so the bench timed the error path"
-        );
-        while h.subscription.poll_fn(|_, _| {}, 1024).expect("drain subscription") > 0 {}
+        let mut received = 0;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while received < batch {
+            received += h.subscription.poll_fn(|_, _| {}, 1024).expect("drain subscription") as u64;
+            assert!(Instant::now() < deadline, "subscription did not receive the batch");
+        }
+        assert_eq!(received, batch);
         left -= batch;
     }
     elapsed
@@ -102,6 +113,13 @@ fn bench_offer(c: &mut Criterion) {
     // read once, as a C caller holds its pointers
     let publication = h.publisher.get_inner();
     let claim = claim_buf.get_inner();
+
+    // Touch the complete three-term ring before Criterion's own per-arm warmup.
+    // This is setup work: its returned duration is intentionally discarded.
+    let constants = AeronPublicationConstants::new_zeroed_on_stack();
+    h.publisher.constants(&constants).unwrap();
+    let ring_messages = 3 * constants.term_buffer_length() as u64 / FRAME_LEN as u64 + 1;
+    let _ = timed(&h, ring_messages, || h.publisher.offer(&payload).is_ok());
 
     {
         let mut g = c.benchmark_group("offer");
@@ -117,23 +135,19 @@ fn bench_offer(c: &mut Criterion) {
                             None,
                             std::ptr::null_mut(),
                         )
-                    });
+                    }) >= 0
                 })
             })
         });
         g.bench_function("raw_offer_i64", |b| {
             b.iter_custom(|iters| {
                 timed(&h, iters, || {
-                    black_box(h.publisher.offer_raw(black_box(&payload), Handlers::NONE));
+                    black_box(h.publisher.offer_raw(black_box(&payload), Handlers::NONE)) >= 0
                 })
             })
         });
         g.bench_function("offer", |b| {
-            b.iter_custom(|iters| {
-                timed(&h, iters, || {
-                    let _ = black_box(h.publisher.offer(black_box(&payload)));
-                })
-            })
+            b.iter_custom(|iters| timed(&h, iters, || black_box(h.publisher.offer(black_box(&payload))).is_ok()))
         });
         g.finish();
     }
@@ -147,7 +161,10 @@ fn bench_offer(c: &mut Criterion) {
                     // committed only after a successful try_claim filled it.
                     unsafe {
                         if aeron_publication_try_claim(publication, PAYLOAD_LEN, claim) >= 0 {
-                            aeron_buffer_claim_commit(claim);
+                            assert_eq!(aeron_buffer_claim_commit(claim), 0);
+                            true
+                        } else {
+                            false
                         }
                     }
                 })
@@ -157,7 +174,10 @@ fn bench_offer(c: &mut Criterion) {
             b.iter_custom(|iters| {
                 timed(&h, iters, || {
                     if h.publisher.try_claim_raw(PAYLOAD_LEN, &claim_buf) >= 0 {
-                        let _ = claim_buf.commit();
+                        claim_buf.commit().unwrap();
+                        true
+                    } else {
+                        false
                     }
                 })
             })
@@ -166,7 +186,59 @@ fn bench_offer(c: &mut Criterion) {
             b.iter_custom(|iters| {
                 timed(&h, iters, || {
                     if let Ok(claim) = h.publisher.try_claim_owned(PAYLOAD_LEN) {
-                        let _ = claim.commit();
+                        claim.commit().unwrap();
+                        true
+                    } else {
+                        false
+                    }
+                })
+            })
+        });
+        g.finish();
+    }
+
+    {
+        let mut g = c.benchmark_group("claim_copy");
+        g.bench_function("c_try_claim_copy_commit", |b| {
+            b.iter_custom(|iters| {
+                timed(&h, iters, || {
+                    // SAFETY: native success initializes the claim; it remains
+                    // writable until commit. The payload has exactly PAYLOAD_LEN bytes.
+                    unsafe {
+                        if aeron_publication_try_claim(publication, PAYLOAD_LEN, claim) >= 0 {
+                            std::slice::from_raw_parts_mut((*claim).data, (*claim).length)
+                                .copy_from_slice(black_box(&payload));
+                            assert_eq!(aeron_buffer_claim_commit(claim), 0);
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                })
+            })
+        });
+        g.bench_function("raw_try_claim_copy_commit", |b| {
+            b.iter_custom(|iters| {
+                timed(&h, iters, || {
+                    if h.publisher.try_claim_raw(PAYLOAD_LEN, &claim_buf) >= 0 {
+                        claim_buf.data().copy_from_slice(black_box(&payload));
+                        claim_buf.commit().unwrap();
+                        true
+                    } else {
+                        false
+                    }
+                })
+            })
+        });
+        g.bench_function("try_claim_owned_copy_commit", |b| {
+            b.iter_custom(|iters| {
+                timed(&h, iters, || {
+                    if let Ok(mut claim) = h.publisher.try_claim_owned(PAYLOAD_LEN) {
+                        claim.data().copy_from_slice(black_box(&payload));
+                        claim.commit().unwrap();
+                        true
+                    } else {
+                        false
                     }
                 })
             })

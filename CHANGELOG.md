@@ -4,6 +4,13 @@ Main changes, newest first, grouped by published crate version. Release-only
 commits, build logs, and changes later reverted or superseded are omitted.
 Early history predating the available release tags is grouped separately.
 
+## 0.2.22
+
+- Reduced owned-claim overhead by storing the native claim inline and consuming finalisation through `ManuallyDrop`; retained the publication lifetime, typed errors and abort-on-drop. Added equal-work claim/copy/commit controls and lifecycle regression coverage.
+- Breaking: public error, status, idle-strategy, system-counter, media and control-mode enums are now `#[non_exhaustive]` (#86). Downstream matches need a fallback arm; existing variants and numeric conversions are unchanged.
+- Breaking: `AeronClaim<'a>` borrows the publication used by `try_claim_owned`, preventing that handle from being dropped or closed while the claim is live. Functions returning a claim must name the publication lifetime when it cannot be inferred. Cloned handles must still not close the shared publication while a claim is live.
+- Added checked `Duration` setters and matching getters for client context timeouts/intervals and the archive message timeout, plus URI duration helpers. Oversized durations return errors; driver timeouts round fractional milliseconds up. Existing integer APIs remain available.
+
 ## 0.2.21
 
 - Breaking: getters that return a C object owned by `self`, such as `archive.get_archive_context()`, `get_aeron()`, `context()`, `counters_reader()` and the archive pollers, now return `Ref<'_, T>`. It borrows the owner, so using the result after dropping or closing the owner no longer compiles (#81). `AeronArchive::aeron()` returns `Ref<'_, Aeron>`.

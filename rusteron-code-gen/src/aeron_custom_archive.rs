@@ -2,11 +2,25 @@
 // generated `aeron_custom.rs` of rusteron-archive ONLY. Unlike the common custom file,
 // this one may reference archive-only types (AeronArchive, AeronArchiveContext, ...).
 
+impl AeronArchiveContext {
+    /// Set the archive response timeout from a duration. Returns an error if its
+    /// nanosecond value exceeds Aeron's signed 64-bit clock range.
+    pub fn set_message_timeout(&self, value: std::time::Duration) -> Result<i32, AeronCError> {
+        self.set_message_timeout_ns(duration_to_nanos(value)? as u64)
+    }
+
+    /// The archive response timeout as a [`std::time::Duration`].
+    pub fn get_message_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(self.get_message_timeout_ns())
+    }
+}
+
 /// Archive control-response error codes (`io.aeron.archive.client.ArchiveException`).
 ///
 /// Server errors are embedded as `errorCode=N` in the C error text.
 /// Local client failures use the separate 2000-2002 error domain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum AeronArchiveErrorCode {
     Generic,
     ActiveListing,

@@ -944,6 +944,18 @@ mod tests {
 
     use crate::testing::{EmbeddedArchiveMediaDriverProcess, find_unused_udp_port, valgrind_timeout};
 
+    #[test]
+    fn archive_message_timeout_duration_preserves_units_and_rejects_overflow() -> Result<(), AeronCError> {
+        let context = AeronArchiveContext::new()?;
+        let timeout = Duration::from_nanos(123_456_789);
+        context.set_message_timeout(timeout)?;
+        assert_eq!(context.get_message_timeout_ns(), 123_456_789);
+        assert_eq!(context.get_message_timeout(), timeout);
+        assert!(context.set_message_timeout(Duration::MAX).is_err());
+        assert_eq!(context.get_message_timeout(), timeout);
+        Ok(())
+    }
+
     // Uses a real archive because Aeron copies the callback pointers inside async connect.
     #[test]
     #[serial_test::serial]

@@ -1,3 +1,57 @@
+# How to benchmark
+
+I have seen quite a few vibe-coded benchmarks draw conclusions from unfair comparisons. Check what each benchmark actually does before trusting its numbers.
+
+Writing good, fair benchmarks is hard and takes many iterations. I tend to hold off on conclusions until both the benchmark code and the results have been reviewed and checked multiple times.
+
+## Rules
+
+- **Make the comparison fair.** Both sides must perform the same work. If one benchmark does extra work, the difference cannot be attributed to the library alone.
+- **Measure one thing at a time.** Choose one question per benchmark and isolate the operation being measured wherever possible. Measure publishing, polling, copying, serialisation, fragment assembly and header processing separately when investigating their costs. A benchmark that combines ten different tasks measures the combined workload; do not attribute its total cost to Aeron or rusteron without isolating and profiling the cause. Change one factor at a time and keep the supporting work identical on both sides.
+- **Match versions and build settings.** Are both sides using the same Aeron version, including the native client and media driver? The same Rust version? Check native compiler versions, optimisation flags, enabled features and build profiles too, and record them with the results.
+- **Verify release builds.** Build and run both sides with `--release`, or verify the optimised benchmark profile used by `cargo bench`. Check that the native C/C++ libraries are also built with matching release optimisations. Do not compare a debug build with a release build.
+- **Warm up before measuring.** Allow connections, memory mappings, caches and the workload to settle. Use the same warmup policy on both sides, exclude warmup samples from the results, and reset histograms, counters and measurement timers afterwards. Record the warmup count or duration and check that performance has stabilised; a fixed warmup count alone does not prove it is sufficient.
+- **Match message sizes and measurement scope.** Use the same payload sizes and measured sample counts for tests with a fixed count. For tests with a fixed duration, use the same measurement duration. Report both the actual sample count and elapsed measurement time so readers can assess exposure to rare events.
+- **Be adversarial.** Start by assuming the comparison is unfair, including when it favours rusteron. Read both implementations and actively look for differences that could explain the result. Do not accept a result just because it confirms your worldview or makes your preferred library look good.
+- **Keep benchmarks simple.** Use the smallest workload that answers the question, with as little supporting code as possible. Keep the measured loops short and easy to compare side by side, so it is obvious when one implementation does extra work. Every extra abstraction or operation is another opportunity to measure the wrong thing.
+- **Inspect the whole latency distribution.** Report and examine the minimum, p50, p99, p99.9, p99.99 and maximum. If any value looks suspicious, investigate before drawing conclusions. Check units, clock resolution, timestamp placement, missing samples and scheduling pauses. Do not ignore an inconvenient tail or maximum because the median looks good.
+- **Use common sense.** Do these numbers make sense for the hardware, transport and amount of work being measured? Treat numbers that look too good to be true as a benchmark problem until you can explain and reproduce them. Verify that messages are actually sent, received and counted, and investigate surprising results before publishing conclusions.
+
+The smaller the reported difference, the tighter the controls need to be. For a tiny difference, make everything you can the same except the implementation being compared: versions, builds, workload, hardware and runtime settings. If the difference cannot be distinguished from measurement noise or other uncontrolled differences, the results do not establish that either implementation is faster.
+
+## Compare against published results
+
+Cross-check your measurements against other people's benchmarks. Start with these upstream references:
+
+- [Aeron Performance Testing](https://github.com/aeron-io/aeron/wiki/Performance-Testing): system preparation and sample commands for throughput and latency tests.
+- [Aeron benchmark harness](https://github.com/aeron-io/benchmarks): source and instructions for local and remote benchmarks, including configurable message rates and sizes.
+- [Aeron on AWS: 2025 Performance Benchmark Results](https://aws.amazon.com/blogs/industries/aeron-on-aws-2025-performance-benchmark-results/): published Transport and Cluster results with infrastructure, load and driver details.
+
+Read the methodology before comparing numbers. Match the workload and measurement: IPC versus UDP, loopback versus a network between hosts, round-trip versus one-way latency, one-message-at-a-time ping-pong versus a fixed offered message rate, and Transport versus Archive or Cluster. Check whether a result uses open-source Aeron or Premium features such as kernel bypass. A different workload is not a direct baseline for your implementation.
+
+If you are getting substantially different numbers, ask whether the problem is your benchmark or your setup before attributing it to the library. Run the corresponding upstream benchmark on the same machine with matched work and settings. If the upstream baseline is also slow, investigate the environment and driver configuration first. If the baseline performs well and your implementation does not, audit the benchmark for extra work and profile where the time goes. Investigate implausibly faster results just as critically.
+
+Exact agreement across different hardware is not expected. Explain discrepancies with evidence: CPU allocation and isolation, scheduling, memory placement, networking, versions, build flags, warmup and measurement scope. Record which published result you compared against and the differences you could not control. An unexplained discrepancy needs investigation before it supports a performance conclusion.
+
+## Examples of unfair comparisons
+
+- Using `RefCell` to work around the borrow checker in one benchmark while the other has no equivalent runtime borrowing overhead.
+- Copying a `&[u8]` into a `Vec<u8>` to work around borrowing constraints in only one benchmark, adding allocation and copying to that side.
+- Comparing Aeron implementations with different poll fragment limits. Poll counts change batching and the amount of work done per call.
+- Using a fragment assembler on one side and a raw fragment handler on the other. Match the receive path; if messages can fragment, both sides must handle them correctly.
+- Reading or processing Aeron header fields in one benchmark while the other ignores them.
+- Using different timestamp or clock implementations, or placing timestamps differently relative to retries, copying or other work.
+
+Match the message size, publication type, retry and idle behaviour, warmup, measurement interval, driver configuration and underlying Aeron version too. Document any differences that are necessary for the comparison and explain what the result measures.
+
+## Examples of flawed measurements
+
+- Pinning threads to non-isolated CPUs and treating that as an isolated test. CPU affinity does not prevent other processes, interrupts or kernel work from running there, and an SMT sibling can still compete for core resources. Small differences, particularly in tail latency, may be scheduling noise.
+- Comparing the maximum latency from 1,000,000 measured messages with the maximum from 10,000,000 and attributing the difference to the implementation. The larger sample has more opportunities to encounter a rare stall, so its maximum is more likely to be worse even if the underlying latency distribution is the same. Longer runs also have more exposure to scheduling interruptions and other interference, especially without controlled CPU placement and isolation. Match the measurement scope before comparing maxima or extreme tails.
+- Declaring a winner from a single run or a difference within the variation between runs. Repeat measurements, alternate the order of implementations and report the variation. A noisy machine can validate that a benchmark runs; it may not support a performance conclusion.
+
+---
+
 Rerun these benchmarks on your own hardware. The main run used two Azure `Standard_D8s_v6` VMs in one proximity placement group in North Central US on 2026-10-09. Each VM had an Intel Xeon Platinum 8573C, 4 cores with 2 SMT threads each, 32 GiB of RAM and accelerated networking through a MANA NIC.
 
 The VMs ran Debian 13 with Linux 7.2.6 from `trixie-backports`, Aeron 1.52.2 and rustc 1.95.0. UDP measurements used the network between the VMs. The archive-on-disk measurements used two `Standard_D8ds_v6` VMs in West US 3 on 2026-10-10.

@@ -20,10 +20,10 @@ const MESSAGES: u64 = 10;
 const ABORTED: u64 = u64::MAX;
 
 /// Claims a slot, retrying only the retryable errors.
-fn claim_slot(
-    publication: &AeronExclusivePublication,
+fn claim_slot<'a>(
+    publication: &'a AeronExclusivePublication,
     idle: &mut BackoffIdleStrategy,
-) -> Result<AeronClaim, AeronOfferError> {
+) -> Result<AeronClaim<'a>, AeronOfferError> {
     loop {
         match publication.try_claim_owned(MESSAGE_LEN) {
             Ok(claim) => {
