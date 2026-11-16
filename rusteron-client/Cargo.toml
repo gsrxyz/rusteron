@@ -8,7 +8,7 @@ repository = "https://github.com/gsrxyz/rusteron"
 homepage = "https://github.com/gsrxyz/rusteron"
 readme = "README.md"
 documentation = "https://gsrxyz.github.io/rusteron/rusteron_client/index.html"
-description = "Fast, idiomatic Rust client for Aeron messaging over IPC and UDP, built on the Aeron C API."
+description = "Fast, idiomatic Rust client for Aeron IPC and UDP messaging, using the C API directly. Used in production for low-latency trading since early 2025."
 keywords = ["aeron", "low-latency", "aeron-client", "aeron-c-bindings", "networking"]
 categories = ["network-programming"]
 

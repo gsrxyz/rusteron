@@ -8,7 +8,7 @@ repository = "https://github.com/gsrxyz/rusteron"
 homepage = "https://github.com/gsrxyz/rusteron"
 readme = "README.md"
 documentation = "https://gsrxyz.github.io/rusteron/rusteron_archive/index.html"
-description = "Fast, idiomatic Rust client for Aeron Archive recording, replay and replication, built on the Aeron C API."
+description = "Fast, idiomatic Rust client for Aeron transport and Aeron Archive recording, replay and replication, using the C API directly. Used in production for low-latency trading since early 2025."
 keywords = ["aeron", "low-latency", "aeron-archive", "aeron-c-bindings", "networking"]
 categories = ["network-programming"]
 

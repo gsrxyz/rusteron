@@ -1945,7 +1945,7 @@ macro_rules! impl_publication_methods {
                 // SAFETY: the publication is live and the output pointer is writable.
                 let position = unsafe { $try_claim(self.get_inner(), length, claim.as_mut_ptr()) };
                 let position = AeronOfferError::from_position(position)?;
-                // SAFETY: both native publication implementations initialize
+                // SAFETY: both native publication implementations initialise
                 // frame_header, data and length on success. Failed claims return
                 // above without reading the output or aborting an unclaimed slot.
                 let claim = unsafe { claim.assume_init() };

@@ -67,8 +67,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn client(dir: &str) -> Result<Aeron, AeronCError> {
     let context = AeronContext::new()?;
     context.set_dir(&cformat!("{dir}"))?;
-    // Glide's comparison client uses its default, false.
-    context.set_pre_touch_mapped_memory(false)?;
+    context.set_error_handler(Some(|code: i32, msg: &str| eprintln!("aeron error {code}: {msg}")))?;
+    context.set_pre_touch_mapped_memory(true)?;
     let client = Aeron::new(&context)?;
     client.start()?;
     Ok(client)
@@ -142,7 +142,6 @@ fn round_trip(
     buffer: &mut [u8],
     histogram: &mut Histogram<u64>,
 ) -> Result<(), Box<dyn Error>> {
-    // Like Glide, stamp once before retrying; retries are included in the RTT.
     buffer[..8].copy_from_slice(&nanos().to_le_bytes());
     while !sent(publication.offer(buffer)) {
         if !running.load(Ordering::Acquire) {
