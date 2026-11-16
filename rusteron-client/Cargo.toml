@@ -94,11 +94,6 @@ path              = "examples/embedded_ping_pong.rs"
 required-features = ["examples"]
 
 [[example]]
-name              = "latency"
-path              = "examples/latency.rs"
-required-features = ["examples"]
-
-[[example]]
 name              = "aeron_ping_pong"
 path              = "examples/aeron_ping_pong.rs"
 required-features = ["examples"]
