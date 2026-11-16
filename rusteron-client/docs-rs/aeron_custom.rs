@@ -53,6 +53,7 @@ unsafe impl Sync for AeronCounter {}
 /// `try_claim` time (via the returned error) and is reported by
 /// [`AeronStatus::from_error`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum AeronStatus {
     /// No publication/subscription image is currently connected.
     Disconnected,
@@ -86,6 +87,7 @@ impl AeronStatus {
 /// - `Backoff`: `maxSpins-maxYields-minParkNs-maxParkNs` (e.g. `"10-20-1000-1000000"`)
 /// - Others: init args ignored
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum AeronIdleStrategyKind {
     /// Sleep when idle (`"sleeping"`); period from the init args.
     Sleeping,
@@ -199,7 +201,70 @@ impl Aeron {
     }
 }
 
+// Aeron uses signed nanosecond clocks even where its context setters accept u64
+fn duration_to_nanos(value: std::time::Duration) -> Result<i64, AeronCError> {
+    i64::try_from(value.as_nanos())
+        .map_err(|_| AeronCError::with_message(-1, "duration exceeds Aeron's i64 nanosecond range"))
+}
+
+fn duration_to_millis(value: std::time::Duration) -> Result<u64, AeronCError> {
+    let millis = value.as_nanos().div_ceil(1_000_000);
+    if millis > (i64::MAX / 1_000_000) as u128 {
+        return Err(AeronCError::with_message(
+            -1,
+            "rounded duration exceeds Aeron's i64 nanosecond range",
+        ));
+    }
+    Ok(millis as u64)
+}
+
 impl AeronContext {
+    /// Set the driver timeout. Fractional milliseconds are rounded up, so a positive
+    /// timeout never becomes zero. Returns an error if the rounded timeout exceeds
+    /// Aeron's signed 64-bit nanosecond range
+    pub fn set_driver_timeout(&self, value: std::time::Duration) -> Result<i32, AeronCError> {
+        self.set_driver_timeout_ms(duration_to_millis(value)?)
+    }
+
+    /// The configured driver timeout as a [`std::time::Duration`]
+    pub fn get_driver_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.get_driver_timeout_ms())
+    }
+
+    /// Set the keepalive interval, rejecting durations outside Aeron's signed 64-bit
+    /// nanosecond range
+    pub fn set_keepalive_interval(&self, value: std::time::Duration) -> Result<i32, AeronCError> {
+        self.set_keepalive_interval_ns(duration_to_nanos(value)? as u64)
+    }
+
+    /// The configured keepalive interval as a [`std::time::Duration`]
+    pub fn get_keepalive_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(self.get_keepalive_interval_ns())
+    }
+
+    /// Set the resource linger duration, rejecting durations outside Aeron's signed
+    /// 64-bit nanosecond range
+    pub fn set_resource_linger_duration(&self, value: std::time::Duration) -> Result<i32, AeronCError> {
+        self.set_resource_linger_duration_ns(duration_to_nanos(value)? as u64)
+    }
+
+    /// The configured resource linger duration as a [`std::time::Duration`]
+    pub fn get_resource_linger_duration(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(self.get_resource_linger_duration_ns())
+    }
+
+    /// Set the conductor's timeout-check interval, rejecting durations outside
+    /// Aeron's signed 64-bit nanosecond range. To change how the conductor sleeps,
+    /// use [`Self::set_idle_strategy_kind`]
+    pub fn set_idle_sleep_duration(&self, value: std::time::Duration) -> Result<i32, AeronCError> {
+        self.set_idle_sleep_duration_ns(duration_to_nanos(value)? as u64)
+    }
+
+    /// The configured timeout-check interval as a [`std::time::Duration`]
+    pub fn get_idle_sleep_duration(&self) -> std::time::Duration {
+        std::time::Duration::from_nanos(self.get_idle_sleep_duration_ns())
+    }
+
     /// Typed variant of [`Self::set_idle_strategy`]: configures the conductor's idle
     /// strategy without stringly-typed names, setting coherent default init args
     /// (override afterwards with [`Self::set_idle_strategy_init_args`] if needed).
@@ -354,6 +419,7 @@ impl AeronHeader {
 
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum AeronSystemCounterType {
     /// Running total of bytes sent for data over UDP, excluding IP headers.
     BytesSent = 0,
@@ -1172,6 +1238,12 @@ impl AeronUriStringBuilder {
         self.put_int64(key, value)?;
         Ok(self)
     }
+
+    /// Set the URI linger timeout from a duration. Returns an error if its
+    /// nanosecond value does not fit in an `i64`
+    pub fn linger_timeout_duration(&self, value: std::time::Duration) -> Result<&Self, AeronCError> {
+        self.linger_timeout(duration_to_nanos(value)?)
+    }
     pub fn mtu_length(&self, value: i32) -> Result<&Self, AeronCError> {
         let key = std::ffi::CStr::from_bytes_until_nul(AERON_URI_MTU_LENGTH_KEY)
             .map_err(|_| AeronCError::from_code(PARSE_CSTR_ERROR_CODE))?;
@@ -1343,17 +1415,34 @@ impl AeronUriStringBuilder {
         self.put_int64(key, value)?;
         Ok(self)
     }
+
+    /// Set the NAK delay from a duration, checked against the `i64` nanosecond limit
+    pub fn nak_delay_duration(&self, value: std::time::Duration) -> Result<&Self, AeronCError> {
+        self.nak_delay(duration_to_nanos(value)?)
+    }
     pub fn untethered_window_limit_timeout(&self, value: i64) -> Result<&Self, AeronCError> {
         let key = std::ffi::CStr::from_bytes_until_nul(AERON_URI_UNTETHERED_WINDOW_LIMIT_TIMEOUT_KEY)
             .map_err(|_| AeronCError::from_code(PARSE_CSTR_ERROR_CODE))?;
         self.put_int64(key, value)?;
         Ok(self)
     }
+
+    /// Set the untethered window limit timeout from a duration, checked against
+    /// the `i64` nanosecond limit
+    pub fn untethered_window_limit_timeout_duration(&self, value: std::time::Duration) -> Result<&Self, AeronCError> {
+        self.untethered_window_limit_timeout(duration_to_nanos(value)?)
+    }
     pub fn untethered_resting_timeout(&self, value: i64) -> Result<&Self, AeronCError> {
         let key = std::ffi::CStr::from_bytes_until_nul(AERON_URI_UNTETHERED_RESTING_TIMEOUT_KEY)
             .map_err(|_| AeronCError::from_code(PARSE_CSTR_ERROR_CODE))?;
         self.put_int64(key, value)?;
         Ok(self)
+    }
+
+    /// Set the untethered resting timeout from a duration, checked against
+    /// the `i64` nanosecond limit
+    pub fn untethered_resting_timeout_duration(&self, value: std::time::Duration) -> Result<&Self, AeronCError> {
+        self.untethered_resting_timeout(duration_to_nanos(value)?)
     }
     /// Sets the linger timeout in nanoseconds for an untethered subscription
     /// (`untethered-linger-timeout`). This is separate from publication `linger`.
@@ -1362,6 +1451,12 @@ impl AeronUriStringBuilder {
             .map_err(|_| AeronCError::from_code(PARSE_CSTR_ERROR_CODE))?;
         self.put_int64(key, value)?;
         Ok(self)
+    }
+
+    /// Set the untethered linger timeout from a duration, checked against
+    /// the `i64` nanosecond limit
+    pub fn untethered_linger_timeout_duration(&self, value: std::time::Duration) -> Result<&Self, AeronCError> {
+        self.untethered_linger_timeout(duration_to_nanos(value)?)
     }
     pub fn max_resend(&self, value: i32) -> Result<&Self, AeronCError> {
         let key = std::ffi::CStr::from_bytes_until_nul(AERON_URI_MAX_RESEND_KEY)
@@ -1687,29 +1782,38 @@ impl AeronBufferClaim {
 /// [`AeronExclusivePublication::try_claim_owned`]; the claim is returned only on
 /// a successful `try_claim`, so its inner buffer is always a claimed
 /// slot (never a null zero-default).
-pub struct AeronClaim {
-    claim: AeronBufferClaim,
+///
+/// The claim borrows the publication handle used to create it until it is
+/// committed, aborted, or dropped. Other aliases of that publication must not
+/// close the underlying C resource while the claim is live
+pub struct AeronClaim<'a> {
+    // A guard always owns one inline native claim. Using CResource here would
+    // introduce heap/stack/borrowed dispatch and Rc cleanup checks after FFI
+    claim: aeron_buffer_claim_t,
     position: i64,
-    finalised: bool,
+    _publication: std::marker::PhantomData<&'a ()>,
 }
 
-impl AeronClaim {
+impl AeronClaim<'_> {
     /// The writable claimed slice (zero-copy into the publication term buffer).
     #[inline]
     pub fn data(&mut self) -> &mut [u8] {
-        self.claim.data()
+        // SAFETY: only a successful native try_claim constructs a guard. Its
+        // data pointer is non-null even for an empty payload, and finalisation
+        // consumes the guard. The mutable borrow prevents overlapping slices
+        unsafe { std::slice::from_raw_parts_mut(self.claim.data, self.claim.length) }
     }
 
     /// Length of the claimed slice in bytes.
     #[inline]
     pub fn len(&self) -> usize {
-        self.claim.length()
+        self.claim.length
     }
 
     /// Whether the claimed slice is empty.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.claim.length() == 0
+        self.claim.length == 0
     }
 
     /// Stream position Aeron assigned to this claim.
@@ -1722,37 +1826,61 @@ impl AeronClaim {
     /// read with [`AeronHeader::reserved_value`]. Call before [`Self::commit`].
     #[inline]
     pub fn set_reserved_value(&mut self, value: i64) {
-        // an AeronClaim always holds a claimed buffer, so the header is there
-        if let Some(header) = self.claim.frame_header_mut() {
-            header.reserved_value = value;
+        // SAFETY: a successful claim provides a valid frame header until
+        // commit/abort. This field uses Aeron's packed header layout
+        unsafe {
+            (*self.claim.frame_header.cast::<aeron_header_values_frame_t>()).reserved_value = value;
         }
     }
 
     /// Commit the claimed bytes, publishing them to subscribers. Consumes `self`.
-    pub fn commit(mut self) -> Result<i64, AeronCError> {
-        self.finalised = true;
-        self.claim.commit()?;
-        Ok(self.position)
+    #[inline]
+    pub fn commit(self) -> Result<i64, AeronCError> {
+        // Consuming the guard transfers finalisation to this method. Suppress
+        // Drop before FFI, so neither success nor an error can abort it again
+        let mut claim = std::mem::ManuallyDrop::new(self);
+        #[cfg(feature = "log-c-bindings")]
+        log::info!("aeron_buffer_claim_commit(buffer_claim: *mut aeron_buffer_claim_t)");
+        // SAFETY: the guard owns a successful, unfinalised native claim
+        let result = unsafe { aeron_buffer_claim_commit(&mut claim.claim) };
+        #[cfg(feature = "log-c-bindings")]
+        log::info!("  -> {:?}", result);
+        if result < 0 {
+            return Err(AeronCError::from_code(result));
+        }
+        Ok(claim.position)
     }
 
     /// Abort the claim, discarding the slot as padding for subscribers.
     /// Consumes `self`.
-    pub fn abort(mut self) -> Result<(), AeronCError> {
-        self.finalised = true;
-        self.claim.abort()?;
+    #[inline]
+    pub fn abort(self) -> Result<(), AeronCError> {
+        let mut claim = std::mem::ManuallyDrop::new(self);
+        claim.abort_inner()
+    }
+
+    #[inline]
+    fn abort_inner(&mut self) -> Result<(), AeronCError> {
+        #[cfg(feature = "log-c-bindings")]
+        log::info!("aeron_buffer_claim_abort(buffer_claim: *mut aeron_buffer_claim_t)");
+        // SAFETY: called once, explicitly or by Drop, while the publication
+        // borrowed by this guard still exists
+        let result = unsafe { aeron_buffer_claim_abort(&mut self.claim) };
+        #[cfg(feature = "log-c-bindings")]
+        log::info!("  -> {:?}", result);
+        if result < 0 {
+            return Err(AeronCError::from_code(result));
+        }
         Ok(())
     }
 }
 
-impl Drop for AeronClaim {
+impl Drop for AeronClaim<'_> {
+    #[inline]
     fn drop(&mut self) {
-        if !self.finalised {
-            // Defensive backstop: abort so the term slot is released now rather
-            // than after the publication unblock timeout. The claim is always a
-            // claimed slot (constructed only on a successful try_claim),
-            // so calling abort here is safe.
-            let _ = self.claim.abort();
-        }
+        // A guard that reaches Drop is still active: commit/abort consume it
+        // through ManuallyDrop. Release its slot before the unblock timeout
+        let _ = self.abort_inner();
     }
 }
 
@@ -1812,13 +1940,20 @@ macro_rules! impl_publication_methods {
 
             /// Zero-copy claim returning a RAII [`AeronClaim`] that is auto-aborted on
             /// drop unless explicitly committed or aborted.
-            pub fn try_claim_owned(&self, length: usize) -> Result<AeronClaim, AeronOfferError> {
-                let claim = AeronBufferClaim::new_zeroed_on_stack();
-                let position = self.try_claim(length, &claim)?;
+            #[inline]
+            pub fn try_claim_owned(&self, length: usize) -> Result<AeronClaim<'_>, AeronOfferError> {
+                let mut claim = std::mem::MaybeUninit::<aeron_buffer_claim_t>::uninit();
+                // SAFETY: the publication is live and the output pointer is writable
+                let position = unsafe { $try_claim(self.get_inner(), length, claim.as_mut_ptr()) };
+                let position = AeronOfferError::from_position(position)?;
+                // SAFETY: both native publication implementations initialise
+                // frame_header, data and length on success. Failed claims return
+                // above without reading the output or aborting an unclaimed slot
+                let claim = unsafe { claim.assume_init() };
                 Ok(AeronClaim {
                     claim,
                     position,
-                    finalised: false,
+                    _publication: std::marker::PhantomData,
                 })
             }
 
@@ -2465,6 +2600,80 @@ mod aeron_custom_tests {
     use super::*;
 
     #[test]
+    fn context_duration_helpers_preserve_units_and_reject_overflow() -> Result<(), AeronCError> {
+        use std::time::Duration;
+        let context = AeronContext::new()?;
+        let interval = Duration::from_nanos(1_234_567);
+        context.set_keepalive_interval(interval)?;
+        context.set_resource_linger_duration(interval)?;
+        context.set_idle_sleep_duration(interval)?;
+        assert_eq!(context.get_keepalive_interval_ns(), 1_234_567);
+        assert_eq!(context.get_keepalive_interval(), interval);
+        assert_eq!(context.get_resource_linger_duration(), interval);
+        assert_eq!(context.get_idle_sleep_duration(), interval);
+
+        for (timeout, expected_ms) in [
+            (Duration::ZERO, 0),
+            (Duration::from_nanos(1), 1),
+            (interval, 2),
+            (Duration::from_millis(2), 2),
+        ] {
+            context.set_driver_timeout(timeout)?;
+            assert_eq!(context.get_driver_timeout_ms(), expected_ms);
+            assert_eq!(context.get_driver_timeout(), Duration::from_millis(expected_ms));
+        }
+        assert!(context.set_driver_timeout(Duration::MAX).is_err());
+        assert!(context.set_keepalive_interval(Duration::MAX).is_err());
+        assert!(context.set_resource_linger_duration(Duration::MAX).is_err());
+        assert!(context.set_idle_sleep_duration(Duration::MAX).is_err());
+        assert_eq!(context.get_driver_timeout_ms(), 2);
+        assert_eq!(context.get_keepalive_interval(), interval);
+        assert_eq!(context.get_resource_linger_duration(), interval);
+        assert_eq!(context.get_idle_sleep_duration(), interval);
+        Ok(())
+    }
+
+    #[test]
+    fn duration_conversion_checks_signed_clock_limits_and_rounding() {
+        use std::time::Duration;
+        let nanos_limit = i64::MAX as u64;
+        assert_eq!(duration_to_nanos(Duration::from_nanos(nanos_limit)).unwrap(), i64::MAX);
+        assert!(duration_to_nanos(Duration::from_nanos(nanos_limit + 1)).is_err());
+        let millis_limit = nanos_limit / 1_000_000;
+        let max_timeout = Duration::from_millis(millis_limit);
+        assert_eq!(duration_to_millis(max_timeout).unwrap(), millis_limit);
+        assert!(duration_to_millis(max_timeout + Duration::from_nanos(1)).is_err());
+    }
+
+    #[test]
+    fn uri_duration_helpers_write_nanoseconds_and_reject_overflow() -> Result<(), AeronCError> {
+        use std::time::Duration;
+        let builder = AeronUriStringBuilder::udp("127.0.0.1:40123")?;
+        builder.linger_timeout_duration(Duration::from_millis(2))?;
+        builder.nak_delay_duration(Duration::from_micros(3))?;
+        builder.untethered_window_limit_timeout_duration(Duration::from_secs(4))?;
+        builder.untethered_resting_timeout_duration(Duration::from_nanos(5))?;
+        builder.untethered_linger_timeout_duration(Duration::ZERO)?;
+        let channel = builder.build(1024)?;
+        for parameter in [
+            "linger=2000000",
+            "nak-delay=3000",
+            "untethered-window-limit-timeout=4000000000",
+            "untethered-resting-timeout=5",
+            "untethered-linger-timeout=0",
+        ] {
+            assert!(channel.split(['?', '|']).any(|part| part == parameter), "{channel}");
+        }
+        assert!(builder.linger_timeout_duration(Duration::MAX).is_err());
+        assert!(builder.nak_delay_duration(Duration::MAX).is_err());
+        assert!(builder.untethered_window_limit_timeout_duration(Duration::MAX).is_err());
+        assert!(builder.untethered_resting_timeout_duration(Duration::MAX).is_err());
+        assert!(builder.untethered_linger_timeout_duration(Duration::MAX).is_err());
+        assert_eq!(builder.build(1024)?, channel);
+        Ok(())
+    }
+
+    #[test]
     fn from_position_positive_is_ok_position() {
         assert_eq!(AeronOfferError::from_position(0), Ok(0));
         assert_eq!(AeronOfferError::from_position(12_345), Ok(12_345));
@@ -2518,22 +2727,65 @@ mod aeron_custom_tests {
         assert_eq!(AeronStatus::from_error(&AeronOfferError::MaxPositionExceeded), None);
     }
 
-    #[test]
-    fn defused_claim_drops_without_invoking_ffi() {
-        // A zero-default `AeronBufferClaim` has a null inner pointer; calling
-        // abort/commit FFI on it would be unsound. With `finalised = true` the
-        // `Drop` backstop must skip the abort. Constructing directly is allowed
-        // because the test sits in the same module as the private fields. The
-        // mere fact that this drops without segfaulting is the assertion
-        // (mirrors wingfoil's defused-claim test). `position()` reads only the
-        // stored i64 field, so it is also FFI-free.
-        let claim = AeronClaim {
-            claim: AeronBufferClaim::default(),
-            position: 7,
-            finalised: true,
+    // A local frame exercises the native commit/abort writes without a driver.
+    // The returned guard borrows both allocations until it is finalised
+    fn local_claim<'a>(frame: &'a mut aeron_header_values_frame_t, payload: &'a mut [u8]) -> AeronClaim<'a> {
+        frame.type_ = AERON_HDR_TYPE_DATA as i16;
+        frame.frame_length = -(payload.len() as i32 + 32);
+        let claim = aeron_buffer_claim_t {
+            frame_header: (frame as *mut aeron_header_values_frame_t).cast(),
+            data: payload.as_mut_ptr(),
+            length: payload.len(),
         };
-        assert_eq!(claim.position(), 7);
-        drop(claim);
+        AeronClaim {
+            claim,
+            position: 64,
+            _publication: std::marker::PhantomData,
+        }
+    }
+
+    #[test]
+    fn owned_claim_commit_preserves_data_and_does_not_abort() {
+        for length in [0, 7] {
+            let mut frame = aeron_header_values_frame_t::default();
+            let mut payload = vec![0; length];
+            let mut claim = local_claim(&mut frame, &mut payload);
+            assert_eq!(claim.len(), length);
+            assert_eq!(claim.is_empty(), length == 0);
+            claim.data().fill(19);
+            claim.set_reserved_value(123);
+            assert_eq!(claim.commit().unwrap(), 64);
+            let (frame_length, frame_type, reserved) = (frame.frame_length, frame.type_, frame.reserved_value);
+            assert_eq!(frame_length, length as i32 + 32);
+            assert_eq!(frame_type, AERON_HDR_TYPE_DATA as i16);
+            assert_eq!(reserved, 123);
+            assert_eq!(payload, vec![19; length]);
+        }
+    }
+
+    #[test]
+    fn owned_claim_explicit_abort_marks_padding() {
+        let mut frame = aeron_header_values_frame_t::default();
+        let mut payload = [0; 7];
+        local_claim(&mut frame, &mut payload).abort().unwrap();
+        let (length, frame_type) = (frame.frame_length, frame.type_);
+        assert_eq!(length, 39);
+        assert_eq!(frame_type, AERON_HDR_TYPE_PAD as i16);
+    }
+
+    #[test]
+    fn owned_claim_aborts_during_unwind() {
+        let mut frame = aeron_header_values_frame_t::default();
+        let mut payload = [0; 7];
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut claim = local_claim(&mut frame, &mut payload);
+            claim.data().fill(19);
+            panic!("abandon active claim");
+        }));
+        assert!(outcome.is_err());
+        let (length, frame_type) = (frame.frame_length, frame.type_);
+        assert_eq!(length, 39);
+        assert_eq!(frame_type, AERON_HDR_TYPE_PAD as i16);
     }
 
     // --- AeronStatusTracker tests ---

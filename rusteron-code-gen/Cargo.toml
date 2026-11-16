@@ -9,7 +9,7 @@ repository = "https://github.com/gsrxyz/rusteron"
 homepage = "https://github.com/gsrxyz/rusteron"
 readme = "README.md"
 documentation = "https://gsrxyz.github.io/rusteron/rusteron_code_gen"
-description = "Code generator for Aeron C bindings"
+description = "Generates fast, idiomatic Rust wrappers and bindings for the Aeron C API."
 
 [dependencies]
 itertools     = { workspace = true }

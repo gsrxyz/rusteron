@@ -5,7 +5,7 @@
 [![API Docs](https://docs.rs/rusteron-archive/badge.svg)](https://docs.rs/rusteron-archive/)
 [![github API Docs](https://custom-icon-badges.demolab.com/badge/githubdocs-blue.svg?logo=log\&logoSource=feather)](https://gsrxyz.github.io/rusteron)
 
-Rusteron is a thin, high-performance Rust wrapper over the [Aeron](https://github.com/real-logic/aeron) C API.
+Rusteron provides fast, idiomatic Rust wrappers over the [Aeron](https://github.com/real-logic/aeron) C API.
 It exposes low-level C bindings with minimal abstraction, optimised for production use in latency-sensitive environments.
 It provides a client, an Archive client and a Media Driver.
 
@@ -15,7 +15,9 @@ It provides a client, an Archive client and a Media Driver.
 
 Rusteron is sponsored and maintained by [GSR](https://www.gsr.io), a global leader in algorithmic trading and market making in digital assets.
 
-It runs in GSR's real-time trading stack and is developed under the GSR GitHub organisation. We welcome contributions, feedback and discussion. To integrate or contribute, open an issue or reach out directly.
+Rusteron has been running in production in GSR's low-latency trading system since the beginning of 2025. It is mature and battle tested.
+
+It is developed under the GSR GitHub organisation. We welcome contributions, feedback and discussion. To integrate or contribute, open an issue or reach out directly.
 
 ---
 
@@ -34,7 +36,7 @@ Since 0.2, owned handles can close or drop in any order. `aeron.close()` is defe
 
 - `unsafe close_now()` frees children immediately.
 - Getters such as `archive.get_archive_context()` or `archive_context.get_aeron()` return a `Ref` that borrows the object it came from, so it cannot outlive it.
-- A buffer claim (`try_claim` / `try_claim_owned`) must be committed or aborted before its publication closes.
+- A buffer claim (`try_claim` / `try_claim_owned`) must be committed or aborted before its publication closes. `try_claim_owned` borrows the publication handle for the claim's lifetime; other aliases must not close the shared publication while a claim is live.
 - A panic in a callback never aborts the process (unless you build with `panic = "abort"`). See [Panics in callbacks](#panics-in-callbacks) for what happens to the panic and to the message.
 - A retained image must be dropped before `subscription.close()`.
 
@@ -408,7 +410,7 @@ For measured settings for latency and throughput on x86-64 Linux (socket buffers
 
 ## Benchmarks
 
-For latency and throughput benchmarks, refer to [BENCHMARKS.md](https://github.com/gsrxyz/rusteron/blob/main/BENCHMARKS.md).
+Start with [How to benchmark](https://github.com/gsrxyz/rusteron/blob/main/BENCHMARKS.md#how-to-benchmark), then see the latency and throughput results in the same document.
 
 ---
 

@@ -577,6 +577,80 @@ fn controlled_fragment_assembler_delegate_panic_redelivers() {
     assert_eq!(*seen.borrow(), [1, 2, 2, 3]);
 }
 
+fn fragmented_delegate_panic(controlled: bool) {
+    let ipc = ipc(if controlled { 5032 } else { 5031 });
+    let length = ipc.publication.max_payload_length().unwrap() + 17;
+    let session_id = ipc.publication.session_id();
+    let seen = Rc::new(std::cell::RefCell::new(Vec::new()));
+    let recorded = seen.clone();
+    let mut panic_once = true;
+    let mut delegate = move |buffer: &[u8], header: &AeronHeader| {
+        // Exercise the borrowed header while receiving a complete, copied message.
+        assert_eq!(header.get_values().unwrap().frame().session_id(), session_id);
+        assert_eq!(buffer.len(), length);
+        assert!(buffer.iter().all(|&b| b == buffer[0]));
+        recorded.borrow_mut().push(buffer[0]);
+        if std::mem::replace(&mut panic_once, false) {
+            panic!("fragmented delegate panic");
+        }
+    };
+    let subscription = &ipc.subscription;
+    let mut poll: Box<dyn FnMut()> = if controlled {
+        let (assembler, _) = Handler::with_controlled_fragment_assembler(move |buffer: &[u8], header: &AeronHeader| {
+            delegate(buffer, header);
+            aeron_controlled_fragment_handler_action_t::AERON_ACTION_CONTINUE
+        })
+        .unwrap();
+        Box::new(move || {
+            subscription.controlled_poll(Some(&assembler), 1).unwrap();
+        })
+    } else {
+        let (assembler, _) = Handler::with_fragment_assembler(delegate).unwrap();
+        Box::new(move || {
+            subscription.poll(Some(&assembler), 1).unwrap();
+        })
+    };
+
+    wait(|| ipc.publication.offer(&vec![0xA5; length]).is_ok());
+    let panic = poll_until_panic(&mut poll);
+    assert_eq!(panic_message(&*panic), "fragmented delegate panic");
+    assert_eq!(*seen.borrow(), [0xA5]);
+    if controlled {
+        // ABORT must restore the partial buffer, so retrying the END fragment
+        // delivers the original complete message, without duplicating its bytes.
+        wait(|| {
+            poll();
+            seen.borrow().len() == 2
+        });
+        assert_eq!(*seen.borrow(), [0xA5, 0xA5]);
+    }
+    wait(|| ipc.publication.offer(&vec![0xB6; length]).is_ok());
+    wait(|| {
+        poll();
+        seen.borrow().last() == Some(&0xB6)
+    });
+    assert_eq!(
+        *seen.borrow(),
+        if controlled {
+            vec![0xA5, 0xA5, 0xB6]
+        } else {
+            vec![0xA5, 0xB6]
+        }
+    );
+}
+
+#[test]
+#[serial]
+fn fragment_assembler_recovers_after_fragmented_delegate_panic() {
+    fragmented_delegate_panic(false);
+}
+
+#[test]
+#[serial]
+fn controlled_fragment_assembler_recovers_after_fragmented_delegate_panic() {
+    fragmented_delegate_panic(true);
+}
+
 /// C releases the image list before the panic is raised, so the subscription stays usable
 #[test]
 #[serial]

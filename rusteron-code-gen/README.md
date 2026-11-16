@@ -1,7 +1,8 @@
 # rusteron-code-gen
 
-`rusteron-code-gen` reads Aeron's C headers and generates the bindings and wrappers
-used by `rusteron-client`, `rusteron-archive` and `rusteron-media-driver`.
+`rusteron-code-gen` reads Aeron's C headers and generates fast, idiomatic Rust
+wrappers and bindings used by `rusteron-client`, `rusteron-archive` and
+`rusteron-media-driver`.
 
 ---
 
@@ -18,7 +19,9 @@ This crate is an internal build dependency of Rusteron.
 
 Rusteron is sponsored and maintained by [GSR](https://www.gsr.io), a global leader in algorithmic trading and market making in digital assets.
 
-It runs in GSR's real-time trading stack and is developed under the GSR GitHub organisation. We welcome contributions, feedback and discussion. To integrate or contribute, open an issue or reach out directly.
+Rusteron has been running in production in GSR's low-latency trading system since the beginning of 2025. It is mature and battle tested.
+
+It is developed under the GSR GitHub organisation. We welcome contributions, feedback and discussion. To integrate or contribute, open an issue or reach out directly.
 
 ---
 

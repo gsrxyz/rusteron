@@ -334,8 +334,12 @@ impl ReturnType {
         };
         let class = parse_str::<Type>(&wrapper.class_name).expect("Invalid class name in wrapper");
         if is_callback_only(&wrapper.type_name, &self.wrappers, handlers) {
-            // SAFETY: C keeps the struct alive for the whole callback, and the `&` stops it leaving
-            quote! { &unsafe { #class::from_ptr(#arg) } }
+            // SAFETY: C keeps the struct alive for the whole callback, and the `&` stops it leaving.
+            // from_ptr creates only CResource::Borrowed, so there is nothing to drop.
+            // Suppress ownership cleanup explicitly: after a call through C (notably
+            // the fragment assembler), LLVM otherwise retains enum/drop checks for
+            // this temporary even in release builds with LTO
+            quote! { &*std::mem::ManuallyDrop::new(unsafe { #class::from_ptr(#arg) }) }
         } else {
             quote! { &#class::from(#arg) }
         }

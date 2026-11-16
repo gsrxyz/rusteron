@@ -4,10 +4,17 @@ Main changes, newest first, grouped by published crate version. Release-only
 commits, build logs, and changes later reverted or superseded are omitted.
 Early history predating the available release tags is grouped separately.
 
+## 0.2.22
+
+- Added `Duration` setters and getters for client context timeouts and intervals and for the archive message timeout, plus `Duration` helpers for URIs. The existing integer methods still work.
+- Breaking: the public enums for errors, status, idle strategy, system counters, media and control mode are now `#[non_exhaustive]` (#86). If you `match` on them, add a catch-all arm. Existing variants and number conversions are unchanged.
+- Breaking: `AeronClaim<'a>` now borrows the publication passed to `try_claim_owned`. You can no longer drop or close that publication while the claim is live. If a function returns a claim, you may need to write the publication lifetime yourself. A cloned handle can still close the shared publication, so don't do that while a claim is live.
+- Owned claims no longer allocate. The claim holds the native claim directly. Behaviour is unchanged.
+
 ## 0.2.21
 
-- Breaking: getters that return a C object owned by `self`, such as `archive.get_archive_context()`, `get_aeron()`, `context()`, `counters_reader()` and the archive pollers, now return `Ref<'_, T>`. It borrows the owner, so using the result after dropping or closing the owner no longer compiles (#81). `AeronArchive::aeron()` returns `Ref<'_, Aeron>`.
-- Added callback slots such as `AeronErrorHandlerSlot`. Use `set` or `clear` to change a callback without registering again. Old callbacks are freed after their last call. See the [example](rusteron-archive/examples/replaceable_error_handler.rs).
+- Breaking: getters that return a C object owned by `self` now return `Ref<'_, T>`. This covers `archive.get_archive_context()`, `get_aeron()`, `context()`, `counters_reader()` and the archive pollers. `Ref` borrows the owner, so code that uses the result after dropping or closing the owner now fails to compile (#81). `AeronArchive::aeron()` returns `Ref<'_, Aeron>`.
+- Added callback slots, such as `AeronErrorHandlerSlot`. Call `set` or `clear` to change a callback without registering it again. An old callback is freed after its last call. See the [example](rusteron-archive/examples/replaceable_error_handler.rs).
 
 ## 0.2.20
 
