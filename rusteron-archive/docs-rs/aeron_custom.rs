@@ -201,7 +201,7 @@ impl Aeron {
     }
 }
 
-// Aeron uses signed nanosecond clocks even where its context setters accept u64.
+// Aeron uses signed nanosecond clocks even where its context setters accept u64
 fn duration_to_nanos(value: std::time::Duration) -> Result<i64, AeronCError> {
     i64::try_from(value.as_nanos())
         .map_err(|_| AeronCError::with_message(-1, "duration exceeds Aeron's i64 nanosecond range"))
@@ -221,46 +221,46 @@ fn duration_to_millis(value: std::time::Duration) -> Result<u64, AeronCError> {
 impl AeronContext {
     /// Set the driver timeout. Fractional milliseconds are rounded up, so a positive
     /// timeout never becomes zero. Returns an error if the rounded timeout exceeds
-    /// Aeron's signed 64-bit nanosecond range.
+    /// Aeron's signed 64-bit nanosecond range
     pub fn set_driver_timeout(&self, value: std::time::Duration) -> Result<i32, AeronCError> {
         self.set_driver_timeout_ms(duration_to_millis(value)?)
     }
 
-    /// The configured driver timeout as a [`std::time::Duration`].
+    /// The configured driver timeout as a [`std::time::Duration`]
     pub fn get_driver_timeout(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.get_driver_timeout_ms())
     }
 
     /// Set the keepalive interval, rejecting durations outside Aeron's signed 64-bit
-    /// nanosecond range.
+    /// nanosecond range
     pub fn set_keepalive_interval(&self, value: std::time::Duration) -> Result<i32, AeronCError> {
         self.set_keepalive_interval_ns(duration_to_nanos(value)? as u64)
     }
 
-    /// The configured keepalive interval as a [`std::time::Duration`].
+    /// The configured keepalive interval as a [`std::time::Duration`]
     pub fn get_keepalive_interval(&self) -> std::time::Duration {
         std::time::Duration::from_nanos(self.get_keepalive_interval_ns())
     }
 
     /// Set the resource linger duration, rejecting durations outside Aeron's signed
-    /// 64-bit nanosecond range.
+    /// 64-bit nanosecond range
     pub fn set_resource_linger_duration(&self, value: std::time::Duration) -> Result<i32, AeronCError> {
         self.set_resource_linger_duration_ns(duration_to_nanos(value)? as u64)
     }
 
-    /// The configured resource linger duration as a [`std::time::Duration`].
+    /// The configured resource linger duration as a [`std::time::Duration`]
     pub fn get_resource_linger_duration(&self) -> std::time::Duration {
         std::time::Duration::from_nanos(self.get_resource_linger_duration_ns())
     }
 
     /// Set the conductor's timeout-check interval, rejecting durations outside
     /// Aeron's signed 64-bit nanosecond range. To change how the conductor sleeps,
-    /// use [`Self::set_idle_strategy_kind`].
+    /// use [`Self::set_idle_strategy_kind`]
     pub fn set_idle_sleep_duration(&self, value: std::time::Duration) -> Result<i32, AeronCError> {
         self.set_idle_sleep_duration_ns(duration_to_nanos(value)? as u64)
     }
 
-    /// The configured timeout-check interval as a [`std::time::Duration`].
+    /// The configured timeout-check interval as a [`std::time::Duration`]
     pub fn get_idle_sleep_duration(&self) -> std::time::Duration {
         std::time::Duration::from_nanos(self.get_idle_sleep_duration_ns())
     }
@@ -1240,7 +1240,7 @@ impl AeronUriStringBuilder {
     }
 
     /// Set the URI linger timeout from a duration. Returns an error if its
-    /// nanosecond value does not fit in an `i64`.
+    /// nanosecond value does not fit in an `i64`
     pub fn linger_timeout_duration(&self, value: std::time::Duration) -> Result<&Self, AeronCError> {
         self.linger_timeout(duration_to_nanos(value)?)
     }
@@ -1416,7 +1416,7 @@ impl AeronUriStringBuilder {
         Ok(self)
     }
 
-    /// Set the NAK delay from a duration, checked against the `i64` nanosecond limit.
+    /// Set the NAK delay from a duration, checked against the `i64` nanosecond limit
     pub fn nak_delay_duration(&self, value: std::time::Duration) -> Result<&Self, AeronCError> {
         self.nak_delay(duration_to_nanos(value)?)
     }
@@ -1428,7 +1428,7 @@ impl AeronUriStringBuilder {
     }
 
     /// Set the untethered window limit timeout from a duration, checked against
-    /// the `i64` nanosecond limit.
+    /// the `i64` nanosecond limit
     pub fn untethered_window_limit_timeout_duration(&self, value: std::time::Duration) -> Result<&Self, AeronCError> {
         self.untethered_window_limit_timeout(duration_to_nanos(value)?)
     }
@@ -1440,7 +1440,7 @@ impl AeronUriStringBuilder {
     }
 
     /// Set the untethered resting timeout from a duration, checked against
-    /// the `i64` nanosecond limit.
+    /// the `i64` nanosecond limit
     pub fn untethered_resting_timeout_duration(&self, value: std::time::Duration) -> Result<&Self, AeronCError> {
         self.untethered_resting_timeout(duration_to_nanos(value)?)
     }
@@ -1454,7 +1454,7 @@ impl AeronUriStringBuilder {
     }
 
     /// Set the untethered linger timeout from a duration, checked against
-    /// the `i64` nanosecond limit.
+    /// the `i64` nanosecond limit
     pub fn untethered_linger_timeout_duration(&self, value: std::time::Duration) -> Result<&Self, AeronCError> {
         self.untethered_linger_timeout(duration_to_nanos(value)?)
     }
@@ -1785,10 +1785,10 @@ impl AeronBufferClaim {
 ///
 /// The claim borrows the publication handle used to create it until it is
 /// committed, aborted, or dropped. Other aliases of that publication must not
-/// close the underlying C resource while the claim is live.
+/// close the underlying C resource while the claim is live
 pub struct AeronClaim<'a> {
     // A guard always owns one inline native claim. Using CResource here would
-    // introduce heap/stack/borrowed dispatch and Rc cleanup checks after FFI.
+    // introduce heap/stack/borrowed dispatch and Rc cleanup checks after FFI
     claim: aeron_buffer_claim_t,
     position: i64,
     _publication: std::marker::PhantomData<&'a ()>,
@@ -1800,7 +1800,7 @@ impl AeronClaim<'_> {
     pub fn data(&mut self) -> &mut [u8] {
         // SAFETY: only a successful native try_claim constructs a guard. Its
         // data pointer is non-null even for an empty payload, and finalisation
-        // consumes the guard. The mutable borrow prevents overlapping slices.
+        // consumes the guard. The mutable borrow prevents overlapping slices
         unsafe { std::slice::from_raw_parts_mut(self.claim.data, self.claim.length) }
     }
 
@@ -1827,7 +1827,7 @@ impl AeronClaim<'_> {
     #[inline]
     pub fn set_reserved_value(&mut self, value: i64) {
         // SAFETY: a successful claim provides a valid frame header until
-        // commit/abort. This field uses Aeron's packed header layout.
+        // commit/abort. This field uses Aeron's packed header layout
         unsafe {
             (*self.claim.frame_header.cast::<aeron_header_values_frame_t>()).reserved_value = value;
         }
@@ -1837,11 +1837,11 @@ impl AeronClaim<'_> {
     #[inline]
     pub fn commit(self) -> Result<i64, AeronCError> {
         // Consuming the guard transfers finalisation to this method. Suppress
-        // Drop before FFI, so neither success nor an error can abort it again.
+        // Drop before FFI, so neither success nor an error can abort it again
         let mut claim = std::mem::ManuallyDrop::new(self);
         #[cfg(feature = "log-c-bindings")]
         log::info!("aeron_buffer_claim_commit(buffer_claim: *mut aeron_buffer_claim_t)");
-        // SAFETY: the guard owns a successful, unfinalised native claim.
+        // SAFETY: the guard owns a successful, unfinalised native claim
         let result = unsafe { aeron_buffer_claim_commit(&mut claim.claim) };
         #[cfg(feature = "log-c-bindings")]
         log::info!("  -> {:?}", result);
@@ -1864,7 +1864,7 @@ impl AeronClaim<'_> {
         #[cfg(feature = "log-c-bindings")]
         log::info!("aeron_buffer_claim_abort(buffer_claim: *mut aeron_buffer_claim_t)");
         // SAFETY: called once, explicitly or by Drop, while the publication
-        // borrowed by this guard still exists.
+        // borrowed by this guard still exists
         let result = unsafe { aeron_buffer_claim_abort(&mut self.claim) };
         #[cfg(feature = "log-c-bindings")]
         log::info!("  -> {:?}", result);
@@ -1879,7 +1879,7 @@ impl Drop for AeronClaim<'_> {
     #[inline]
     fn drop(&mut self) {
         // A guard that reaches Drop is still active: commit/abort consume it
-        // through ManuallyDrop. Release its slot before the unblock timeout.
+        // through ManuallyDrop. Release its slot before the unblock timeout
         let _ = self.abort_inner();
     }
 }
@@ -1943,12 +1943,12 @@ macro_rules! impl_publication_methods {
             #[inline]
             pub fn try_claim_owned(&self, length: usize) -> Result<AeronClaim<'_>, AeronOfferError> {
                 let mut claim = std::mem::MaybeUninit::<aeron_buffer_claim_t>::uninit();
-                // SAFETY: the publication is live and the output pointer is writable.
+                // SAFETY: the publication is live and the output pointer is writable
                 let position = unsafe { $try_claim(self.get_inner(), length, claim.as_mut_ptr()) };
                 let position = AeronOfferError::from_position(position)?;
                 // SAFETY: both native publication implementations initialise
                 // frame_header, data and length on success. Failed claims return
-                // above without reading the output or aborting an unclaimed slot.
+                // above without reading the output or aborting an unclaimed slot
                 let claim = unsafe { claim.assume_init() };
                 Ok(AeronClaim {
                     claim,
@@ -2728,7 +2728,7 @@ mod aeron_custom_tests {
     }
 
     // A local frame exercises the native commit/abort writes without a driver.
-    // The returned guard borrows both allocations until it is finalised.
+    // The returned guard borrows both allocations until it is finalised
     fn local_claim<'a>(frame: &'a mut aeron_header_values_frame_t, payload: &'a mut [u8]) -> AeronClaim<'a> {
         frame.type_ = AERON_HDR_TYPE_DATA as i16;
         frame.frame_length = -(payload.len() as i32 + 32);

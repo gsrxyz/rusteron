@@ -1,12 +1,12 @@
-//! Amortized operation costs for the publish/claim hot paths.
+//! Amortised operation costs for the publish/claim hot paths.
 //!
 //! Compare typed, raw and direct C APIs with the same application work. `claim`
 //! measures reservation and commit; `claim_copy` also copies the payload. Each API
 //! is measured with the same 32-, 256- and 1,024-byte message sizes.
-//! These are amortized operation costs, not message latency percentiles.
+//! These are amortised operation costs, not message latency percentiles.
 //! Each arm publishes in batches; between them, untimed, it drains the subscription and waits
 //! for room in the publication window, so every publish lands instead of returning back pressure.
-//! Run with `cargo bench -p rusteron-client --features static --bench offer_claim_poll`.
+//! Run with `cargo bench -p rusteron-client --features static --bench offer_claim_poll`
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use rusteron_client::bindings::{
@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 const STREAM_ID: i32 = 7001;
 static CHANNEL: &CStr = AERON_IPC_STREAM;
 const PAYLOAD_LENGTHS: [usize; 3] = [32, 256, 1024];
-// Even the largest payload's batch is below the default IPC publication window.
+// Even the largest payload's batch is below the default IPC publication window
 const BATCH: u64 = 4096;
 const POLL_LIMIT: usize = 1024;
 const TIMEOUT: Duration = Duration::from_secs(5);
@@ -43,7 +43,7 @@ struct Harness {
 }
 
 fn harness() -> Harness {
-    // The default three 64 MiB IPC terms can exceed a container's /dev/shm.
+    // The default three 64 MiB IPC terms can exceed a container's /dev/shm
     let directory = std::env::temp_dir().join(format!(
         "rusteron-claim-bench-{}-{}",
         std::process::id(),
@@ -87,7 +87,7 @@ fn harness() -> Harness {
 }
 
 /// Times `iters` successful publishes, including identical retry behaviour in
-/// every arm. Window waits and receive draining stay outside the timer.
+/// every arm. Window waits and receive draining stay outside the timer
 fn timed(h: &Harness, iters: u64, payload: &[u8], check_payload: bool, mut publish: impl FnMut() -> bool) -> Duration {
     let frame_len = frame_length(payload.len()) as i64;
     let mut elapsed = Duration::ZERO;
@@ -104,7 +104,7 @@ fn timed(h: &Harness, iters: u64, payload: &[u8], check_payload: bool, mut publi
         let deadline = Instant::now() + TIMEOUT;
         let start = Instant::now();
         for _ in 0..batch {
-            // Occasional ADMIN_ACTION at term rotation is part of every arm.
+            // Occasional ADMIN_ACTION at term rotation is part of every arm
             while !publish() {
                 assert!(Instant::now() < deadline, "publication did not accept the batch");
             }
@@ -142,7 +142,7 @@ fn bench_offer(c: &mut Criterion) {
     let claim = claim_buf.get_inner();
 
     // Touch the complete three-term ring before Criterion's own per-arm warmup.
-    // This is setup work: its returned duration is intentionally discarded.
+    // This is setup work: its returned duration is intentionally discarded
     let constants = AeronPublicationConstants::new_zeroed_on_stack();
     h.publisher.constants(&constants).unwrap();
     let ring_messages = 3 * constants.term_buffer_length() as u64 / frame_length(warmup_payload.len()) as u64 + 1;
@@ -151,7 +151,7 @@ fn bench_offer(c: &mut Criterion) {
     });
 
     for payload_len in PAYLOAD_LENGTHS {
-        // Allocation and initialization happen once, outside all timed loops.
+        // Allocation and initialisation happen once, outside all timed loops
         let payload: Vec<u8> = (0..payload_len)
             .map(|i| (i as u8).wrapping_mul(31).wrapping_add(1))
             .collect();
@@ -161,7 +161,7 @@ fn bench_offer(c: &mut Criterion) {
             g.bench_function("c_offer", |b| {
                 b.iter_custom(|iters| {
                     timed(&h, iters, &payload, true, || {
-                        // SAFETY: the publication outlives the bench and the payload outlives the call.
+                        // SAFETY: the publication outlives the bench and the payload outlives the call
                         black_box(unsafe {
                             aeron_publication_offer(
                                 publication,
@@ -197,7 +197,7 @@ fn bench_offer(c: &mut Criterion) {
                 b.iter_custom(|iters| {
                     timed(&h, iters, &payload, false, || {
                         // SAFETY: the publication and the claim outlive the bench; the claim is
-                        // committed only after a successful try_claim filled it.
+                        // committed only after a successful try_claim filled it
                         unsafe {
                             if aeron_publication_try_claim(publication, payload_len, claim) >= 0 {
                                 assert_eq!(aeron_buffer_claim_commit(claim), 0);
@@ -241,8 +241,8 @@ fn bench_offer(c: &mut Criterion) {
             g.bench_function("c_try_claim_copy_commit", |b| {
                 b.iter_custom(|iters| {
                     timed(&h, iters, &payload, true, || {
-                        // SAFETY: native success initializes the claim; it remains
-                        // writable until commit. The payload has exactly payload_len bytes.
+                        // SAFETY: native success initialises the claim; it remains
+                        // writable until commit. The payload has exactly payload_len bytes
                         unsafe {
                             if aeron_publication_try_claim(publication, payload_len, claim) >= 0 {
                                 std::slice::from_raw_parts_mut((*claim).data, (*claim).length)

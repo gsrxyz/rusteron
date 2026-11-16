@@ -424,7 +424,7 @@ See these guides for configuration and examples:
   }
   # Ok(()) }
   ```
-  Zero-copy `try_claim_owned()` returns an RAII `AeronClaim<'_>` that borrows the publication; an uncommitted claim aborts on drop. Other aliases must not close the shared publication while a claim is live:
+  Zero-copy `try_claim_owned()` returns an `AeronClaim<'_>` that borrows the publication. An uncommitted claim aborts when dropped. Other aliases must not close the shared publication while a claim is live:
   ```rust,no_run
   # use rusteron_client::*;
   # fn snippet(publication: &AeronPublication, msg: &[u8], idle: &mut BackoffIdleStrategy) -> Result<(), Box<dyn std::error::Error>> {

@@ -338,7 +338,7 @@ impl ReturnType {
             // from_ptr creates only CResource::Borrowed, so there is nothing to drop.
             // Suppress ownership cleanup explicitly: after a call through C (notably
             // the fragment assembler), LLVM otherwise retains enum/drop checks for
-            // this temporary even in release builds with LTO.
+            // this temporary even in release builds with LTO
             quote! { &*std::mem::ManuallyDrop::new(unsafe { #class::from_ptr(#arg) }) }
         } else {
             quote! { &#class::from(#arg) }

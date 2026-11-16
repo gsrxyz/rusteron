@@ -1,6 +1,6 @@
 //! Aeron C cping/cpong workload: exclusive publications, 32-byte messages,
 //! retained image polls limited to 10 fragments, image fragment assemblers on
-//! both sides, and an offer echo. Neither application callback reads headers.
+//! both sides, and an offer echo. Neither application callback reads headers
 
 mod benchmark_support;
 
@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn client(dir: &str) -> Result<Aeron, AeronCError> {
     let context = AeronContext::new()?;
     context.set_dir(&cformat!("{dir}"))?;
-    // cping/cpong leave pre-touch at its default (false).
+    // cping/cpong leave pre-touch at its default (false)
     context.set_pre_touch_mapped_memory(false)?;
     let client = Aeron::new(&context)?;
     client.start()?;
@@ -80,7 +80,7 @@ fn image(subscription: &AeronSubscription, running: &AtomicBool) -> Result<Aeron
 }
 
 // Use the same single-image C assembler as cping/cpong. The delegate panic
-// must resume only after the assembler has finished updating its state.
+// must resume only after the assembler has finished updating its state
 struct ImageAssembler(AeronImageFragmentAssembler);
 
 impl AeronFragmentHandlerCallback for ImageAssembler {
@@ -88,7 +88,7 @@ impl AeronFragmentHandlerCallback for ImageAssembler {
 
     fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader) {
         // SAFETY: poll lends a valid buffer/header for this call; this assembler
-        // and its retained delegate outlive the poll and stay on this thread.
+        // and its retained delegate outlive the poll and stay on this thread
         unsafe {
             bindings::aeron_image_fragment_assembler_handler(
                 self.0.get_inner().cast(),
@@ -177,7 +177,7 @@ fn run_ping(running: &AtomicBool, dir: &str, counts: &MessageCounts) -> Result<H
     let mut buffer = [0u8; MESSAGE_LENGTH];
     for count in [counts.warmup, counts.measured] {
         // SAFETY: the callbacks run synchronously on this thread, only inside
-        // image.poll below. There are no outstanding references to the state.
+        // image.poll below. There are no outstanding references to the state
         unsafe {
             let state = handler.get_mut();
             state.histogram.reset();
@@ -185,7 +185,7 @@ fn run_ping(running: &AtomicBool, dir: &str, counts: &MessageCounts) -> Result<H
         }
         for expected in 1..=count {
             loop {
-                // cping refreshes the timestamp on every offer attempt.
+                // cping refreshes the timestamp on every offer attempt
                 buffer[..8].copy_from_slice(&Aeron::nano_clock().to_le_bytes());
                 match publication.offer(&buffer) {
                     Ok(_) => break,
@@ -198,7 +198,7 @@ fn run_ping(running: &AtomicBool, dir: &str, counts: &MessageCounts) -> Result<H
                 }
             }
             loop {
-                // The synchronous poll callback updates this count.
+                // The synchronous poll callback updates this count
                 if handler.received >= expected {
                     break;
                 }
