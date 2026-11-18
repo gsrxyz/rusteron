@@ -52,7 +52,6 @@ mod tests {
         }
     }
 
-    /// Test error handler for tracking Aeron errors
     #[derive(Default, Debug)]
     struct ErrorCount {
         error_count: usize,
@@ -65,7 +64,6 @@ mod tests {
         }
     }
 
-    /// Helper function to find an unused UDP port
     fn find_unused_udp_port(start_port: u16) -> Option<u16> {
         for port in start_port..65535 {
             if std::net::UdpSocket::bind(("127.0.0.1", port)).is_ok() {
@@ -75,7 +73,6 @@ mod tests {
         None
     }
 
-    /// Helper function to start Aeron Archive with dynamic port allocation
     fn start_aeron_archive_with_config(
         aeron_dir_suffix: &str,
         start_port: u16,
@@ -128,10 +125,6 @@ mod tests {
 
         Ok((aeron, archive_context, archive_media_driver, error_handler))
     }
-
-    /////////////////////////////////////////////////////////////////////////////
-    // TEST CATEGORY 1: Live Source Subscriptions
-    /////////////////////////////////////////////////////////////////////////////
 
     /// Test that a persistent subscription can join a live stream and consume messages
     #[test]
@@ -197,7 +190,7 @@ mod tests {
         // Drain the subscription's image into existence before publishing.
         let start = Instant::now();
         while subscription.image_count()? == 0 && start.elapsed() < Duration::from_secs(5) {
-            subscription.poll_with_handler(Some(&handler), 10)?;
+            subscription.poll(&mut *handler.lock(), 10)?;
             sleep(Duration::from_millis(10));
         }
         assert!(
@@ -216,7 +209,7 @@ mod tests {
         // Poll for messages
         let start = Instant::now();
         while handler.borrow().count.get() < message_count && start.elapsed() < Duration::from_secs(10) {
-            subscription.poll_with_handler(Some(&handler), 10)?;
+            subscription.poll(&mut *handler.lock(), 10)?;
             sleep(Duration::from_millis(10));
         }
 
@@ -228,10 +221,6 @@ mod tests {
 
         Ok(())
     }
-
-    /////////////////////////////////////////////////////////////////////////////
-    // TEST CATEGORY 2: Replay to Live Transitions
-    /////////////////////////////////////////////////////////////////////////////
 
     /// Test that a persistent subscription transitions from replay to live correctly
     #[test]
@@ -328,7 +317,7 @@ mod tests {
 
         let start = Instant::now();
         while handler.borrow().replay_count < initial_message_count && start.elapsed() < Duration::from_secs(20) {
-            replay_sub.poll_with_handler(Some(&handler), 100)?;
+            replay_sub.poll(&mut *handler.lock(), 100)?;
             sleep(Duration::from_millis(10));
         }
         assert!(
@@ -345,7 +334,7 @@ mod tests {
             .poll_blocking(Duration::from_secs(5))?;
         let start = Instant::now();
         while subscription.image_count()? == 0 && start.elapsed() < Duration::from_secs(5) {
-            subscription.poll_with_handler(Some(&handler), 10)?;
+            subscription.poll(&mut *handler.lock(), 10)?;
             sleep(Duration::from_millis(10));
         }
 
@@ -363,7 +352,7 @@ mod tests {
 
         let start = Instant::now();
         while handler.borrow().live_count < live_message_count && start.elapsed() < Duration::from_secs(20) {
-            subscription.poll_with_handler(Some(&handler), 100)?;
+            subscription.poll(&mut *handler.lock(), 100)?;
             sleep(Duration::from_millis(10));
         }
         assert!(
@@ -374,10 +363,6 @@ mod tests {
 
         Ok(())
     }
-
-    /////////////////////////////////////////////////////////////////////////////
-    // TEST CATEGORY 3: Persistent Connection Recovery
-    /////////////////////////////////////////////////////////////////////////////
 
     /// Test that a persistent subscription can recover from connection failures
     #[test]
@@ -456,13 +441,13 @@ mod tests {
 
         archive_context_reconnect.set_aeron(&aeron_archive)?;
         archive_context_reconnect
-            // SAFETY: this expression consumes the text before any context mutation.
+            // SAFETY: this expression consumes the text before any context mutation
             .set_control_request_channel(&unsafe { archive_context.get_control_request_channel() }.into_c_string())?;
         archive_context_reconnect
-            // SAFETY: this expression consumes the text before any context mutation.
+            // SAFETY: this expression consumes the text before any context mutation
             .set_control_response_channel(&unsafe { archive_context.get_control_response_channel() }.into_c_string())?;
         archive_context_reconnect
-            // SAFETY: this expression consumes the text before any context mutation.
+            // SAFETY: this expression consumes the text before any context mutation
             .set_recording_events_channel(&unsafe { archive_context.get_recording_events_channel() }.into_c_string())?;
 
         // Retry reconnection with exponential backoff to handle the CLOSING
@@ -514,10 +499,6 @@ mod tests {
 
         Ok(())
     }
-
-    /////////////////////////////////////////////////////////////////////////////
-    // TEST CATEGORY 4: Media Driver Lifecycle
-    /////////////////////////////////////////////////////////////////////////////
 
     /// Test that persistent subscriptions handle media driver lifecycle correctly
     #[test]
@@ -581,10 +562,6 @@ mod tests {
 
         Ok(())
     }
-
-    /////////////////////////////////////////////////////////////////////////////
-    // TEST CATEGORY 5: Archiver Integration
-    /////////////////////////////////////////////////////////////////////////////
 
     /// Test integration with the Aeron Archive
     #[test]
@@ -663,10 +640,6 @@ mod tests {
 
         Ok(())
     }
-
-    /////////////////////////////////////////////////////////////////////////////
-    // TEST CATEGORY 6: Data Write/Read Verification
-    /////////////////////////////////////////////////////////////////////////////
 
     /// Test that data written is correctly read back through persistent subscription
     #[test]
@@ -774,7 +747,7 @@ mod tests {
         // Poll for all messages
         let start = Instant::now();
         while handler.borrow().received.len() < test_messages.len() && start.elapsed() < Duration::from_secs(20) {
-            subscription.poll_with_handler(Some(&handler), 100)?;
+            subscription.poll(&mut *handler.lock(), 100)?;
             sleep(Duration::from_millis(10));
         }
 
@@ -800,10 +773,6 @@ mod tests {
 
         Ok(())
     }
-
-    /////////////////////////////////////////////////////////////////////////////
-    // TEST CATEGORY 7: Error Scenarios
-    /////////////////////////////////////////////////////////////////////////////
 
     /// Test error handling for invalid channel configurations
     #[test]
@@ -1036,7 +1005,7 @@ mod tests {
         while start.elapsed() < Duration::from_secs(5) {
             let mut all_ready = true;
             for (i, sub) in subscriptions.iter().enumerate() {
-                sub.poll_with_handler(Some(&handlers[i]), 10)?;
+                sub.poll(&mut *handlers[i].lock(), 10)?;
                 if sub.image_count()? == 0 {
                     all_ready = false;
                 }
@@ -1064,7 +1033,7 @@ mod tests {
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(10) {
             for (i, sub) in subscriptions.iter().enumerate() {
-                sub.poll_with_handler(Some(&handlers[i]), 10)?;
+                sub.poll(&mut *handlers[i].lock(), 10)?;
             }
             sleep(Duration::from_millis(10));
 
@@ -1091,10 +1060,6 @@ mod tests {
 
         Ok(())
     }
-
-    /////////////////////////////////////////////////////////////////////////////
-    // TEST CATEGORY 8: Persistent Subscription Listener (callback wiring)
-    /////////////////////////////////////////////////////////////////////////////
 
     /// Verify the persistent-subscription listener callbacks reach Rust.
     ///
@@ -1270,11 +1235,11 @@ mod tests {
         Ok(())
     }
 
-    /// Building a persistent subscription points its archive context at the subscription's
-    /// client, which is why the two should share one.
+    /// A persistent subscription and its archive context must share one client. Native
+    /// creation would otherwise repoint the caller's archive context at the other client
     #[test]
     #[serial]
-    fn building_points_the_archive_context_at_the_subscriptions_client() -> Result<(), Box<dyn Error>> {
+    fn building_rejects_an_archive_context_on_another_client() -> Result<(), Box<dyn Error>> {
         crate::skip_unless_java!();
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
 
@@ -1297,9 +1262,11 @@ mod tests {
             .live_stream_id(3601)?
             .replay_channel("aeron:udp?endpoint=127.0.0.1:0")?
             .replay_stream_id(3602)?
-            .build()?;
-        assert_eq!(archive_context.get_aeron().get_inner(), other.get_inner());
-        ps.close()?;
+            .build();
+        let error = ps.err().ok_or("a second client must be rejected")?;
+        assert!(error.to_string().contains("must use the same client"), "{error}");
+        // The archive context keeps its own client instead of being repointed
+        assert_eq!(archive_context.get_aeron().get_inner(), aeron.get_inner());
         Ok(())
     }
 
@@ -1314,7 +1281,7 @@ mod tests {
 
         let (aeron, _archive_context, _media_driver_archive, _archive_error_handler) =
             start_aeron_archive_with_config("ps_counter_replace", 9760)?;
-        let state_type = AERON_COUNTER_ARCHIVE_PERSISTENT_SUBSCRIPTION_STATE_TYPE_ID as i32;
+        let state_type = AeronCounterTypeId::ArchivePersistentSubscriptionState.code();
         let replaced =
             AeronAsyncAddCounter::new(&aeron, state_type, &[], "replaced")?.poll_blocking(Duration::from_secs(5))?;
         let kept = AeronAsyncAddCounter::new(&aeron, state_type, &[], "kept")?.poll_blocking(Duration::from_secs(5))?;
@@ -1362,14 +1329,16 @@ mod tests {
         let ps = {
             let context = AeronArchiveContext::new()?;
             context.set_aeron(&aeron)?;
-            // SAFETY: this expression consumes the text before any context mutation.
-            context.set_control_request_channel(
-                &unsafe { archive_context.get_control_request_channel() }.into_c_string(),
-            )?;
-            // SAFETY: this expression consumes the text before any context mutation.
-            context.set_control_response_channel(
-                &unsafe { archive_context.get_control_response_channel() }.into_c_string(),
-            )?;
+            context
+                // SAFETY: the text is used at once, before any setter can change it
+                .set_control_request_channel(
+                    &unsafe { archive_context.get_control_request_channel() }.into_c_string(),
+                )?;
+            context
+                // SAFETY: the text is used at once, before any setter can change it
+                .set_control_response_channel(
+                    &unsafe { archive_context.get_control_response_channel() }.into_c_string(),
+                )?;
             persistent_subscription_builder()?
                 .aeron(&aeron)?
                 .archive_context(&context)?

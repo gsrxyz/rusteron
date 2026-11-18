@@ -97,14 +97,14 @@ pub fn parse_bindings_with_custom(out: &PathBuf, extra_custom_code: &[&str]) -> 
         wrappers: wrappers
             .into_iter()
             .filter(|(_, wrapper)| {
-                // these are from media driver and do not follow convention
+                // media driver types, which do not follow the naming convention
                 ![
                     "aeron_thread",
                     "aeron_command",
                     "aeron_executor",
                     "aeron_name_resolver",
-                    "aeron_udp_channel_transport", // this one I have issues with handlers
-                    "aeron_udp_transport",         // this one I have issues with handlers
+                    "aeron_udp_channel_transport", // handlers unsupported
+                    "aeron_udp_transport",         // handlers unsupported
                 ]
                 .iter()
                 .any(|&filter| wrapper.type_name.starts_with(filter))
@@ -570,7 +570,7 @@ mod tests {
         assert!(bindings.handlers.len() > 1);
     }
 
-    /// `(buffer, frame_length)` must merge into one slice; old heuristic missed `frame_length`.
+    /// `(buffer, frame_length)` must merge into one slice.
     #[test]
     fn reserved_value_supplier_buffer_merges_with_frame_length() {
         if running_under_valgrind() {

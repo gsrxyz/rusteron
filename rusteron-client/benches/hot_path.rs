@@ -6,8 +6,8 @@
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use rusteron_client::bindings::{
-    aeron_exclusive_publication_offerv, aeron_exclusive_publication_t, aeron_header_t, aeron_iovec_t,
-    aeron_subscription_poll,
+    aeron_controlled_fragment_handler_action_t, aeron_exclusive_publication_offerv, aeron_exclusive_publication_t,
+    aeron_header_t, aeron_iovec_t, aeron_subscription_poll,
 };
 use rusteron_client::*;
 use rusteron_media_driver::testing::EmbeddedDriver;
@@ -30,6 +30,17 @@ impl AeronFragmentHandlerCallback for ByteCounter {
     #[inline]
     fn handle_aeron_fragment_handler(&mut self, message: &[u8], _: &AeronHeader) {
         self.0 += message.len() as u64;
+    }
+}
+impl AeronControlledFragmentHandlerCallback for ByteCounter {
+    #[inline]
+    fn handle_aeron_controlled_fragment_handler(
+        &mut self,
+        message: &[u8],
+        _: &AeronHeader,
+    ) -> aeron_controlled_fragment_handler_action_t {
+        self.0 += message.len() as u64;
+        aeron_controlled_fragment_handler_action_t::AERON_ACTION_CONTINUE
     }
 }
 
@@ -285,10 +296,10 @@ fn hot_path(c: &mut Criterion) {
     });
     black_box(direct.0);
     let shared = Handler::new(ByteCounter::default());
-    g.bench_function("poll_with_handler_per_fragment", |b| {
+    g.bench_function("poll_handler_lock_per_fragment", |b| {
         b.iter_custom(|iters| {
             h.time_poll(iters, |limit| {
-                h.subscription.poll_with_handler(Some(&shared), limit).expect("poll") as usize
+                h.subscription.poll(&mut *shared.lock(), limit).expect("poll") as usize
             })
         })
     });
@@ -296,8 +307,8 @@ fn hot_path(c: &mut Criterion) {
     g.bench_function("poll_callback_empty", |b| {
         b.iter(|| black_box(h.subscription.poll(&mut direct, 32).expect("poll")))
     });
-    g.bench_function("poll_with_handler_empty", |b| {
-        b.iter(|| black_box(h.subscription.poll_with_handler(Some(&shared), 32).expect("poll")))
+    g.bench_function("poll_handler_lock_empty", |b| {
+        b.iter(|| black_box(h.subscription.poll(&mut *shared.lock(), 32).expect("poll")))
     });
     let c_subscription = h.subscription.get_inner();
     g.bench_function("c_poll_per_fragment", |b| {
@@ -346,6 +357,52 @@ fn hot_path(c: &mut Criterion) {
                             black_box(header.stream_id());
                             black_box(header.term_id());
                             black_box(header.reserved_value());
+                        },
+                        limit,
+                    )
+                    .expect("poll") as usize
+            })
+        })
+    });
+    // Each 32-byte message is one fragment, so this measures the assembler wrapper cost
+    let mut fixed = FragmentAssembler::new(ByteCounter::default()).expect("assembler");
+    g.bench_function("assembler_struct_per_message", |b| {
+        b.iter_custom(|iters| {
+            h.time_poll(iters, |limit| {
+                fixed.poll(&h.subscription, limit).expect("poll") as usize
+            })
+        })
+    });
+    black_box(fixed.handler().0);
+    let mut closures = AeronFragmentClosureAssembler::new().expect("assembler");
+    g.bench_function("assembler_closure_per_message", |b| {
+        b.iter_custom(|iters| {
+            h.time_poll(iters, |limit| {
+                closures
+                    .poll(&h.subscription, |msg, _| received += msg.len() as u64, limit)
+                    .expect("poll") as usize
+            })
+        })
+    });
+    let mut controlled = ControlledFragmentAssembler::new(ByteCounter::default()).expect("assembler");
+    g.bench_function("controlled_assembler_struct_per_message", |b| {
+        b.iter_custom(|iters| {
+            h.time_poll(iters, |limit| {
+                controlled.poll(&h.subscription, limit).expect("poll") as usize
+            })
+        })
+    });
+    black_box(controlled.handler().0);
+    let mut controlled_closures = AeronControlledFragmentClosureAssembler::new().expect("assembler");
+    g.bench_function("controlled_assembler_closure_per_message", |b| {
+        b.iter_custom(|iters| {
+            h.time_poll(iters, |limit| {
+                controlled_closures
+                    .poll(
+                        &h.subscription,
+                        |msg, _| {
+                            received += msg.len() as u64;
+                            aeron_controlled_fragment_handler_action_t::AERON_ACTION_CONTINUE
                         },
                         limit,
                     )

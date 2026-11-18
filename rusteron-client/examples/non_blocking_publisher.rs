@@ -1,9 +1,8 @@
-//! # Non-blocking publisher (the production pattern)
+//! # Non-blocking publisher
 //!
-//! Companion to [`basic_publisher`], showing the **non-blocking** way to add a
-//! publication. Every other example uses [`Aeron::add_publication`] / [`poll_blocking`] for
-//! brevity. Those block the calling thread in a busy-poll loop, which is fine for a short
-//! example but **not** what you want in production.
+//! Companion to [`basic_publisher`]. Adds a publication without blocking the thread.
+//! The other examples use [`Aeron::add_publication`] / [`poll_blocking`], which busy-poll
+//! until the publication is ready and stall the calling thread.
 //!
 //! This example drives the async poller's [`poll()`](AeronAsyncAddPublication::poll) from a
 //! hand-written loop, interleaving other work while the publication comes up. The same shape

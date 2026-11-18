@@ -27,7 +27,6 @@ mod tests {
     use std::thread::sleep;
     use std::time::{Duration, Instant};
 
-    /// Test error handler for tracking Aeron errors
     #[derive(Default, Debug)]
     struct ErrorCount {
         error_count: usize,
@@ -40,7 +39,6 @@ mod tests {
         }
     }
 
-    /// Helper function to find an unused UDP port
     fn find_unused_udp_port(start_port: u16) -> Option<u16> {
         for port in start_port..65535 {
             if std::net::UdpSocket::bind(("127.0.0.1", port)).is_ok() {
@@ -88,7 +86,6 @@ mod tests {
         }
     }
 
-    /// Helper function to start Aeron Archive with dynamic port allocation
     fn start_aeron_archive_with_config(
         aeron_dir_suffix: &str,
         start_port: u16,
@@ -141,10 +138,6 @@ mod tests {
         Ok((aeron, archive_context, archive_media_driver, error_handler))
     }
 
-    /////////////////////////////////////////////////////////////////////////////
-    // END-TO-END INTEGRATION TESTS
-    /////////////////////////////////////////////////////////////////////////////
-
     /// Test complete end-to-end persistent subscription flow
     ///
     /// This test covers:
@@ -162,7 +155,6 @@ mod tests {
 
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
-        // Start Archive/Publisher Driver
         let (aeron_archive, archive_context, _media_driver_archive, archive_error_handler) =
             start_aeron_archive_with_config("e2e_test", 9000)?;
 
@@ -246,7 +238,7 @@ mod tests {
 
         let start = Instant::now();
         while handler.borrow().historical < historical_count && start.elapsed() < Duration::from_secs(20) {
-            replay_sub.poll_with_handler(Some(&handler), 100)?;
+            replay_sub.poll(&mut *handler.lock(), 100)?;
             sleep(Duration::from_millis(10));
         }
         assert_eq!(
@@ -264,7 +256,7 @@ mod tests {
             .poll_blocking(Duration::from_secs(5))?;
         let start = Instant::now();
         while live_sub.image_count()? == 0 && start.elapsed() < Duration::from_secs(5) {
-            live_sub.poll_with_handler(Some(&handler), 10)?;
+            live_sub.poll(&mut *handler.lock(), 10)?;
             sleep(Duration::from_millis(10));
         }
 
@@ -281,7 +273,7 @@ mod tests {
         }
         let start = Instant::now();
         while handler.borrow().live < live_count && start.elapsed() < Duration::from_secs(20) {
-            live_sub.poll_with_handler(Some(&handler), 100)?;
+            live_sub.poll(&mut *handler.lock(), 100)?;
             sleep(Duration::from_millis(10));
         }
         assert_eq!(handler.borrow().live, live_count, "should receive all live messages");
@@ -413,7 +405,7 @@ mod tests {
         while (handler.borrow().before_restart + handler.borrow().after_restart) < (batch1_count + batch2_count)
             && start.elapsed() < Duration::from_secs(20)
         {
-            subscription.poll_with_handler(Some(&handler), 100)?;
+            subscription.poll(&mut *handler.lock(), 100)?;
             sleep(Duration::from_millis(10));
         }
 
@@ -535,7 +527,7 @@ mod tests {
         let start_replay = Instant::now();
 
         while handler.borrow().count < message_count && start_replay.elapsed() < Duration::from_secs(20) {
-            subscription.poll_with_handler(Some(&handler), 1000)?;
+            subscription.poll(&mut *handler.lock(), 1000)?;
         }
 
         let replay_duration = start_replay.elapsed();
@@ -649,10 +641,10 @@ mod tests {
 
         // Poll for all messages with a timeout
         let start = Instant::now();
-        let timeout = Duration::from_secs(30); // Increased from 20s to 30s for slower CI runners
+        let timeout = Duration::from_secs(30);
         while handler.borrow().received_sizes.len() < total_messages && start.elapsed() < timeout {
-            subscription.poll_with_handler(Some(&handler), 100)?;
-            sleep(Duration::from_millis(20)); // Increased from 10ms to 20ms
+            subscription.poll(&mut *handler.lock(), 100)?;
+            sleep(Duration::from_millis(20));
         }
 
         let elapsed = start.elapsed();
@@ -1137,22 +1129,28 @@ mod tests {
         Ok(())
     }
 
-    /// Verify `AeronFragmentClosureAssembler` reassembles a >MTU message delivered as
-    /// raw fragments by a persistent subscription. PS `poll_fn` yields fragments; the
-    /// assembler must stitch them back into the original payload before invoking `func`.
-    #[test]
-    #[serial]
-    fn test_ps_fragment_assembler_reassembles_large_message() -> Result<(), Box<dyn Error>> {
-        crate::skip_unless_java!();
+    type Received = std::rc::Rc<std::cell::RefCell<Vec<Vec<u8>>>>;
+    type Action = aeron_controlled_fragment_handler_action_t;
+
+    /// Record a small and a fragmented message, then poll them back through a persistent
+    /// subscription. `poll` drives one assembler flavour and must deliver each message exactly
+    /// once with the bytes intact. The native persistent subscription already reassembles, so
+    /// these cases prove an assembler passes whole messages through unchanged
+    fn ps_reassembles(
+        name: &str,
+        port: u16,
+        stream_id: i32,
+        received: Received,
+        mut poll: impl FnMut(&AeronArchivePersistentSubscription) -> Result<i32, AeronCError>,
+    ) -> Result<(), Box<dyn Error>> {
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
-        let (aeron_archive, archive_context, _media, _eh) = start_aeron_archive_with_config("ps_asm", 9400)?;
+        let (aeron_archive, archive_context, _media, _eh) = start_aeron_archive_with_config(name, port)?;
         let archive = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?
             .poll_blocking(Duration::from_secs(20))?;
 
         let channel = "aeron:ipc";
-        let stream_id = 7701;
         retry_archive_op(Instant::now() + Duration::from_secs(15), || {
             archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
         })?;
@@ -1164,17 +1162,20 @@ mod tests {
             sleep(Duration::from_millis(10));
         }
 
-        // >MTU so the driver fragments it (default MTU is 1408).
-        let payload: Vec<u8> = (0..4000_u32).map(|i| (i & 0xff) as u8).collect();
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while publication.offer_raw(&payload, Handlers::NONE) <= 0 {
-            if Instant::now() > deadline {
-                return Err("timed out offering large payload".into());
+        // >MTU so the driver fragments it (default MTU is 1408)
+        let small = vec![0x5a_u8; 32];
+        let large: Vec<u8> = (0..5000_u32).map(|i| (i & 0xff) as u8).collect();
+        for message in [&small, &large] {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while publication.offer_raw(message, Handlers::NONE) <= 0 {
+                if Instant::now() > deadline {
+                    return Err("timed out offering payload".into());
+                }
+                sleep(Duration::from_millis(1));
             }
-            sleep(Duration::from_millis(1));
         }
 
-        // Wait for the recording to flush the offer.
+        // Wait for the recording to flush the offers
         let session_id = publication.get_constants()?.session_id();
         let counters = aeron_archive.counters_reader();
         let counter_id =
@@ -1184,17 +1185,6 @@ mod tests {
         let wait = Instant::now() + Duration::from_secs(5);
         while counters.get_counter_value(counter_id)? < published_position && Instant::now() < wait {
             sleep(Duration::from_millis(10));
-        }
-
-        struct Collector {
-            received: Vec<u8>,
-            count: usize,
-        }
-        fn collect(c: &mut Collector, buf: &[u8], _hdr: &AeronHeader) {
-            if c.count == 0 {
-                c.received = buf.to_vec();
-            }
-            c.count += 1;
         }
 
         let ps = persistent_subscription_builder()?
@@ -1209,122 +1199,107 @@ mod tests {
             .listener(NoopPsListener)?
             .build()?;
 
-        let mut asm = AeronFragmentClosureAssembler::new()?;
-        let mut collector = Collector {
-            received: Vec::new(),
-            count: 0,
-        };
         let deadline = Instant::now() + Duration::from_secs(20);
-        while collector.count == 0 && Instant::now() < deadline {
-            // asm.poll drives ps.poll(...) internally. It both advances the PS state
-            // machine and delivers (reassembled) fragments. Do NOT also call ps.poll_fn:
-            // that would consume the raw fragments before the assembler sees them.
-            asm.poll(&ps, &mut collector, collect, 100)?;
+        while received.borrow().len() < 2 && Instant::now() < deadline {
+            poll(&ps)?;
             sleep(Duration::from_millis(1));
+        }
+        // Further polls must not redeliver anything
+        for _ in 0..10 {
+            poll(&ps)?;
         }
         ps.close()?;
         drop(publication);
         drop(archive);
         drop(aeron_archive);
 
-        assert_eq!(collector.count, 1, "expected exactly one reassembled message");
-        assert_eq!(
-            collector.received, payload,
-            "reassembled payload must match the original"
-        );
+        assert_eq!(received.borrow().as_slice(), &[small, large]);
         Ok(())
     }
 
-    /// Controlled-poll counterpart: `AeronControlledFragmentClosureAssembler` reassembles
-    /// a >MTU message from a persistent subscription; the delegate returns CONTINUE.
+    fn push(received: &Received) -> impl FnMut(&[u8], &AeronHeader) + use<> {
+        let received = received.clone();
+        move |msg, _| received.borrow_mut().push(msg.to_vec())
+    }
+
+    // Aborts the first complete fragmented message once, so each controlled case also proves
+    // the assembler hands the same message back on the next poll
+    fn push_controlled(received: &Received) -> impl FnMut(&[u8], &AeronHeader) -> Action + use<> {
+        let received = received.clone();
+        let mut aborted = false;
+        move |msg, _| {
+            if msg.len() > 32 && !aborted {
+                aborted = true;
+                return Action::AERON_ACTION_ABORT;
+            }
+            received.borrow_mut().push(msg.to_vec());
+            Action::AERON_ACTION_CONTINUE
+        }
+    }
+
     #[test]
     #[serial]
-    fn test_ps_controlled_fragment_assembler_reassembles_large_message() -> Result<(), Box<dyn Error>> {
+    fn test_ps_poll_with_fragment_assembler() -> Result<(), Box<dyn Error>> {
         crate::skip_unless_java!();
-        rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
-        EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
+        let received = Received::default();
+        let mut asm = FragmentAssembler::new(push(&received))?;
+        ps_reassembles("ps_asm", 9400, 7701, received, |ps| ps.poll(&mut asm, 100))
+    }
 
-        let (aeron_archive, archive_context, _media, _eh) = start_aeron_archive_with_config("ps_casm", 9500)?;
-        let archive = AeronArchiveAsyncConnect::new_with_aeron(&archive_context, &aeron_archive)?
-            .poll_blocking(Duration::from_secs(20))?;
+    #[test]
+    #[serial]
+    fn test_ps_poll_with_fragment_closure_assembler() -> Result<(), Box<dyn Error>> {
+        crate::skip_unless_java!();
+        let received = Received::default();
+        let mut asm = AeronFragmentClosureAssembler::new()?;
+        let mut on_message = push(&received);
+        ps_reassembles("ps_closure_asm", 9400, 7711, received, |ps| {
+            ps.poll(&mut asm.with(&mut on_message), 100)
+        })
+    }
 
-        let channel = "aeron:ipc";
-        let stream_id = 7801;
-        retry_archive_op(Instant::now() + Duration::from_secs(15), || {
-            archive.start_recording(&channel.into_c_string(), stream_id, SOURCE_LOCATION_LOCAL, true)
-        })?;
+    #[test]
+    #[serial]
+    fn test_ps_controlled_poll_with_controlled_fragment_assembler() -> Result<(), Box<dyn Error>> {
+        crate::skip_unless_java!();
+        let received = Received::default();
+        let mut asm = ControlledFragmentAssembler::new(push_controlled(&received))?;
+        ps_reassembles("ps_casm", 9500, 7801, received, |ps| ps.controlled_poll(&mut asm, 100))
+    }
 
-        let publication = aeron_archive
-            .async_add_publication(&channel.into_c_string(), stream_id)?
-            .poll_blocking(Duration::from_secs(5))?;
-        while !publication.is_connected() {
-            sleep(Duration::from_millis(10));
-        }
-
-        let payload: Vec<u8> = (0..5000_u32).map(|i| (i & 0xff) as u8).collect();
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while publication.offer_raw(&payload, Handlers::NONE) <= 0 {
-            if Instant::now() > deadline {
-                return Err("timed out offering large payload".into());
-            }
-            sleep(Duration::from_millis(1));
-        }
-
-        let session_id = publication.get_constants()?.session_id();
-        let counters = aeron_archive.counters_reader();
-        let counter_id =
-            crate::testing::find_counter_id_by_session_blocking(&counters, session_id, Duration::from_secs(5))?;
-        let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
-        let published_position = publication.position();
-        let wait = Instant::now() + Duration::from_secs(5);
-        while counters.get_counter_value(counter_id)? < published_position && Instant::now() < wait {
-            sleep(Duration::from_millis(10));
-        }
-
-        struct Collector {
-            received: Vec<u8>,
-            count: usize,
-        }
-        fn collect(c: &mut Collector, buf: &[u8], _hdr: &AeronHeader) -> aeron_controlled_fragment_handler_action_t {
-            if c.count == 0 {
-                c.received = buf.to_vec();
-            }
-            c.count += 1;
-            aeron_controlled_fragment_handler_action_t::AERON_ACTION_CONTINUE
-        }
-
-        let ps = persistent_subscription_builder()?
-            .aeron(&aeron_archive)?
-            .archive_context(&archive_context)?
-            .live_channel(channel)?
-            .live_stream_id(stream_id)?
-            .replay_channel("aeron:udp?endpoint=localhost:0")?
-            .replay_stream_id(stream_id + 1)?
-            .start_from_beginning()?
-            .recording_id(recording_id)?
-            .listener(NoopPsListener)?
-            .build()?;
-
+    #[test]
+    #[serial]
+    fn test_ps_controlled_poll_with_controlled_fragment_closure_assembler() -> Result<(), Box<dyn Error>> {
+        crate::skip_unless_java!();
+        let received = Received::default();
         let mut asm = AeronControlledFragmentClosureAssembler::new()?;
-        let mut collector = Collector {
-            received: Vec::new(),
-            count: 0,
-        };
-        let deadline = Instant::now() + Duration::from_secs(20);
-        while collector.count == 0 && Instant::now() < deadline {
-            asm.poll(&ps, &mut collector, collect, 100)?;
-            sleep(Duration::from_millis(1));
-        }
-        ps.close()?;
-        drop(publication);
-        drop(archive);
-        drop(aeron_archive);
+        let mut on_message = push_controlled(&received);
+        ps_reassembles("ps_closure_casm", 9500, 7811, received, |ps| {
+            ps.controlled_poll(&mut asm.with(&mut on_message), 100)
+        })
+    }
 
-        assert_eq!(collector.count, 1, "expected exactly one reassembled message");
-        assert_eq!(
-            collector.received, payload,
-            "reassembled payload must match the original"
-        );
-        Ok(())
+    // The persistent subscription reassembles internally, so a plain closure gets whole
+    // messages with no assembler. This is the recommended form on a persistent subscription
+    #[test]
+    #[serial]
+    fn test_ps_poll_fn_delivers_whole_messages() -> Result<(), Box<dyn Error>> {
+        crate::skip_unless_java!();
+        let received = Received::default();
+        let mut on_message = push(&received);
+        ps_reassembles("ps_poll_fn", 9400, 7721, received, |ps| {
+            ps.poll_fn(&mut on_message, 100)
+        })
+    }
+
+    #[test]
+    #[serial]
+    fn test_ps_controlled_poll_fn_delivers_whole_messages() -> Result<(), Box<dyn Error>> {
+        crate::skip_unless_java!();
+        let received = Received::default();
+        let mut on_message = push_controlled(&received);
+        ps_reassembles("ps_controlled_poll_fn", 9500, 7821, received, |ps| {
+            ps.controlled_poll_fn(&mut on_message, 100)
+        })
     }
 }

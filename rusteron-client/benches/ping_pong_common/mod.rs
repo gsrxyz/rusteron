@@ -153,10 +153,8 @@ fn record_rtt(
             },
             FRAGMENT_COUNT_LIMIT,
         )?;
-        if fragments == 0 {
-            if image.is_closed() {
-                return Err("pong went away".into());
-            }
+        if fragments == 0 && image.is_closed() {
+            return Err("pong went away".into());
         }
         idle.idle(fragments);
     }

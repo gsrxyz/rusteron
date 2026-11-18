@@ -1,4 +1,3 @@
-
 type aeron_client_registering_resource_t = aeron_client_registering_resource_stct;
 unsafe impl NativeResource for addrinfo {
     type Policy = LocalResource;
@@ -42,10 +41,11 @@ impl<S: ResourceStorage<addrinfo>> core::fmt::Debug for Addrinfo<S> {
         }
         f.debug_struct(stringify!(Addrinfo))
             .field("inner", &self.inner)
-            .field(stringify!(ai_flags), &self.ai_flags())
-            .field(stringify!(ai_family), &self.ai_family())
-            .field(stringify!(ai_socktype), &self.ai_socktype())
-            .field(stringify!(ai_protocol), &self.ai_protocol())
+            .field("ai_flags", &self.ai_flags())
+            .field("ai_family", &self.ai_family())
+            .field("ai_socktype", &self.ai_socktype())
+            .field("ai_protocol", &self.ai_protocol())
+            .field("ai_canonname", &unsafe { self.ai_canonname() })
             .finish()
     }
 }
@@ -128,26 +128,32 @@ impl Addrinfo<CResource<addrinfo>> {
 impl Addrinfo {}
 impl<S: ResourceStorage<addrinfo>> Addrinfo<S> {
     #[inline]
+    #[must_use]
     pub fn ai_flags(&self) -> ::std::os::raw::c_int {
         unsafe { self.get_inner_ref() }.ai_flags.into()
     }
     #[inline]
+    #[must_use]
     pub fn ai_family(&self) -> ::std::os::raw::c_int {
         unsafe { self.get_inner_ref() }.ai_family.into()
     }
     #[inline]
+    #[must_use]
     pub fn ai_socktype(&self) -> ::std::os::raw::c_int {
         unsafe { self.get_inner_ref() }.ai_socktype.into()
     }
     #[inline]
+    #[must_use]
     pub fn ai_protocol(&self) -> ::std::os::raw::c_int {
         unsafe { self.get_inner_ref() }.ai_protocol.into()
     }
     #[inline]
+    #[must_use]
     pub fn ai_addrlen(&self) -> socklen_t {
         unsafe { self.get_inner_ref() }.ai_addrlen.into()
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -163,6 +169,8 @@ impl<S: ResourceStorage<addrinfo>> Addrinfo<S> {
         }
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn ai_addr(&self) -> Ref<'_, Sockaddr> {
         Ref::new(unsafe {
             Sockaddr::from_ptr(
@@ -173,6 +181,8 @@ impl<S: ResourceStorage<addrinfo>> Addrinfo<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn ai_next(&self) -> Ref<'_, Addrinfo> {
         Ref::new(unsafe {
             Addrinfo::from_ptr(
@@ -214,10 +224,14 @@ impl<S: ResourceStorage<addrinfo>> Addrinfo<S> {
 }
 impl<'a, S: ResourceStorage<addrinfo>> Ref<'a, Addrinfo<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn ai_addr(&self) -> Ref<'a, Sockaddr> {
         Ref::new(self.value.ai_addr().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn ai_next(&self) -> Ref<'a, Addrinfo> {
         Ref::new(self.value.ai_next().value)
     }
@@ -1255,8 +1269,8 @@ impl AeronErrorType {
 #[doc = ""]
 #[doc = " Construction is allocation-free (never reads `aeron_errmsg()`), so retry loops"]
 #[doc = " that discard the error stay cheap. Attach the message via `capture_errmsg()`"]
-#[doc = " (at the error site) or `with_message()`; `Display` / `get_last_err_message()`"]
-#[doc = " otherwise read the live `aeron_errmsg()` buffer."]
+#[doc = " (at the error site) or `with_message()`. Otherwise `Display` and"]
+#[doc = " `get_last_err_message_owned()` read the live `aeron_errmsg()` buffer."]
 #[derive(Clone)]
 pub struct AeronCError {
     pub code: i32,
@@ -1547,11 +1561,9 @@ pub struct NativePollCallback<'a, F> {
 #[doc = " context neither updates that copy nor frees the old handler. Borrowed wrappers"]
 #[doc = " retain nothing, so keep your `Handler` alive while C can call it."]
 #[doc = ""]
-#[doc = " Earlier manual cleanup often freed handlers while C could still call them,"]
-#[doc = " causing crashes or memory corruption. Keeping them through cleanup avoids this"]
-#[doc = " mistake, but keeps replaced closures and their captured values in memory too."]
-#[doc = " Earlier release needs to track every C user through connection setup and cleanup."]
-#[doc = " An `Arc` alone cannot track C's raw pointer copies."]
+#[doc = " Retaining handlers through cleanup prevents C from calling a freed handler, but"]
+#[doc = " keeps replaced closures and their captured values in memory too. An `Arc` alone"]
+#[doc = " cannot track the raw pointer copies C makes."]
 #[doc = ""]
 #[doc = " For retained callbacks, keep the `SharedHandler` returned by the setter and change"]
 #[doc = " its state with [`Self::lock`]. This waits for an active callback and must not be done"]
@@ -1562,15 +1574,16 @@ pub struct NativePollCallback<'a, F> {
 #[doc = " Use `*_fn` or `*_once` for callbacks that run during the call. Their closures"]
 #[doc = " stay on the stack, can borrow local variables and need no heap allocation."]
 #[doc = ""]
-#[doc = " `Handler<T>` stays on its thread and uses `RefCell` to check mutable borrows."]
-#[doc = " Local state access needs no mutex or atomic operation. Explicit"]
-#[doc = " `poll_with_handler` calls acquire one borrow guard for the whole call."]
-#[doc = " [`SharedHandler<T>`] uses a mutex and is `Send + Sync` when `T: Send`."]
-#[doc = " Shared callbacks acquire that mutex when invoked and can wait for another"]
-#[doc = " thread holding it. Use [`Self::lock`] to inspect or change callback state."]
-#[doc = " Normal `poll` takes `&mut callback` and needs no runtime borrow check."]
-#[doc = " For a receive loop with one callback owner, `poll_fn` or an owned"]
-#[doc = " `FragmentAssembler` uses direct Rust borrowing without callback guards."]
+#[doc = " `Handler` is only for callbacks C keeps after the call returns, such as error, image,"]
+#[doc = " counter and close handlers. None of these run on the poll path. Polls never take a"]
+#[doc = " `Handler`: `poll(&mut callback)`, `poll_fn` and the owned assemblers borrow the callback"]
+#[doc = " directly with no `RefCell`, mutex or reference count."]
+#[doc = ""]
+#[doc = " `Handler<T>` stays on its thread and uses `RefCell` to check mutable borrows, with no"]
+#[doc = " mutex or atomic operation. [`SharedHandler<T>`] uses a mutex and is `Send + Sync` when"]
+#[doc = " `T: Send`. It takes that mutex on each callback and can wait for another thread holding"]
+#[doc = " it. Use [`Self::lock`] to inspect or change callback state. To poll with state held in"]
+#[doc = " a `Handler`, pass `&mut *handler.lock()`: one borrow check per poll call."]
 pub struct Handler<T, P: CallbackPolicy = LocalCallback> {
     inner: P::Owner<T>,
 }
@@ -1630,13 +1643,15 @@ impl<T, P: CallbackPolicy> Handler<T, P> {
     #[doc = " acquires a mutex and may wait for a callback or another state guard."]
     #[doc = " Neither form clones the handler or allocates memory to acquire the guard."]
     #[doc = ""]
-    #[doc = " Explicit `poll_with_handler` calls hold one guard for the whole poll. `poll`, `poll_fn`"]
-    #[doc = " and an owned `FragmentAssembler` use direct Rust borrowing without these"]
-    #[doc = " guards; prefer them when one polling thread owns the callback."]
+    #[doc = " Polls never call this. `poll(&mut *handler.lock(), limit)` in your own code holds one"]
+    #[doc = " guard for the whole poll"]
     #[inline]
     pub fn lock(&self) -> P::Guard<'_, T> {
         P::lock(&self.inner)
     }
+    #[doc = " Called by the `Handler` trampolines for callbacks C retains. The poll trampolines"]
+    #[doc = " borrow `&mut F` directly and never call this"]
+    #[doc = ""]
     #[doc = " # Safety"]
     #[doc = " `raw` must come from a live `Handler<T, P>` and remain valid for the call."]
     #[inline]
@@ -2641,8 +2656,8 @@ impl<S: ResourceStorage<aeron_agent_runner_t>> core::fmt::Debug for AeronAgentRu
         }
         f.debug_struct(stringify!(AeronAgentRunner))
             .field("inner", &self.inner)
-            .field(stringify!(role_name), &self.role_name())
-            .field(stringify!(running), &self.running())
+            .field("role_name", &self.role_name())
+            .field("running", &self.running())
             .finish()
     }
 }
@@ -2735,6 +2750,7 @@ impl AeronAgentRunner<CResource<aeron_agent_runner_t>> {
 impl AeronAgentRunner {}
 impl<S: ResourceStorage<aeron_agent_runner_t>> AeronAgentRunner<S> {
     #[inline]
+    #[must_use]
     pub fn role_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.role_name.is_null() {
             ""
@@ -2747,38 +2763,47 @@ impl<S: ResourceStorage<aeron_agent_runner_t>> AeronAgentRunner<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn agent_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.agent_state.into()
     }
     #[inline]
+    #[must_use]
     pub fn idle_strategy_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.idle_strategy_state.into()
     }
     #[inline]
+    #[must_use]
     pub fn on_start_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.on_start_state.into()
     }
     #[inline]
+    #[must_use]
     pub fn on_start(&self) -> aeron_agent_on_start_func_t {
         unsafe { self.get_inner_ref() }.on_start.into()
     }
     #[inline]
+    #[must_use]
     pub fn do_work(&self) -> aeron_agent_do_work_func_t {
         unsafe { self.get_inner_ref() }.do_work.into()
     }
     #[inline]
+    #[must_use]
     pub fn on_close(&self) -> aeron_agent_on_close_func_t {
         unsafe { self.get_inner_ref() }.on_close.into()
     }
     #[inline]
+    #[must_use]
     pub fn idle_strategy(&self) -> aeron_idle_strategy_func_t {
         unsafe { self.get_inner_ref() }.idle_strategy.into()
     }
     #[inline]
+    #[must_use]
     pub fn thread(&self) -> aeron_thread_t {
         unsafe { self.get_inner_ref() }.thread.into()
     }
     #[inline]
+    #[must_use]
     pub fn running(&self) -> bool {
         unsafe {
             let running =
@@ -2788,6 +2813,7 @@ impl<S: ResourceStorage<aeron_agent_runner_t>> AeronAgentRunner<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn state(&self) -> u8 {
         unsafe { self.get_inner_ref() }.state.into()
     }
@@ -3103,16 +3129,14 @@ impl<S: ResourceStorage<aeron_archive_recording_position_key_layout_t>> core::fm
         }
         f.debug_struct(stringify!(AeronArchiveRecordingPositionKeyLayout))
             .field("inner", &self.inner)
-            .field(stringify!(recording_id), &self.recording_id())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(source_identity_length), &self.source_identity_length())
+            .field("recording_id", &self.recording_id())
+            .field("session_id", &self.session_id())
+            .field("source_identity_length", &self.source_identity_length())
             .finish()
     }
 }
 impl AeronArchiveRecordingPositionKeyLayout<CResource<aeron_archive_recording_position_key_layout_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(recording_id: i64, session_id: i32, source_identity_length: i32) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_archive_recording_position_key_layout_t>::new(
             move |ctx_field| {
@@ -3135,9 +3159,6 @@ impl AeronArchiveRecordingPositionKeyLayout<CResource<aeron_archive_recording_po
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_archive_recording_position_key_layout_t>::new(
             move |ctx_field| {
@@ -3161,9 +3182,6 @@ impl AeronArchiveRecordingPositionKeyLayout<CResource<aeron_archive_recording_po
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack()
     -> AeronArchiveRecordingPositionKeyLayout<Inline<aeron_archive_recording_position_key_layout_t>> {
         #[cfg(feature = "extra-logging")]
@@ -3179,14 +3197,17 @@ impl AeronArchiveRecordingPositionKeyLayout<CResource<aeron_archive_recording_po
 impl AeronArchiveRecordingPositionKeyLayout {}
 impl<S: ResourceStorage<aeron_archive_recording_position_key_layout_t>> AeronArchiveRecordingPositionKeyLayout<S> {
     #[inline]
+    #[must_use]
     pub fn recording_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.recording_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn source_identity_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.source_identity_length.into()
     }
@@ -3405,6 +3426,7 @@ impl AeronAsyncAddCounter<CResource<aeron_async_add_counter_t>> {
 impl AeronAsyncAddCounter {}
 impl<S: ResourceStorage<aeron_async_add_counter_t>> AeronAsyncAddCounter<S> {
     #[inline]
+    #[must_use]
     #[doc = "Gets the registration id for addition of the counter. Note that using this after a call to poll the succeeds or"]
     #[doc = " errors is undefined behaviour. As the async_add_counter_t may have been freed."]
     #[doc = ""]
@@ -3561,26 +3583,30 @@ impl Aeron {
         timeout: std::time::Duration,
     ) -> Result<AeronCounter, AeronCError> {
         let start = std::time::Instant::now();
+        let mut last_error = None;
         loop {
-            if let Ok(poller) = AeronAsyncAddCounter::new(self, type_id, key_buffer, label_buffer) {
-                let invoker = poller.agent_invoker_client();
-                while start.elapsed() <= timeout {
-                    if let Some(aeron) = &invoker {
-                        aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
-                        unsafe {
-                            aeron.main_do_work()?;
+            match AeronAsyncAddCounter::new(self, type_id, key_buffer, label_buffer) {
+                Err(error) => last_error = Some(error),
+                Ok(poller) => {
+                    let invoker = poller.agent_invoker_client();
+                    while start.elapsed() <= timeout {
+                        if let Some(aeron) = &invoker {
+                            aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
+                            unsafe {
+                                aeron.main_do_work()?;
+                            }
                         }
+                        if let Some(result) = poller.poll()? {
+                            return Ok(result);
+                        }
+                        #[cfg(debug_assertions)]
+                        std::thread::sleep(std::time::Duration::from_millis(10));
                     }
-                    if let Some(result) = poller.poll()? {
-                        return Ok(result);
-                    }
-                    #[cfg(debug_assertions)]
-                    std::thread::sleep(std::time::Duration::from_millis(10));
                 }
             }
             if start.elapsed() > timeout {
                 log::error!("failed async poll for {:?}", self);
-                return Err(AeronErrorType::TimedOut.into());
+                return Err(last_error.unwrap_or_else(|| AeronErrorType::TimedOut.into()));
             }
             #[cfg(debug_assertions)]
             std::thread::sleep(std::time::Duration::from_millis(10));
@@ -3826,6 +3852,7 @@ impl AeronAsyncAddExclusivePublication<CResource<aeron_async_add_exclusive_publi
 impl AeronAsyncAddExclusivePublication {}
 impl<S: ResourceStorage<aeron_async_add_exclusive_publication_t>> AeronAsyncAddExclusivePublication<S> {
     #[inline]
+    #[must_use]
     #[doc = "Gets the registration id for addition of the exclusive_publication. Note that using this after a call to poll the"]
     #[doc = " succeeds or errors is undefined behaviour. As the async_add_exclusive_publication_t may have been freed."]
     #[doc = ""]
@@ -3994,26 +4021,30 @@ impl Aeron {
         timeout: std::time::Duration,
     ) -> Result<AeronExclusivePublication, AeronCError> {
         let start = std::time::Instant::now();
+        let mut last_error = None;
         loop {
-            if let Ok(poller) = AeronAsyncAddExclusivePublication::new(self, uri, stream_id) {
-                let invoker = poller.agent_invoker_client();
-                while start.elapsed() <= timeout {
-                    if let Some(aeron) = &invoker {
-                        aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
-                        unsafe {
-                            aeron.main_do_work()?;
+            match AeronAsyncAddExclusivePublication::new(self, uri, stream_id) {
+                Err(error) => last_error = Some(error),
+                Ok(poller) => {
+                    let invoker = poller.agent_invoker_client();
+                    while start.elapsed() <= timeout {
+                        if let Some(aeron) = &invoker {
+                            aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
+                            unsafe {
+                                aeron.main_do_work()?;
+                            }
                         }
+                        if let Some(result) = poller.poll()? {
+                            return Ok(result);
+                        }
+                        #[cfg(debug_assertions)]
+                        std::thread::sleep(std::time::Duration::from_millis(10));
                     }
-                    if let Some(result) = poller.poll()? {
-                        return Ok(result);
-                    }
-                    #[cfg(debug_assertions)]
-                    std::thread::sleep(std::time::Duration::from_millis(10));
                 }
             }
             if start.elapsed() > timeout {
                 log::error!("failed async poll for {:?}", self);
-                return Err(AeronErrorType::TimedOut.into());
+                return Err(last_error.unwrap_or_else(|| AeronErrorType::TimedOut.into()));
             }
             #[cfg(debug_assertions)]
             std::thread::sleep(std::time::Duration::from_millis(10));
@@ -4245,6 +4276,7 @@ impl AeronAsyncAddPublication<CResource<aeron_async_add_publication_t>> {
 impl AeronAsyncAddPublication {}
 impl<S: ResourceStorage<aeron_async_add_publication_t>> AeronAsyncAddPublication<S> {
     #[inline]
+    #[must_use]
     #[doc = "Gets the registration id for addition of the publication. Note that using this after a call to poll the succeeds or"]
     #[doc = " errors is undefined behaviour. As the async_add_publication_t may have been freed."]
     #[doc = ""]
@@ -4404,26 +4436,30 @@ impl Aeron {
         timeout: std::time::Duration,
     ) -> Result<AeronPublication, AeronCError> {
         let start = std::time::Instant::now();
+        let mut last_error = None;
         loop {
-            if let Ok(poller) = AeronAsyncAddPublication::new(self, uri, stream_id) {
-                let invoker = poller.agent_invoker_client();
-                while start.elapsed() <= timeout {
-                    if let Some(aeron) = &invoker {
-                        aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
-                        unsafe {
-                            aeron.main_do_work()?;
+            match AeronAsyncAddPublication::new(self, uri, stream_id) {
+                Err(error) => last_error = Some(error),
+                Ok(poller) => {
+                    let invoker = poller.agent_invoker_client();
+                    while start.elapsed() <= timeout {
+                        if let Some(aeron) = &invoker {
+                            aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
+                            unsafe {
+                                aeron.main_do_work()?;
+                            }
                         }
+                        if let Some(result) = poller.poll()? {
+                            return Ok(result);
+                        }
+                        #[cfg(debug_assertions)]
+                        std::thread::sleep(std::time::Duration::from_millis(10));
                     }
-                    if let Some(result) = poller.poll()? {
-                        return Ok(result);
-                    }
-                    #[cfg(debug_assertions)]
-                    std::thread::sleep(std::time::Duration::from_millis(10));
                 }
             }
             if start.elapsed() > timeout {
                 log::error!("failed async poll for {:?}", self);
-                return Err(AeronErrorType::TimedOut.into());
+                return Err(last_error.unwrap_or_else(|| AeronErrorType::TimedOut.into()));
             }
             #[cfg(debug_assertions)]
             std::thread::sleep(std::time::Duration::from_millis(10));
@@ -4650,6 +4686,7 @@ impl AeronAsyncAddSubscription<CResource<aeron_async_add_subscription_t>> {
 impl AeronAsyncAddSubscription {}
 impl<S: ResourceStorage<aeron_async_add_subscription_t>> AeronAsyncAddSubscription<S> {
     #[inline]
+    #[must_use]
     #[doc = "Gets the registration id for addition of the subscription. Note that using this after a call to poll the succeeds or"]
     #[doc = " errors is undefined behaviour. As the async_add_subscription_t may have been freed."]
     #[doc = ""]
@@ -4830,32 +4867,36 @@ impl Aeron {
         timeout: std::time::Duration,
     ) -> Result<AeronSubscription, AeronCError> {
         let start = std::time::Instant::now();
+        let mut last_error = None;
         loop {
-            if let Ok(poller) = AeronAsyncAddSubscription::new(
+            match AeronAsyncAddSubscription::new(
                 self,
                 uri,
                 stream_id,
                 on_available_image_handler,
                 on_unavailable_image_handler,
             ) {
-                let invoker = poller.agent_invoker_client();
-                while start.elapsed() <= timeout {
-                    if let Some(aeron) = &invoker {
-                        aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
-                        unsafe {
-                            aeron.main_do_work()?;
+                Err(error) => last_error = Some(error),
+                Ok(poller) => {
+                    let invoker = poller.agent_invoker_client();
+                    while start.elapsed() <= timeout {
+                        if let Some(aeron) = &invoker {
+                            aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
+                            unsafe {
+                                aeron.main_do_work()?;
+                            }
                         }
+                        if let Some(result) = poller.poll()? {
+                            return Ok(result);
+                        }
+                        #[cfg(debug_assertions)]
+                        std::thread::sleep(std::time::Duration::from_millis(10));
                     }
-                    if let Some(result) = poller.poll()? {
-                        return Ok(result);
-                    }
-                    #[cfg(debug_assertions)]
-                    std::thread::sleep(std::time::Duration::from_millis(10));
                 }
             }
             if start.elapsed() > timeout {
                 log::error!("failed async poll for {:?}", self);
-                return Err(AeronErrorType::TimedOut.into());
+                return Err(last_error.unwrap_or_else(|| AeronErrorType::TimedOut.into()));
             }
             #[cfg(debug_assertions)]
             std::thread::sleep(std::time::Duration::from_millis(10));
@@ -5103,9 +5144,6 @@ impl<S: ResourceStorage<aeron_async_destination_by_id_t>> core::fmt::Debug for A
 impl AeronAsyncDestinationById<CResource<aeron_async_destination_by_id_t>> {
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_async_destination_by_id_t>::new(
             move |ctx_field| {
@@ -5129,9 +5167,6 @@ impl AeronAsyncDestinationById<CResource<aeron_async_destination_by_id_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronAsyncDestinationById<Inline<aeron_async_destination_by_id_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -5711,6 +5746,7 @@ impl<S: ResourceStorage<aeron_async_destination_t>> AeronAsyncDestination<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "Gets the registration_id for the destination command supplied. Note that this is the correlation_id used for"]
     #[doc = " the specified destination command, not the registration_id for the original parent resource (publication,"]
     #[doc = " subscription)."]
@@ -6041,9 +6077,6 @@ impl<S: ResourceStorage<aeron_atomic_counter_t>> core::fmt::Debug for AeronAtomi
 impl AeronAtomicCounter<CResource<aeron_atomic_counter_t>> {
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_atomic_counter_t>::new(
             move |ctx_field| {
@@ -6067,9 +6100,6 @@ impl AeronAtomicCounter<CResource<aeron_atomic_counter_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronAtomicCounter<Inline<aeron_atomic_counter_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -6213,16 +6243,14 @@ impl<S: ResourceStorage<aeron_broadcast_descriptor_t>> core::fmt::Debug for Aero
         }
         f.debug_struct(stringify!(AeronBroadcastDescriptor))
             .field("inner", &self.inner)
-            .field(stringify!(tail_intent_counter), &self.tail_intent_counter())
-            .field(stringify!(tail_counter), &self.tail_counter())
-            .field(stringify!(latest_counter), &self.latest_counter())
+            .field("tail_intent_counter", &self.tail_intent_counter())
+            .field("tail_counter", &self.tail_counter())
+            .field("latest_counter", &self.latest_counter())
             .finish()
     }
 }
 impl AeronBroadcastDescriptor<CResource<aeron_broadcast_descriptor_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         tail_intent_counter: i64,
         tail_counter: i64,
@@ -6251,9 +6279,6 @@ impl AeronBroadcastDescriptor<CResource<aeron_broadcast_descriptor_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_broadcast_descriptor_t>::new(
             move |ctx_field| {
@@ -6277,9 +6302,6 @@ impl AeronBroadcastDescriptor<CResource<aeron_broadcast_descriptor_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronBroadcastDescriptor<Inline<aeron_broadcast_descriptor_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -6294,18 +6316,22 @@ impl AeronBroadcastDescriptor<CResource<aeron_broadcast_descriptor_t>> {
 impl AeronBroadcastDescriptor {}
 impl<S: ResourceStorage<aeron_broadcast_descriptor_t>> AeronBroadcastDescriptor<S> {
     #[inline]
+    #[must_use]
     pub fn tail_intent_counter(&self) -> i64 {
         unsafe { self.get_inner_ref() }.tail_intent_counter.into()
     }
     #[inline]
+    #[must_use]
     pub fn tail_counter(&self) -> i64 {
         unsafe { self.get_inner_ref() }.tail_counter.into()
     }
     #[inline]
+    #[must_use]
     pub fn latest_counter(&self) -> i64 {
         unsafe { self.get_inner_ref() }.latest_counter.into()
     }
     #[inline]
+    #[must_use]
     pub fn pad(&self) -> [u8; 104usize] {
         unsafe { self.get_inner_ref() }.pad.into()
     }
@@ -6479,15 +6505,13 @@ impl<S: ResourceStorage<aeron_broadcast_record_descriptor_t>> core::fmt::Debug f
         }
         f.debug_struct(stringify!(AeronBroadcastRecordDescriptor))
             .field("inner", &self.inner)
-            .field(stringify!(length), &self.length())
-            .field(stringify!(msg_type_id), &self.msg_type_id())
+            .field("length", &self.length())
+            .field("msg_type_id", &self.msg_type_id())
             .finish()
     }
 }
 impl AeronBroadcastRecordDescriptor<CResource<aeron_broadcast_record_descriptor_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(length: i32, msg_type_id: i32) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_broadcast_record_descriptor_t>::new(
             move |ctx_field| {
@@ -6509,9 +6533,6 @@ impl AeronBroadcastRecordDescriptor<CResource<aeron_broadcast_record_descriptor_
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_broadcast_record_descriptor_t>::new(
             move |ctx_field| {
@@ -6535,9 +6556,6 @@ impl AeronBroadcastRecordDescriptor<CResource<aeron_broadcast_record_descriptor_
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronBroadcastRecordDescriptor<Inline<aeron_broadcast_record_descriptor_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -6552,10 +6570,12 @@ impl AeronBroadcastRecordDescriptor<CResource<aeron_broadcast_record_descriptor_
 impl AeronBroadcastRecordDescriptor {}
 impl<S: ResourceStorage<aeron_broadcast_record_descriptor_t>> AeronBroadcastRecordDescriptor<S> {
     #[inline]
+    #[must_use]
     pub fn length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.length.into()
     }
     #[inline]
+    #[must_use]
     pub fn msg_type_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.msg_type_id.into()
     }
@@ -6725,8 +6745,8 @@ impl<S: ResourceStorage<aeron_broadcast_transmitter_t>> core::fmt::Debug for Aer
         }
         f.debug_struct(stringify!(AeronBroadcastTransmitter))
             .field("inner", &self.inner)
-            .field(stringify!(capacity), &self.capacity())
-            .field(stringify!(max_message_length), &self.max_message_length())
+            .field("capacity", &self.capacity())
+            .field("max_message_length", &self.max_message_length())
             .finish()
     }
 }
@@ -6806,10 +6826,13 @@ impl AeronBroadcastTransmitter<CResource<aeron_broadcast_transmitter_t>> {
 impl AeronBroadcastTransmitter {}
 impl<S: ResourceStorage<aeron_broadcast_transmitter_t>> AeronBroadcastTransmitter<S> {
     #[inline]
+    #[must_use]
     pub fn buffer(&self) -> *mut u8 {
         unsafe { self.get_inner_ref() }.buffer.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn descriptor(&self) -> Ref<'_, AeronBroadcastDescriptor> {
         Ref::new(unsafe {
             AeronBroadcastDescriptor::from_ptr(
@@ -6820,10 +6843,12 @@ impl<S: ResourceStorage<aeron_broadcast_transmitter_t>> AeronBroadcastTransmitte
         })
     }
     #[inline]
+    #[must_use]
     pub fn capacity(&self) -> usize {
         unsafe { self.get_inner_ref() }.capacity.into()
     }
     #[inline]
+    #[must_use]
     pub fn max_message_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.max_message_length.into()
     }
@@ -6920,6 +6945,8 @@ impl<S: ResourceStorage<aeron_broadcast_transmitter_t>> AeronBroadcastTransmitte
 }
 impl<'a, S: ResourceStorage<aeron_broadcast_transmitter_t>> Ref<'a, AeronBroadcastTransmitter<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn descriptor(&self) -> Ref<'a, AeronBroadcastDescriptor> {
         Ref::new(self.value.descriptor().value)
     }
@@ -7052,7 +7079,7 @@ impl<S: ResourceStorage<aeron_buffer_claim_t>> core::fmt::Debug for AeronBufferC
         }
         f.debug_struct(stringify!(AeronBufferClaim))
             .field("inner", &self.inner)
-            .field(stringify!(length), &self.length())
+            .field("length", &self.length())
             .finish()
     }
 }
@@ -7082,9 +7109,6 @@ impl AeronBufferClaim<CResource<aeron_buffer_claim_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_buffer_claim_t>::new(
             move |ctx_field| {
@@ -7108,9 +7132,6 @@ impl AeronBufferClaim<CResource<aeron_buffer_claim_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronBufferClaim<Inline<aeron_buffer_claim_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -7125,10 +7146,12 @@ impl AeronBufferClaim<CResource<aeron_buffer_claim_t>> {
 impl AeronBufferClaim {}
 impl<S: ResourceStorage<aeron_buffer_claim_t>> AeronBufferClaim<S> {
     #[inline]
+    #[must_use]
     pub fn frame_header(&self) -> *mut u8 {
         unsafe { self.get_inner_ref() }.frame_header.into()
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" The stored pointer must be valid for the returned slice, and no"]
     #[doc = r" other Rust or native access may overlap its mutable borrow."]
@@ -7145,6 +7168,7 @@ impl<S: ResourceStorage<aeron_buffer_claim_t>> AeronBufferClaim<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn length(&self) -> usize {
         unsafe { self.get_inner_ref() }.length.into()
     }
@@ -7373,14 +7397,12 @@ impl<S: ResourceStorage<aeron_channel_endpoint_status_key_layout_t>> core::fmt::
         }
         f.debug_struct(stringify!(AeronChannelEndpointStatusKeyLayout))
             .field("inner", &self.inner)
-            .field(stringify!(channel_length), &self.channel_length())
+            .field("channel_length", &self.channel_length())
             .finish()
     }
 }
 impl AeronChannelEndpointStatusKeyLayout<CResource<aeron_channel_endpoint_status_key_layout_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(channel_length: i32, channel: [::std::os::raw::c_char; 108usize]) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_channel_endpoint_status_key_layout_t>::new(
             move |ctx_field| {
@@ -7402,9 +7424,6 @@ impl AeronChannelEndpointStatusKeyLayout<CResource<aeron_channel_endpoint_status
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_channel_endpoint_status_key_layout_t>::new(
             move |ctx_field| {
@@ -7428,9 +7447,6 @@ impl AeronChannelEndpointStatusKeyLayout<CResource<aeron_channel_endpoint_status
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack()
     -> AeronChannelEndpointStatusKeyLayout<Inline<aeron_channel_endpoint_status_key_layout_t>> {
         #[cfg(feature = "extra-logging")]
@@ -7446,10 +7462,12 @@ impl AeronChannelEndpointStatusKeyLayout<CResource<aeron_channel_endpoint_status
 impl AeronChannelEndpointStatusKeyLayout {}
 impl<S: ResourceStorage<aeron_channel_endpoint_status_key_layout_t>> AeronChannelEndpointStatusKeyLayout<S> {
     #[inline]
+    #[must_use]
     pub fn channel_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.channel_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn channel(&self) -> [::std::os::raw::c_char; 108usize] {
         unsafe { self.get_inner_ref() }.channel.into()
     }
@@ -7628,9 +7646,6 @@ impl<S: ResourceStorage<aeron_client_registering_resource_t>> core::fmt::Debug f
 impl AeronClientRegisteringResource<CResource<aeron_client_registering_resource_t>> {
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_client_registering_resource_t>::new(
             move |ctx_field| {
@@ -7654,9 +7669,6 @@ impl AeronClientRegisteringResource<CResource<aeron_client_registering_resource_
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronClientRegisteringResource<Inline<aeron_client_registering_resource_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -7785,14 +7797,11 @@ impl<S: ResourceStorage<aeron_client_t>> core::fmt::Debug for AeronClient<S> {
         }
         f.debug_struct(stringify!(AeronClient))
             .field("inner", &self.inner)
-            .field(stringify!(reached_end_of_life), &self.reached_end_of_life())
-            .field(stringify!(closed_by_command), &self.closed_by_command())
-            .field(stringify!(client_id), &self.client_id())
-            .field(
-                stringify!(client_liveness_timeout_ms),
-                &self.client_liveness_timeout_ms(),
-            )
-            .field(stringify!(heartbeat_timestamp), &self.heartbeat_timestamp())
+            .field("reached_end_of_life", &self.reached_end_of_life())
+            .field("closed_by_command", &self.closed_by_command())
+            .field("client_id", &self.client_id())
+            .field("client_liveness_timeout_ms", &self.client_liveness_timeout_ms())
+            .field("heartbeat_timestamp", &self.heartbeat_timestamp())
             .finish()
     }
 }
@@ -7891,30 +7900,37 @@ impl AeronClient {
 }
 impl<S: ResourceStorage<aeron_client_t>> AeronClient<S> {
     #[inline]
+    #[must_use]
     pub fn reached_end_of_life(&self) -> bool {
         unsafe { self.get_inner_ref() }.reached_end_of_life.into()
     }
     #[inline]
+    #[must_use]
     pub fn closed_by_command(&self) -> bool {
         unsafe { self.get_inner_ref() }.closed_by_command.into()
     }
     #[inline]
+    #[must_use]
     pub fn client_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.client_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn client_liveness_timeout_ms(&self) -> i64 {
         unsafe { self.get_inner_ref() }.client_liveness_timeout_ms.into()
     }
     #[inline]
+    #[must_use]
     pub fn heartbeat_timestamp(&self) -> AeronAtomicCounter<Inline<aeron_atomic_counter_t>> {
         unsafe { AeronAtomicCounter::from_native(unsafe { self.get_inner_ref() }.heartbeat_timestamp) }
     }
     #[inline]
+    #[must_use]
     pub fn publication_links(&self) -> aeron_client_stct_publication_link_stct {
         unsafe { self.get_inner_ref() }.publication_links.into()
     }
     #[inline]
+    #[must_use]
     pub fn counter_links(&self) -> aeron_client_stct_counter_link_stct {
         unsafe { self.get_inner_ref() }.counter_links.into()
     }
@@ -8065,14 +8081,12 @@ impl<S: ResourceStorage<aeron_client_timeout_t>> core::fmt::Debug for AeronClien
         }
         f.debug_struct(stringify!(AeronClientTimeout))
             .field("inner", &self.inner)
-            .field(stringify!(client_id), &self.client_id())
+            .field("client_id", &self.client_id())
             .finish()
     }
 }
 impl AeronClientTimeout<CResource<aeron_client_timeout_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(client_id: i64) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_client_timeout_t>::new(
             move |ctx_field| {
@@ -8093,9 +8107,6 @@ impl AeronClientTimeout<CResource<aeron_client_timeout_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_client_timeout_t>::new(
             move |ctx_field| {
@@ -8119,9 +8130,6 @@ impl AeronClientTimeout<CResource<aeron_client_timeout_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronClientTimeout<Inline<aeron_client_timeout_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -8136,6 +8144,7 @@ impl AeronClientTimeout<CResource<aeron_client_timeout_t>> {
 impl AeronClientTimeout {}
 impl<S: ResourceStorage<aeron_client_timeout_t>> AeronClientTimeout<S> {
     #[inline]
+    #[must_use]
     pub fn client_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.client_id.into()
     }
@@ -8293,8 +8302,8 @@ impl<S: ResourceStorage<aeron_clock_cache_t>> core::fmt::Debug for AeronClockCac
         }
         f.debug_struct(stringify!(AeronClockCache))
             .field("inner", &self.inner)
-            .field(stringify!(cached_epoch_time), &self.cached_epoch_time())
-            .field(stringify!(cached_nano_time), &self.cached_nano_time())
+            .field("cached_epoch_time", &self.cached_epoch_time())
+            .field("cached_nano_time", &self.cached_nano_time())
             .finish()
     }
 }
@@ -8344,18 +8353,22 @@ impl AeronClockCache<CResource<aeron_clock_cache_t>> {
 impl AeronClockCache {}
 impl<S: ResourceStorage<aeron_clock_cache_t>> AeronClockCache<S> {
     #[inline]
+    #[must_use]
     pub fn pre_pad(&self) -> [u8; 56usize] {
         unsafe { self.get_inner_ref() }.pre_pad.into()
     }
     #[inline]
+    #[must_use]
     pub fn cached_epoch_time(&self) -> i64 {
         unsafe { self.get_inner_ref() }.cached_epoch_time.into()
     }
     #[inline]
+    #[must_use]
     pub fn cached_nano_time(&self) -> i64 {
         unsafe { self.get_inner_ref() }.cached_nano_time.into()
     }
     #[inline]
+    #[must_use]
     pub fn post_pad(&self) -> [u8; 56usize] {
         unsafe { self.get_inner_ref() }.post_pad.into()
     }
@@ -8577,29 +8590,21 @@ impl<S: ResourceStorage<aeron_cnc_constants_t>> core::fmt::Debug for AeronCncCon
         }
         f.debug_struct(stringify!(AeronCncConstants))
             .field("inner", &self.inner)
-            .field(stringify!(cnc_version), &self.cnc_version())
-            .field(stringify!(to_driver_buffer_length), &self.to_driver_buffer_length())
-            .field(stringify!(to_clients_buffer_length), &self.to_clients_buffer_length())
-            .field(
-                stringify!(counter_metadata_buffer_length),
-                &self.counter_metadata_buffer_length(),
-            )
-            .field(
-                stringify!(counter_values_buffer_length),
-                &self.counter_values_buffer_length(),
-            )
-            .field(stringify!(error_log_buffer_length), &self.error_log_buffer_length())
-            .field(stringify!(client_liveness_timeout), &self.client_liveness_timeout())
-            .field(stringify!(start_timestamp), &self.start_timestamp())
-            .field(stringify!(pid), &self.pid())
-            .field(stringify!(file_page_size), &self.file_page_size())
+            .field("cnc_version", &self.cnc_version())
+            .field("to_driver_buffer_length", &self.to_driver_buffer_length())
+            .field("to_clients_buffer_length", &self.to_clients_buffer_length())
+            .field("counter_metadata_buffer_length", &self.counter_metadata_buffer_length())
+            .field("counter_values_buffer_length", &self.counter_values_buffer_length())
+            .field("error_log_buffer_length", &self.error_log_buffer_length())
+            .field("client_liveness_timeout", &self.client_liveness_timeout())
+            .field("start_timestamp", &self.start_timestamp())
+            .field("pid", &self.pid())
+            .field("file_page_size", &self.file_page_size())
             .finish()
     }
 }
 impl AeronCncConstants<CResource<aeron_cnc_constants_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         cnc_version: i32,
         to_driver_buffer_length: i32,
@@ -8640,9 +8645,6 @@ impl AeronCncConstants<CResource<aeron_cnc_constants_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_cnc_constants_t>::new(
             move |ctx_field| {
@@ -8666,9 +8668,6 @@ impl AeronCncConstants<CResource<aeron_cnc_constants_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronCncConstants<Inline<aeron_cnc_constants_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -8683,42 +8682,52 @@ impl AeronCncConstants<CResource<aeron_cnc_constants_t>> {
 impl AeronCncConstants {}
 impl<S: ResourceStorage<aeron_cnc_constants_t>> AeronCncConstants<S> {
     #[inline]
+    #[must_use]
     pub fn cnc_version(&self) -> i32 {
         unsafe { self.get_inner_ref() }.cnc_version.into()
     }
     #[inline]
+    #[must_use]
     pub fn to_driver_buffer_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.to_driver_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn to_clients_buffer_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.to_clients_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn counter_metadata_buffer_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.counter_metadata_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn counter_values_buffer_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.counter_values_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn error_log_buffer_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.error_log_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn client_liveness_timeout(&self) -> i64 {
         unsafe { self.get_inner_ref() }.client_liveness_timeout.into()
     }
     #[inline]
+    #[must_use]
     pub fn start_timestamp(&self) -> i64 {
         unsafe { self.get_inner_ref() }.start_timestamp.into()
     }
     #[inline]
+    #[must_use]
     pub fn pid(&self) -> i64 {
         unsafe { self.get_inner_ref() }.pid.into()
     }
     #[inline]
+    #[must_use]
     pub fn file_page_size(&self) -> i32 {
         unsafe { self.get_inner_ref() }.file_page_size.into()
     }
@@ -8876,29 +8885,21 @@ impl<S: ResourceStorage<aeron_cnc_metadata_t>> core::fmt::Debug for AeronCncMeta
         }
         f.debug_struct(stringify!(AeronCncMetadata))
             .field("inner", &self.inner)
-            .field(stringify!(cnc_version), &self.cnc_version())
-            .field(stringify!(to_driver_buffer_length), &self.to_driver_buffer_length())
-            .field(stringify!(to_clients_buffer_length), &self.to_clients_buffer_length())
-            .field(
-                stringify!(counter_metadata_buffer_length),
-                &self.counter_metadata_buffer_length(),
-            )
-            .field(
-                stringify!(counter_values_buffer_length),
-                &self.counter_values_buffer_length(),
-            )
-            .field(stringify!(error_log_buffer_length), &self.error_log_buffer_length())
-            .field(stringify!(client_liveness_timeout), &self.client_liveness_timeout())
-            .field(stringify!(start_timestamp), &self.start_timestamp())
-            .field(stringify!(pid), &self.pid())
-            .field(stringify!(file_page_size), &self.file_page_size())
+            .field("cnc_version", &self.cnc_version())
+            .field("to_driver_buffer_length", &self.to_driver_buffer_length())
+            .field("to_clients_buffer_length", &self.to_clients_buffer_length())
+            .field("counter_metadata_buffer_length", &self.counter_metadata_buffer_length())
+            .field("counter_values_buffer_length", &self.counter_values_buffer_length())
+            .field("error_log_buffer_length", &self.error_log_buffer_length())
+            .field("client_liveness_timeout", &self.client_liveness_timeout())
+            .field("start_timestamp", &self.start_timestamp())
+            .field("pid", &self.pid())
+            .field("file_page_size", &self.file_page_size())
             .finish()
     }
 }
 impl AeronCncMetadata<CResource<aeron_cnc_metadata_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         cnc_version: i32,
         to_driver_buffer_length: i32,
@@ -8982,42 +8983,52 @@ impl AeronCncMetadata<CResource<aeron_cnc_metadata_t>> {
 impl AeronCncMetadata {}
 impl<S: ResourceStorage<aeron_cnc_metadata_t>> AeronCncMetadata<S> {
     #[inline]
+    #[must_use]
     pub fn cnc_version(&self) -> i32 {
         unsafe { self.get_inner_ref() }.cnc_version.into()
     }
     #[inline]
+    #[must_use]
     pub fn to_driver_buffer_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.to_driver_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn to_clients_buffer_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.to_clients_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn counter_metadata_buffer_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.counter_metadata_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn counter_values_buffer_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.counter_values_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn error_log_buffer_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.error_log_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn client_liveness_timeout(&self) -> i64 {
         unsafe { self.get_inner_ref() }.client_liveness_timeout.into()
     }
     #[inline]
+    #[must_use]
     pub fn start_timestamp(&self) -> i64 {
         unsafe { self.get_inner_ref() }.start_timestamp.into()
     }
     #[inline]
+    #[must_use]
     pub fn pid(&self) -> i64 {
         unsafe { self.get_inner_ref() }.pid.into()
     }
     #[inline]
+    #[must_use]
     pub fn file_page_size(&self) -> i32 {
         unsafe { self.get_inner_ref() }.file_page_size.into()
     }
@@ -9289,6 +9300,56 @@ impl<S: ResourceStorage<aeron_cnc_t>> AeronCnc<S> {
         })))
     }
     #[inline]
+    #[doc = "`get_constants()?.cnc_version()`. Call `get_constants()` once to read several fields"]
+    pub fn cnc_version(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.cnc_version())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.to_driver_buffer_length()`. Call `get_constants()` once to read several fields"]
+    pub fn to_driver_buffer_length(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.to_driver_buffer_length())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.to_clients_buffer_length()`. Call `get_constants()` once to read several fields"]
+    pub fn to_clients_buffer_length(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.to_clients_buffer_length())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.counter_metadata_buffer_length()`. Call `get_constants()` once to read several fields"]
+    pub fn counter_metadata_buffer_length(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.counter_metadata_buffer_length())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.counter_values_buffer_length()`. Call `get_constants()` once to read several fields"]
+    pub fn counter_values_buffer_length(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.counter_values_buffer_length())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.error_log_buffer_length()`. Call `get_constants()` once to read several fields"]
+    pub fn error_log_buffer_length(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.error_log_buffer_length())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.client_liveness_timeout()`. Call `get_constants()` once to read several fields"]
+    pub fn client_liveness_timeout(&self) -> Result<i64, AeronCError> {
+        Ok(self.get_constants()?.client_liveness_timeout())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.start_timestamp()`. Call `get_constants()` once to read several fields"]
+    pub fn start_timestamp(&self) -> Result<i64, AeronCError> {
+        Ok(self.get_constants()?.start_timestamp())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.pid()`. Call `get_constants()` once to read several fields"]
+    pub fn pid(&self) -> Result<i64, AeronCError> {
+        Ok(self.get_constants()?.pid())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.file_page_size()`. Call `get_constants()` once to read several fields"]
+    pub fn file_page_size(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.file_page_size())
+    }
+    #[inline]
     #[doc = "Get the current file name of the cnc file."]
     #[doc = ""]
     #[doc = " \n# Return\n name of the cnc file"]
@@ -9332,7 +9393,6 @@ impl<S: ResourceStorage<aeron_cnc_t>> AeronCnc<S> {
     #[doc = "Reads the current error log for this driver."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `callback` called for every distinct error observation"]
-    #[doc = " \n - `clientd` client data to be passed to the callback"]
     #[doc = " \n - `since_timestamp` only return errors after this timestamp (0 returns all)"]
     #[doc = " \n# Return\n the number of distinct errors seen"]
     pub fn error_log_read<
@@ -9385,17 +9445,14 @@ impl<S: ResourceStorage<aeron_cnc_t>> AeronCnc<S> {
     #[doc = "Reads the current error log for this driver."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `callback` called for every distinct error observation"]
-    #[doc = " \n - `clientd` client data to be passed to the callback"]
     #[doc = " \n - `since_timestamp` only return errors after this timestamp (0 returns all)"]
     #[doc = " \n# Return\n the number of distinct errors seen"]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -9432,6 +9489,7 @@ impl<S: ResourceStorage<aeron_cnc_t>> AeronCnc<S> {
         }
     }
     #[inline]
+    #[track_caller]
     #[doc = "Gets a counters reader for this command and control file. This does not need to be closed manually, resources"]
     #[doc = " are tied to the instance of aeron_cnc."]
     #[doc = ""]
@@ -9517,13 +9575,11 @@ impl<S: ResourceStorage<aeron_cnc_t>> AeronCnc<S> {
     #[doc = "# Parameters\n \n - `entry_func` callback for each observation found"]
     #[doc = " \n# Return\n -1 on failure, number of observations on success (could be 0)."]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -9597,6 +9653,8 @@ impl<S: ResourceStorage<aeron_cnc_t>> AeronCnc<S> {
 }
 impl<'a, S: ResourceStorage<aeron_cnc_t>> Ref<'a, AeronCnc<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     #[doc = "Gets a counters reader for this command and control file. This does not need to be closed manually, resources"]
     #[doc = " are tied to the instance of aeron_cnc."]
     #[doc = ""]
@@ -9745,34 +9803,42 @@ impl AeronCongestionControlStrategy {
 }
 impl<S: ResourceStorage<aeron_congestion_control_strategy_t>> AeronCongestionControlStrategy<S> {
     #[inline]
+    #[must_use]
     pub fn should_measure_rtt(&self) -> aeron_congestion_control_strategy_should_measure_rtt_func_t {
         unsafe { self.get_inner_ref() }.should_measure_rtt.into()
     }
     #[inline]
+    #[must_use]
     pub fn on_rttm_sent(&self) -> aeron_congestion_control_strategy_on_rttm_sent_func_t {
         unsafe { self.get_inner_ref() }.on_rttm_sent.into()
     }
     #[inline]
+    #[must_use]
     pub fn on_rttm(&self) -> aeron_congestion_control_strategy_on_rttm_func_t {
         unsafe { self.get_inner_ref() }.on_rttm.into()
     }
     #[inline]
+    #[must_use]
     pub fn on_track_rebuild(&self) -> aeron_congestion_control_strategy_on_track_rebuild_func_t {
         unsafe { self.get_inner_ref() }.on_track_rebuild.into()
     }
     #[inline]
+    #[must_use]
     pub fn initial_window_length(&self) -> aeron_congestion_control_strategy_initial_window_length_func_t {
         unsafe { self.get_inner_ref() }.initial_window_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn max_window_length(&self) -> aeron_congestion_control_strategy_max_window_length_func_t {
         unsafe { self.get_inner_ref() }.max_window_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn fini(&self) -> aeron_congestion_control_strategy_fini_func_t {
         unsafe { self.get_inner_ref() }.fini.into()
     }
     #[inline]
+    #[must_use]
     pub fn state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.state.into()
     }
@@ -9900,6 +9966,12 @@ impl<S: ResourceStorage<aeron_context_t>> core::fmt::Debug for AeronContext<S> {
         }
         f.debug_struct(stringify!(AeronContext))
             .field("inner", &self.inner)
+            .field("get_dir", &unsafe { self.get_dir() })
+            .field("get_idle_strategy_init_args", &unsafe {
+                self.get_idle_strategy_init_args()
+            })
+            .field("get_idle_strategy", &unsafe { self.get_idle_strategy() })
+            .field("get_client_name", &unsafe { self.get_client_name() })
             .finish()
     }
 }
@@ -10000,8 +10072,10 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_dir_owned()` to keep a copy."]
     pub unsafe fn get_dir(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10022,6 +10096,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_dir_owned(&self) -> String {
         unsafe {
             let result = aeron_context_get_dir(self.get_inner());
@@ -10057,6 +10132,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_driver_timeout_ms(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10096,6 +10172,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_keepalive_interval_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10135,6 +10212,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_resource_linger_duration_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10174,6 +10252,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_idle_sleep_duration_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10213,8 +10292,10 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_idle_strategy_init_args_owned()` to keep a copy."]
     pub unsafe fn get_idle_strategy_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10235,6 +10316,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_idle_strategy_init_args_owned(&self) -> String {
         unsafe {
             let result = aeron_context_get_idle_strategy_init_args(self.get_inner());
@@ -10270,8 +10352,10 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_idle_strategy_owned()` to keep a copy."]
     pub unsafe fn get_idle_strategy(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10292,6 +10376,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_idle_strategy_owned(&self) -> String {
         unsafe {
             let result = aeron_context_get_idle_strategy(self.get_inner());
@@ -10327,6 +10412,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_pre_touch_mapped_memory(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10366,8 +10452,10 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_client_name_owned()` to keep a copy."]
     pub unsafe fn get_client_name(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10388,6 +10476,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_client_name_owned(&self) -> String {
         unsafe {
             let result = aeron_context_get_client_name(self.get_inner());
@@ -10460,6 +10549,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_error_handler(&self) -> aeron_error_handler_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10475,6 +10565,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_error_handler_clientd(&self) -> *mut ::std::os::raw::c_void {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10558,6 +10649,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_publication_error_frame_handler(&self) -> aeron_publication_error_frame_handler_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10573,6 +10665,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_publication_error_frame_handler_clientd(&self) -> *mut ::std::os::raw::c_void {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10649,6 +10742,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_on_new_publication(&self) -> aeron_on_new_publication_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10664,6 +10758,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_on_new_publication_clientd(&self) -> *mut ::std::os::raw::c_void {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10742,6 +10837,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_on_new_exclusive_publication(&self) -> aeron_on_new_publication_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10757,6 +10853,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_on_new_exclusive_publication_clientd(&self) -> *mut ::std::os::raw::c_void {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10833,6 +10930,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_on_new_subscription(&self) -> aeron_on_new_subscription_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10848,6 +10946,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_on_new_subscription_clientd(&self) -> *mut ::std::os::raw::c_void {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10926,6 +11025,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_on_available_counter(&self) -> aeron_on_available_counter_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -10941,6 +11041,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_on_available_counter_clientd(&self) -> *mut ::std::os::raw::c_void {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -11021,6 +11122,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_on_unavailable_counter(&self) -> aeron_on_unavailable_counter_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -11036,6 +11138,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_on_unavailable_counter_clientd(&self) -> *mut ::std::os::raw::c_void {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -11112,6 +11215,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_on_close_client(&self) -> aeron_on_close_client_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -11127,6 +11231,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_on_close_client_clientd(&self) -> *mut ::std::os::raw::c_void {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -11167,6 +11272,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_use_conductor_agent_invoker(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -11243,6 +11349,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_agent_on_start_function(&self) -> aeron_agent_on_start_func_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -11258,6 +11365,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_agent_on_start_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -11372,281 +11480,6 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
         std::time::Duration::from_nanos(self.get_idle_sleep_duration_ns())
     }
 }
-unsafe impl NativeResource for aeron_controlled_fragment_assembler_t {
-    type Policy = LocalResource;
-}
-pub struct AeronControlledFragmentAssembler<
-    S: ResourceStorage<aeron_controlled_fragment_assembler_t> = LiveCResource<aeron_controlled_fragment_assembler_t>,
-> {
-    inner: S,
-}
-#[doc = r" Non-owning form used in callbacks and lifetime-bound getters."]
-pub type AeronControlledFragmentAssemblerRef =
-    AeronControlledFragmentAssembler<Borrowed<aeron_controlled_fragment_assembler_t>>;
-impl<S: ResourceStorage<aeron_controlled_fragment_assembler_t>> resource_sealed::Handle
-    for AeronControlledFragmentAssembler<S>
-{
-}
-impl<S: ResourceStorage<aeron_controlled_fragment_assembler_t>> ResourceHandle for AeronControlledFragmentAssembler<S> {
-    type Native = aeron_controlled_fragment_assembler_t;
-    type Storage = S;
-    type Borrowed = AeronControlledFragmentAssembler<Borrowed<aeron_controlled_fragment_assembler_t>>;
-}
-impl<S: ResourceStorage<aeron_controlled_fragment_assembler_t>> ResourceHandleExt
-    for AeronControlledFragmentAssembler<S>
-{
-    #[inline]
-    fn resource(&self) -> &S {
-        &self.inner
-    }
-    #[inline]
-    fn from_resource(inner: S) -> Self {
-        Self { inner }
-    }
-    #[inline]
-    fn from_borrowed(inner: Borrowed<aeron_controlled_fragment_assembler_t>) -> Self::Borrowed {
-        AeronControlledFragmentAssembler { inner }
-    }
-}
-impl OwnedResourceHandle for AeronControlledFragmentAssembler<LiveCResource<aeron_controlled_fragment_assembler_t>> {
-    #[inline]
-    fn from_owned(inner: CResource<aeron_controlled_fragment_assembler_t>) -> Self {
-        Self { inner: inner.into() }
-    }
-}
-impl<S: ResourceStorage<aeron_controlled_fragment_assembler_t>> core::fmt::Debug
-    for AeronControlledFragmentAssembler<S>
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.inner.get().is_null() {
-            return f
-                .debug_struct(stringify!(AeronControlledFragmentAssembler))
-                .field("inner", &"null")
-                .finish();
-        }
-        f.debug_struct(stringify!(AeronControlledFragmentAssembler))
-            .field("inner", &self.inner)
-            .finish()
-    }
-}
-impl AeronControlledFragmentAssembler<LiveCResource<aeron_controlled_fragment_assembler_t>> {
-    #[inline]
-    #[doc = "Create a controlled fragment assembler for use with a subscription."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `delegate` to call on completed"]
-    #[doc = " \n - `delegate_clientd` to pass to delegate handler."]
-    #[doc = " \n# Return\n 0 for success and -1 for error."]
-    pub fn new<
-        AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback + 'static,
-        AeronControlledFragmentHandlerHandlerImplPolicy: CallbackPolicy,
-    >(
-        delegate: Option<
-            &Handler<AeronControlledFragmentHandlerHandlerImpl, AeronControlledFragmentHandlerHandlerImplPolicy>,
-        >,
-    ) -> Result<Self, AeronCError> {
-        if delegate.is_none() {
-            return Err(AeronCError::with_message(-1, "fragment assembler requires a delegate"));
-        }
-        let __handler_delegate = delegate;
-        let (delegate, delegate_clientd) = (
-            {
-                let callback: aeron_controlled_fragment_handler_t = if delegate.is_none() {
-                    None
-                } else {
-                    Some(
-                        aeron_controlled_fragment_handler_t_callback_catch::<
-                            AeronControlledFragmentHandlerHandlerImpl,
-                            AeronControlledFragmentHandlerHandlerImplPolicy,
-                        >,
-                    )
-                };
-                callback
-            },
-            delegate.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
-        );
-        let resource_constructor = ManagedCResource::<aeron_controlled_fragment_assembler_t>::new(
-            move |ctx_field| unsafe {
-                #[cfg(feature = "log-c-bindings")]
-                {
-                    let log_args = [
-                        concat!(
-                            "assembler",
-                            ": ",
-                            stringify!(*mut *mut aeron_controlled_fragment_assembler_t)
-                        )
-                        .to_string(),
-                        concat!("delegate", ": ", stringify!(aeron_controlled_fragment_handler_t)).to_string(),
-                    ]
-                    .join(", ");
-                    log::info!(
-                        "{}({})",
-                        stringify!(aeron_controlled_fragment_assembler_create),
-                        log_args
-                    );
-                }
-                aeron_controlled_fragment_assembler_create(ctx_field, delegate, delegate_clientd)
-            },
-            Some(Box::new(move |ctx_field| unsafe {
-                #[cfg(feature = "log-c-bindings")]
-                {
-                    let log_args = [concat!(
-                        "assembler",
-                        ": ",
-                        stringify!(*mut aeron_controlled_fragment_assembler_t)
-                    )
-                    .to_string()]
-                    .join(", ");
-                    log::info!(
-                        "{}({})",
-                        stringify!(aeron_controlled_fragment_assembler_delete),
-                        log_args
-                    );
-                }
-                aeron_controlled_fragment_assembler_delete(*ctx_field)
-            })),
-            false,
-        )?;
-        let result = Self {
-            inner: CResource::new(ResourceRef::new(resource_constructor)).into(),
-        };
-        if let Some(__handler) = __handler_delegate {
-            if let Some(__inner) = result.inner.as_owned() {
-                __inner.add_dependency(Handler::clone(__handler));
-            }
-        }
-        Ok(result)
-    }
-}
-impl AeronControlledFragmentAssembler {
-    #[inline]
-    #[doc = "Handler function to be passed for handling fragment assembly."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `clientd` passed in the poll call (must be a `AeronControlledFragmentAssembler`)"]
-    #[doc = " \n - `buffer` containing the data."]
-    #[doc = " \n - `header` representing the meta data for the data."]
-    #[doc = " \n# Return\n The action to be taken with regard to the stream position after the callback."]
-    #[doc = "# Safety"]
-    #[doc = "Raw pointer arguments must have the size, alignment, initialization and lifetime required by the native function. Writable pointers require exclusive access. Keep any retained pointers valid until native cleanup."]
-    #[doc = "# Safety"]
-    #[doc = "`clientd` must point to a live native assembler. Hold exclusive access to the assembler and its callback for this call; the callback must catch panics before returning through C."]
-    pub unsafe fn handler(
-        clientd: *mut ::std::os::raw::c_void,
-        buffer: &[u8],
-        header: &AeronHeader,
-    ) -> aeron_controlled_fragment_handler_action_t {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_controlled_fragment_assembler_handler),
-                [
-                    concat!("clientd", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
-                    format!("{}: {} (len={})", "buffer", stringify!(*const u8), buffer.len())
-                ]
-                .join(", ")
-            );
-            let result = aeron_controlled_fragment_assembler_handler(
-                clientd.into(),
-                buffer.as_ptr() as *mut _,
-                buffer.len() as _,
-                header.get_inner(),
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-}
-impl<S: ResourceStorage<aeron_controlled_fragment_assembler_t>> AeronControlledFragmentAssembler<S> {
-    #[inline]
-    #[doc = "Free an existing session buffer to reduce memory pressure when an image goes inactive or no more"]
-    #[doc = " large messages are expected."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `session_id` to have its buffer freed."]
-    #[doc = " \n# Return\n true if a buffer has been freed otherwise false."]
-    pub fn delete_session_buffer(&mut self, session_id: i32) -> bool {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_controlled_fragment_assembler_delete_session_buffer),
-                [
-                    concat!(
-                        "assembler",
-                        ": ",
-                        stringify!(*mut aeron_controlled_fragment_assembler_t)
-                    )
-                    .to_string(),
-                    format!("{} = {:?}", "session_id", session_id)
-                ]
-                .join(", ")
-            );
-            let result = aeron_controlled_fragment_assembler_delete_session_buffer(self.get_inner(), session_id.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[doc = r" Borrow this handle without cloning its owner."]
-    #[inline(always)]
-    pub fn as_ref(&self) -> Ref<'_, Self> {
-        Ref::new(Self::from_borrowed(unsafe { Borrowed::new(self.inner.get()) }))
-    }
-    #[inline(always)]
-    pub fn get_inner(&self) -> *mut aeron_controlled_fragment_assembler_t {
-        let pointer = self.inner.get();
-        pointer
-    }
-    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
-    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
-    #[doc = r" access for the lifetime of the returned reference."]
-    #[doc = r""]
-    #[doc = r" # Safety"]
-    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
-    #[doc = r" alive while the returned `&mut` is in use."]
-    #[inline(always)]
-    pub unsafe fn get_inner_mut(&self) -> &mut aeron_controlled_fragment_assembler_t {
-        &mut *self.inner.get()
-    }
-    #[inline(always)]
-    #[doc = r" Borrow the native struct."]
-    #[doc = r" # Safety"]
-    #[doc = r" No Rust or native call may mutate the struct while this reference"]
-    #[doc = r" is alive. Shared wrappers also require coordination with other threads."]
-    pub unsafe fn get_inner_ref(&self) -> &aeron_controlled_fragment_assembler_t {
-        unsafe { self.inner.get().as_ref() }.expect("native resource was released")
-    }
-}
-impl AeronControlledFragmentAssembler {
-    #[doc = r" Borrow a native pointer without taking ownership."]
-    #[doc = r" # Safety"]
-    #[doc = r" The pointer must be non-null. It and its parents must remain live for every use. Calls"]
-    #[doc = r" must follow Aeron's threading and aliasing rules."]
-    #[inline]
-    pub unsafe fn from_ptr(
-        ptr: *mut aeron_controlled_fragment_assembler_t,
-    ) -> AeronControlledFragmentAssembler<Borrowed<aeron_controlled_fragment_assembler_t>> {
-        AeronControlledFragmentAssembler {
-            inner: unsafe { Borrowed::new_unchecked(ptr) },
-        }
-    }
-}
-impl<S: ResourceStorage<aeron_controlled_fragment_assembler_t>> From<AeronControlledFragmentAssembler<S>>
-    for *mut aeron_controlled_fragment_assembler_t
-{
-    #[inline]
-    fn from(value: AeronControlledFragmentAssembler<S>) -> Self {
-        value.get_inner()
-    }
-}
-impl<S: ResourceStorage<aeron_controlled_fragment_assembler_t>> From<&AeronControlledFragmentAssembler<S>>
-    for *mut aeron_controlled_fragment_assembler_t
-{
-    #[inline]
-    fn from(value: &AeronControlledFragmentAssembler<S>) -> Self {
-        value.get_inner()
-    }
-}
 unsafe impl NativeResource for aeron_correlated_command_t {
     type Policy = LocalResource;
 }
@@ -11694,15 +11527,13 @@ impl<S: ResourceStorage<aeron_correlated_command_t>> core::fmt::Debug for AeronC
         }
         f.debug_struct(stringify!(AeronCorrelatedCommand))
             .field("inner", &self.inner)
-            .field(stringify!(client_id), &self.client_id())
-            .field(stringify!(correlation_id), &self.correlation_id())
+            .field("client_id", &self.client_id())
+            .field("correlation_id", &self.correlation_id())
             .finish()
     }
 }
 impl AeronCorrelatedCommand<CResource<aeron_correlated_command_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(client_id: i64, correlation_id: i64) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_correlated_command_t>::new(
             move |ctx_field| {
@@ -11724,9 +11555,6 @@ impl AeronCorrelatedCommand<CResource<aeron_correlated_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_correlated_command_t>::new(
             move |ctx_field| {
@@ -11750,9 +11578,6 @@ impl AeronCorrelatedCommand<CResource<aeron_correlated_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronCorrelatedCommand<Inline<aeron_correlated_command_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -11767,10 +11592,12 @@ impl AeronCorrelatedCommand<CResource<aeron_correlated_command_t>> {
 impl AeronCorrelatedCommand {}
 impl<S: ResourceStorage<aeron_correlated_command_t>> AeronCorrelatedCommand<S> {
     #[inline]
+    #[must_use]
     pub fn client_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.client_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.correlation_id.into()
     }
@@ -11936,15 +11763,13 @@ impl<S: ResourceStorage<aeron_counter_command_t>> core::fmt::Debug for AeronCoun
         }
         f.debug_struct(stringify!(AeronCounterCommand))
             .field("inner", &self.inner)
-            .field(stringify!(correlated), &self.correlated())
-            .field(stringify!(type_id), &self.type_id())
+            .field("correlated", &self.correlated())
+            .field("type_id", &self.type_id())
             .finish()
     }
 }
 impl AeronCounterCommand<CResource<aeron_counter_command_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         correlated: AeronCorrelatedCommand<Inline<aeron_correlated_command_t>>,
         type_id: i32,
@@ -11969,9 +11794,6 @@ impl AeronCounterCommand<CResource<aeron_counter_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_counter_command_t>::new(
             move |ctx_field| {
@@ -11995,9 +11817,6 @@ impl AeronCounterCommand<CResource<aeron_counter_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronCounterCommand<Inline<aeron_counter_command_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -12012,10 +11831,12 @@ impl AeronCounterCommand<CResource<aeron_counter_command_t>> {
 impl AeronCounterCommand {}
 impl<S: ResourceStorage<aeron_counter_command_t>> AeronCounterCommand<S> {
     #[inline]
+    #[must_use]
     pub fn correlated(&self) -> AeronCorrelatedCommand<Inline<aeron_correlated_command_t>> {
         unsafe { AeronCorrelatedCommand::from_native(unsafe { self.get_inner_ref() }.correlated) }
     }
     #[inline]
+    #[must_use]
     pub fn type_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.type_id.into()
     }
@@ -12176,16 +11997,14 @@ impl<S: ResourceStorage<aeron_counter_constants_t>> core::fmt::Debug for AeronCo
         }
         f.debug_struct(stringify!(AeronCounterConstants))
             .field("inner", &self.inner)
-            .field(stringify!(correlation_id), &self.correlation_id())
-            .field(stringify!(registration_id), &self.registration_id())
-            .field(stringify!(counter_id), &self.counter_id())
+            .field("correlation_id", &self.correlation_id())
+            .field("registration_id", &self.registration_id())
+            .field("counter_id", &self.counter_id())
             .finish()
     }
 }
 impl AeronCounterConstants<CResource<aeron_counter_constants_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(correlation_id: i64, registration_id: i64, counter_id: i32) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_counter_constants_t>::new(
             move |ctx_field| {
@@ -12208,9 +12027,6 @@ impl AeronCounterConstants<CResource<aeron_counter_constants_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_counter_constants_t>::new(
             move |ctx_field| {
@@ -12234,9 +12050,6 @@ impl AeronCounterConstants<CResource<aeron_counter_constants_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronCounterConstants<Inline<aeron_counter_constants_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -12251,14 +12064,17 @@ impl AeronCounterConstants<CResource<aeron_counter_constants_t>> {
 impl AeronCounterConstants {}
 impl<S: ResourceStorage<aeron_counter_constants_t>> AeronCounterConstants<S> {
     #[inline]
+    #[must_use]
     pub fn correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.correlation_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn counter_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.counter_id.into()
     }
@@ -12420,15 +12236,13 @@ impl<S: ResourceStorage<aeron_counter_link_t>> core::fmt::Debug for AeronCounter
         }
         f.debug_struct(stringify!(AeronCounterLink))
             .field("inner", &self.inner)
-            .field(stringify!(counter_id), &self.counter_id())
-            .field(stringify!(registration_id), &self.registration_id())
+            .field("counter_id", &self.counter_id())
+            .field("registration_id", &self.registration_id())
             .finish()
     }
 }
 impl AeronCounterLink<CResource<aeron_counter_link_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(counter_id: i32, registration_id: i64) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_counter_link_t>::new(
             move |ctx_field| {
@@ -12450,9 +12264,6 @@ impl AeronCounterLink<CResource<aeron_counter_link_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_counter_link_t>::new(
             move |ctx_field| {
@@ -12476,9 +12287,6 @@ impl AeronCounterLink<CResource<aeron_counter_link_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronCounterLink<Inline<aeron_counter_link_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -12493,10 +12301,12 @@ impl AeronCounterLink<CResource<aeron_counter_link_t>> {
 impl AeronCounterLink {}
 impl<S: ResourceStorage<aeron_counter_link_t>> AeronCounterLink<S> {
     #[inline]
+    #[must_use]
     pub fn counter_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.counter_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
@@ -12660,20 +12470,15 @@ impl<S: ResourceStorage<aeron_counter_metadata_descriptor_t>> core::fmt::Debug f
         }
         f.debug_struct(stringify!(AeronCounterMetadataDescriptor))
             .field("inner", &self.inner)
-            .field(stringify!(state), &self.state())
-            .field(stringify!(type_id), &self.type_id())
-            .field(
-                stringify!(free_for_reuse_deadline_ms),
-                &self.free_for_reuse_deadline_ms(),
-            )
-            .field(stringify!(label_length), &self.label_length())
+            .field("state", &self.state())
+            .field("type_id", &self.type_id())
+            .field("free_for_reuse_deadline_ms", &self.free_for_reuse_deadline_ms())
+            .field("label_length", &self.label_length())
             .finish()
     }
 }
 impl AeronCounterMetadataDescriptor<CResource<aeron_counter_metadata_descriptor_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         state: i32,
         type_id: i32,
@@ -12706,9 +12511,6 @@ impl AeronCounterMetadataDescriptor<CResource<aeron_counter_metadata_descriptor_
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_counter_metadata_descriptor_t>::new(
             move |ctx_field| {
@@ -12732,9 +12534,6 @@ impl AeronCounterMetadataDescriptor<CResource<aeron_counter_metadata_descriptor_
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronCounterMetadataDescriptor<Inline<aeron_counter_metadata_descriptor_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -12749,26 +12548,32 @@ impl AeronCounterMetadataDescriptor<CResource<aeron_counter_metadata_descriptor_
 impl AeronCounterMetadataDescriptor {}
 impl<S: ResourceStorage<aeron_counter_metadata_descriptor_t>> AeronCounterMetadataDescriptor<S> {
     #[inline]
+    #[must_use]
     pub fn state(&self) -> i32 {
         unsafe { self.get_inner_ref() }.state.into()
     }
     #[inline]
+    #[must_use]
     pub fn type_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.type_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn free_for_reuse_deadline_ms(&self) -> i64 {
         unsafe { self.get_inner_ref() }.free_for_reuse_deadline_ms.into()
     }
     #[inline]
+    #[must_use]
     pub fn key(&self) -> [u8; 112usize] {
         unsafe { self.get_inner_ref() }.key.into()
     }
     #[inline]
+    #[must_use]
     pub fn label_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.label_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn label(&self) -> [u8; 380usize] {
         unsafe { self.get_inner_ref() }.label.into()
     }
@@ -12966,8 +12771,7 @@ impl<S: ResourceStorage<aeron_counter_t>> AeronCounter<S> {
     #[inline]
     #[doc = "Fill in a structure with the constants in use by a counter."]
     #[doc = ""]
-    #[doc = "# Parameters\n \n - `counter` to get the constants for."]
-    #[doc = " \n - `constants` structure to fill in with the constants."]
+    #[doc = "# Parameters\n \n - `constants` structure to fill in with the constants."]
     #[doc = " \n# Return\n 0 for success and -1 for error."]
     pub fn constants(
         &self,
@@ -13008,6 +12812,22 @@ impl<S: ResourceStorage<aeron_counter_t>> AeronCounter<S> {
         })))
     }
     #[inline]
+    #[doc = "`get_constants()?.correlation_id()`. Call `get_constants()` once to read several fields"]
+    pub fn correlation_id(&self) -> Result<i64, AeronCError> {
+        Ok(self.get_constants()?.correlation_id())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.registration_id()`. Call `get_constants()` once to read several fields"]
+    pub fn registration_id(&self) -> Result<i64, AeronCError> {
+        Ok(self.get_constants()?.registration_id())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.counter_id()`. Call `get_constants()` once to read several fields"]
+    pub fn counter_id(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.counter_id())
+    }
+    #[inline]
+    #[must_use]
     #[doc = "Check if the counter is closed"]
     #[doc = " \n# Return\n true if closed, false otherwise."]
     pub fn is_closed(&self) -> bool {
@@ -13090,7 +12910,9 @@ impl AeronCounter {
 impl AeronCounter {
     #[doc = r" Like [`Self::close`], but notifies `on_close_complete` when the close"]
     #[doc = r" finishes. The handler must outlive the notification (keep your"]
-    #[doc = r" `Handler` alive until it has fired)."]
+    #[doc = r" `Handler` alive until it has fired). C calls it later from the conductor,"]
+    #[doc = r" so it needs a retained `SharedHandler`; it runs once at shutdown, off the"]
+    #[doc = r" hot path"]
     pub fn close_with_handler<AeronNotificationHandlerImpl: AeronNotificationCallback + Send + 'static>(
         self,
         on_close_complete: Option<&SharedHandler<AeronNotificationHandlerImpl>>,
@@ -13181,15 +13003,13 @@ impl<S: ResourceStorage<aeron_counter_update_t>> core::fmt::Debug for AeronCount
         }
         f.debug_struct(stringify!(AeronCounterUpdate))
             .field("inner", &self.inner)
-            .field(stringify!(correlation_id), &self.correlation_id())
-            .field(stringify!(counter_id), &self.counter_id())
+            .field("correlation_id", &self.correlation_id())
+            .field("counter_id", &self.counter_id())
             .finish()
     }
 }
 impl AeronCounterUpdate<CResource<aeron_counter_update_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(correlation_id: i64, counter_id: i32) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_counter_update_t>::new(
             move |ctx_field| {
@@ -13211,9 +13031,6 @@ impl AeronCounterUpdate<CResource<aeron_counter_update_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_counter_update_t>::new(
             move |ctx_field| {
@@ -13237,9 +13054,6 @@ impl AeronCounterUpdate<CResource<aeron_counter_update_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronCounterUpdate<Inline<aeron_counter_update_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -13254,10 +13068,12 @@ impl AeronCounterUpdate<CResource<aeron_counter_update_t>> {
 impl AeronCounterUpdate {}
 impl<S: ResourceStorage<aeron_counter_update_t>> AeronCounterUpdate<S> {
     #[inline]
+    #[must_use]
     pub fn correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.correlation_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn counter_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.counter_id.into()
     }
@@ -13417,17 +13233,15 @@ impl<S: ResourceStorage<aeron_counter_value_descriptor_t>> core::fmt::Debug for 
         }
         f.debug_struct(stringify!(AeronCounterValueDescriptor))
             .field("inner", &self.inner)
-            .field(stringify!(counter_value), &self.counter_value())
-            .field(stringify!(registration_id), &self.registration_id())
-            .field(stringify!(owner_id), &self.owner_id())
-            .field(stringify!(reference_id), &self.reference_id())
+            .field("counter_value", &self.counter_value())
+            .field("registration_id", &self.registration_id())
+            .field("owner_id", &self.owner_id())
+            .field("reference_id", &self.reference_id())
             .finish()
     }
 }
 impl AeronCounterValueDescriptor<CResource<aeron_counter_value_descriptor_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         counter_value: i64,
         registration_id: i64,
@@ -13458,9 +13272,6 @@ impl AeronCounterValueDescriptor<CResource<aeron_counter_value_descriptor_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_counter_value_descriptor_t>::new(
             move |ctx_field| {
@@ -13484,9 +13295,6 @@ impl AeronCounterValueDescriptor<CResource<aeron_counter_value_descriptor_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronCounterValueDescriptor<Inline<aeron_counter_value_descriptor_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -13501,22 +13309,27 @@ impl AeronCounterValueDescriptor<CResource<aeron_counter_value_descriptor_t>> {
 impl AeronCounterValueDescriptor {}
 impl<S: ResourceStorage<aeron_counter_value_descriptor_t>> AeronCounterValueDescriptor<S> {
     #[inline]
+    #[must_use]
     pub fn counter_value(&self) -> i64 {
         unsafe { self.get_inner_ref() }.counter_value.into()
     }
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn owner_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.owner_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn reference_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.reference_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn pad1(&self) -> [u8; 96usize] {
         unsafe { self.get_inner_ref() }.pad1.into()
     }
@@ -13684,13 +13497,13 @@ impl<S: ResourceStorage<aeron_counters_manager_t>> core::fmt::Debug for AeronCou
         }
         f.debug_struct(stringify!(AeronCountersManager))
             .field("inner", &self.inner)
-            .field(stringify!(values_length), &self.values_length())
-            .field(stringify!(metadata_length), &self.metadata_length())
-            .field(stringify!(max_counter_id), &self.max_counter_id())
-            .field(stringify!(id_high_water_mark), &self.id_high_water_mark())
-            .field(stringify!(free_list_index), &self.free_list_index())
-            .field(stringify!(free_list_length), &self.free_list_length())
-            .field(stringify!(free_to_reuse_timeout_ms), &self.free_to_reuse_timeout_ms())
+            .field("values_length", &self.values_length())
+            .field("metadata_length", &self.metadata_length())
+            .field("max_counter_id", &self.max_counter_id())
+            .field("id_high_water_mark", &self.id_high_water_mark())
+            .field("free_list_index", &self.free_list_index())
+            .field("free_list_length", &self.free_list_length())
+            .field("free_to_reuse_timeout_ms", &self.free_to_reuse_timeout_ms())
             .finish()
     }
 }
@@ -13783,10 +13596,12 @@ impl AeronCountersManager<CResource<aeron_counters_manager_t>> {
 impl AeronCountersManager {}
 impl<S: ResourceStorage<aeron_counters_manager_t>> AeronCountersManager<S> {
     #[inline]
+    #[must_use]
     pub fn values(&self) -> *mut u8 {
         unsafe { self.get_inner_ref() }.values.into()
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" The stored pointer must be valid for the returned slice, and no"]
     #[doc = r" other Rust or native access may overlap its mutable borrow."]
@@ -13803,34 +13618,43 @@ impl<S: ResourceStorage<aeron_counters_manager_t>> AeronCountersManager<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn values_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.values_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn metadata_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.metadata_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn max_counter_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.max_counter_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn id_high_water_mark(&self) -> i32 {
         unsafe { self.get_inner_ref() }.id_high_water_mark.into()
     }
     #[inline]
+    #[must_use]
     pub fn free_list(&self) -> &mut i32 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.free_list }
     }
     #[inline]
+    #[must_use]
     pub fn free_list_index(&self) -> i32 {
         unsafe { self.get_inner_ref() }.free_list_index.into()
     }
     #[inline]
+    #[must_use]
     pub fn free_list_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.free_list_length.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn cached_clock(&self) -> Ref<'_, AeronClockCache> {
         Ref::new(unsafe {
             AeronClockCache::from_ptr(
@@ -13841,6 +13665,7 @@ impl<S: ResourceStorage<aeron_counters_manager_t>> AeronCountersManager<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn free_to_reuse_timeout_ms(&self) -> i64 {
         unsafe { self.get_inner_ref() }.free_to_reuse_timeout_ms.into()
     }
@@ -14233,6 +14058,8 @@ impl<S: ResourceStorage<aeron_counters_manager_t>> AeronCountersManager<S> {
 }
 impl<'a, S: ResourceStorage<aeron_counters_manager_t>> Ref<'a, AeronCountersManager<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn cached_clock(&self) -> Ref<'a, AeronClockCache> {
         Ref::new(self.value.cached_clock().value)
     }
@@ -14360,8 +14187,8 @@ impl<S: ResourceStorage<aeron_counters_reader_buffers_t>> core::fmt::Debug for A
         }
         f.debug_struct(stringify!(AeronCountersReaderBuffers))
             .field("inner", &self.inner)
-            .field(stringify!(values_length), &self.values_length())
-            .field(stringify!(metadata_length), &self.metadata_length())
+            .field("values_length", &self.values_length())
+            .field("metadata_length", &self.metadata_length())
             .finish()
     }
 }
@@ -14435,10 +14262,12 @@ impl AeronCountersReaderBuffers<CResource<aeron_counters_reader_buffers_t>> {
 impl AeronCountersReaderBuffers {}
 impl<S: ResourceStorage<aeron_counters_reader_buffers_t>> AeronCountersReaderBuffers<S> {
     #[inline]
+    #[must_use]
     pub fn values(&self) -> *mut u8 {
         unsafe { self.get_inner_ref() }.values.into()
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" The stored pointer must be valid for the returned slice, and no"]
     #[doc = r" other Rust or native access may overlap its mutable borrow."]
@@ -14455,10 +14284,12 @@ impl<S: ResourceStorage<aeron_counters_reader_buffers_t>> AeronCountersReaderBuf
         }
     }
     #[inline]
+    #[must_use]
     pub fn values_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.values_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn metadata_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.metadata_length.into()
     }
@@ -14627,9 +14458,9 @@ impl<S: ResourceStorage<aeron_counters_reader_t>> core::fmt::Debug for AeronCoun
         }
         f.debug_struct(stringify!(AeronCountersReader))
             .field("inner", &self.inner)
-            .field(stringify!(values_length), &self.values_length())
-            .field(stringify!(metadata_length), &self.metadata_length())
-            .field(stringify!(max_counter_id), &self.max_counter_id())
+            .field("values_length", &self.values_length())
+            .field("metadata_length", &self.metadata_length())
+            .field("max_counter_id", &self.max_counter_id())
             .finish()
     }
 }
@@ -14690,13 +14521,11 @@ impl AeronCountersReader {
     }
     #[inline]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -14740,10 +14569,12 @@ impl AeronCountersReader {
 }
 impl<S: ResourceStorage<aeron_counters_reader_t>> AeronCountersReader<S> {
     #[inline]
+    #[must_use]
     pub fn values(&self) -> *mut u8 {
         unsafe { self.get_inner_ref() }.values.into()
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" The stored pointer must be valid for the returned slice, and no"]
     #[doc = r" other Rust or native access may overlap its mutable borrow."]
@@ -14760,18 +14591,19 @@ impl<S: ResourceStorage<aeron_counters_reader_t>> AeronCountersReader<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn values_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.values_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn metadata_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.metadata_length.into()
     }
     #[inline]
     #[doc = "Get buffer pointers and lengths for the counters reader."]
     #[doc = ""]
-    #[doc = "# Parameters\n \n - `reader` reader containing the buffers."]
-    #[doc = " \n - `buffers` output structure to return the buffers."]
+    #[doc = "# Parameters\n \n - `buffers` output structure to return the buffers."]
     #[doc = " \n# Return\n -1 on failure, 0 on success."]
     #[doc = "# Safety"]
     #[doc = "The output may contain borrowed native pointers. Do not use those pointers after the queried handle is dropped or changed. Prefer the lifetime-bound `get_constants`, `get_buffers` or `get_values` method."]
@@ -14820,7 +14652,6 @@ impl<S: ResourceStorage<aeron_counters_reader_t>> AeronCountersReader<S> {
     #[doc = "Iterate over the counters in the counters_reader and call the given function for each counter."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `func` to call for each counter."]
-    #[doc = " \n - `clientd` to pass for each call to func."]
     pub fn foreach_counter<
         AeronCountersReaderForeachCounterFuncHandlerImpl: AeronCountersReaderForeachCounterFuncCallback,
         AeronCountersReaderForeachCounterFuncHandlerImplPolicy: CallbackPolicy,
@@ -14874,15 +14705,12 @@ impl<S: ResourceStorage<aeron_counters_reader_t>> AeronCountersReader<S> {
     #[doc = "Iterate over the counters in the counters_reader and call the given function for each counter."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `func` to call for each counter."]
-    #[doc = " \n - `clientd` to pass for each call to func."]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -15166,7 +14994,6 @@ impl<S: ResourceStorage<aeron_counters_reader_t>> AeronCountersReader<S> {
     #[doc = ""]
     #[doc = "# Parameters\n \n - `counter_id` to find"]
     #[doc = " \n - `buffer` to store the counter in."]
-    #[doc = " \n - `buffer_length` length of the output buffer"]
     #[doc = " \n# Return\n -1 on failure, number of characters copied to buffer on success."]
     pub fn counter_label(&self, counter_id: i32, buffer: &mut [u8]) -> Result<i32, AeronCError> {
         unsafe {
@@ -15346,8 +15173,6 @@ impl<S: ResourceStorage<aeron_data_header_as_longs_t>> core::fmt::Debug for Aero
 }
 impl AeronDataHeaderAsLongs<CResource<aeron_data_header_as_longs_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(hdr: [u64; 4usize]) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_data_header_as_longs_t>::new(
             move |ctx_field| {
@@ -15366,9 +15191,6 @@ impl AeronDataHeaderAsLongs<CResource<aeron_data_header_as_longs_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_data_header_as_longs_t>::new(
             move |ctx_field| {
@@ -15392,9 +15214,6 @@ impl AeronDataHeaderAsLongs<CResource<aeron_data_header_as_longs_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronDataHeaderAsLongs<Inline<aeron_data_header_as_longs_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -15409,6 +15228,7 @@ impl AeronDataHeaderAsLongs<CResource<aeron_data_header_as_longs_t>> {
 impl AeronDataHeaderAsLongs {}
 impl<S: ResourceStorage<aeron_data_header_as_longs_t>> AeronDataHeaderAsLongs<S> {
     #[inline]
+    #[must_use]
     pub fn hdr(&self) -> [u64; 4usize] {
         unsafe { self.get_inner_ref() }.hdr.into()
     }
@@ -15576,19 +15396,17 @@ impl<S: ResourceStorage<aeron_data_header_t>> core::fmt::Debug for AeronDataHead
         }
         f.debug_struct(stringify!(AeronDataHeader))
             .field("inner", &self.inner)
-            .field(stringify!(frame_header), &self.frame_header())
-            .field(stringify!(term_offset), &self.term_offset())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(term_id), &self.term_id())
-            .field(stringify!(reserved_value), &self.reserved_value())
+            .field("frame_header", &self.frame_header())
+            .field("term_offset", &self.term_offset())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("term_id", &self.term_id())
+            .field("reserved_value", &self.reserved_value())
             .finish()
     }
 }
 impl AeronDataHeader<CResource<aeron_data_header_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         frame_header: AeronFrameHeader<Inline<aeron_frame_header_t>>,
         term_offset: i32,
@@ -15621,9 +15439,6 @@ impl AeronDataHeader<CResource<aeron_data_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_data_header_t>::new(
             move |ctx_field| {
@@ -15647,9 +15462,6 @@ impl AeronDataHeader<CResource<aeron_data_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronDataHeader<Inline<aeron_data_header_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -15664,26 +15476,32 @@ impl AeronDataHeader<CResource<aeron_data_header_t>> {
 impl AeronDataHeader {}
 impl<S: ResourceStorage<aeron_data_header_t>> AeronDataHeader<S> {
     #[inline]
+    #[must_use]
     pub fn frame_header(&self) -> AeronFrameHeader<Inline<aeron_frame_header_t>> {
         unsafe { AeronFrameHeader::from_native(unsafe { self.get_inner_ref() }.frame_header) }
     }
     #[inline]
+    #[must_use]
     pub fn term_offset(&self) -> i32 {
         unsafe { self.get_inner_ref() }.term_offset.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn reserved_value(&self) -> i64 {
         unsafe { self.get_inner_ref() }.reserved_value.into()
     }
@@ -15857,10 +15675,10 @@ impl<S: ResourceStorage<aeron_data_packet_dispatcher_stream_interest_t>> core::f
         }
         f.debug_struct(stringify!(AeronDataPacketDispatcherStreamInterest))
             .field("inner", &self.inner)
-            .field(stringify!(is_all_sessions), &self.is_all_sessions())
-            .field(stringify!(subscribed_sessions), &self.subscribed_sessions())
-            .field(stringify!(image_by_session_id_map), &self.image_by_session_id_map())
-            .field(stringify!(state_by_session_id_map), &self.state_by_session_id_map())
+            .field("is_all_sessions", &self.is_all_sessions())
+            .field("subscribed_sessions", &self.subscribed_sessions())
+            .field("image_by_session_id_map", &self.image_by_session_id_map())
+            .field("state_by_session_id_map", &self.state_by_session_id_map())
             .finish()
     }
 }
@@ -15940,10 +15758,12 @@ impl AeronDataPacketDispatcherStreamInterest<CResource<aeron_data_packet_dispatc
 impl AeronDataPacketDispatcherStreamInterest {}
 impl<S: ResourceStorage<aeron_data_packet_dispatcher_stream_interest_t>> AeronDataPacketDispatcherStreamInterest<S> {
     #[inline]
+    #[must_use]
     pub fn is_all_sessions(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_all_sessions.into()
     }
     #[inline]
+    #[must_use]
     pub fn subscribed_sessions(&self) -> AeronInt64ToPtrHashMap<ScopedInline<'_, aeron_int64_to_ptr_hash_map_t>> {
         AeronInt64ToPtrHashMap::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.subscribed_sessions),
@@ -15951,6 +15771,7 @@ impl<S: ResourceStorage<aeron_data_packet_dispatcher_stream_interest_t>> AeronDa
         })
     }
     #[inline]
+    #[must_use]
     pub fn image_by_session_id_map(&self) -> AeronInt64ToPtrHashMap<ScopedInline<'_, aeron_int64_to_ptr_hash_map_t>> {
         AeronInt64ToPtrHashMap::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.image_by_session_id_map),
@@ -15958,6 +15779,7 @@ impl<S: ResourceStorage<aeron_data_packet_dispatcher_stream_interest_t>> AeronDa
         })
     }
     #[inline]
+    #[must_use]
     pub fn state_by_session_id_map(&self) -> AeronInt64CounterMap<ScopedInline<'_, aeron_int64_counter_map_t>> {
         AeronInt64CounterMap::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.state_by_session_id_map),
@@ -16125,9 +15947,9 @@ impl<S: ResourceStorage<aeron_data_packet_dispatcher_t>> core::fmt::Debug for Ae
         }
         f.debug_struct(stringify!(AeronDataPacketDispatcher))
             .field("inner", &self.inner)
-            .field(stringify!(ignored_sessions_map), &self.ignored_sessions_map())
-            .field(stringify!(session_by_stream_id_map), &self.session_by_stream_id_map())
-            .field(stringify!(stream_session_limit), &self.stream_session_limit())
+            .field("ignored_sessions_map", &self.ignored_sessions_map())
+            .field("session_by_stream_id_map", &self.session_by_stream_id_map())
+            .field("stream_session_limit", &self.stream_session_limit())
             .finish()
     }
 }
@@ -16212,6 +16034,7 @@ impl AeronDataPacketDispatcher<CResource<aeron_data_packet_dispatcher_t>> {
 impl AeronDataPacketDispatcher {}
 impl<S: ResourceStorage<aeron_data_packet_dispatcher_t>> AeronDataPacketDispatcher<S> {
     #[inline]
+    #[must_use]
     pub fn ignored_sessions_map(&self) -> AeronInt64ToPtrHashMap<ScopedInline<'_, aeron_int64_to_ptr_hash_map_t>> {
         AeronInt64ToPtrHashMap::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.ignored_sessions_map),
@@ -16219,6 +16042,7 @@ impl<S: ResourceStorage<aeron_data_packet_dispatcher_t>> AeronDataPacketDispatch
         })
     }
     #[inline]
+    #[must_use]
     pub fn session_by_stream_id_map(&self) -> AeronInt64ToPtrHashMap<ScopedInline<'_, aeron_int64_to_ptr_hash_map_t>> {
         AeronInt64ToPtrHashMap::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.session_by_stream_id_map),
@@ -16226,10 +16050,13 @@ impl<S: ResourceStorage<aeron_data_packet_dispatcher_t>> AeronDataPacketDispatch
         })
     }
     #[inline]
+    #[must_use]
     pub fn tokens(&self) -> aeron_data_packet_dispatcher_stct_aeron_data_packet_dispatcher_tokens_stct {
         unsafe { self.get_inner_ref() }.tokens.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn conductor_proxy(&self) -> Ref<'_, AeronDriverConductorProxy> {
         Ref::new(unsafe {
             AeronDriverConductorProxy::from_ptr(
@@ -16240,6 +16067,8 @@ impl<S: ResourceStorage<aeron_data_packet_dispatcher_t>> AeronDataPacketDispatch
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn receiver(&self) -> Ref<'_, AeronDriverReceiver> {
         Ref::new(unsafe {
             AeronDriverReceiver::from_ptr(
@@ -16250,6 +16079,7 @@ impl<S: ResourceStorage<aeron_data_packet_dispatcher_t>> AeronDataPacketDispatch
         })
     }
     #[inline]
+    #[must_use]
     pub fn stream_session_limit(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_session_limit.into()
     }
@@ -16725,10 +16555,14 @@ impl<S: ResourceStorage<aeron_data_packet_dispatcher_t>> AeronDataPacketDispatch
 }
 impl<'a, S: ResourceStorage<aeron_data_packet_dispatcher_t>> Ref<'a, AeronDataPacketDispatcher<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn conductor_proxy(&self) -> Ref<'a, AeronDriverConductorProxy> {
         Ref::new(self.value.conductor_proxy().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn receiver(&self) -> Ref<'a, AeronDriverReceiver> {
         Ref::new(self.value.receiver().value)
     }
@@ -16857,10 +16691,10 @@ impl<S: ResourceStorage<aeron_deque_t>> core::fmt::Debug for AeronDeque<S> {
         }
         f.debug_struct(stringify!(AeronDeque))
             .field("inner", &self.inner)
-            .field(stringify!(element_count), &self.element_count())
-            .field(stringify!(element_size), &self.element_size())
-            .field(stringify!(first_element), &self.first_element())
-            .field(stringify!(last_element), &self.last_element())
+            .field("element_count", &self.element_count())
+            .field("element_size", &self.element_size())
+            .field("first_element", &self.first_element())
+            .field("last_element", &self.last_element())
             .finish()
     }
 }
@@ -16935,22 +16769,27 @@ impl AeronDeque<CResource<aeron_deque_t>> {
 impl AeronDeque {}
 impl<S: ResourceStorage<aeron_deque_t>> AeronDeque<S> {
     #[inline]
+    #[must_use]
     pub fn data(&self) -> *mut u8 {
         unsafe { self.get_inner_ref() }.data.into()
     }
     #[inline]
+    #[must_use]
     pub fn element_count(&self) -> usize {
         unsafe { self.get_inner_ref() }.element_count.into()
     }
     #[inline]
+    #[must_use]
     pub fn element_size(&self) -> usize {
         unsafe { self.get_inner_ref() }.element_size.into()
     }
     #[inline]
+    #[must_use]
     pub fn first_element(&self) -> usize {
         unsafe { self.get_inner_ref() }.first_element.into()
     }
     #[inline]
+    #[must_use]
     pub fn last_element(&self) -> usize {
         unsafe { self.get_inner_ref() }.last_element.into()
     }
@@ -16987,8 +16826,7 @@ impl<S: ResourceStorage<aeron_deque_t>> AeronDeque<S> {
     #[doc = " Errors:"]
     #[doc = "   ENOMEM if growing the array fails."]
     #[doc = ""]
-    #[doc = "# Parameters\n \n - `deque` to add the value too."]
-    #[doc = " \n - `value` value to be added."]
+    #[doc = "# Parameters\n \n - `value` value to be added."]
     #[doc = " \n# Return\n 0 on success, -1 on failure."]
     #[doc = "# Safety"]
     #[doc = "Raw pointer arguments must have the size, alignment, initialization and lifetime required by the native function. Writable pointers require exclusive access. Keep any retained pointers valid until native cleanup."]
@@ -17188,19 +17026,14 @@ impl<S: ResourceStorage<aeron_destination_by_id_command_t>> core::fmt::Debug for
         }
         f.debug_struct(stringify!(AeronDestinationByIdCommand))
             .field("inner", &self.inner)
-            .field(stringify!(correlated), &self.correlated())
-            .field(stringify!(resource_registration_id), &self.resource_registration_id())
-            .field(
-                stringify!(destination_registration_id),
-                &self.destination_registration_id(),
-            )
+            .field("correlated", &self.correlated())
+            .field("resource_registration_id", &self.resource_registration_id())
+            .field("destination_registration_id", &self.destination_registration_id())
             .finish()
     }
 }
 impl AeronDestinationByIdCommand<CResource<aeron_destination_by_id_command_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         correlated: AeronCorrelatedCommand<Inline<aeron_correlated_command_t>>,
         resource_registration_id: i64,
@@ -17227,9 +17060,6 @@ impl AeronDestinationByIdCommand<CResource<aeron_destination_by_id_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_destination_by_id_command_t>::new(
             move |ctx_field| {
@@ -17253,9 +17083,6 @@ impl AeronDestinationByIdCommand<CResource<aeron_destination_by_id_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronDestinationByIdCommand<Inline<aeron_destination_by_id_command_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -17270,14 +17097,17 @@ impl AeronDestinationByIdCommand<CResource<aeron_destination_by_id_command_t>> {
 impl AeronDestinationByIdCommand {}
 impl<S: ResourceStorage<aeron_destination_by_id_command_t>> AeronDestinationByIdCommand<S> {
     #[inline]
+    #[must_use]
     pub fn correlated(&self) -> AeronCorrelatedCommand<Inline<aeron_correlated_command_t>> {
         unsafe { AeronCorrelatedCommand::from_native(unsafe { self.get_inner_ref() }.correlated) }
     }
     #[inline]
+    #[must_use]
     pub fn resource_registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.resource_registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn destination_registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.destination_registration_id.into()
     }
@@ -17447,16 +17277,14 @@ impl<S: ResourceStorage<aeron_destination_command_t>> core::fmt::Debug for Aeron
         }
         f.debug_struct(stringify!(AeronDestinationCommand))
             .field("inner", &self.inner)
-            .field(stringify!(correlated), &self.correlated())
-            .field(stringify!(registration_id), &self.registration_id())
-            .field(stringify!(channel_length), &self.channel_length())
+            .field("correlated", &self.correlated())
+            .field("registration_id", &self.registration_id())
+            .field("channel_length", &self.channel_length())
             .finish()
     }
 }
 impl AeronDestinationCommand<CResource<aeron_destination_command_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         correlated: AeronCorrelatedCommand<Inline<aeron_correlated_command_t>>,
         registration_id: i64,
@@ -17483,9 +17311,6 @@ impl AeronDestinationCommand<CResource<aeron_destination_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_destination_command_t>::new(
             move |ctx_field| {
@@ -17509,9 +17334,6 @@ impl AeronDestinationCommand<CResource<aeron_destination_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronDestinationCommand<Inline<aeron_destination_command_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -17526,14 +17348,17 @@ impl AeronDestinationCommand<CResource<aeron_destination_command_t>> {
 impl AeronDestinationCommand {}
 impl<S: ResourceStorage<aeron_destination_command_t>> AeronDestinationCommand<S> {
     #[inline]
+    #[must_use]
     pub fn correlated(&self) -> AeronCorrelatedCommand<Inline<aeron_correlated_command_t>> {
         unsafe { AeronCorrelatedCommand::from_native(unsafe { self.get_inner_ref() }.correlated) }
     }
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn channel_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.channel_length.into()
     }
@@ -17715,7 +17540,7 @@ impl<S: ResourceStorage<aeron_distinct_error_log_observation_list_t>> core::fmt:
         }
         f.debug_struct(stringify!(AeronDistinctErrorLogObservationList))
             .field("inner", &self.inner)
-            .field(stringify!(num_observations), &self.num_observations())
+            .field("num_observations", &self.num_observations())
             .finish()
     }
 }
@@ -17789,10 +17614,13 @@ impl AeronDistinctErrorLogObservationList<CResource<aeron_distinct_error_log_obs
 impl AeronDistinctErrorLogObservationList {}
 impl<S: ResourceStorage<aeron_distinct_error_log_observation_list_t>> AeronDistinctErrorLogObservationList<S> {
     #[inline]
+    #[must_use]
     pub fn num_observations(&self) -> u64 {
         unsafe { self.get_inner_ref() }.num_observations.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn observations(&self) -> Ref<'_, AeronDistinctObservation> {
         Ref::new(unsafe {
             AeronDistinctObservation::from_ptr(
@@ -17836,6 +17664,8 @@ impl<'a, S: ResourceStorage<aeron_distinct_error_log_observation_list_t>>
     Ref<'a, AeronDistinctErrorLogObservationList<S>>
 {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn observations(&self) -> Ref<'a, AeronDistinctObservation> {
         Ref::new(self.value.observations().value)
     }
@@ -17970,8 +17800,8 @@ impl<S: ResourceStorage<aeron_distinct_error_log_t>> core::fmt::Debug for AeronD
         }
         f.debug_struct(stringify!(AeronDistinctErrorLog))
             .field("inner", &self.inner)
-            .field(stringify!(buffer_capacity), &self.buffer_capacity())
-            .field(stringify!(next_offset), &self.next_offset())
+            .field("buffer_capacity", &self.buffer_capacity())
+            .field("next_offset", &self.next_offset())
             .finish()
     }
 }
@@ -18055,10 +17885,13 @@ impl AeronDistinctErrorLog<CResource<aeron_distinct_error_log_t>> {
 impl AeronDistinctErrorLog {}
 impl<S: ResourceStorage<aeron_distinct_error_log_t>> AeronDistinctErrorLog<S> {
     #[inline]
+    #[must_use]
     pub fn buffer(&self) -> *mut u8 {
         unsafe { self.get_inner_ref() }.buffer.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn observation_list(&self) -> Ref<'_, AeronDistinctErrorLogObservationList> {
         Ref::new(unsafe {
             AeronDistinctErrorLogObservationList::from_ptr(
@@ -18069,18 +17902,22 @@ impl<S: ResourceStorage<aeron_distinct_error_log_t>> AeronDistinctErrorLog<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn buffer_capacity(&self) -> usize {
         unsafe { self.get_inner_ref() }.buffer_capacity.into()
     }
     #[inline]
+    #[must_use]
     pub fn next_offset(&self) -> usize {
         unsafe { self.get_inner_ref() }.next_offset.into()
     }
     #[inline]
+    #[must_use]
     pub fn clock(&self) -> aeron_clock_func_t {
         unsafe { self.get_inner_ref() }.clock.into()
     }
     #[inline]
+    #[must_use]
     pub fn mutex(&self) -> aeron_mutex_t {
         unsafe { self.get_inner_ref() }.mutex.into()
     }
@@ -18185,6 +18022,8 @@ impl<S: ResourceStorage<aeron_distinct_error_log_t>> AeronDistinctErrorLog<S> {
 }
 impl<'a, S: ResourceStorage<aeron_distinct_error_log_t>> Ref<'a, AeronDistinctErrorLog<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn observation_list(&self) -> Ref<'a, AeronDistinctErrorLogObservationList> {
         Ref::new(self.value.observation_list().value)
     }
@@ -18316,9 +18155,10 @@ impl<S: ResourceStorage<aeron_distinct_observation_t>> core::fmt::Debug for Aero
         }
         f.debug_struct(stringify!(AeronDistinctObservation))
             .field("inner", &self.inner)
-            .field(stringify!(error_code), &self.error_code())
-            .field(stringify!(offset), &self.offset())
-            .field(stringify!(description_length), &self.description_length())
+            .field("description", &unsafe { self.description() })
+            .field("error_code", &self.error_code())
+            .field("offset", &self.offset())
+            .field("description_length", &self.description_length())
             .finish()
     }
 }
@@ -18354,10 +18194,7 @@ impl AeronDistinctObservation<CResource<aeron_distinct_observation_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_distinct_observation_t>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -18380,10 +18217,7 @@ impl AeronDistinctObservation<CResource<aeron_distinct_observation_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> AeronDistinctObservation<Inline<aeron_distinct_observation_t>> {
+    pub fn new_zeroed_on_stack() -> AeronDistinctObservation<Inline<aeron_distinct_observation_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
             "creating zeroed empty resource on stack {}",
@@ -18397,6 +18231,7 @@ impl AeronDistinctObservation<CResource<aeron_distinct_observation_t>> {
 impl AeronDistinctObservation {}
 impl<S: ResourceStorage<aeron_distinct_observation_t>> AeronDistinctObservation<S> {
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -18412,14 +18247,17 @@ impl<S: ResourceStorage<aeron_distinct_observation_t>> AeronDistinctObservation<
         }
     }
     #[inline]
+    #[must_use]
     pub fn error_code(&self) -> ::std::os::raw::c_int {
         unsafe { self.get_inner_ref() }.error_code.into()
     }
     #[inline]
+    #[must_use]
     pub fn offset(&self) -> usize {
         unsafe { self.get_inner_ref() }.offset.into()
     }
     #[inline]
+    #[must_use]
     pub fn description_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.description_length.into()
     }
@@ -18500,6 +18338,11 @@ impl<S: ResourceStorage<aeron_distinct_observation_t>> From<AeronDistinctObserva
     #[inline]
     fn from(value: AeronDistinctObservation<S>) -> Self {
         unsafe { *value.get_inner().clone() }
+    }
+}
+impl Default for AeronDistinctObservation<CResource<aeron_distinct_observation_t>> {
+    fn default() -> Self {
+        AeronDistinctObservation::new_zeroed_on_heap()
     }
 }
 impl<S: ResourceStorage<aeron_distinct_observation_t>> AeronDistinctObservation<S> {
@@ -18588,9 +18431,6 @@ impl<S: ResourceStorage<aeron_dl_loaded_libs_state_t>> core::fmt::Debug for Aero
 impl AeronDlLoadedLibsState<CResource<aeron_dl_loaded_libs_state_t>> {
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_dl_loaded_libs_state_t>::new(
             move |ctx_field| {
@@ -18614,9 +18454,6 @@ impl AeronDlLoadedLibsState<CResource<aeron_dl_loaded_libs_state_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronDlLoadedLibsState<Inline<aeron_dl_loaded_libs_state_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -18849,6 +18686,7 @@ impl AeronDriverConductorClientCommand<CResource<aeron_driver_conductor_client_c
 impl AeronDriverConductorClientCommand {}
 impl<S: ResourceStorage<aeron_driver_conductor_client_command_t>> AeronDriverConductorClientCommand<S> {
     #[inline]
+    #[must_use]
     pub fn execute(
         &self,
     ) -> ::std::option::Option<
@@ -18860,6 +18698,7 @@ impl<S: ResourceStorage<aeron_driver_conductor_client_command_t>> AeronDriverCon
         unsafe { self.get_inner_ref() }.execute.into()
     }
     #[inline]
+    #[must_use]
     pub fn free(
         &self,
     ) -> ::std::option::Option<
@@ -18871,6 +18710,8 @@ impl<S: ResourceStorage<aeron_driver_conductor_client_command_t>> AeronDriverCon
         unsafe { self.get_inner_ref() }.free.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn correlated(&self) -> Ref<'_, AeronCorrelatedCommand> {
         Ref::new(unsafe {
             AeronCorrelatedCommand::from_ptr(
@@ -18912,6 +18753,8 @@ impl<S: ResourceStorage<aeron_driver_conductor_client_command_t>> AeronDriverCon
 }
 impl<'a, S: ResourceStorage<aeron_driver_conductor_client_command_t>> Ref<'a, AeronDriverConductorClientCommand<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn correlated(&self) -> Ref<'a, AeronCorrelatedCommand> {
         Ref::new(self.value.correlated().value)
     }
@@ -19142,6 +18985,7 @@ impl AeronDriverConductorDriverCommand<CResource<aeron_driver_conductor_driver_c
 impl AeronDriverConductorDriverCommand {}
 impl<S: ResourceStorage<aeron_driver_conductor_driver_command_t>> AeronDriverConductorDriverCommand<S> {
     #[inline]
+    #[must_use]
     pub fn execute(
         &self,
     ) -> ::std::option::Option<
@@ -19153,6 +18997,7 @@ impl<S: ResourceStorage<aeron_driver_conductor_driver_command_t>> AeronDriverCon
         unsafe { self.get_inner_ref() }.execute.into()
     }
     #[inline]
+    #[must_use]
     pub fn free(
         &self,
     ) -> ::std::option::Option<
@@ -19402,6 +19247,8 @@ impl AeronDriverConductorProxy<CResource<aeron_driver_conductor_proxy_t>> {
 impl AeronDriverConductorProxy {}
 impl<S: ResourceStorage<aeron_driver_conductor_proxy_t>> AeronDriverConductorProxy<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn conductor(&self) -> Ref<'_, AeronDriverConductor> {
         Ref::new(unsafe {
             AeronDriverConductor::from_ptr(
@@ -19412,6 +19259,8 @@ impl<S: ResourceStorage<aeron_driver_conductor_proxy_t>> AeronDriverConductorPro
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn command_queue(&self) -> Ref<'_, AeronMpscRb> {
         Ref::new(unsafe {
             AeronMpscRb::from_ptr(
@@ -19422,6 +19271,7 @@ impl<S: ResourceStorage<aeron_driver_conductor_proxy_t>> AeronDriverConductorPro
         })
     }
     #[inline]
+    #[must_use]
     pub fn fail_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.fail_counter }
     }
@@ -19794,10 +19644,14 @@ impl<S: ResourceStorage<aeron_driver_conductor_proxy_t>> AeronDriverConductorPro
 }
 impl<'a, S: ResourceStorage<aeron_driver_conductor_proxy_t>> Ref<'a, AeronDriverConductorProxy<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn conductor(&self) -> Ref<'a, AeronDriverConductor> {
         Ref::new(self.value.conductor().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn command_queue(&self) -> Ref<'a, AeronMpscRb> {
         Ref::new(self.value.command_queue().value)
     }
@@ -19929,41 +19783,38 @@ impl<S: ResourceStorage<aeron_driver_conductor_t>> core::fmt::Debug for AeronDri
         }
         f.debug_struct(stringify!(AeronDriverConductor))
             .field("inner", &self.inner)
-            .field(stringify!(to_driver_commands), &self.to_driver_commands())
-            .field(stringify!(to_clients), &self.to_clients())
-            .field(stringify!(error_log), &self.error_log())
-            .field(stringify!(counters_manager), &self.counters_manager())
-            .field(stringify!(system_counters), &self.system_counters())
-            .field(stringify!(conductor_proxy), &self.conductor_proxy())
-            .field(stringify!(loss_reporter), &self.loss_reporter())
+            .field("to_driver_commands", &self.to_driver_commands())
+            .field("to_clients", &self.to_clients())
+            .field("error_log", &self.error_log())
+            .field("counters_manager", &self.counters_manager())
+            .field("system_counters", &self.system_counters())
+            .field("conductor_proxy", &self.conductor_proxy())
+            .field("loss_reporter", &self.loss_reporter())
             .field(
-                stringify!(send_channel_endpoint_by_channel_map),
+                "send_channel_endpoint_by_channel_map",
                 &self.send_channel_endpoint_by_channel_map(),
             )
             .field(
-                stringify!(receive_channel_endpoint_by_channel_map),
+                "receive_channel_endpoint_by_channel_map",
                 &self.receive_channel_endpoint_by_channel_map(),
             )
-            .field(stringify!(clock_update_deadline_ns), &self.clock_update_deadline_ns())
-            .field(stringify!(next_session_id), &self.next_session_id())
+            .field("clock_update_deadline_ns", &self.clock_update_deadline_ns())
+            .field("next_session_id", &self.next_session_id())
             .field(
-                stringify!(publication_reserved_session_id_low),
+                "publication_reserved_session_id_low",
                 &self.publication_reserved_session_id_low(),
             )
             .field(
-                stringify!(publication_reserved_session_id_high),
+                "publication_reserved_session_id_high",
                 &self.publication_reserved_session_id_high(),
             )
-            .field(stringify!(timeout_check_deadline_ns), &self.timeout_check_deadline_ns())
+            .field("timeout_check_deadline_ns", &self.timeout_check_deadline_ns())
             .field(
-                stringify!(time_of_last_to_driver_position_change_ns),
+                "time_of_last_to_driver_position_change_ns",
                 &self.time_of_last_to_driver_position_change_ns(),
             )
-            .field(
-                stringify!(last_command_consumer_position),
-                &self.last_command_consumer_position(),
-            )
-            .field(stringify!(is_started), &self.is_started())
+            .field("last_command_consumer_position", &self.last_command_consumer_position())
+            .field("is_started", &self.is_started())
             .finish()
     }
 }
@@ -20402,6 +20253,8 @@ impl AeronDriverConductor {
 }
 impl<S: ResourceStorage<aeron_driver_conductor_t>> AeronDriverConductor<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn context(&self) -> Ref<'_, AeronDriverContext> {
         Ref::new(unsafe {
             AeronDriverContext::from_ptr(
@@ -20412,6 +20265,7 @@ impl<S: ResourceStorage<aeron_driver_conductor_t>> AeronDriverConductor<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn to_driver_commands(&self) -> AeronMpscRb<ScopedInline<'_, aeron_mpsc_rb_t>> {
         AeronMpscRb::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.to_driver_commands),
@@ -20419,6 +20273,7 @@ impl<S: ResourceStorage<aeron_driver_conductor_t>> AeronDriverConductor<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn to_clients(&self) -> AeronBroadcastTransmitter<ScopedInline<'_, aeron_broadcast_transmitter_t>> {
         AeronBroadcastTransmitter::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.to_clients),
@@ -20426,6 +20281,7 @@ impl<S: ResourceStorage<aeron_driver_conductor_t>> AeronDriverConductor<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn error_log(&self) -> AeronDistinctErrorLog<ScopedInline<'_, aeron_distinct_error_log_t>> {
         AeronDistinctErrorLog::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.error_log),
@@ -20433,6 +20289,7 @@ impl<S: ResourceStorage<aeron_driver_conductor_t>> AeronDriverConductor<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn counters_manager(&self) -> AeronCountersManager<ScopedInline<'_, aeron_counters_manager_t>> {
         AeronCountersManager::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.counters_manager),
@@ -20440,6 +20297,7 @@ impl<S: ResourceStorage<aeron_driver_conductor_t>> AeronDriverConductor<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn system_counters(&self) -> AeronSystemCounters<ScopedInline<'_, aeron_system_counters_t>> {
         AeronSystemCounters::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.system_counters),
@@ -20447,6 +20305,7 @@ impl<S: ResourceStorage<aeron_driver_conductor_t>> AeronDriverConductor<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn conductor_proxy(&self) -> AeronDriverConductorProxy<ScopedInline<'_, aeron_driver_conductor_proxy_t>> {
         AeronDriverConductorProxy::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.conductor_proxy),
@@ -20454,6 +20313,7 @@ impl<S: ResourceStorage<aeron_driver_conductor_t>> AeronDriverConductor<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn loss_reporter(&self) -> AeronLossReporter<ScopedInline<'_, aeron_loss_reporter_t>> {
         AeronLossReporter::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.loss_reporter),
@@ -20461,6 +20321,7 @@ impl<S: ResourceStorage<aeron_driver_conductor_t>> AeronDriverConductor<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn send_channel_endpoint_by_channel_map(
         &self,
     ) -> AeronStrToPtrHashMap<ScopedInline<'_, aeron_str_to_ptr_hash_map_t>> {
@@ -20470,6 +20331,7 @@ impl<S: ResourceStorage<aeron_driver_conductor_t>> AeronDriverConductor<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn receive_channel_endpoint_by_channel_map(
         &self,
     ) -> AeronStrToPtrHashMap<ScopedInline<'_, aeron_str_to_ptr_hash_map_t>> {
@@ -20479,100 +20341,124 @@ impl<S: ResourceStorage<aeron_driver_conductor_t>> AeronDriverConductor<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn clients(&self) -> aeron_driver_conductor_stct_client_stct {
         unsafe { self.get_inner_ref() }.clients.into()
     }
     #[inline]
+    #[must_use]
     pub fn ipc_subscriptions(&self) -> aeron_driver_conductor_stct_ipc_subscriptions_stct {
         unsafe { self.get_inner_ref() }.ipc_subscriptions.into()
     }
     #[inline]
+    #[must_use]
     pub fn ipc_publications(&self) -> aeron_driver_conductor_stct_ipc_publication_stct {
         unsafe { self.get_inner_ref() }.ipc_publications.into()
     }
     #[inline]
+    #[must_use]
     pub fn network_subscriptions(&self) -> aeron_driver_conductor_stct_network_subscriptions_stct {
         unsafe { self.get_inner_ref() }.network_subscriptions.into()
     }
     #[inline]
+    #[must_use]
     pub fn spy_subscriptions(&self) -> aeron_driver_conductor_stct_spy_subscriptions_stct {
         unsafe { self.get_inner_ref() }.spy_subscriptions.into()
     }
     #[inline]
+    #[must_use]
     pub fn network_publications(&self) -> aeron_driver_conductor_stct_network_publication_stct {
         unsafe { self.get_inner_ref() }.network_publications.into()
     }
     #[inline]
+    #[must_use]
     pub fn send_channel_endpoints(&self) -> aeron_driver_conductor_stct_send_channel_endpoint_stct {
         unsafe { self.get_inner_ref() }.send_channel_endpoints.into()
     }
     #[inline]
+    #[must_use]
     pub fn receive_channel_endpoints(&self) -> aeron_driver_conductor_stct_receive_channel_endpoint_stct {
         unsafe { self.get_inner_ref() }.receive_channel_endpoints.into()
     }
     #[inline]
+    #[must_use]
     pub fn publication_images(&self) -> aeron_driver_conductor_stct_publication_image_stct {
         unsafe { self.get_inner_ref() }.publication_images.into()
     }
     #[inline]
+    #[must_use]
     pub fn lingering_resources(&self) -> aeron_driver_conductor_stct_aeron_driver_conductor_lingering_resources_stct {
         unsafe { self.get_inner_ref() }.lingering_resources.into()
     }
     #[inline]
+    #[must_use]
     pub fn errors_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.errors_counter }
     }
     #[inline]
+    #[must_use]
     pub fn images_rejected_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.images_rejected_counter }
     }
     #[inline]
+    #[must_use]
     pub fn unblocked_commands_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.unblocked_commands_counter }
     }
     #[inline]
+    #[must_use]
     pub fn client_timeouts_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.client_timeouts_counter }
     }
     #[inline]
+    #[must_use]
     pub fn clock_update_deadline_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.clock_update_deadline_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn next_session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.next_session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn publication_reserved_session_id_low(&self) -> i32 {
         unsafe { self.get_inner_ref() }
             .publication_reserved_session_id_low
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn publication_reserved_session_id_high(&self) -> i32 {
         unsafe { self.get_inner_ref() }
             .publication_reserved_session_id_high
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn timeout_check_deadline_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.timeout_check_deadline_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn time_of_last_to_driver_position_change_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }
             .time_of_last_to_driver_position_change_ns
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn last_command_consumer_position(&self) -> i64 {
         unsafe { self.get_inner_ref() }.last_command_consumer_position.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_started(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_started.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn client_command(&self) -> Ref<'_, AeronDriverConductorClientCommand> {
         Ref::new(unsafe {
             AeronDriverConductorClientCommand::from_ptr(
@@ -20583,6 +20469,8 @@ impl<S: ResourceStorage<aeron_driver_conductor_t>> AeronDriverConductor<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn driver_command(&self) -> Ref<'_, AeronDriverConductorDriverCommand> {
         Ref::new(unsafe {
             AeronDriverConductorDriverCommand::from_ptr(
@@ -20593,6 +20481,7 @@ impl<S: ResourceStorage<aeron_driver_conductor_t>> AeronDriverConductor<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn padding(&self) -> [u8; 64usize] {
         unsafe { self.get_inner_ref() }.padding.into()
     }
@@ -22226,14 +22115,20 @@ impl<S: ResourceStorage<aeron_driver_conductor_t>> AeronDriverConductor<S> {
 }
 impl<'a, S: ResourceStorage<aeron_driver_conductor_t>> Ref<'a, AeronDriverConductor<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn context(&self) -> Ref<'a, AeronDriverContext> {
         Ref::new(self.value.context().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn client_command(&self) -> Ref<'a, AeronDriverConductorClientCommand> {
         Ref::new(self.value.client_command().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn driver_command(&self) -> Ref<'a, AeronDriverConductorDriverCommand> {
         Ref::new(self.value.driver_command().value)
     }
@@ -22375,6 +22270,7 @@ impl<S: ResourceStorage<aeron_driver_context_bindings_clientd_entry_t>> core::fm
         }
         f.debug_struct(stringify!(AeronDriverContextBindingsClientdEntry))
             .field("inner", &self.inner)
+            .field("name", &unsafe { self.name() })
             .finish()
     }
 }
@@ -22447,6 +22343,7 @@ impl AeronDriverContextBindingsClientdEntry<CResource<aeron_driver_context_bindi
 impl AeronDriverContextBindingsClientdEntry {}
 impl<S: ResourceStorage<aeron_driver_context_bindings_clientd_entry_t>> AeronDriverContextBindingsClientdEntry<S> {
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -22462,6 +22359,7 @@ impl<S: ResourceStorage<aeron_driver_context_bindings_clientd_entry_t>> AeronDri
         }
     }
     #[inline]
+    #[must_use]
     pub fn clientd(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.clientd.into()
     }
@@ -22624,237 +22522,260 @@ impl<S: ResourceStorage<aeron_driver_context_t>> core::fmt::Debug for AeronDrive
         }
         f.debug_struct(stringify!(AeronDriverContext))
             .field("inner", &self.inner)
-            .field(stringify!(dirs_delete_on_start), &self.dirs_delete_on_start())
-            .field(stringify!(dirs_delete_on_shutdown), &self.dirs_delete_on_shutdown())
-            .field(stringify!(warn_if_dirs_exist), &self.warn_if_dirs_exist())
-            .field(stringify!(term_buffer_sparse_file), &self.term_buffer_sparse_file())
-            .field(stringify!(perform_storage_checks), &self.perform_storage_checks())
-            .field(stringify!(spies_simulate_connection), &self.spies_simulate_connection())
+            .field("dirs_delete_on_start", &self.dirs_delete_on_start())
+            .field("dirs_delete_on_shutdown", &self.dirs_delete_on_shutdown())
+            .field("warn_if_dirs_exist", &self.warn_if_dirs_exist())
+            .field("term_buffer_sparse_file", &self.term_buffer_sparse_file())
+            .field("perform_storage_checks", &self.perform_storage_checks())
+            .field("spies_simulate_connection", &self.spies_simulate_connection())
+            .field("print_configuration_on_start", &self.print_configuration_on_start())
+            .field("reliable_stream", &self.reliable_stream())
+            .field("tether_subscriptions", &self.tether_subscriptions())
+            .field("rejoin_stream", &self.rejoin_stream())
+            .field("ats_enabled", &self.ats_enabled())
+            .field("connect_enabled", &self.connect_enabled())
+            .field("driver_timeout_ms", &self.driver_timeout_ms())
+            .field("client_liveness_timeout_ns", &self.client_liveness_timeout_ns())
+            .field("publication_linger_timeout_ns", &self.publication_linger_timeout_ns())
+            .field("status_message_timeout_ns", &self.status_message_timeout_ns())
+            .field("image_liveness_timeout_ns", &self.image_liveness_timeout_ns())
+            .field("publication_unblock_timeout_ns", &self.publication_unblock_timeout_ns())
             .field(
-                stringify!(print_configuration_on_start),
-                &self.print_configuration_on_start(),
-            )
-            .field(stringify!(reliable_stream), &self.reliable_stream())
-            .field(stringify!(tether_subscriptions), &self.tether_subscriptions())
-            .field(stringify!(rejoin_stream), &self.rejoin_stream())
-            .field(stringify!(ats_enabled), &self.ats_enabled())
-            .field(stringify!(connect_enabled), &self.connect_enabled())
-            .field(stringify!(driver_timeout_ms), &self.driver_timeout_ms())
-            .field(
-                stringify!(client_liveness_timeout_ns),
-                &self.client_liveness_timeout_ns(),
-            )
-            .field(
-                stringify!(publication_linger_timeout_ns),
-                &self.publication_linger_timeout_ns(),
-            )
-            .field(stringify!(status_message_timeout_ns), &self.status_message_timeout_ns())
-            .field(stringify!(image_liveness_timeout_ns), &self.image_liveness_timeout_ns())
-            .field(
-                stringify!(publication_unblock_timeout_ns),
-                &self.publication_unblock_timeout_ns(),
-            )
-            .field(
-                stringify!(publication_connection_timeout_ns),
+                "publication_connection_timeout_ns",
                 &self.publication_connection_timeout_ns(),
             )
-            .field(stringify!(timer_interval_ns), &self.timer_interval_ns())
-            .field(stringify!(counter_free_to_reuse_ns), &self.counter_free_to_reuse_ns())
+            .field("timer_interval_ns", &self.timer_interval_ns())
+            .field("counter_free_to_reuse_ns", &self.counter_free_to_reuse_ns())
             .field(
-                stringify!(untethered_window_limit_timeout_ns),
+                "untethered_window_limit_timeout_ns",
                 &self.untethered_window_limit_timeout_ns(),
             )
+            .field("untethered_linger_timeout_ns", &self.untethered_linger_timeout_ns())
+            .field("untethered_resting_timeout_ns", &self.untethered_resting_timeout_ns())
+            .field("retransmit_unicast_delay_ns", &self.retransmit_unicast_delay_ns())
+            .field("retransmit_unicast_linger_ns", &self.retransmit_unicast_linger_ns())
+            .field("nak_unicast_delay_ns", &self.nak_unicast_delay_ns())
+            .field("nak_unicast_retry_delay_ratio", &self.nak_unicast_retry_delay_ratio())
+            .field("nak_multicast_max_backoff_ns", &self.nak_multicast_max_backoff_ns())
+            .field("unicast_flow_control_rrwm", &self.unicast_flow_control_rrwm())
+            .field("multicast_flow_control_rrwm", &self.multicast_flow_control_rrwm())
             .field(
-                stringify!(untethered_linger_timeout_ns),
-                &self.untethered_linger_timeout_ns(),
-            )
-            .field(
-                stringify!(untethered_resting_timeout_ns),
-                &self.untethered_resting_timeout_ns(),
-            )
-            .field(
-                stringify!(retransmit_unicast_delay_ns),
-                &self.retransmit_unicast_delay_ns(),
-            )
-            .field(
-                stringify!(retransmit_unicast_linger_ns),
-                &self.retransmit_unicast_linger_ns(),
-            )
-            .field(stringify!(nak_unicast_delay_ns), &self.nak_unicast_delay_ns())
-            .field(
-                stringify!(nak_unicast_retry_delay_ratio),
-                &self.nak_unicast_retry_delay_ratio(),
-            )
-            .field(
-                stringify!(nak_multicast_max_backoff_ns),
-                &self.nak_multicast_max_backoff_ns(),
-            )
-            .field(stringify!(unicast_flow_control_rrwm), &self.unicast_flow_control_rrwm())
-            .field(
-                stringify!(multicast_flow_control_rrwm),
-                &self.multicast_flow_control_rrwm(),
-            )
-            .field(
-                stringify!(re_resolution_check_interval_ns),
+                "re_resolution_check_interval_ns",
                 &self.re_resolution_check_interval_ns(),
             )
             .field(
-                stringify!(low_file_store_warning_threshold),
+                "low_file_store_warning_threshold",
                 &self.low_file_store_warning_threshold(),
             )
-            .field(stringify!(to_driver_buffer_length), &self.to_driver_buffer_length())
-            .field(stringify!(to_clients_buffer_length), &self.to_clients_buffer_length())
+            .field("to_driver_buffer_length", &self.to_driver_buffer_length())
+            .field("to_clients_buffer_length", &self.to_clients_buffer_length())
+            .field("counters_values_buffer_length", &self.counters_values_buffer_length())
+            .field("error_buffer_length", &self.error_buffer_length())
+            .field("term_buffer_length", &self.term_buffer_length())
+            .field("ipc_term_buffer_length", &self.ipc_term_buffer_length())
+            .field("mtu_length", &self.mtu_length())
+            .field("ipc_mtu_length", &self.ipc_mtu_length())
+            .field("ipc_publication_window_length", &self.ipc_publication_window_length())
+            .field("publication_window_length", &self.publication_window_length())
+            .field("socket_rcvbuf", &self.socket_rcvbuf())
+            .field("socket_sndbuf", &self.socket_sndbuf())
+            .field("socket_tos", &self.socket_tos())
+            .field("send_to_sm_poll_ratio", &self.send_to_sm_poll_ratio())
             .field(
-                stringify!(counters_values_buffer_length),
-                &self.counters_values_buffer_length(),
-            )
-            .field(stringify!(error_buffer_length), &self.error_buffer_length())
-            .field(stringify!(term_buffer_length), &self.term_buffer_length())
-            .field(stringify!(ipc_term_buffer_length), &self.ipc_term_buffer_length())
-            .field(stringify!(mtu_length), &self.mtu_length())
-            .field(stringify!(ipc_mtu_length), &self.ipc_mtu_length())
-            .field(
-                stringify!(ipc_publication_window_length),
-                &self.ipc_publication_window_length(),
-            )
-            .field(stringify!(publication_window_length), &self.publication_window_length())
-            .field(stringify!(socket_rcvbuf), &self.socket_rcvbuf())
-            .field(stringify!(socket_sndbuf), &self.socket_sndbuf())
-            .field(stringify!(socket_tos), &self.socket_tos())
-            .field(stringify!(send_to_sm_poll_ratio), &self.send_to_sm_poll_ratio())
-            .field(
-                stringify!(receiver_poll_to_slow_work_ratio),
+                "receiver_poll_to_slow_work_ratio",
                 &self.receiver_poll_to_slow_work_ratio(),
             )
-            .field(stringify!(initial_window_length), &self.initial_window_length())
-            .field(stringify!(loss_report_length), &self.loss_report_length())
-            .field(stringify!(file_page_size), &self.file_page_size())
-            .field(stringify!(nak_multicast_group_size), &self.nak_multicast_group_size())
+            .field("initial_window_length", &self.initial_window_length())
+            .field("loss_report_length", &self.loss_report_length())
+            .field("file_page_size", &self.file_page_size())
+            .field("nak_multicast_group_size", &self.nak_multicast_group_size())
             .field(
-                stringify!(publication_reserved_session_id_low),
+                "publication_reserved_session_id_low",
                 &self.publication_reserved_session_id_low(),
             )
             .field(
-                stringify!(publication_reserved_session_id_high),
+                "publication_reserved_session_id_high",
                 &self.publication_reserved_session_id_high(),
             )
+            .field("receiver_io_vector_capacity", &self.receiver_io_vector_capacity())
+            .field("sender_io_vector_capacity", &self.sender_io_vector_capacity())
             .field(
-                stringify!(receiver_io_vector_capacity),
-                &self.receiver_io_vector_capacity(),
-            )
-            .field(stringify!(sender_io_vector_capacity), &self.sender_io_vector_capacity())
-            .field(
-                stringify!(network_publication_max_messages_per_send),
+                "network_publication_max_messages_per_send",
                 &self.network_publication_max_messages_per_send(),
             )
-            .field(stringify!(resource_free_limit), &self.resource_free_limit())
-            .field(stringify!(max_resend), &self.max_resend())
-            .field(stringify!(conductor_cpu_affinity_no), &self.conductor_cpu_affinity_no())
+            .field("resource_free_limit", &self.resource_free_limit())
+            .field("max_resend", &self.max_resend())
+            .field("conductor_cpu_affinity_no", &self.conductor_cpu_affinity_no())
             .field(
-                stringify!(conductor_cpu_affinity_resolved),
+                "conductor_cpu_affinity_resolved",
                 &self.conductor_cpu_affinity_resolved(),
             )
-            .field(stringify!(receiver_cpu_affinity_no), &self.receiver_cpu_affinity_no())
+            .field("receiver_cpu_affinity_no", &self.receiver_cpu_affinity_no())
+            .field("receiver_cpu_affinity_resolved", &self.receiver_cpu_affinity_resolved())
+            .field("sender_cpu_affinity_no", &self.sender_cpu_affinity_no())
+            .field("sender_cpu_affinity_resolved", &self.sender_cpu_affinity_resolved())
             .field(
-                stringify!(receiver_cpu_affinity_resolved),
-                &self.receiver_cpu_affinity_resolved(),
-            )
-            .field(stringify!(sender_cpu_affinity_no), &self.sender_cpu_affinity_no())
-            .field(
-                stringify!(sender_cpu_affinity_resolved),
-                &self.sender_cpu_affinity_resolved(),
-            )
-            .field(
-                stringify!(native_resource_agent_cpu_affinity_no),
+                "native_resource_agent_cpu_affinity_no",
                 &self.native_resource_agent_cpu_affinity_no(),
             )
             .field(
-                stringify!(native_resource_agent_cpu_affinity_resolved),
+                "native_resource_agent_cpu_affinity_resolved",
                 &self.native_resource_agent_cpu_affinity_resolved(),
             )
-            .field(stringify!(stream_session_limit), &self.stream_session_limit())
+            .field("stream_session_limit", &self.stream_session_limit())
             .field(
-                stringify!(thread_affinity_use_cpuset_offsets),
+                "thread_affinity_use_cpuset_offsets",
                 &self.thread_affinity_use_cpuset_offsets(),
             )
             .field(
-                stringify!(thread_affinity_fail_on_validation_errors),
+                "thread_affinity_fail_on_validation_errors",
                 &self.thread_affinity_fail_on_validation_errors(),
             )
+            .field("enable_experimental_features", &self.enable_experimental_features())
+            .field("cnc_map", &self.cnc_map())
+            .field("loss_report", &self.loss_report())
+            .field("conductor_command_queue", &self.conductor_command_queue())
+            .field("sender_command_queue", &self.sender_command_queue())
+            .field("receiver_command_queue", &self.receiver_command_queue())
             .field(
-                stringify!(enable_experimental_features),
-                &self.enable_experimental_features(),
-            )
-            .field(stringify!(cnc_map), &self.cnc_map())
-            .field(stringify!(loss_report), &self.loss_report())
-            .field(stringify!(conductor_command_queue), &self.conductor_command_queue())
-            .field(stringify!(sender_command_queue), &self.sender_command_queue())
-            .field(stringify!(receiver_command_queue), &self.receiver_command_queue())
-            .field(
-                stringify!(native_resource_agent_command_queue),
+                "native_resource_agent_command_queue",
                 &self.native_resource_agent_command_queue(),
             )
+            .field("conductor_idle_strategy_init_args", &unsafe {
+                self.conductor_idle_strategy_init_args()
+            })
+            .field("conductor_idle_strategy_name", &unsafe {
+                self.conductor_idle_strategy_name()
+            })
+            .field("shared_idle_strategy_init_args", &unsafe {
+                self.shared_idle_strategy_init_args()
+            })
+            .field("shared_idle_strategy_name", &unsafe {
+                self.shared_idle_strategy_name()
+            })
+            .field("shared_network_idle_strategy_init_args", &unsafe {
+                self.shared_network_idle_strategy_init_args()
+            })
+            .field("shared_network_idle_strategy_name", &unsafe {
+                self.shared_network_idle_strategy_name()
+            })
+            .field("sender_idle_strategy_init_args", &unsafe {
+                self.sender_idle_strategy_init_args()
+            })
+            .field("sender_idle_strategy_name", &unsafe {
+                self.sender_idle_strategy_name()
+            })
+            .field("receiver_idle_strategy_init_args", &unsafe {
+                self.receiver_idle_strategy_init_args()
+            })
+            .field("receiver_idle_strategy_name", &unsafe {
+                self.receiver_idle_strategy_name()
+            })
+            .field("native_resource_agent_idle_strategy_init_args", &unsafe {
+                self.native_resource_agent_idle_strategy_init_args()
+            })
+            .field("native_resource_agent_idle_strategy_name", &unsafe {
+                self.native_resource_agent_idle_strategy_name()
+            })
             .field(
-                stringify!(udp_channel_transport_poller_iteration_threshold),
+                "udp_channel_transport_poller_iteration_threshold",
                 &self.udp_channel_transport_poller_iteration_threshold(),
             )
             .field(
-                stringify!(udp_channel_transport_poller_socket_poll_limit),
+                "udp_channel_transport_poller_socket_poll_limit",
                 &self.udp_channel_transport_poller_socket_poll_limit(),
             )
-            .field(stringify!(next_receiver_id), &self.next_receiver_id())
+            .field("next_receiver_id", &self.next_receiver_id())
             .field(
-                stringify!(unicast_delay_feedback_generator),
+                "unicast_delay_feedback_generator",
                 &self.unicast_delay_feedback_generator(),
             )
             .field(
-                stringify!(multicast_delay_feedback_generator),
+                "multicast_delay_feedback_generator",
                 &self.multicast_delay_feedback_generator(),
             )
+            .field("resolver_name", &unsafe { self.resolver_name() })
+            .field("resolver_interface", &unsafe { self.resolver_interface() })
+            .field("resolver_bootstrap_neighbor", &unsafe {
+                self.resolver_bootstrap_neighbor()
+            })
+            .field("resolver_neighbor_timeout_ns", &self.resolver_neighbor_timeout_ns())
             .field(
-                stringify!(resolver_neighbor_timeout_ns),
-                &self.resolver_neighbor_timeout_ns(),
-            )
-            .field(
-                stringify!(resolver_self_resolution_interval_ns),
+                "resolver_self_resolution_interval_ns",
                 &self.resolver_self_resolution_interval_ns(),
             )
             .field(
-                stringify!(resolver_neighbor_resolution_interval_ns),
+                "resolver_neighbor_resolution_interval_ns",
                 &self.resolver_neighbor_resolution_interval_ns(),
             )
             .field(
-                stringify!(resolver_bootstrap_neighbor_resolution_interval_ns),
+                "resolver_bootstrap_neighbor_resolution_interval_ns",
                 &self.resolver_bootstrap_neighbor_resolution_interval_ns(),
             )
+            .field("name_resolver_init_args", &unsafe { self.name_resolver_init_args() })
+            .field("driver_name_resolver_boostrap_resolver_init_args", &unsafe {
+                self.driver_name_resolver_boostrap_resolver_init_args()
+            })
             .field(
-                stringify!(conductor_duty_cycle_stall_tracker),
+                "conductor_duty_cycle_stall_tracker",
                 &self.conductor_duty_cycle_stall_tracker(),
             )
             .field(
-                stringify!(sender_duty_cycle_stall_tracker),
+                "sender_duty_cycle_stall_tracker",
                 &self.sender_duty_cycle_stall_tracker(),
             )
             .field(
-                stringify!(receiver_duty_cycle_stall_tracker),
+                "receiver_duty_cycle_stall_tracker",
                 &self.receiver_duty_cycle_stall_tracker(),
             )
             .field(
-                stringify!(name_resolver_time_stall_tracker),
+                "name_resolver_time_stall_tracker",
                 &self.name_resolver_time_stall_tracker(),
             )
-            .field(
-                stringify!(sender_wildcard_port_manager),
-                &self.sender_wildcard_port_manager(),
-            )
-            .field(
-                stringify!(receiver_wildcard_port_manager),
-                &self.receiver_wildcard_port_manager(),
-            )
-            .field(
-                stringify!(num_bindings_clientd_entries),
-                &self.num_bindings_clientd_entries(),
-            )
+            .field("sender_wildcard_port_manager", &self.sender_wildcard_port_manager())
+            .field("receiver_wildcard_port_manager", &self.receiver_wildcard_port_manager())
+            .field("num_bindings_clientd_entries", &self.num_bindings_clientd_entries())
+            .field("get_dir", &unsafe { self.get_dir() })
+            .field("get_sender_idle_strategy", &unsafe { self.get_sender_idle_strategy() })
+            .field("get_conductor_idle_strategy", &unsafe {
+                self.get_conductor_idle_strategy()
+            })
+            .field("get_receiver_idle_strategy", &unsafe {
+                self.get_receiver_idle_strategy()
+            })
+            .field("get_sharednetwork_idle_strategy", &unsafe {
+                self.get_sharednetwork_idle_strategy()
+            })
+            .field("get_shared_idle_strategy", &unsafe { self.get_shared_idle_strategy() })
+            .field("get_sender_idle_strategy_init_args", &unsafe {
+                self.get_sender_idle_strategy_init_args()
+            })
+            .field("get_conductor_idle_strategy_init_args", &unsafe {
+                self.get_conductor_idle_strategy_init_args()
+            })
+            .field("get_receiver_idle_strategy_init_args", &unsafe {
+                self.get_receiver_idle_strategy_init_args()
+            })
+            .field("get_sharednetwork_idle_strategy_init_args", &unsafe {
+                self.get_sharednetwork_idle_strategy_init_args()
+            })
+            .field("get_shared_idle_strategy_init_args", &unsafe {
+                self.get_shared_idle_strategy_init_args()
+            })
+            .field("get_native_resource_agent_idle_strategy", &unsafe {
+                self.get_native_resource_agent_idle_strategy()
+            })
+            .field("get_native_resource_agent_idle_strategy_init_args", &unsafe {
+                self.get_native_resource_agent_idle_strategy_init_args()
+            })
+            .field("get_resolver_name", &unsafe { self.get_resolver_name() })
+            .field("get_resolver_interface", &unsafe { self.get_resolver_interface() })
+            .field("get_resolver_bootstrap_neighbor", &unsafe {
+                self.get_resolver_bootstrap_neighbor()
+            })
+            .field("get_name_resolver_init_args", &unsafe {
+                self.get_name_resolver_init_args()
+            })
             .finish()
     }
 }
@@ -22914,334 +22835,413 @@ impl AeronDriverContext {
 }
 impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     #[inline]
+    #[must_use]
     pub fn aeron_dir(&self) -> [::std::os::raw::c_char; 4096usize] {
         unsafe { self.get_inner_ref() }.aeron_dir.into()
     }
     #[inline]
+    #[must_use]
     pub fn threading_mode(&self) -> aeron_threading_mode_t {
         unsafe { self.get_inner_ref() }.threading_mode.into()
     }
     #[inline]
+    #[must_use]
     pub fn thread_naming(&self) -> aeron_thread_naming_t {
         unsafe { self.get_inner_ref() }.thread_naming.into()
     }
     #[inline]
+    #[must_use]
     pub fn receiver_group_consideration(&self) -> aeron_inferable_boolean_t {
         unsafe { self.get_inner_ref() }.receiver_group_consideration.into()
     }
     #[inline]
+    #[must_use]
     pub fn dirs_delete_on_start(&self) -> bool {
         unsafe { self.get_inner_ref() }.dirs_delete_on_start.into()
     }
     #[inline]
+    #[must_use]
     pub fn dirs_delete_on_shutdown(&self) -> bool {
         unsafe { self.get_inner_ref() }.dirs_delete_on_shutdown.into()
     }
     #[inline]
+    #[must_use]
     pub fn warn_if_dirs_exist(&self) -> bool {
         unsafe { self.get_inner_ref() }.warn_if_dirs_exist.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_buffer_sparse_file(&self) -> bool {
         unsafe { self.get_inner_ref() }.term_buffer_sparse_file.into()
     }
     #[inline]
+    #[must_use]
     pub fn perform_storage_checks(&self) -> bool {
         unsafe { self.get_inner_ref() }.perform_storage_checks.into()
     }
     #[inline]
+    #[must_use]
     pub fn spies_simulate_connection(&self) -> bool {
         unsafe { self.get_inner_ref() }.spies_simulate_connection.into()
     }
     #[inline]
+    #[must_use]
     pub fn print_configuration_on_start(&self) -> bool {
         unsafe { self.get_inner_ref() }.print_configuration_on_start.into()
     }
     #[inline]
+    #[must_use]
     pub fn reliable_stream(&self) -> bool {
         unsafe { self.get_inner_ref() }.reliable_stream.into()
     }
     #[inline]
+    #[must_use]
     pub fn tether_subscriptions(&self) -> bool {
         unsafe { self.get_inner_ref() }.tether_subscriptions.into()
     }
     #[inline]
+    #[must_use]
     pub fn rejoin_stream(&self) -> bool {
         unsafe { self.get_inner_ref() }.rejoin_stream.into()
     }
     #[inline]
+    #[must_use]
     pub fn ats_enabled(&self) -> bool {
         unsafe { self.get_inner_ref() }.ats_enabled.into()
     }
     #[inline]
+    #[must_use]
     pub fn connect_enabled(&self) -> bool {
         unsafe { self.get_inner_ref() }.connect_enabled.into()
     }
     #[inline]
+    #[must_use]
     pub fn driver_timeout_ms(&self) -> u64 {
         unsafe { self.get_inner_ref() }.driver_timeout_ms.into()
     }
     #[inline]
+    #[must_use]
     pub fn client_liveness_timeout_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.client_liveness_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn publication_linger_timeout_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.publication_linger_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn status_message_timeout_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.status_message_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn image_liveness_timeout_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.image_liveness_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn publication_unblock_timeout_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.publication_unblock_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn publication_connection_timeout_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.publication_connection_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn timer_interval_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.timer_interval_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn counter_free_to_reuse_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.counter_free_to_reuse_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_window_limit_timeout_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }
             .untethered_window_limit_timeout_ns
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_linger_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.untethered_linger_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_resting_timeout_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.untethered_resting_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn retransmit_unicast_delay_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.retransmit_unicast_delay_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn retransmit_unicast_linger_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.retransmit_unicast_linger_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn nak_unicast_delay_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.nak_unicast_delay_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn nak_unicast_retry_delay_ratio(&self) -> u64 {
         unsafe { self.get_inner_ref() }.nak_unicast_retry_delay_ratio.into()
     }
     #[inline]
+    #[must_use]
     pub fn nak_multicast_max_backoff_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.nak_multicast_max_backoff_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn unicast_flow_control_rrwm(&self) -> usize {
         unsafe { self.get_inner_ref() }.unicast_flow_control_rrwm.into()
     }
     #[inline]
+    #[must_use]
     pub fn multicast_flow_control_rrwm(&self) -> usize {
         unsafe { self.get_inner_ref() }.multicast_flow_control_rrwm.into()
     }
     #[inline]
+    #[must_use]
     pub fn re_resolution_check_interval_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.re_resolution_check_interval_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn low_file_store_warning_threshold(&self) -> u64 {
         unsafe { self.get_inner_ref() }.low_file_store_warning_threshold.into()
     }
     #[inline]
+    #[must_use]
     pub fn to_driver_buffer_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.to_driver_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn to_clients_buffer_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.to_clients_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn counters_values_buffer_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.counters_values_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn error_buffer_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.error_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_buffer_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.term_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn ipc_term_buffer_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.ipc_term_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn mtu_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.mtu_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn ipc_mtu_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.ipc_mtu_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn ipc_publication_window_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.ipc_publication_window_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn publication_window_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.publication_window_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn socket_rcvbuf(&self) -> usize {
         unsafe { self.get_inner_ref() }.socket_rcvbuf.into()
     }
     #[inline]
+    #[must_use]
     pub fn socket_sndbuf(&self) -> usize {
         unsafe { self.get_inner_ref() }.socket_sndbuf.into()
     }
     #[inline]
+    #[must_use]
     pub fn socket_tos(&self) -> i32 {
         unsafe { self.get_inner_ref() }.socket_tos.into()
     }
     #[inline]
+    #[must_use]
     pub fn send_to_sm_poll_ratio(&self) -> usize {
         unsafe { self.get_inner_ref() }.send_to_sm_poll_ratio.into()
     }
     #[inline]
+    #[must_use]
     pub fn receiver_poll_to_slow_work_ratio(&self) -> usize {
         unsafe { self.get_inner_ref() }.receiver_poll_to_slow_work_ratio.into()
     }
     #[inline]
+    #[must_use]
     pub fn initial_window_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.initial_window_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn loss_report_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.loss_report_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn file_page_size(&self) -> usize {
         unsafe { self.get_inner_ref() }.file_page_size.into()
     }
     #[inline]
+    #[must_use]
     pub fn nak_multicast_group_size(&self) -> usize {
         unsafe { self.get_inner_ref() }.nak_multicast_group_size.into()
     }
     #[inline]
+    #[must_use]
     pub fn publication_reserved_session_id_low(&self) -> i32 {
         unsafe { self.get_inner_ref() }
             .publication_reserved_session_id_low
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn publication_reserved_session_id_high(&self) -> i32 {
         unsafe { self.get_inner_ref() }
             .publication_reserved_session_id_high
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn multicast_ttl(&self) -> u8 {
         unsafe { self.get_inner_ref() }.multicast_ttl.into()
     }
     #[inline]
+    #[must_use]
     pub fn receiver_io_vector_capacity(&self) -> u32 {
         unsafe { self.get_inner_ref() }.receiver_io_vector_capacity.into()
     }
     #[inline]
+    #[must_use]
     pub fn sender_io_vector_capacity(&self) -> u32 {
         unsafe { self.get_inner_ref() }.sender_io_vector_capacity.into()
     }
     #[inline]
+    #[must_use]
     pub fn network_publication_max_messages_per_send(&self) -> u32 {
         unsafe { self.get_inner_ref() }
             .network_publication_max_messages_per_send
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn resource_free_limit(&self) -> u32 {
         unsafe { self.get_inner_ref() }.resource_free_limit.into()
     }
     #[inline]
+    #[must_use]
     pub fn max_resend(&self) -> u32 {
         unsafe { self.get_inner_ref() }.max_resend.into()
     }
     #[inline]
+    #[must_use]
     pub fn conductor_cpu_affinity_no(&self) -> i32 {
         unsafe { self.get_inner_ref() }.conductor_cpu_affinity_no.into()
     }
     #[inline]
+    #[must_use]
     pub fn conductor_cpu_affinity_resolved(&self) -> i32 {
         unsafe { self.get_inner_ref() }.conductor_cpu_affinity_resolved.into()
     }
     #[inline]
+    #[must_use]
     pub fn receiver_cpu_affinity_no(&self) -> i32 {
         unsafe { self.get_inner_ref() }.receiver_cpu_affinity_no.into()
     }
     #[inline]
+    #[must_use]
     pub fn receiver_cpu_affinity_resolved(&self) -> i32 {
         unsafe { self.get_inner_ref() }.receiver_cpu_affinity_resolved.into()
     }
     #[inline]
+    #[must_use]
     pub fn sender_cpu_affinity_no(&self) -> i32 {
         unsafe { self.get_inner_ref() }.sender_cpu_affinity_no.into()
     }
     #[inline]
+    #[must_use]
     pub fn sender_cpu_affinity_resolved(&self) -> i32 {
         unsafe { self.get_inner_ref() }.sender_cpu_affinity_resolved.into()
     }
     #[inline]
+    #[must_use]
     pub fn native_resource_agent_cpu_affinity_no(&self) -> i32 {
         unsafe { self.get_inner_ref() }
             .native_resource_agent_cpu_affinity_no
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn native_resource_agent_cpu_affinity_resolved(&self) -> i32 {
         unsafe { self.get_inner_ref() }
             .native_resource_agent_cpu_affinity_resolved
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_session_limit(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_session_limit.into()
     }
     #[inline]
+    #[must_use]
     pub fn thread_affinity_use_cpuset_offsets(&self) -> bool {
         unsafe { self.get_inner_ref() }
             .thread_affinity_use_cpuset_offsets
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn thread_affinity_fail_on_validation_errors(&self) -> bool {
         unsafe { self.get_inner_ref() }
             .thread_affinity_fail_on_validation_errors
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn enable_experimental_features(&self) -> bool {
         unsafe { self.get_inner_ref() }.enable_experimental_features.into()
     }
     #[inline]
+    #[must_use]
     pub fn receiver_group_tag(&self) -> aeron_driver_context_stct__bindgen_ty_1 {
         unsafe { self.get_inner_ref() }.receiver_group_tag.into()
     }
     #[inline]
+    #[must_use]
     pub fn flow_control(&self) -> aeron_driver_context_stct__bindgen_ty_2 {
         unsafe { self.get_inner_ref() }.flow_control.into()
     }
     #[inline]
+    #[must_use]
     pub fn cnc_map(&self) -> AeronMappedFile<ScopedInline<'_, aeron_mapped_file_t>> {
         AeronMappedFile::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.cnc_map),
@@ -23249,6 +23249,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn loss_report(&self) -> AeronMappedFile<ScopedInline<'_, aeron_mapped_file_t>> {
         AeronMappedFile::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.loss_report),
@@ -23256,34 +23257,43 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn to_driver_buffer(&self) -> *mut u8 {
         unsafe { self.get_inner_ref() }.to_driver_buffer.into()
     }
     #[inline]
+    #[must_use]
     pub fn to_clients_buffer(&self) -> *mut u8 {
         unsafe { self.get_inner_ref() }.to_clients_buffer.into()
     }
     #[inline]
+    #[must_use]
     pub fn counters_values_buffer(&self) -> *mut u8 {
         unsafe { self.get_inner_ref() }.counters_values_buffer.into()
     }
     #[inline]
+    #[must_use]
     pub fn counters_metadata_buffer(&self) -> *mut u8 {
         unsafe { self.get_inner_ref() }.counters_metadata_buffer.into()
     }
     #[inline]
+    #[must_use]
     pub fn error_buffer(&self) -> *mut u8 {
         unsafe { self.get_inner_ref() }.error_buffer.into()
     }
     #[inline]
+    #[must_use]
     pub fn nano_clock(&self) -> aeron_clock_func_t {
         unsafe { self.get_inner_ref() }.nano_clock.into()
     }
     #[inline]
+    #[must_use]
     pub fn epoch_clock(&self) -> aeron_clock_func_t {
         unsafe { self.get_inner_ref() }.epoch_clock.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn cached_clock(&self) -> Ref<'_, AeronClockCache> {
         Ref::new(unsafe {
             AeronClockCache::from_ptr(
@@ -23294,6 +23304,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn sender_cached_clock(&self) -> Ref<'_, AeronClockCache> {
         Ref::new(unsafe {
             AeronClockCache::from_ptr(
@@ -23304,6 +23316,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn receiver_cached_clock(&self) -> Ref<'_, AeronClockCache> {
         Ref::new(unsafe {
             AeronClockCache::from_ptr(
@@ -23314,6 +23328,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn conductor_command_queue(&self) -> AeronMpscRb<ScopedInline<'_, aeron_mpsc_rb_t>> {
         AeronMpscRb::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.conductor_command_queue),
@@ -23321,6 +23336,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn sender_command_queue(&self) -> AeronSpscRb<ScopedInline<'_, aeron_spsc_rb_t>> {
         AeronSpscRb::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.sender_command_queue),
@@ -23328,6 +23344,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn receiver_command_queue(&self) -> AeronSpscRb<ScopedInline<'_, aeron_spsc_rb_t>> {
         AeronSpscRb::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.receiver_command_queue),
@@ -23335,6 +23352,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn native_resource_agent_command_queue(&self) -> AeronSpscRb<ScopedInline<'_, aeron_spsc_rb_t>> {
         AeronSpscRb::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.native_resource_agent_command_queue),
@@ -23342,30 +23360,37 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn agent_on_start_func(&self) -> aeron_agent_on_start_func_t {
         unsafe { self.get_inner_ref() }.agent_on_start_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn agent_on_start_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.agent_on_start_state.into()
     }
     #[inline]
+    #[must_use]
     pub fn agent_on_start_func_delegate(&self) -> aeron_agent_on_start_func_t {
         unsafe { self.get_inner_ref() }.agent_on_start_func_delegate.into()
     }
     #[inline]
+    #[must_use]
     pub fn agent_on_start_state_delegate(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.agent_on_start_state_delegate.into()
     }
     #[inline]
+    #[must_use]
     pub fn conductor_idle_strategy_func(&self) -> aeron_idle_strategy_func_t {
         unsafe { self.get_inner_ref() }.conductor_idle_strategy_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn conductor_idle_strategy_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.conductor_idle_strategy_state.into()
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -23385,6 +23410,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn conductor_idle_strategy_init_args_owned(&self) -> String {
         if unsafe { self.get_inner_ref() }
             .conductor_idle_strategy_init_args
@@ -23401,6 +23427,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -23417,6 +23444,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn conductor_idle_strategy_name_owned(&self) -> String {
         if unsafe { self.get_inner_ref() }.conductor_idle_strategy_name.is_null() {
             String::new()
@@ -23430,14 +23458,17 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn shared_idle_strategy_func(&self) -> aeron_idle_strategy_func_t {
         unsafe { self.get_inner_ref() }.shared_idle_strategy_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn shared_idle_strategy_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.shared_idle_strategy_state.into()
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -23454,6 +23485,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn shared_idle_strategy_init_args_owned(&self) -> String {
         if unsafe { self.get_inner_ref() }.shared_idle_strategy_init_args.is_null() {
             String::new()
@@ -23467,6 +23499,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -23483,6 +23516,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn shared_idle_strategy_name_owned(&self) -> String {
         if unsafe { self.get_inner_ref() }.shared_idle_strategy_name.is_null() {
             String::new()
@@ -23496,16 +23530,19 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn shared_network_idle_strategy_func(&self) -> aeron_idle_strategy_func_t {
         unsafe { self.get_inner_ref() }.shared_network_idle_strategy_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn shared_network_idle_strategy_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }
             .shared_network_idle_strategy_state
             .into()
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -23525,6 +23562,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn shared_network_idle_strategy_init_args_owned(&self) -> String {
         if unsafe { self.get_inner_ref() }
             .shared_network_idle_strategy_init_args
@@ -23541,6 +23579,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -23560,6 +23599,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn shared_network_idle_strategy_name_owned(&self) -> String {
         if unsafe { self.get_inner_ref() }
             .shared_network_idle_strategy_name
@@ -23576,14 +23616,17 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn sender_idle_strategy_func(&self) -> aeron_idle_strategy_func_t {
         unsafe { self.get_inner_ref() }.sender_idle_strategy_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn sender_idle_strategy_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.sender_idle_strategy_state.into()
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -23600,6 +23643,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn sender_idle_strategy_init_args_owned(&self) -> String {
         if unsafe { self.get_inner_ref() }.sender_idle_strategy_init_args.is_null() {
             String::new()
@@ -23613,6 +23657,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -23629,6 +23674,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn sender_idle_strategy_name_owned(&self) -> String {
         if unsafe { self.get_inner_ref() }.sender_idle_strategy_name.is_null() {
             String::new()
@@ -23642,14 +23688,17 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn receiver_idle_strategy_func(&self) -> aeron_idle_strategy_func_t {
         unsafe { self.get_inner_ref() }.receiver_idle_strategy_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn receiver_idle_strategy_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.receiver_idle_strategy_state.into()
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -23669,6 +23718,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn receiver_idle_strategy_init_args_owned(&self) -> String {
         if unsafe { self.get_inner_ref() }
             .receiver_idle_strategy_init_args
@@ -23685,6 +23735,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -23701,6 +23752,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn receiver_idle_strategy_name_owned(&self) -> String {
         if unsafe { self.get_inner_ref() }.receiver_idle_strategy_name.is_null() {
             String::new()
@@ -23714,18 +23766,21 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn native_resource_agent_idle_strategy_func(&self) -> aeron_idle_strategy_func_t {
         unsafe { self.get_inner_ref() }
             .native_resource_agent_idle_strategy_func
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn native_resource_agent_idle_strategy_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }
             .native_resource_agent_idle_strategy_state
             .into()
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -23745,6 +23800,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn native_resource_agent_idle_strategy_init_args_owned(&self) -> String {
         if unsafe { self.get_inner_ref() }
             .native_resource_agent_idle_strategy_init_args
@@ -23761,6 +23817,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -23780,6 +23837,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn native_resource_agent_idle_strategy_name_owned(&self) -> String {
         if unsafe { self.get_inner_ref() }
             .native_resource_agent_idle_strategy_name
@@ -23796,34 +23854,42 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn usable_fs_space_func(&self) -> aeron_usable_fs_space_func_t {
         unsafe { self.get_inner_ref() }.usable_fs_space_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn raw_log_map_func(&self) -> aeron_raw_log_map_func_t {
         unsafe { self.get_inner_ref() }.raw_log_map_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn raw_log_free_func(&self) -> aeron_raw_log_free_func_t {
         unsafe { self.get_inner_ref() }.raw_log_free_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn unicast_flow_control_supplier_func(&self) -> aeron_flow_control_strategy_supplier_func_t {
         unsafe { self.get_inner_ref() }
             .unicast_flow_control_supplier_func
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn multicast_flow_control_supplier_func(&self) -> aeron_flow_control_strategy_supplier_func_t {
         unsafe { self.get_inner_ref() }
             .multicast_flow_control_supplier_func
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn congestion_control_supplier_func(&self) -> aeron_congestion_control_strategy_supplier_func_t {
         unsafe { self.get_inner_ref() }.congestion_control_supplier_func.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn conductor_proxy(&self) -> Ref<'_, AeronDriverConductorProxy> {
         Ref::new(unsafe {
             AeronDriverConductorProxy::from_ptr(
@@ -23834,6 +23900,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn native_resource_agent_proxy(&self) -> Ref<'_, AeronDriverNativeResourceAgentProxy> {
         Ref::new(unsafe {
             AeronDriverNativeResourceAgentProxy::from_ptr(
@@ -23844,6 +23912,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn sender_proxy(&self) -> Ref<'_, AeronDriverSenderProxy> {
         Ref::new(unsafe {
             AeronDriverSenderProxy::from_ptr(
@@ -23854,6 +23924,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn receiver_proxy(&self) -> Ref<'_, AeronDriverReceiverProxy> {
         Ref::new(unsafe {
             AeronDriverReceiverProxy::from_ptr(
@@ -23864,6 +23936,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn counters_manager(&self) -> Ref<'_, AeronCountersManager> {
         Ref::new(unsafe {
             AeronCountersManager::from_ptr(
@@ -23874,6 +23948,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn system_counters(&self) -> Ref<'_, AeronSystemCounters> {
         Ref::new(unsafe {
             AeronSystemCounters::from_ptr(
@@ -23884,6 +23960,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn error_log(&self) -> Ref<'_, AeronDistinctErrorLog> {
         Ref::new(unsafe {
             AeronDistinctErrorLog::from_ptr(
@@ -23894,36 +23972,45 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn log(&self) -> aeron_driver_context_stct__bindgen_ty_3 {
         unsafe { self.get_inner_ref() }.log.into()
     }
     #[inline]
+    #[must_use]
     pub fn termination_validator_func(&self) -> aeron_driver_termination_validator_func_t {
         unsafe { self.get_inner_ref() }.termination_validator_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn termination_validator_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.termination_validator_state.into()
     }
     #[inline]
+    #[must_use]
     pub fn termination_hook_func(&self) -> aeron_driver_termination_hook_func_t {
         unsafe { self.get_inner_ref() }.termination_hook_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn termination_hook_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.termination_hook_state.into()
     }
     #[inline]
+    #[must_use]
     pub fn udp_channel_transport_bindings(&self) -> *mut aeron_udp_channel_transport_bindings_t {
         unsafe { self.get_inner_ref() }.udp_channel_transport_bindings.into()
     }
     #[inline]
+    #[must_use]
     pub fn conductor_udp_channel_transport_bindings(&self) -> *mut aeron_udp_channel_transport_bindings_t {
         unsafe { self.get_inner_ref() }
             .conductor_udp_channel_transport_bindings
             .into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn udp_channel_outgoing_interceptor_bindings(&self) -> Ref<'_, AeronUdpChannelInterceptorBindings> {
         Ref::new(unsafe {
             AeronUdpChannelInterceptorBindings::from_ptr(
@@ -23936,6 +24023,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn udp_channel_incoming_interceptor_bindings(&self) -> Ref<'_, AeronUdpChannelInterceptorBindings> {
         Ref::new(unsafe {
             AeronUdpChannelInterceptorBindings::from_ptr(
@@ -23948,22 +24037,26 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn udp_channel_transport_poller_iteration_threshold(&self) -> usize {
         unsafe { self.get_inner_ref() }
             .udp_channel_transport_poller_iteration_threshold
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn udp_channel_transport_poller_socket_poll_limit(&self) -> i32 {
         unsafe { self.get_inner_ref() }
             .udp_channel_transport_poller_socket_poll_limit
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn next_receiver_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.next_receiver_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn unicast_delay_feedback_generator(
         &self,
     ) -> AeronFeedbackDelayGeneratorState<ScopedInline<'_, aeron_feedback_delay_generator_state_t>> {
@@ -23973,6 +24066,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn multicast_delay_feedback_generator(
         &self,
     ) -> AeronFeedbackDelayGeneratorState<ScopedInline<'_, aeron_feedback_delay_generator_state_t>> {
@@ -23982,6 +24076,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -23998,6 +24093,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn resolver_name_owned(&self) -> String {
         if unsafe { self.get_inner_ref() }.resolver_name.is_null() {
             String::new()
@@ -24011,6 +24107,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -24027,6 +24124,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn resolver_interface_owned(&self) -> String {
         if unsafe { self.get_inner_ref() }.resolver_interface.is_null() {
             String::new()
@@ -24040,6 +24138,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -24056,6 +24155,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn resolver_bootstrap_neighbor_owned(&self) -> String {
         if unsafe { self.get_inner_ref() }.resolver_bootstrap_neighbor.is_null() {
             String::new()
@@ -24069,28 +24169,33 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn resolver_neighbor_timeout_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.resolver_neighbor_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn resolver_self_resolution_interval_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }
             .resolver_self_resolution_interval_ns
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn resolver_neighbor_resolution_interval_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }
             .resolver_neighbor_resolution_interval_ns
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn resolver_bootstrap_neighbor_resolution_interval_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }
             .resolver_bootstrap_neighbor_resolution_interval_ns
             .into()
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -24107,6 +24212,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn name_resolver_init_args_owned(&self) -> String {
         if unsafe { self.get_inner_ref() }.name_resolver_init_args.is_null() {
             String::new()
@@ -24120,16 +24226,19 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn name_resolver_supplier_func(&self) -> aeron_name_resolver_supplier_func_t {
         unsafe { self.get_inner_ref() }.name_resolver_supplier_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn driver_name_resolver_bootstrap_resolver_supplier_func(&self) -> aeron_name_resolver_supplier_func_t {
         unsafe { self.get_inner_ref() }
             .driver_name_resolver_bootstrap_resolver_supplier_func
             .into()
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -24151,6 +24260,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn driver_name_resolver_boostrap_resolver_init_args_owned(&self) -> String {
         if unsafe { self.get_inner_ref() }
             .driver_name_resolver_boostrap_resolver_init_args
@@ -24169,28 +24279,34 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn send_channel_loss_supplier_func(&self) -> aeron_send_channel_loss_supplier_func_t {
         unsafe { self.get_inner_ref() }.send_channel_loss_supplier_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn send_channel_loss_supplier_clientd(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }
             .send_channel_loss_supplier_clientd
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn receive_channel_loss_supplier_func(&self) -> aeron_receive_channel_loss_supplier_func_t {
         unsafe { self.get_inner_ref() }
             .receive_channel_loss_supplier_func
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn receive_channel_loss_supplier_clientd(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }
             .receive_channel_loss_supplier_clientd
             .into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn conductor_duty_cycle_tracker(&self) -> Ref<'_, AeronDutyCycleTracker> {
         Ref::new(unsafe {
             AeronDutyCycleTracker::from_ptr(
@@ -24201,6 +24317,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn sender_duty_cycle_tracker(&self) -> Ref<'_, AeronDutyCycleTracker> {
         Ref::new(unsafe {
             AeronDutyCycleTracker::from_ptr(
@@ -24211,6 +24329,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn receiver_duty_cycle_tracker(&self) -> Ref<'_, AeronDutyCycleTracker> {
         Ref::new(unsafe {
             AeronDutyCycleTracker::from_ptr(
@@ -24221,6 +24341,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn name_resolver_time_tracker(&self) -> Ref<'_, AeronDutyCycleTracker> {
         Ref::new(unsafe {
             AeronDutyCycleTracker::from_ptr(
@@ -24231,6 +24353,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn conductor_duty_cycle_stall_tracker(
         &self,
     ) -> AeronDutyCycleStallTracker<ScopedInline<'_, aeron_duty_cycle_stall_tracker_t>> {
@@ -24240,6 +24363,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn sender_duty_cycle_stall_tracker(
         &self,
     ) -> AeronDutyCycleStallTracker<ScopedInline<'_, aeron_duty_cycle_stall_tracker_t>> {
@@ -24249,6 +24373,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn receiver_duty_cycle_stall_tracker(
         &self,
     ) -> AeronDutyCycleStallTracker<ScopedInline<'_, aeron_duty_cycle_stall_tracker_t>> {
@@ -24258,6 +24383,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn name_resolver_time_stall_tracker(
         &self,
     ) -> AeronDutyCycleStallTracker<ScopedInline<'_, aeron_duty_cycle_stall_tracker_t>> {
@@ -24267,6 +24393,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn sender_port_manager(&self) -> Ref<'_, AeronPortManager> {
         Ref::new(unsafe {
             AeronPortManager::from_ptr(
@@ -24277,6 +24405,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn receiver_port_manager(&self) -> Ref<'_, AeronPortManager> {
         Ref::new(unsafe {
             AeronPortManager::from_ptr(
@@ -24287,6 +24417,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn sender_wildcard_port_manager(
         &self,
     ) -> AeronWildcardPortManager<ScopedInline<'_, aeron_wildcard_port_manager_t>> {
@@ -24296,6 +24427,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn receiver_wildcard_port_manager(
         &self,
     ) -> AeronWildcardPortManager<ScopedInline<'_, aeron_wildcard_port_manager_t>> {
@@ -24305,6 +24437,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn dynamic_libs(&self) -> Ref<'_, AeronDlLoadedLibsState> {
         Ref::new(unsafe {
             AeronDlLoadedLibsState::from_ptr(
@@ -24315,6 +24449,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn bindings_clientd_entries(&self) -> Ref<'_, AeronDriverContextBindingsClientdEntry> {
         Ref::new(unsafe {
             AeronDriverContextBindingsClientdEntry::from_ptr(
@@ -24325,10 +24461,12 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn num_bindings_clientd_entries(&self) -> usize {
         unsafe { self.get_inner_ref() }.num_bindings_clientd_entries.into()
     }
     #[inline]
+    #[must_use]
     pub fn os_buffer_lengths(&self) -> aeron_driver_context_stct__bindgen_ty_4 {
         unsafe { self.get_inner_ref() }.os_buffer_lengths.into()
     }
@@ -24357,8 +24495,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_dir_owned()` to keep a copy."]
     pub unsafe fn get_dir(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -24379,6 +24519,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_dir_owned(&self) -> String {
         unsafe {
             let result = aeron_driver_context_get_dir(self.get_inner());
@@ -24414,6 +24555,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_dir_warn_if_exists(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -24453,6 +24595,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_threading_mode(&self) -> aeron_threading_mode_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -24492,6 +24635,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_thread_naming(&self) -> aeron_thread_naming_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -24531,6 +24675,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_dir_delete_on_start(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -24570,6 +24715,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_dir_delete_on_shutdown(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -24609,6 +24755,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_to_conductor_buffer_length(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -24648,6 +24795,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_to_clients_buffer_length(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -24687,6 +24835,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_counters_buffer_length(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -24726,6 +24875,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_error_buffer_length(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -24765,6 +24915,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_client_liveness_timeout_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -24804,6 +24955,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_term_buffer_length(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -24843,6 +24995,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_ipc_term_buffer_length(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -24882,6 +25035,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_term_buffer_sparse_file(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -24921,6 +25075,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_perform_storage_checks(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -24960,6 +25115,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_low_file_store_warning_threshold(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -24999,6 +25155,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_spies_simulate_connection(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25038,6 +25195,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_file_page_size(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25077,6 +25235,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_mtu_length(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25116,6 +25275,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_ipc_mtu_length(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25155,6 +25315,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_ipc_publication_term_window_length(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25194,6 +25355,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_publication_term_window_length(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25233,6 +25395,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_publication_linger_timeout_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25272,6 +25435,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_socket_so_rcvbuf(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25311,6 +25475,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_socket_so_sndbuf(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25350,6 +25515,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_socket_multicast_ttl(&self) -> u8 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25389,6 +25555,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_socket_tos(&self) -> i32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25428,6 +25595,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_send_to_status_poll_ratio(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25467,6 +25635,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_receiver_poll_to_slow_work_ratio(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25506,6 +25675,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_rcv_status_message_timeout_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25548,6 +25718,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_multicast_flowcontrol_supplier(&self) -> aeron_flow_control_strategy_supplier_func_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25590,6 +25761,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_unicast_flowcontrol_supplier(&self) -> aeron_flow_control_strategy_supplier_func_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25629,6 +25801,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_image_liveness_timeout_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25668,6 +25841,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_rcv_initial_window_length(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25715,6 +25889,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_congestioncontrol_supplier(&self) -> aeron_congestion_control_strategy_supplier_func_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25754,6 +25929,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_loss_report_buffer_length(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25793,6 +25969,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_publication_unblock_timeout_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25832,6 +26009,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_publication_connection_timeout_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25871,6 +26049,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_timer_interval_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25910,8 +26089,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_sender_idle_strategy_owned()` to keep a copy."]
     pub unsafe fn get_sender_idle_strategy(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25932,6 +26113,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_sender_idle_strategy_owned(&self) -> String {
         unsafe {
             let result = aeron_driver_context_get_sender_idle_strategy(self.get_inner());
@@ -25967,8 +26149,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_conductor_idle_strategy_owned()` to keep a copy."]
     pub unsafe fn get_conductor_idle_strategy(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -25989,6 +26173,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_conductor_idle_strategy_owned(&self) -> String {
         unsafe {
             let result = aeron_driver_context_get_conductor_idle_strategy(self.get_inner());
@@ -26024,8 +26209,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_receiver_idle_strategy_owned()` to keep a copy."]
     pub unsafe fn get_receiver_idle_strategy(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26046,6 +26233,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_receiver_idle_strategy_owned(&self) -> String {
         unsafe {
             let result = aeron_driver_context_get_receiver_idle_strategy(self.get_inner());
@@ -26081,8 +26269,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_sharednetwork_idle_strategy_owned()` to keep a copy."]
     pub unsafe fn get_sharednetwork_idle_strategy(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26103,6 +26293,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_sharednetwork_idle_strategy_owned(&self) -> String {
         unsafe {
             let result = aeron_driver_context_get_sharednetwork_idle_strategy(self.get_inner());
@@ -26138,8 +26329,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_shared_idle_strategy_owned()` to keep a copy."]
     pub unsafe fn get_shared_idle_strategy(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26160,6 +26353,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_shared_idle_strategy_owned(&self) -> String {
         unsafe {
             let result = aeron_driver_context_get_shared_idle_strategy(self.get_inner());
@@ -26195,8 +26389,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_sender_idle_strategy_init_args_owned()` to keep a copy."]
     pub unsafe fn get_sender_idle_strategy_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26217,6 +26413,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_sender_idle_strategy_init_args_owned(&self) -> String {
         unsafe {
             let result = aeron_driver_context_get_sender_idle_strategy_init_args(self.get_inner());
@@ -26252,8 +26449,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_conductor_idle_strategy_init_args_owned()` to keep a copy."]
     pub unsafe fn get_conductor_idle_strategy_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26274,6 +26473,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_conductor_idle_strategy_init_args_owned(&self) -> String {
         unsafe {
             let result = aeron_driver_context_get_conductor_idle_strategy_init_args(self.get_inner());
@@ -26309,8 +26509,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_receiver_idle_strategy_init_args_owned()` to keep a copy."]
     pub unsafe fn get_receiver_idle_strategy_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26331,6 +26533,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_receiver_idle_strategy_init_args_owned(&self) -> String {
         unsafe {
             let result = aeron_driver_context_get_receiver_idle_strategy_init_args(self.get_inner());
@@ -26367,8 +26570,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_sharednetwork_idle_strategy_init_args_owned()` to keep a copy."]
     pub unsafe fn get_sharednetwork_idle_strategy_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26389,6 +26594,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_sharednetwork_idle_strategy_init_args_owned(&self) -> String {
         unsafe {
             let result = aeron_driver_context_get_sharednetwork_idle_strategy_init_args(self.get_inner());
@@ -26424,8 +26630,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_shared_idle_strategy_init_args_owned()` to keep a copy."]
     pub unsafe fn get_shared_idle_strategy_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26446,6 +26654,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_shared_idle_strategy_init_args_owned(&self) -> String {
         unsafe {
             let result = aeron_driver_context_get_shared_idle_strategy_init_args(self.get_inner());
@@ -26481,8 +26690,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_native_resource_agent_idle_strategy_owned()` to keep a copy."]
     pub unsafe fn get_native_resource_agent_idle_strategy(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26503,6 +26714,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_native_resource_agent_idle_strategy_owned(&self) -> String {
         unsafe {
             let result = aeron_driver_context_get_native_resource_agent_idle_strategy(self.get_inner());
@@ -26544,8 +26756,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_native_resource_agent_idle_strategy_init_args_owned()` to keep a copy."]
     pub unsafe fn get_native_resource_agent_idle_strategy_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26566,6 +26780,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_native_resource_agent_idle_strategy_init_args_owned(&self) -> String {
         unsafe {
             let result = aeron_driver_context_get_native_resource_agent_idle_strategy_init_args(self.get_inner());
@@ -26638,6 +26853,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_agent_on_start_function(&self) -> aeron_agent_on_start_func_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26653,6 +26869,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_agent_on_start_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26692,6 +26909,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_counters_free_to_reuse_timeout_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26731,6 +26949,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_flow_control_receiver_timeout_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26770,6 +26989,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_flow_control_group_tag(&self) -> i64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26809,6 +27029,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_flow_control_group_min_size(&self) -> i32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26849,6 +27070,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_receiver_group_tag_is_present(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26864,6 +27086,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_receiver_group_tag_value(&self) -> i64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26947,6 +27170,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_driver_termination_validator(&self) -> aeron_driver_termination_validator_func_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -26962,6 +27186,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_driver_termination_validator_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27045,6 +27270,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_driver_termination_hook(&self) -> aeron_driver_termination_hook_func_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27060,6 +27286,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_driver_termination_hook_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27099,6 +27326,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_print_configuration(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27138,6 +27366,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_reliable_stream(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27177,6 +27406,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_tether_subscriptions(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27216,6 +27446,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_untethered_window_limit_timeout_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27255,6 +27486,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_untethered_linger_timeout_ns(&self) -> i64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27294,6 +27526,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_untethered_resting_timeout_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27333,6 +27566,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_driver_timeout_ms(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27372,6 +27606,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_nak_multicast_group_size(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27411,6 +27646,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_nak_multicast_max_backoff_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27450,6 +27686,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_nak_unicast_delay_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27489,6 +27726,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_nak_unicast_retry_delay_ratio(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27528,6 +27766,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_max_resend(&self) -> u32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27567,6 +27806,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_retransmit_unicast_delay_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27606,6 +27846,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_retransmit_unicast_linger_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27645,6 +27886,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_receiver_group_consideration(&self) -> aeron_inferable_boolean_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27684,6 +27926,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_rejoin_stream(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27771,6 +28014,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_udp_channel_transport_bindings(&self) -> *mut aeron_udp_channel_transport_bindings_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27813,6 +28057,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_udp_channel_transport_poller_iteration_threshold(&self) -> usize {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27853,6 +28098,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_udp_channel_transport_poller_socket_poll_limit(&self) -> i32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -27868,7 +28114,9 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
-    pub fn set_udp_channel_outgoing_interceptors(
+    #[doc = "# Safety"]
+    #[doc = "C takes ownership of this value and frees it during native cleanup. Prevent further use or cleanup through Rust aliases, keep a counter's client alive, and release any replaced value exactly once. Do not replace it while a borrowed view is in use."]
+    pub unsafe fn set_udp_channel_outgoing_interceptors(
         &self,
         value: &AeronUdpChannelInterceptorBindings,
     ) -> Result<i32, AeronCError> {
@@ -27896,7 +28144,9 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
-    pub fn get_udp_channel_outgoing_interceptors(&self) -> Ref<'_, AeronUdpChannelInterceptorBindings> {
+    #[must_use]
+    #[track_caller]
+    pub fn get_udp_channel_outgoing_interceptors(&self) -> Option<Ref<'_, AeronUdpChannelInterceptorBindings>> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -27907,17 +28157,23 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
             let result = aeron_driver_context_get_udp_channel_outgoing_interceptors(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            Ref::new(unsafe {
-                AeronUdpChannelInterceptorBindings::from_ptr(
-                    std::ptr::NonNull::new(result as *mut _)
-                        .expect("native getter returned null")
-                        .as_ptr(),
-                )
-            })
+            if result.is_null() {
+                None
+            } else {
+                Some(Ref::new(unsafe {
+                    AeronUdpChannelInterceptorBindings::from_ptr(
+                        std::ptr::NonNull::new(result as *mut _)
+                            .expect("native getter returned null")
+                            .as_ptr(),
+                    )
+                }))
+            }
         }
     }
     #[inline]
-    pub fn set_udp_channel_incoming_interceptors(
+    #[doc = "# Safety"]
+    #[doc = "C takes ownership of this value and frees it during native cleanup. Prevent further use or cleanup through Rust aliases, keep a counter's client alive, and release any replaced value exactly once. Do not replace it while a borrowed view is in use."]
+    pub unsafe fn set_udp_channel_incoming_interceptors(
         &self,
         value: &AeronUdpChannelInterceptorBindings,
     ) -> Result<i32, AeronCError> {
@@ -27945,7 +28201,9 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
-    pub fn get_udp_channel_incoming_interceptors(&self) -> Ref<'_, AeronUdpChannelInterceptorBindings> {
+    #[must_use]
+    #[track_caller]
+    pub fn get_udp_channel_incoming_interceptors(&self) -> Option<Ref<'_, AeronUdpChannelInterceptorBindings>> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -27956,13 +28214,17 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
             let result = aeron_driver_context_get_udp_channel_incoming_interceptors(self.get_inner());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            Ref::new(unsafe {
-                AeronUdpChannelInterceptorBindings::from_ptr(
-                    std::ptr::NonNull::new(result as *mut _)
-                        .expect("native getter returned null")
-                        .as_ptr(),
-                )
-            })
+            if result.is_null() {
+                None
+            } else {
+                Some(Ref::new(unsafe {
+                    AeronUdpChannelInterceptorBindings::from_ptr(
+                        std::ptr::NonNull::new(result as *mut _)
+                            .expect("native getter returned null")
+                            .as_ptr(),
+                    )
+                }))
+            }
         }
     }
     #[inline]
@@ -27990,6 +28252,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_publication_reserved_session_id_low(&self) -> i32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28029,6 +28292,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_publication_reserved_session_id_high(&self) -> i32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28068,8 +28332,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_resolver_name_owned()` to keep a copy."]
     pub unsafe fn get_resolver_name(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28090,6 +28356,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_resolver_name_owned(&self) -> String {
         unsafe {
             let result = aeron_driver_context_get_resolver_name(self.get_inner());
@@ -28125,8 +28392,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_resolver_interface_owned()` to keep a copy."]
     pub unsafe fn get_resolver_interface(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28147,6 +28416,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_resolver_interface_owned(&self) -> String {
         unsafe {
             let result = aeron_driver_context_get_resolver_interface(self.get_inner());
@@ -28182,8 +28452,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_resolver_bootstrap_neighbor_owned()` to keep a copy."]
     pub unsafe fn get_resolver_bootstrap_neighbor(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28204,6 +28476,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_resolver_bootstrap_neighbor_owned(&self) -> String {
         unsafe {
             let result = aeron_driver_context_get_resolver_bootstrap_neighbor(self.get_inner());
@@ -28239,6 +28512,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_name_resolver_supplier(&self) -> aeron_name_resolver_supplier_func_t {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28278,8 +28552,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_name_resolver_init_args_owned()` to keep a copy."]
     pub unsafe fn get_name_resolver_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28300,6 +28576,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_name_resolver_init_args_owned(&self) -> String {
         unsafe {
             let result = aeron_driver_context_get_name_resolver_init_args(self.get_inner());
@@ -28335,6 +28612,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_resolver_neighbor_timeout_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28374,6 +28652,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_self_resolution_interval_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28414,6 +28693,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_resolver_neighbor_resolution_interval_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28456,6 +28736,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_resolver_bootstrap_resolution_interval_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28495,6 +28776,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_re_resolution_check_interval_ns(&self) -> u64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28545,6 +28827,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn get_conductor_duty_cycle_tracker(&self) -> Ref<'_, AeronDutyCycleTracker> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28601,6 +28885,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn get_sender_duty_cycle_tracker(&self) -> Ref<'_, AeronDutyCycleTracker> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28657,6 +28943,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn get_receiver_duty_cycle_tracker(&self) -> Ref<'_, AeronDutyCycleTracker> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28713,6 +29001,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn get_name_resolver_time_tracker(&self) -> Ref<'_, AeronDutyCycleTracker> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28887,6 +29177,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn get_sender_port_manager(&self) -> Ref<'_, AeronPortManager> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28943,6 +29235,8 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn get_receiver_port_manager(&self) -> Ref<'_, AeronPortManager> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -28964,6 +29258,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[track_caller]
     pub fn set_conductor_cycle_threshold_ns(&self, value: u64) -> i64 {
         self.inner
             .check_configurable()
@@ -28986,6 +29281,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_conductor_cycle_threshold_ns(&self) -> i64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -29001,6 +29297,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[track_caller]
     pub fn set_sender_cycle_threshold_ns(&self, value: u64) -> i64 {
         self.inner
             .check_configurable()
@@ -29023,6 +29320,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_sender_cycle_threshold_ns(&self) -> i64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -29038,6 +29336,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[track_caller]
     pub fn set_receiver_cycle_threshold_ns(&self, value: u64) -> i64 {
         self.inner
             .check_configurable()
@@ -29060,6 +29359,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_receiver_cycle_threshold_ns(&self) -> i64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -29075,6 +29375,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[track_caller]
     pub fn set_name_resolver_threshold_ns(&self, value: u64) -> i64 {
         self.inner
             .check_configurable()
@@ -29097,6 +29398,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_name_resolver_threshold_ns(&self) -> i64 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -29136,6 +29438,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_receiver_io_vector_capacity(&self) -> u32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -29175,6 +29478,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_sender_io_vector_capacity(&self) -> u32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -29215,6 +29519,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_network_publication_max_messages_per_send(&self) -> u32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -29254,6 +29559,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_resource_free_limit(&self) -> u32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -29293,6 +29599,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_conductor_cpu_affinity(&self) -> i32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -29332,6 +29639,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_receiver_cpu_affinity(&self) -> i32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -29371,6 +29679,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_sender_cpu_affinity(&self) -> i32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -29410,6 +29719,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_native_resource_agent_cpu_affinity(&self) -> i32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -29449,6 +29759,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_thread_affinity_use_cpuset_offsets(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -29489,6 +29800,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_thread_affinity_fail_on_validation_errors(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -29571,6 +29883,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn get_stream_session_limit(&self) -> i32 {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -29772,6 +30085,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
+    #[track_caller]
     pub fn bindings_clientd_get_or_find_first_free_entry(
         &self,
         name: &std::ffi::CStr,
@@ -30052,114 +30366,174 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
 }
 impl<'a, S: ResourceStorage<aeron_driver_context_t>> Ref<'a, AeronDriverContext<S>> {
     #[inline]
-    pub fn get_udp_channel_outgoing_interceptors(&self) -> Ref<'a, AeronUdpChannelInterceptorBindings> {
-        Ref::new(self.value.get_udp_channel_outgoing_interceptors().value)
+    #[must_use]
+    #[track_caller]
+    pub fn get_udp_channel_outgoing_interceptors(&self) -> Option<Ref<'a, AeronUdpChannelInterceptorBindings>> {
+        self.value
+            .get_udp_channel_outgoing_interceptors()
+            .map(|view| Ref::new(view.value))
     }
     #[inline]
-    pub fn get_udp_channel_incoming_interceptors(&self) -> Ref<'a, AeronUdpChannelInterceptorBindings> {
-        Ref::new(self.value.get_udp_channel_incoming_interceptors().value)
+    #[must_use]
+    #[track_caller]
+    pub fn get_udp_channel_incoming_interceptors(&self) -> Option<Ref<'a, AeronUdpChannelInterceptorBindings>> {
+        self.value
+            .get_udp_channel_incoming_interceptors()
+            .map(|view| Ref::new(view.value))
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn get_conductor_duty_cycle_tracker(&self) -> Ref<'a, AeronDutyCycleTracker> {
         Ref::new(self.value.get_conductor_duty_cycle_tracker().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn get_sender_duty_cycle_tracker(&self) -> Ref<'a, AeronDutyCycleTracker> {
         Ref::new(self.value.get_sender_duty_cycle_tracker().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn get_receiver_duty_cycle_tracker(&self) -> Ref<'a, AeronDutyCycleTracker> {
         Ref::new(self.value.get_receiver_duty_cycle_tracker().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn get_name_resolver_time_tracker(&self) -> Ref<'a, AeronDutyCycleTracker> {
         Ref::new(self.value.get_name_resolver_time_tracker().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn get_sender_port_manager(&self) -> Ref<'a, AeronPortManager> {
         Ref::new(self.value.get_sender_port_manager().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn get_receiver_port_manager(&self) -> Ref<'a, AeronPortManager> {
         Ref::new(self.value.get_receiver_port_manager().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn cached_clock(&self) -> Ref<'a, AeronClockCache> {
         Ref::new(self.value.cached_clock().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn sender_cached_clock(&self) -> Ref<'a, AeronClockCache> {
         Ref::new(self.value.sender_cached_clock().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn receiver_cached_clock(&self) -> Ref<'a, AeronClockCache> {
         Ref::new(self.value.receiver_cached_clock().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn conductor_proxy(&self) -> Ref<'a, AeronDriverConductorProxy> {
         Ref::new(self.value.conductor_proxy().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn native_resource_agent_proxy(&self) -> Ref<'a, AeronDriverNativeResourceAgentProxy> {
         Ref::new(self.value.native_resource_agent_proxy().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn sender_proxy(&self) -> Ref<'a, AeronDriverSenderProxy> {
         Ref::new(self.value.sender_proxy().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn receiver_proxy(&self) -> Ref<'a, AeronDriverReceiverProxy> {
         Ref::new(self.value.receiver_proxy().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn counters_manager(&self) -> Ref<'a, AeronCountersManager> {
         Ref::new(self.value.counters_manager().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn system_counters(&self) -> Ref<'a, AeronSystemCounters> {
         Ref::new(self.value.system_counters().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn error_log(&self) -> Ref<'a, AeronDistinctErrorLog> {
         Ref::new(self.value.error_log().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn udp_channel_outgoing_interceptor_bindings(&self) -> Ref<'a, AeronUdpChannelInterceptorBindings> {
         Ref::new(self.value.udp_channel_outgoing_interceptor_bindings().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn udp_channel_incoming_interceptor_bindings(&self) -> Ref<'a, AeronUdpChannelInterceptorBindings> {
         Ref::new(self.value.udp_channel_incoming_interceptor_bindings().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn conductor_duty_cycle_tracker(&self) -> Ref<'a, AeronDutyCycleTracker> {
         Ref::new(self.value.conductor_duty_cycle_tracker().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn sender_duty_cycle_tracker(&self) -> Ref<'a, AeronDutyCycleTracker> {
         Ref::new(self.value.sender_duty_cycle_tracker().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn receiver_duty_cycle_tracker(&self) -> Ref<'a, AeronDutyCycleTracker> {
         Ref::new(self.value.receiver_duty_cycle_tracker().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn name_resolver_time_tracker(&self) -> Ref<'a, AeronDutyCycleTracker> {
         Ref::new(self.value.name_resolver_time_tracker().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn sender_port_manager(&self) -> Ref<'a, AeronPortManager> {
         Ref::new(self.value.sender_port_manager().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn receiver_port_manager(&self) -> Ref<'a, AeronPortManager> {
         Ref::new(self.value.receiver_port_manager().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn dynamic_libs(&self) -> Ref<'a, AeronDlLoadedLibsState> {
         Ref::new(self.value.dynamic_libs().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn bindings_clientd_entries(&self) -> Ref<'a, AeronDriverContextBindingsClientdEntry> {
         Ref::new(self.value.bindings_clientd_entries().value)
     }
@@ -30472,11 +30846,8 @@ impl<S: ResourceStorage<aeron_driver_managed_resource_t>> core::fmt::Debug for A
         }
         f.debug_struct(stringify!(AeronDriverManagedResource))
             .field("inner", &self.inner)
-            .field(stringify!(registration_id), &self.registration_id())
-            .field(
-                stringify!(time_of_last_state_change_ns),
-                &self.time_of_last_state_change_ns(),
-            )
+            .field("registration_id", &self.registration_id())
+            .field("time_of_last_state_change_ns", &self.time_of_last_state_change_ns())
             .finish()
     }
 }
@@ -30557,18 +30928,22 @@ impl AeronDriverManagedResource<CResource<aeron_driver_managed_resource_t>> {
 impl AeronDriverManagedResource {}
 impl<S: ResourceStorage<aeron_driver_managed_resource_t>> AeronDriverManagedResource<S> {
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn time_of_last_state_change_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.time_of_last_state_change_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn clientd(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.clientd.into()
     }
     #[inline]
+    #[must_use]
     pub fn handle_event(
         &self,
     ) -> ::std::option::Option<
@@ -30827,10 +31202,12 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_command_result_t>>
     AeronDriverNativeResourceAgentCommandResult<S>
 {
     #[inline]
+    #[must_use]
     pub fn state(&self) -> aeron_driver_native_resource_agent_command_state_t {
         unsafe { self.get_inner_ref() }.state.into()
     }
     #[inline]
+    #[must_use]
     pub fn payload(&self) -> aeron_driver_native_resource_agent_command_result_stct__bindgen_ty_1 {
         unsafe { self.get_inner_ref() }.payload.into()
     }
@@ -31020,6 +31397,7 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_free_log_bu
         }
         f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer))
             .field("inner", &self.inner)
+            .field("log_file_name", &unsafe { self.log_file_name() })
             .finish()
     }
 }
@@ -31103,6 +31481,8 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_free_log_bu
     AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer<S>
 {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn mapped_raw_log(&self) -> Ref<'_, AeronMappedRawLog> {
         Ref::new(unsafe {
             AeronMappedRawLog::from_ptr(
@@ -31113,6 +31493,7 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_free_log_bu
         })
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -31161,6 +31542,8 @@ impl<'a, S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_free_lo
     Ref<'a, AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer<S>>
 {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn mapped_raw_log(&self) -> Ref<'a, AeronMappedRawLog> {
         Ref::new(self.value.mapped_raw_log().value)
     }
@@ -31326,8 +31709,9 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_map_log_buf
         }
         f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxyCmdMapLogBuffer))
             .field("inner", &self.inner)
-            .field(stringify!(term_length), &self.term_length())
-            .field(stringify!(is_sparse), &self.is_sparse())
+            .field("log_file_name", &unsafe { self.log_file_name() })
+            .field("term_length", &self.term_length())
+            .field("is_sparse", &self.is_sparse())
             .finish()
     }
 }
@@ -31416,6 +31800,7 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_map_log_buf
     AeronDriverNativeResourceAgentProxyCmdMapLogBuffer<S>
 {
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -31433,14 +31818,18 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_map_log_buf
         }
     }
     #[inline]
+    #[must_use]
     pub fn term_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.term_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_sparse(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_sparse.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn result(&self) -> Ref<'_, AeronDriverNativeResourceAgentCommandResult> {
         Ref::new(unsafe {
             AeronDriverNativeResourceAgentCommandResult::from_ptr(
@@ -31484,6 +31873,8 @@ impl<'a, S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_map_log
     Ref<'a, AeronDriverNativeResourceAgentProxyCmdMapLogBuffer<S>>
 {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn result(&self) -> Ref<'a, AeronDriverNativeResourceAgentCommandResult> {
         Ref::new(self.value.result().value)
     }
@@ -31735,6 +32126,8 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_parse_chann
     AeronDriverNativeResourceAgentProxyCmdParseChannel<S>
 {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn async_parse(&self) -> Ref<'_, AeronUdpChannelAsyncParse> {
         Ref::new(unsafe {
             AeronUdpChannelAsyncParse::from_ptr(
@@ -31745,6 +32138,8 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_parse_chann
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn result(&self) -> Ref<'_, AeronDriverNativeResourceAgentCommandResult> {
         Ref::new(unsafe {
             AeronDriverNativeResourceAgentCommandResult::from_ptr(
@@ -31788,10 +32183,14 @@ impl<'a, S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_parse_c
     Ref<'a, AeronDriverNativeResourceAgentProxyCmdParseChannel<S>>
 {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn async_parse(&self) -> Ref<'a, AeronUdpChannelAsyncParse> {
         Ref::new(self.value.async_parse().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn result(&self) -> Ref<'a, AeronDriverNativeResourceAgentCommandResult> {
         Ref::new(self.value.result().value)
     }
@@ -32045,10 +32444,13 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_resolve_add
     AeronDriverNativeResourceAgentProxyCmdResolveAddress<S>
 {
     #[inline]
+    #[must_use]
     pub fn address_resolution_params(&self) -> *mut aeron_name_resolver_async_resolve_t {
         unsafe { self.get_inner_ref() }.address_resolution_params.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn result(&self) -> Ref<'_, AeronDriverNativeResourceAgentCommandResult> {
         Ref::new(unsafe {
             AeronDriverNativeResourceAgentCommandResult::from_ptr(
@@ -32092,6 +32494,8 @@ impl<'a, S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_resolve
     Ref<'a, AeronDriverNativeResourceAgentProxyCmdResolveAddress<S>>
 {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn result(&self) -> Ref<'a, AeronDriverNativeResourceAgentCommandResult> {
         Ref::new(self.value.result().value)
     }
@@ -32331,6 +32735,8 @@ impl AeronDriverNativeResourceAgentProxy<CResource<aeron_driver_native_resource_
 impl AeronDriverNativeResourceAgentProxy {}
 impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_t>> AeronDriverNativeResourceAgentProxy<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn native_resource_agent(&self) -> Ref<'_, AeronDriverNativeResourceAgent> {
         Ref::new(unsafe {
             AeronDriverNativeResourceAgent::from_ptr(
@@ -32341,10 +32747,13 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_t>> AeronDriver
         })
     }
     #[inline]
+    #[must_use]
     pub fn fail_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.fail_counter }
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn command_queue(&self) -> Ref<'_, AeronSpscRb> {
         Ref::new(unsafe {
             AeronSpscRb::from_ptr(
@@ -32536,10 +32945,14 @@ impl<'a, S: ResourceStorage<aeron_driver_native_resource_agent_proxy_t>>
     Ref<'a, AeronDriverNativeResourceAgentProxy<S>>
 {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn native_resource_agent(&self) -> Ref<'a, AeronDriverNativeResourceAgent> {
         Ref::new(self.value.native_resource_agent().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn command_queue(&self) -> Ref<'a, AeronSpscRb> {
         Ref::new(self.value.command_queue().value)
     }
@@ -32679,11 +33092,8 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_t>> core::fmt::Debug 
         }
         f.debug_struct(stringify!(AeronDriverNativeResourceAgent))
             .field("inner", &self.inner)
-            .field(
-                stringify!(native_resource_agent_proxy),
-                &self.native_resource_agent_proxy(),
-            )
-            .field(stringify!(log_buffers_queue), &self.log_buffers_queue())
+            .field("native_resource_agent_proxy", &self.native_resource_agent_proxy())
+            .field("log_buffers_queue", &self.log_buffers_queue())
             .finish()
     }
 }
@@ -32828,6 +33238,7 @@ impl AeronDriverNativeResourceAgent {
 }
 impl<S: ResourceStorage<aeron_driver_native_resource_agent_t>> AeronDriverNativeResourceAgent<S> {
     #[inline]
+    #[must_use]
     pub fn native_resource_agent_proxy(
         &self,
     ) -> AeronDriverNativeResourceAgentProxy<ScopedInline<'_, aeron_driver_native_resource_agent_proxy_t>> {
@@ -32837,6 +33248,8 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_t>> AeronDriverNative
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn context(&self) -> Ref<'_, AeronDriverContext> {
         Ref::new(unsafe {
             AeronDriverContext::from_ptr(
@@ -32847,10 +33260,12 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_t>> AeronDriverNative
         })
     }
     #[inline]
+    #[must_use]
     pub fn name_resolver(&self) -> aeron_name_resolver_t {
         unsafe { self.get_inner_ref() }.name_resolver.into()
     }
     #[inline]
+    #[must_use]
     pub fn log_buffers_queue(&self) -> AeronDeque<ScopedInline<'_, aeron_deque_t>> {
         AeronDeque::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.log_buffers_queue),
@@ -33035,6 +33450,8 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_t>> AeronDriverNative
 }
 impl<'a, S: ResourceStorage<aeron_driver_native_resource_agent_t>> Ref<'a, AeronDriverNativeResourceAgent<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn context(&self) -> Ref<'a, AeronDriverContext> {
         Ref::new(self.value.context().value)
     }
@@ -33243,6 +33660,8 @@ impl AeronDriverReceiverImageEntry<CResource<aeron_driver_receiver_image_entry_t
 impl AeronDriverReceiverImageEntry {}
 impl<S: ResourceStorage<aeron_driver_receiver_image_entry_t>> AeronDriverReceiverImageEntry<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn image(&self) -> Ref<'_, AeronPublicationImage> {
         Ref::new(unsafe {
             AeronPublicationImage::from_ptr(
@@ -33284,6 +33703,8 @@ impl<S: ResourceStorage<aeron_driver_receiver_image_entry_t>> AeronDriverReceive
 }
 impl<'a, S: ResourceStorage<aeron_driver_receiver_image_entry_t>> Ref<'a, AeronDriverReceiverImageEntry<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn image(&self) -> Ref<'a, AeronPublicationImage> {
         Ref::new(self.value.image().value)
     }
@@ -33431,11 +33852,11 @@ impl<S: ResourceStorage<aeron_driver_receiver_pending_setup_entry_t>> core::fmt:
         }
         f.debug_struct(stringify!(AeronDriverReceiverPendingSetupEntry))
             .field("inner", &self.inner)
-            .field(stringify!(is_periodic), &self.is_periodic())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(time_of_status_message_ns), &self.time_of_status_message_ns())
-            .field(stringify!(control_addr), &self.control_addr())
+            .field("is_periodic", &self.is_periodic())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("time_of_status_message_ns", &self.time_of_status_message_ns())
+            .field("control_addr", &self.control_addr())
             .finish()
     }
 }
@@ -33523,18 +33944,23 @@ impl AeronDriverReceiverPendingSetupEntry<CResource<aeron_driver_receiver_pendin
 impl AeronDriverReceiverPendingSetupEntry {}
 impl<S: ResourceStorage<aeron_driver_receiver_pending_setup_entry_t>> AeronDriverReceiverPendingSetupEntry<S> {
     #[inline]
+    #[must_use]
     pub fn is_periodic(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_periodic.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn endpoint(&self) -> Ref<'_, AeronReceiveChannelEndpoint> {
         Ref::new(unsafe {
             AeronReceiveChannelEndpoint::from_ptr(
@@ -33545,6 +33971,8 @@ impl<S: ResourceStorage<aeron_driver_receiver_pending_setup_entry_t>> AeronDrive
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn destination(&self) -> Ref<'_, AeronReceiveDestination> {
         Ref::new(unsafe {
             AeronReceiveDestination::from_ptr(
@@ -33555,10 +33983,12 @@ impl<S: ResourceStorage<aeron_driver_receiver_pending_setup_entry_t>> AeronDrive
         })
     }
     #[inline]
+    #[must_use]
     pub fn time_of_status_message_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.time_of_status_message_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn control_addr(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
         SockaddrStorage::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.control_addr),
@@ -33599,10 +34029,14 @@ impl<'a, S: ResourceStorage<aeron_driver_receiver_pending_setup_entry_t>>
     Ref<'a, AeronDriverReceiverPendingSetupEntry<S>>
 {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn endpoint(&self) -> Ref<'a, AeronReceiveChannelEndpoint> {
         Ref::new(self.value.endpoint().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn destination(&self) -> Ref<'a, AeronReceiveDestination> {
         Ref::new(self.value.destination().value)
     }
@@ -33787,6 +34221,8 @@ impl AeronDriverReceiverProxy<CResource<aeron_driver_receiver_proxy_t>> {
 impl AeronDriverReceiverProxy {}
 impl<S: ResourceStorage<aeron_driver_receiver_proxy_t>> AeronDriverReceiverProxy<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn receiver(&self) -> Ref<'_, AeronDriverReceiver> {
         Ref::new(unsafe {
             AeronDriverReceiver::from_ptr(
@@ -33797,10 +34233,13 @@ impl<S: ResourceStorage<aeron_driver_receiver_proxy_t>> AeronDriverReceiverProxy
         })
     }
     #[inline]
+    #[must_use]
     pub fn log(&self) -> aeron_driver_receiver_proxy_stct__bindgen_ty_1 {
         unsafe { self.get_inner_ref() }.log.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn command_queue(&self) -> Ref<'_, AeronSpscRb> {
         Ref::new(unsafe {
             AeronSpscRb::from_ptr(
@@ -33811,6 +34250,7 @@ impl<S: ResourceStorage<aeron_driver_receiver_proxy_t>> AeronDriverReceiverProxy
         })
     }
     #[inline]
+    #[must_use]
     pub fn fail_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.fail_counter }
     }
@@ -34246,10 +34686,14 @@ impl<S: ResourceStorage<aeron_driver_receiver_proxy_t>> AeronDriverReceiverProxy
 }
 impl<'a, S: ResourceStorage<aeron_driver_receiver_proxy_t>> Ref<'a, AeronDriverReceiverProxy<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn receiver(&self) -> Ref<'a, AeronDriverReceiver> {
         Ref::new(self.value.receiver().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn command_queue(&self) -> Ref<'a, AeronSpscRb> {
         Ref::new(self.value.command_queue().value)
     }
@@ -34362,19 +34806,13 @@ impl<S: ResourceStorage<aeron_driver_receiver_t>> core::fmt::Debug for AeronDriv
         }
         f.debug_struct(stringify!(AeronDriverReceiver))
             .field("inner", &self.inner)
-            .field(stringify!(receiver_proxy), &self.receiver_proxy())
-            .field(stringify!(data_paths), &self.data_paths())
-            .field(stringify!(re_resolution_deadline_ns), &self.re_resolution_deadline_ns())
-            .field(
-                stringify!(slow_tick_work_deadline_ns),
-                &self.slow_tick_work_deadline_ns(),
-            )
-            .field(
-                stringify!(status_message_send_timeout_ns),
-                &self.status_message_send_timeout_ns(),
-            )
-            .field(stringify!(duty_cycle_counter), &self.duty_cycle_counter())
-            .field(stringify!(duty_cycle_ratio), &self.duty_cycle_ratio())
+            .field("receiver_proxy", &self.receiver_proxy())
+            .field("data_paths", &self.data_paths())
+            .field("re_resolution_deadline_ns", &self.re_resolution_deadline_ns())
+            .field("slow_tick_work_deadline_ns", &self.slow_tick_work_deadline_ns())
+            .field("status_message_send_timeout_ns", &self.status_message_send_timeout_ns())
+            .field("duty_cycle_counter", &self.duty_cycle_counter())
+            .field("duty_cycle_ratio", &self.duty_cycle_ratio())
             .finish()
     }
 }
@@ -34838,6 +35276,7 @@ impl AeronDriverReceiver {
 }
 impl<S: ResourceStorage<aeron_driver_receiver_t>> AeronDriverReceiver<S> {
     #[inline]
+    #[must_use]
     pub fn receiver_proxy(&self) -> AeronDriverReceiverProxy<ScopedInline<'_, aeron_driver_receiver_proxy_t>> {
         AeronDriverReceiverProxy::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.receiver_proxy),
@@ -34845,22 +35284,27 @@ impl<S: ResourceStorage<aeron_driver_receiver_t>> AeronDriverReceiver<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn poller(&self) -> aeron_udp_transport_poller_t {
         unsafe { self.get_inner_ref() }.poller.into()
     }
     #[inline]
+    #[must_use]
     pub fn recv_buffers(&self) -> aeron_driver_receiver_stct_aeron_driver_receiver_buffers_stct {
         unsafe { self.get_inner_ref() }.recv_buffers.into()
     }
     #[inline]
+    #[must_use]
     pub fn images(&self) -> aeron_driver_receiver_stct_aeron_driver_receiver_images_stct {
         unsafe { self.get_inner_ref() }.images.into()
     }
     #[inline]
+    #[must_use]
     pub fn pending_setups(&self) -> aeron_driver_receiver_stct_aeron_driver_receiver_pending_setups_stct {
         unsafe { self.get_inner_ref() }.pending_setups.into()
     }
     #[inline]
+    #[must_use]
     pub fn data_paths(&self) -> AeronUdpChannelDataPaths<ScopedInline<'_, aeron_udp_channel_data_paths_t>> {
         AeronUdpChannelDataPaths::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.data_paths),
@@ -34868,6 +35312,8 @@ impl<S: ResourceStorage<aeron_driver_receiver_t>> AeronDriverReceiver<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn context(&self) -> Ref<'_, AeronDriverContext> {
         Ref::new(unsafe {
             AeronDriverContext::from_ptr(
@@ -34878,14 +35324,18 @@ impl<S: ResourceStorage<aeron_driver_receiver_t>> AeronDriverReceiver<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn poller_poll_func(&self) -> aeron_udp_transport_poller_poll_func_t {
         unsafe { self.get_inner_ref() }.poller_poll_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn recvmmsg_func(&self) -> aeron_udp_channel_transport_recvmmsg_func_t {
         unsafe { self.get_inner_ref() }.recvmmsg_func.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn error_log(&self) -> Ref<'_, AeronDistinctErrorLog> {
         Ref::new(unsafe {
             AeronDistinctErrorLog::from_ptr(
@@ -34896,38 +35346,47 @@ impl<S: ResourceStorage<aeron_driver_receiver_t>> AeronDriverReceiver<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn re_resolution_deadline_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.re_resolution_deadline_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn slow_tick_work_deadline_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.slow_tick_work_deadline_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn status_message_send_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.status_message_send_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn duty_cycle_counter(&self) -> usize {
         unsafe { self.get_inner_ref() }.duty_cycle_counter.into()
     }
     #[inline]
+    #[must_use]
     pub fn duty_cycle_ratio(&self) -> usize {
         unsafe { self.get_inner_ref() }.duty_cycle_ratio.into()
     }
     #[inline]
+    #[must_use]
     pub fn errors_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.errors_counter }
     }
     #[inline]
+    #[must_use]
     pub fn invalid_frames_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.invalid_frames_counter }
     }
     #[inline]
+    #[must_use]
     pub fn total_bytes_received_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.total_bytes_received_counter }
     }
     #[inline]
+    #[must_use]
     pub fn resolution_changes_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.resolution_changes_counter }
     }
@@ -35079,10 +35538,14 @@ impl<S: ResourceStorage<aeron_driver_receiver_t>> AeronDriverReceiver<S> {
 }
 impl<'a, S: ResourceStorage<aeron_driver_receiver_t>> Ref<'a, AeronDriverReceiver<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn context(&self) -> Ref<'a, AeronDriverContext> {
         Ref::new(self.value.context().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn error_log(&self) -> Ref<'a, AeronDistinctErrorLog> {
         Ref::new(self.value.error_log().value)
     }
@@ -35294,6 +35757,8 @@ impl AeronDriverSenderNetworkPublicationEntry<CResource<aeron_driver_sender_netw
 impl AeronDriverSenderNetworkPublicationEntry {}
 impl<S: ResourceStorage<aeron_driver_sender_network_publication_entry_t>> AeronDriverSenderNetworkPublicationEntry<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn publication(&self) -> Ref<'_, AeronNetworkPublication> {
         Ref::new(unsafe {
             AeronNetworkPublication::from_ptr(
@@ -35337,6 +35802,8 @@ impl<'a, S: ResourceStorage<aeron_driver_sender_network_publication_entry_t>>
     Ref<'a, AeronDriverSenderNetworkPublicationEntry<S>>
 {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn publication(&self) -> Ref<'a, AeronNetworkPublication> {
         Ref::new(self.value.publication().value)
     }
@@ -35552,6 +36019,8 @@ impl AeronDriverSenderProxy<CResource<aeron_driver_sender_proxy_t>> {
 impl AeronDriverSenderProxy {}
 impl<S: ResourceStorage<aeron_driver_sender_proxy_t>> AeronDriverSenderProxy<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn sender(&self) -> Ref<'_, AeronDriverSender> {
         Ref::new(unsafe {
             AeronDriverSender::from_ptr(
@@ -35562,10 +36031,13 @@ impl<S: ResourceStorage<aeron_driver_sender_proxy_t>> AeronDriverSenderProxy<S> 
         })
     }
     #[inline]
+    #[must_use]
     pub fn log(&self) -> aeron_driver_sender_proxy_stct__bindgen_ty_1 {
         unsafe { self.get_inner_ref() }.log.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn command_queue(&self) -> Ref<'_, AeronSpscRb> {
         Ref::new(unsafe {
             AeronSpscRb::from_ptr(
@@ -35576,6 +36048,7 @@ impl<S: ResourceStorage<aeron_driver_sender_proxy_t>> AeronDriverSenderProxy<S> 
         })
     }
     #[inline]
+    #[must_use]
     pub fn fail_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.fail_counter }
     }
@@ -35804,10 +36277,14 @@ impl<S: ResourceStorage<aeron_driver_sender_proxy_t>> AeronDriverSenderProxy<S> 
 }
 impl<'a, S: ResourceStorage<aeron_driver_sender_proxy_t>> Ref<'a, AeronDriverSenderProxy<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn sender(&self) -> Ref<'a, AeronDriverSender> {
         Ref::new(self.value.sender().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn command_queue(&self) -> Ref<'a, AeronSpscRb> {
         Ref::new(self.value.command_queue().value)
     }
@@ -35937,17 +36414,14 @@ impl<S: ResourceStorage<aeron_driver_sender_t>> core::fmt::Debug for AeronDriver
         }
         f.debug_struct(stringify!(AeronDriverSender))
             .field("inner", &self.inner)
-            .field(stringify!(sender_proxy), &self.sender_proxy())
-            .field(stringify!(data_paths), &self.data_paths())
-            .field(
-                stringify!(status_message_read_timeout_ns),
-                &self.status_message_read_timeout_ns(),
-            )
-            .field(stringify!(control_poll_timeout_ns), &self.control_poll_timeout_ns())
-            .field(stringify!(re_resolution_deadline_ns), &self.re_resolution_deadline_ns())
-            .field(stringify!(round_robin_index), &self.round_robin_index())
-            .field(stringify!(duty_cycle_counter), &self.duty_cycle_counter())
-            .field(stringify!(duty_cycle_ratio), &self.duty_cycle_ratio())
+            .field("sender_proxy", &self.sender_proxy())
+            .field("data_paths", &self.data_paths())
+            .field("status_message_read_timeout_ns", &self.status_message_read_timeout_ns())
+            .field("control_poll_timeout_ns", &self.control_poll_timeout_ns())
+            .field("re_resolution_deadline_ns", &self.re_resolution_deadline_ns())
+            .field("round_robin_index", &self.round_robin_index())
+            .field("duty_cycle_counter", &self.duty_cycle_counter())
+            .field("duty_cycle_ratio", &self.duty_cycle_ratio())
             .finish()
     }
 }
@@ -36293,6 +36767,7 @@ impl AeronDriverSender {
 }
 impl<S: ResourceStorage<aeron_driver_sender_t>> AeronDriverSender<S> {
     #[inline]
+    #[must_use]
     pub fn sender_proxy(&self) -> AeronDriverSenderProxy<ScopedInline<'_, aeron_driver_sender_proxy_t>> {
         AeronDriverSenderProxy::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.sender_proxy),
@@ -36300,22 +36775,27 @@ impl<S: ResourceStorage<aeron_driver_sender_t>> AeronDriverSender<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn poller(&self) -> aeron_udp_transport_poller_t {
         unsafe { self.get_inner_ref() }.poller.into()
     }
     #[inline]
+    #[must_use]
     pub fn network_publications(&self) -> aeron_driver_sender_stct_aeron_driver_sender_network_publications_stct {
         unsafe { self.get_inner_ref() }.network_publications.into()
     }
     #[inline]
+    #[must_use]
     pub fn recv_buffers(&self) -> aeron_driver_sender_stct_aeron_driver_sender_buffers_stct {
         unsafe { self.get_inner_ref() }.recv_buffers.into()
     }
     #[inline]
+    #[must_use]
     pub fn control_msgvec(&self) -> [mmsghdr; 1usize] {
         unsafe { self.get_inner_ref() }.control_msgvec.into()
     }
     #[inline]
+    #[must_use]
     pub fn data_paths(&self) -> AeronUdpChannelDataPaths<ScopedInline<'_, aeron_udp_channel_data_paths_t>> {
         AeronUdpChannelDataPaths::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.data_paths),
@@ -36323,42 +36803,53 @@ impl<S: ResourceStorage<aeron_driver_sender_t>> AeronDriverSender<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn total_bytes_sent_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.total_bytes_sent_counter }
     }
     #[inline]
+    #[must_use]
     pub fn errors_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.errors_counter }
     }
     #[inline]
+    #[must_use]
     pub fn invalid_frames_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.invalid_frames_counter }
     }
     #[inline]
+    #[must_use]
     pub fn status_messages_received_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.status_messages_received_counter }
     }
     #[inline]
+    #[must_use]
     pub fn status_messages_rejected_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.status_messages_rejected_counter }
     }
     #[inline]
+    #[must_use]
     pub fn nak_messages_received_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.nak_messages_received_counter }
     }
     #[inline]
+    #[must_use]
     pub fn error_messages_received_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.error_messages_received_counter }
     }
     #[inline]
+    #[must_use]
     pub fn resolution_changes_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.resolution_changes_counter }
     }
     #[inline]
+    #[must_use]
     pub fn short_sends_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.short_sends_counter }
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn context(&self) -> Ref<'_, AeronDriverContext> {
         Ref::new(unsafe {
             AeronDriverContext::from_ptr(
@@ -36369,14 +36860,18 @@ impl<S: ResourceStorage<aeron_driver_sender_t>> AeronDriverSender<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn poller_poll_func(&self) -> aeron_udp_transport_poller_poll_func_t {
         unsafe { self.get_inner_ref() }.poller_poll_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn recvmmsg_func(&self) -> aeron_udp_channel_transport_recvmmsg_func_t {
         unsafe { self.get_inner_ref() }.recvmmsg_func.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn error_log(&self) -> Ref<'_, AeronDistinctErrorLog> {
         Ref::new(unsafe {
             AeronDistinctErrorLog::from_ptr(
@@ -36387,30 +36882,37 @@ impl<S: ResourceStorage<aeron_driver_sender_t>> AeronDriverSender<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn status_message_read_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.status_message_read_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn control_poll_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.control_poll_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn re_resolution_deadline_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.re_resolution_deadline_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn round_robin_index(&self) -> usize {
         unsafe { self.get_inner_ref() }.round_robin_index.into()
     }
     #[inline]
+    #[must_use]
     pub fn duty_cycle_counter(&self) -> usize {
         unsafe { self.get_inner_ref() }.duty_cycle_counter.into()
     }
     #[inline]
+    #[must_use]
     pub fn duty_cycle_ratio(&self) -> usize {
         unsafe { self.get_inner_ref() }.duty_cycle_ratio.into()
     }
     #[inline]
+    #[must_use]
     pub fn padding(&self) -> [u8; 64usize] {
         unsafe { self.get_inner_ref() }.padding.into()
     }
@@ -36617,10 +37119,14 @@ impl<S: ResourceStorage<aeron_driver_sender_t>> AeronDriverSender<S> {
 }
 impl<'a, S: ResourceStorage<aeron_driver_sender_t>> Ref<'a, AeronDriverSender<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn context(&self) -> Ref<'a, AeronDriverContext> {
         Ref::new(self.value.context().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn error_log(&self) -> Ref<'a, AeronDistinctErrorLog> {
         Ref::new(self.value.error_log().value)
     }
@@ -36739,10 +37245,10 @@ impl<S: ResourceStorage<aeron_driver_t>> core::fmt::Debug for AeronDriver<S> {
         }
         f.debug_struct(stringify!(AeronDriver))
             .field("inner", &self.inner)
-            .field(stringify!(conductor), &self.conductor())
-            .field(stringify!(native_resource_agent), &self.native_resource_agent())
-            .field(stringify!(sender), &self.sender())
-            .field(stringify!(receiver), &self.receiver())
+            .field("conductor", &self.conductor())
+            .field("native_resource_agent", &self.native_resource_agent())
+            .field("sender", &self.sender())
+            .field("receiver", &self.receiver())
             .finish()
     }
 }
@@ -37006,6 +37512,8 @@ impl AeronDriver {
 }
 impl<S: ResourceStorage<aeron_driver_t>> AeronDriver<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn context(&self) -> Ref<'_, AeronDriverContext> {
         Ref::new(unsafe {
             AeronDriverContext::from_ptr(
@@ -37016,6 +37524,7 @@ impl<S: ResourceStorage<aeron_driver_t>> AeronDriver<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn conductor(&self) -> AeronDriverConductor<ScopedInline<'_, aeron_driver_conductor_t>> {
         AeronDriverConductor::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.conductor),
@@ -37023,6 +37532,7 @@ impl<S: ResourceStorage<aeron_driver_t>> AeronDriver<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn native_resource_agent(
         &self,
     ) -> AeronDriverNativeResourceAgent<ScopedInline<'_, aeron_driver_native_resource_agent_t>> {
@@ -37032,6 +37542,7 @@ impl<S: ResourceStorage<aeron_driver_t>> AeronDriver<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn sender(&self) -> AeronDriverSender<ScopedInline<'_, aeron_driver_sender_t>> {
         AeronDriverSender::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.sender),
@@ -37039,6 +37550,7 @@ impl<S: ResourceStorage<aeron_driver_t>> AeronDriver<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn receiver(&self) -> AeronDriverReceiver<ScopedInline<'_, aeron_driver_receiver_t>> {
         AeronDriverReceiver::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.receiver),
@@ -37046,6 +37558,7 @@ impl<S: ResourceStorage<aeron_driver_t>> AeronDriver<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn runners(&self) -> [aeron_agent_runner_t; 4usize] {
         unsafe { self.get_inner_ref() }.runners.into()
     }
@@ -37155,6 +37668,8 @@ impl<S: ResourceStorage<aeron_driver_t>> AeronDriver<S> {
 }
 impl<'a, S: ResourceStorage<aeron_driver_t>> Ref<'a, AeronDriver<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn context(&self) -> Ref<'a, AeronDriverContext> {
         Ref::new(self.value.context().value)
     }
@@ -37253,49 +37768,38 @@ impl<S: ResourceStorage<aeron_driver_uri_publication_params_t>> core::fmt::Debug
         }
         f.debug_struct(stringify!(AeronDriverUriPublicationParams))
             .field("inner", &self.inner)
-            .field(stringify!(has_position), &self.has_position())
-            .field(stringify!(is_sparse), &self.is_sparse())
-            .field(stringify!(signal_eos), &self.signal_eos())
-            .field(stringify!(spies_simulate_connection), &self.spies_simulate_connection())
-            .field(stringify!(has_mtu_length), &self.has_mtu_length())
-            .field(stringify!(mtu_length), &self.mtu_length())
-            .field(stringify!(has_term_length), &self.has_term_length())
-            .field(stringify!(term_length), &self.term_length())
-            .field(stringify!(term_offset), &self.term_offset())
-            .field(stringify!(initial_term_id), &self.initial_term_id())
-            .field(stringify!(term_id), &self.term_id())
-            .field(stringify!(linger_timeout_ns), &self.linger_timeout_ns())
+            .field("has_position", &self.has_position())
+            .field("is_sparse", &self.is_sparse())
+            .field("signal_eos", &self.signal_eos())
+            .field("spies_simulate_connection", &self.spies_simulate_connection())
+            .field("has_mtu_length", &self.has_mtu_length())
+            .field("mtu_length", &self.mtu_length())
+            .field("has_term_length", &self.has_term_length())
+            .field("term_length", &self.term_length())
+            .field("term_offset", &self.term_offset())
+            .field("initial_term_id", &self.initial_term_id())
+            .field("term_id", &self.term_id())
+            .field("linger_timeout_ns", &self.linger_timeout_ns())
             .field(
-                stringify!(untethered_window_limit_timeout_ns),
+                "untethered_window_limit_timeout_ns",
                 &self.untethered_window_limit_timeout_ns(),
             )
-            .field(
-                stringify!(untethered_linger_timeout_ns),
-                &self.untethered_linger_timeout_ns(),
-            )
-            .field(
-                stringify!(untethered_resting_timeout_ns),
-                &self.untethered_resting_timeout_ns(),
-            )
-            .field(stringify!(has_session_id), &self.has_session_id())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(entity_tag), &self.entity_tag())
-            .field(stringify!(response_correlation_id), &self.response_correlation_id())
-            .field(stringify!(has_max_resend), &self.has_max_resend())
-            .field(stringify!(max_resend), &self.max_resend())
-            .field(
-                stringify!(has_publication_window_length),
-                &self.has_publication_window_length(),
-            )
-            .field(stringify!(publication_window_length), &self.publication_window_length())
-            .field(stringify!(is_response), &self.is_response())
+            .field("untethered_linger_timeout_ns", &self.untethered_linger_timeout_ns())
+            .field("untethered_resting_timeout_ns", &self.untethered_resting_timeout_ns())
+            .field("has_session_id", &self.has_session_id())
+            .field("session_id", &self.session_id())
+            .field("entity_tag", &self.entity_tag())
+            .field("response_correlation_id", &self.response_correlation_id())
+            .field("has_max_resend", &self.has_max_resend())
+            .field("max_resend", &self.max_resend())
+            .field("has_publication_window_length", &self.has_publication_window_length())
+            .field("publication_window_length", &self.publication_window_length())
+            .field("is_response", &self.is_response())
             .finish()
     }
 }
 impl AeronDriverUriPublicationParams<CResource<aeron_driver_uri_publication_params_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         has_position: bool,
         is_sparse: bool,
@@ -37408,100 +37912,124 @@ impl AeronDriverUriPublicationParams<CResource<aeron_driver_uri_publication_para
 impl AeronDriverUriPublicationParams {}
 impl<S: ResourceStorage<aeron_driver_uri_publication_params_t>> AeronDriverUriPublicationParams<S> {
     #[inline]
+    #[must_use]
     pub fn has_position(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_position.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_sparse(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_sparse.into()
     }
     #[inline]
+    #[must_use]
     pub fn signal_eos(&self) -> bool {
         unsafe { self.get_inner_ref() }.signal_eos.into()
     }
     #[inline]
+    #[must_use]
     pub fn spies_simulate_connection(&self) -> bool {
         unsafe { self.get_inner_ref() }.spies_simulate_connection.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_mtu_length(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_mtu_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn mtu_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.mtu_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_term_length(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_term_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.term_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_offset(&self) -> usize {
         unsafe { self.get_inner_ref() }.term_offset.into()
     }
     #[inline]
+    #[must_use]
     pub fn initial_term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.initial_term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn linger_timeout_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.linger_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_window_limit_timeout_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }
             .untethered_window_limit_timeout_ns
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_linger_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.untethered_linger_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_resting_timeout_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.untethered_resting_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_session_id(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn entity_tag(&self) -> i64 {
         unsafe { self.get_inner_ref() }.entity_tag.into()
     }
     #[inline]
+    #[must_use]
     pub fn response_correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.response_correlation_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_max_resend(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_max_resend.into()
     }
     #[inline]
+    #[must_use]
     pub fn max_resend(&self) -> u32 {
         unsafe { self.get_inner_ref() }.max_resend.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_publication_window_length(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_publication_window_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn publication_window_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.publication_window_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_response(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_response.into()
     }
@@ -37705,26 +38233,20 @@ impl<S: ResourceStorage<aeron_driver_uri_subscription_params_t>> core::fmt::Debu
         }
         f.debug_struct(stringify!(AeronDriverUriSubscriptionParams))
             .field("inner", &self.inner)
-            .field(stringify!(is_reliable), &self.is_reliable())
-            .field(stringify!(is_sparse), &self.is_sparse())
-            .field(stringify!(is_tether), &self.is_tether())
-            .field(stringify!(is_rejoin), &self.is_rejoin())
-            .field(stringify!(has_session_id), &self.has_session_id())
-            .field(stringify!(is_response), &self.is_response())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(initial_window_length), &self.initial_window_length())
+            .field("is_reliable", &self.is_reliable())
+            .field("is_sparse", &self.is_sparse())
+            .field("is_tether", &self.is_tether())
+            .field("is_rejoin", &self.is_rejoin())
+            .field("has_session_id", &self.has_session_id())
+            .field("is_response", &self.is_response())
+            .field("session_id", &self.session_id())
+            .field("initial_window_length", &self.initial_window_length())
             .field(
-                stringify!(untethered_window_limit_timeout_ns),
+                "untethered_window_limit_timeout_ns",
                 &self.untethered_window_limit_timeout_ns(),
             )
-            .field(
-                stringify!(untethered_linger_timeout_ns),
-                &self.untethered_linger_timeout_ns(),
-            )
-            .field(
-                stringify!(untethered_resting_timeout_ns),
-                &self.untethered_resting_timeout_ns(),
-            )
+            .field("untethered_linger_timeout_ns", &self.untethered_linger_timeout_ns())
+            .field("untethered_resting_timeout_ns", &self.untethered_resting_timeout_ns())
             .finish()
     }
 }
@@ -37820,52 +38342,64 @@ impl AeronDriverUriSubscriptionParams<CResource<aeron_driver_uri_subscription_pa
 impl AeronDriverUriSubscriptionParams {}
 impl<S: ResourceStorage<aeron_driver_uri_subscription_params_t>> AeronDriverUriSubscriptionParams<S> {
     #[inline]
+    #[must_use]
     pub fn is_reliable(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_reliable.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_sparse(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_sparse.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_tether(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_tether.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_rejoin(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_rejoin.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_session_id(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_response(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_response.into()
     }
     #[inline]
+    #[must_use]
     pub fn group(&self) -> aeron_inferable_boolean_t {
         unsafe { self.get_inner_ref() }.group.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn initial_window_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.initial_window_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_window_limit_timeout_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }
             .untethered_window_limit_timeout_ns
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_linger_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.untethered_linger_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_resting_timeout_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.untethered_resting_timeout_ns.into()
     }
@@ -38030,8 +38564,8 @@ impl<S: ResourceStorage<aeron_duty_cycle_stall_tracker_t>> core::fmt::Debug for 
         }
         f.debug_struct(stringify!(AeronDutyCycleStallTracker))
             .field("inner", &self.inner)
-            .field(stringify!(last_time_of_update_ns), &self.last_time_of_update_ns())
-            .field(stringify!(cycle_threshold_ns), &self.cycle_threshold_ns())
+            .field("last_time_of_update_ns", &self.last_time_of_update_ns())
+            .field("cycle_threshold_ns", &self.cycle_threshold_ns())
             .finish()
     }
 }
@@ -38116,30 +38650,37 @@ impl AeronDutyCycleStallTracker<CResource<aeron_duty_cycle_stall_tracker_t>> {
 impl AeronDutyCycleStallTracker {}
 impl<S: ResourceStorage<aeron_duty_cycle_stall_tracker_t>> AeronDutyCycleStallTracker<S> {
     #[inline]
+    #[must_use]
     pub fn tracker(&self) -> aeron_duty_cycle_tracker_stct {
         unsafe { self.get_inner_ref() }.tracker.into()
     }
     #[inline]
+    #[must_use]
     pub fn lhs_padding(&self) -> [::std::os::raw::c_char; 56usize] {
         unsafe { self.get_inner_ref() }.lhs_padding.into()
     }
     #[inline]
+    #[must_use]
     pub fn last_time_of_update_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.last_time_of_update_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn rhs_padding(&self) -> [::std::os::raw::c_char; 56usize] {
         unsafe { self.get_inner_ref() }.rhs_padding.into()
     }
     #[inline]
+    #[must_use]
     pub fn cycle_threshold_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.cycle_threshold_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn max_cycle_time_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.max_cycle_time_counter }
     }
     #[inline]
+    #[must_use]
     pub fn cycle_time_threshold_exceeded_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.cycle_time_threshold_exceeded_counter }
     }
@@ -38398,14 +38939,17 @@ impl AeronDutyCycleTracker<CResource<aeron_duty_cycle_tracker_t>> {
 impl AeronDutyCycleTracker {}
 impl<S: ResourceStorage<aeron_duty_cycle_tracker_t>> AeronDutyCycleTracker<S> {
     #[inline]
+    #[must_use]
     pub fn update(&self) -> aeron_duty_cycle_tracker_update_func_t {
         unsafe { self.get_inner_ref() }.update.into()
     }
     #[inline]
+    #[must_use]
     pub fn measure_and_update(&self) -> aeron_duty_cycle_tracker_measure_and_update_func_t {
         unsafe { self.get_inner_ref() }.measure_and_update.into()
     }
     #[inline]
+    #[must_use]
     pub fn state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.state.into()
     }
@@ -38640,10 +39184,12 @@ impl AeronEndOfLifeResource<CResource<aeron_end_of_life_resource_t>> {
 impl AeronEndOfLifeResource {}
 impl<S: ResourceStorage<aeron_end_of_life_resource_t>> AeronEndOfLifeResource<S> {
     #[inline]
+    #[must_use]
     pub fn resource(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.resource.into()
     }
     #[inline]
+    #[must_use]
     pub fn free_func(&self) -> aeron_end_of_life_resource_free_t {
         unsafe { self.get_inner_ref() }.free_func.into()
     }
@@ -38804,20 +39350,18 @@ impl<S: ResourceStorage<aeron_error_header_t>> core::fmt::Debug for AeronErrorHe
         }
         f.debug_struct(stringify!(AeronErrorHeader))
             .field("inner", &self.inner)
-            .field(stringify!(frame_header), &self.frame_header())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(receiver_id), &self.receiver_id())
-            .field(stringify!(group_tag), &self.group_tag())
-            .field(stringify!(error_code), &self.error_code())
-            .field(stringify!(error_length), &self.error_length())
+            .field("frame_header", &self.frame_header())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("receiver_id", &self.receiver_id())
+            .field("group_tag", &self.group_tag())
+            .field("error_code", &self.error_code())
+            .field("error_length", &self.error_length())
             .finish()
     }
 }
 impl AeronErrorHeader<CResource<aeron_error_header_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         frame_header: AeronFrameHeader<Inline<aeron_frame_header_t>>,
         session_id: i32,
@@ -38852,9 +39396,6 @@ impl AeronErrorHeader<CResource<aeron_error_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_error_header_t>::new(
             move |ctx_field| {
@@ -38878,9 +39419,6 @@ impl AeronErrorHeader<CResource<aeron_error_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronErrorHeader<Inline<aeron_error_header_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -38895,30 +39433,37 @@ impl AeronErrorHeader<CResource<aeron_error_header_t>> {
 impl AeronErrorHeader {}
 impl<S: ResourceStorage<aeron_error_header_t>> AeronErrorHeader<S> {
     #[inline]
+    #[must_use]
     pub fn frame_header(&self) -> AeronFrameHeader<Inline<aeron_frame_header_t>> {
         unsafe { AeronFrameHeader::from_native(unsafe { self.get_inner_ref() }.frame_header) }
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn receiver_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.receiver_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn group_tag(&self) -> i64 {
         unsafe { self.get_inner_ref() }.group_tag.into()
     }
     #[inline]
+    #[must_use]
     pub fn error_code(&self) -> i32 {
         unsafe { self.get_inner_ref() }.error_code.into()
     }
     #[inline]
+    #[must_use]
     pub fn error_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.error_length.into()
     }
@@ -39076,23 +39621,15 @@ impl<S: ResourceStorage<aeron_error_log_entry_t>> core::fmt::Debug for AeronErro
         }
         f.debug_struct(stringify!(AeronErrorLogEntry))
             .field("inner", &self.inner)
-            .field(stringify!(length), &self.length())
-            .field(stringify!(observation_count), &self.observation_count())
-            .field(
-                stringify!(last_observation_timestamp),
-                &self.last_observation_timestamp(),
-            )
-            .field(
-                stringify!(first_observation_timestamp),
-                &self.first_observation_timestamp(),
-            )
+            .field("length", &self.length())
+            .field("observation_count", &self.observation_count())
+            .field("last_observation_timestamp", &self.last_observation_timestamp())
+            .field("first_observation_timestamp", &self.first_observation_timestamp())
             .finish()
     }
 }
 impl AeronErrorLogEntry<CResource<aeron_error_log_entry_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         length: i32,
         observation_count: i32,
@@ -39121,9 +39658,6 @@ impl AeronErrorLogEntry<CResource<aeron_error_log_entry_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_error_log_entry_t>::new(
             move |ctx_field| {
@@ -39147,9 +39681,6 @@ impl AeronErrorLogEntry<CResource<aeron_error_log_entry_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronErrorLogEntry<Inline<aeron_error_log_entry_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -39164,18 +39695,22 @@ impl AeronErrorLogEntry<CResource<aeron_error_log_entry_t>> {
 impl AeronErrorLogEntry {}
 impl<S: ResourceStorage<aeron_error_log_entry_t>> AeronErrorLogEntry<S> {
     #[inline]
+    #[must_use]
     pub fn length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.length.into()
     }
     #[inline]
+    #[must_use]
     pub fn observation_count(&self) -> i32 {
         unsafe { self.get_inner_ref() }.observation_count.into()
     }
     #[inline]
+    #[must_use]
     pub fn last_observation_timestamp(&self) -> i64 {
         unsafe { self.get_inner_ref() }.last_observation_timestamp.into()
     }
     #[inline]
+    #[must_use]
     pub fn first_observation_timestamp(&self) -> i64 {
         unsafe { self.get_inner_ref() }.first_observation_timestamp.into()
     }
@@ -39334,18 +39869,16 @@ impl<S: ResourceStorage<aeron_error_response_t>> core::fmt::Debug for AeronError
         f.debug_struct(stringify!(AeronErrorResponse))
             .field("inner", &self.inner)
             .field(
-                stringify!(offending_command_correlation_id),
+                "offending_command_correlation_id",
                 &self.offending_command_correlation_id(),
             )
-            .field(stringify!(error_code), &self.error_code())
-            .field(stringify!(error_message_length), &self.error_message_length())
+            .field("error_code", &self.error_code())
+            .field("error_message_length", &self.error_message_length())
             .finish()
     }
 }
 impl AeronErrorResponse<CResource<aeron_error_response_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         offending_command_correlation_id: i64,
         error_code: i32,
@@ -39372,9 +39905,6 @@ impl AeronErrorResponse<CResource<aeron_error_response_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_error_response_t>::new(
             move |ctx_field| {
@@ -39398,9 +39928,6 @@ impl AeronErrorResponse<CResource<aeron_error_response_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronErrorResponse<Inline<aeron_error_response_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -39415,14 +39942,17 @@ impl AeronErrorResponse<CResource<aeron_error_response_t>> {
 impl AeronErrorResponse {}
 impl<S: ResourceStorage<aeron_error_response_t>> AeronErrorResponse<S> {
     #[inline]
+    #[must_use]
     pub fn offending_command_correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.offending_command_correlation_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn error_code(&self) -> i32 {
         unsafe { self.get_inner_ref() }.error_code.into()
     }
     #[inline]
+    #[must_use]
     pub fn error_message_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.error_message_length.into()
     }
@@ -39595,7 +40125,6 @@ impl<S: ResourceStorage<aeron_exclusive_publication_t>> AeronExclusivePublicatio
     #[doc = "# Parameters\n \n - `iov` array for the vectors"]
     #[doc = " \n - `iovcnt` of the number of vectors"]
     #[doc = " \n - `reserved_value_supplier` to use for setting the reserved value field or NULL."]
-    #[doc = " \n - `clientd` to pass to the reserved_value_supplier."]
     #[doc = " \n# Return\n the new stream position otherwise a negative error value."]
     pub fn offerv<
         AeronReservedValueSupplierHandlerImpl: AeronReservedValueSupplierCallback,
@@ -39661,16 +40190,13 @@ impl<S: ResourceStorage<aeron_exclusive_publication_t>> AeronExclusivePublicatio
     #[doc = "# Parameters\n \n - `iov` array for the vectors"]
     #[doc = " \n - `iovcnt` of the number of vectors"]
     #[doc = " \n - `reserved_value_supplier` to use for setting the reserved value field or NULL."]
-    #[doc = " \n - `clientd` to pass to the reserved_value_supplier."]
     #[doc = " \n# Return\n the new stream position otherwise a negative error value."]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -39744,7 +40270,6 @@ impl<S: ResourceStorage<aeron_exclusive_publication_t>> AeronExclusivePublicatio
     #[doc = "Offer a block of pre-formatted message fragments directly into the current term."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `buffer` containing the pre-formatted block of message fragments."]
-    #[doc = " \n - `offset` offset in the buffer at which the first fragment begins."]
     #[doc = " \n# Return\n the new stream position otherwise a negative error value."]
     pub fn offer_block(&self, buffer: &[u8]) -> i64 {
         unsafe {
@@ -39788,8 +40313,7 @@ impl<S: ResourceStorage<aeron_exclusive_publication_t>> AeronExclusivePublicatio
     #[inline]
     #[doc = "Fill in a structure with the constants in use by a publication."]
     #[doc = ""]
-    #[doc = "# Parameters\n \n - `publication` to get the constants for."]
-    #[doc = " \n - `constants` structure to fill in with the constants"]
+    #[doc = "# Parameters\n \n - `constants` structure to fill in with the constants"]
     #[doc = " \n# Return\n 0 for success and -1 for error."]
     #[doc = "# Safety"]
     #[doc = "The output may contain borrowed native pointers. Do not use those pointers after the queried handle is dropped or changed. Prefer the lifetime-bound `get_constants`, `get_buffers` or `get_values` method."]
@@ -39833,6 +40357,66 @@ impl<S: ResourceStorage<aeron_exclusive_publication_t>> AeronExclusivePublicatio
             value: Inline::new(unsafe { value.assume_init() }),
             _owner: std::marker::PhantomData,
         }))
+    }
+    #[inline]
+    #[doc = "`get_constants()?.original_registration_id()`. Call `get_constants()` once to read several fields"]
+    pub fn original_registration_id(&self) -> Result<i64, AeronCError> {
+        Ok(self.get_constants()?.original_registration_id())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.registration_id()`. Call `get_constants()` once to read several fields"]
+    pub fn registration_id(&self) -> Result<i64, AeronCError> {
+        Ok(self.get_constants()?.registration_id())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.max_possible_position()`. Call `get_constants()` once to read several fields"]
+    pub fn max_possible_position(&self) -> Result<i64, AeronCError> {
+        Ok(self.get_constants()?.max_possible_position())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.position_bits_to_shift()`. Call `get_constants()` once to read several fields"]
+    pub fn position_bits_to_shift(&self) -> Result<usize, AeronCError> {
+        Ok(self.get_constants()?.position_bits_to_shift())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.term_buffer_length()`. Call `get_constants()` once to read several fields"]
+    pub fn term_buffer_length(&self) -> Result<usize, AeronCError> {
+        Ok(self.get_constants()?.term_buffer_length())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.max_message_length()`. Call `get_constants()` once to read several fields"]
+    pub fn max_message_length(&self) -> Result<usize, AeronCError> {
+        Ok(self.get_constants()?.max_message_length())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.max_payload_length()`. Call `get_constants()` once to read several fields"]
+    pub fn max_payload_length(&self) -> Result<usize, AeronCError> {
+        Ok(self.get_constants()?.max_payload_length())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.stream_id()`. Call `get_constants()` once to read several fields"]
+    pub fn stream_id(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.stream_id())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.session_id()`. Call `get_constants()` once to read several fields"]
+    pub fn session_id(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.session_id())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.initial_term_id()`. Call `get_constants()` once to read several fields"]
+    pub fn initial_term_id(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.initial_term_id())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.publication_limit_counter_id()`. Call `get_constants()` once to read several fields"]
+    pub fn publication_limit_counter_id(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.publication_limit_counter_id())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.channel_status_indicator_id()`. Call `get_constants()` once to read several fields"]
+    pub fn channel_status_indicator_id(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.channel_status_indicator_id())
     }
     #[inline]
     #[doc = "Get the current position to which the publication has advanced for this stream."]
@@ -39895,7 +40479,6 @@ impl<S: ResourceStorage<aeron_exclusive_publication_t>> AeronExclusivePublicatio
     #[doc = ""]
     #[doc = "# Parameters\n \n - `on_close_complete` optional callback to execute once the publication has been revoked, closed and freed. This may"]
     #[doc = " happen on a separate thread, so the caller should ensure that clientd has the appropriate lifetime."]
-    #[doc = " \n - `on_close_complete_clientd` parameter to pass to the on_complete callback."]
     #[doc = " \n# Return\n 0 for success or -1 for error."]
     #[doc = "# Safety"]
     #[doc = "This bypasses Rust ownership. Keep all retained pointers valid until native cleanup. Initializers require exclusive access and must not overwrite live native state or invalidate borrowed views. After raw removal or deletion, prevent all further access and Rust cleanup through every alias. Prefer the owning handle's constructor, close or cancel method."]
@@ -39959,6 +40542,7 @@ impl<S: ResourceStorage<aeron_exclusive_publication_t>> AeronExclusivePublicatio
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "Has the exclusive publication closed?"]
     #[doc = ""]
     #[doc = " \n# Return\n true if this publication is closed."]
@@ -39977,6 +40561,7 @@ impl<S: ResourceStorage<aeron_exclusive_publication_t>> AeronExclusivePublicatio
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "Has the exclusive publication seen an active Subscriber recently?"]
     #[doc = ""]
     #[doc = " \n# Return\n true if this publication has recently seen an active subscriber otherwise false."]
@@ -40101,7 +40686,9 @@ impl AeronExclusivePublication {
 impl AeronExclusivePublication {
     #[doc = r" Like [`Self::close`], but notifies `on_close_complete` when the close"]
     #[doc = r" finishes. The handler must outlive the notification (keep your"]
-    #[doc = r" `Handler` alive until it has fired)."]
+    #[doc = r" `Handler` alive until it has fired). C calls it later from the conductor,"]
+    #[doc = r" so it needs a retained `SharedHandler`; it runs once at shutdown, off the"]
+    #[doc = r" hot path"]
     pub fn close_with_handler<AeronNotificationHandlerImpl: AeronNotificationCallback + Send + 'static>(
         self,
         on_close_complete: Option<&SharedHandler<AeronNotificationHandlerImpl>>,
@@ -40348,14 +40935,17 @@ impl AeronFeedbackDelayGeneratorState<CResource<aeron_feedback_delay_generator_s
 impl AeronFeedbackDelayGeneratorState {}
 impl<S: ResourceStorage<aeron_feedback_delay_generator_state_t>> AeronFeedbackDelayGeneratorState<S> {
     #[inline]
+    #[must_use]
     pub fn static_delay(&self) -> aeron_feedback_delay_generator_state_stct_static_delay_stct {
         unsafe { self.get_inner_ref() }.static_delay.into()
     }
     #[inline]
+    #[must_use]
     pub fn optimal_delay(&self) -> aeron_feedback_delay_generator_state_stct_optimal_delay_stct {
         unsafe { self.get_inner_ref() }.optimal_delay.into()
     }
     #[inline]
+    #[must_use]
     pub fn delay_generator(&self) -> aeron_feedback_delay_generator_func_t {
         unsafe { self.get_inner_ref() }.delay_generator.into()
     }
@@ -40584,17 +41174,12 @@ impl<S: ResourceStorage<aeron_flow_control_max_options_t>> core::fmt::Debug for 
         }
         f.debug_struct(stringify!(AeronFlowControlMaxOptions))
             .field("inner", &self.inner)
-            .field(
-                stringify!(multicast_flow_control_rrwm),
-                &self.multicast_flow_control_rrwm(),
-            )
+            .field("multicast_flow_control_rrwm", &self.multicast_flow_control_rrwm())
             .finish()
     }
 }
 impl AeronFlowControlMaxOptions<CResource<aeron_flow_control_max_options_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(multicast_flow_control_rrwm: usize) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_flow_control_max_options_t>::new(
             move |ctx_field| {
@@ -40615,9 +41200,6 @@ impl AeronFlowControlMaxOptions<CResource<aeron_flow_control_max_options_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_flow_control_max_options_t>::new(
             move |ctx_field| {
@@ -40641,9 +41223,6 @@ impl AeronFlowControlMaxOptions<CResource<aeron_flow_control_max_options_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronFlowControlMaxOptions<Inline<aeron_flow_control_max_options_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -40658,6 +41237,7 @@ impl AeronFlowControlMaxOptions<CResource<aeron_flow_control_max_options_t>> {
 impl AeronFlowControlMaxOptions {}
 impl<S: ResourceStorage<aeron_flow_control_max_options_t>> AeronFlowControlMaxOptions<S> {
     #[inline]
+    #[must_use]
     pub fn multicast_flow_control_rrwm(&self) -> usize {
         unsafe { self.get_inner_ref() }.multicast_flow_control_rrwm.into()
     }
@@ -40845,6 +41425,7 @@ impl<S: ResourceStorage<aeron_flow_control_strategy_supplier_func_table_entry_t>
         }
         f.debug_struct(stringify!(AeronFlowControlStrategySupplierFuncTableEntry))
             .field("inner", &self.inner)
+            .field("name", &unsafe { self.name() })
             .finish()
     }
 }
@@ -40927,6 +41508,7 @@ impl<S: ResourceStorage<aeron_flow_control_strategy_supplier_func_table_entry_t>
     AeronFlowControlStrategySupplierFuncTableEntry<S>
 {
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -40942,6 +41524,7 @@ impl<S: ResourceStorage<aeron_flow_control_strategy_supplier_func_table_entry_t>
         }
     }
     #[inline]
+    #[must_use]
     pub fn supplier_func(&self) -> aeron_flow_control_strategy_supplier_func_t {
         unsafe { self.get_inner_ref() }.supplier_func.into()
     }
@@ -41200,38 +41783,47 @@ impl AeronFlowControlStrategy {
 }
 impl<S: ResourceStorage<aeron_flow_control_strategy_t>> AeronFlowControlStrategy<S> {
     #[inline]
+    #[must_use]
     pub fn on_status_message(&self) -> aeron_flow_control_strategy_on_sm_func_t {
         unsafe { self.get_inner_ref() }.on_status_message.into()
     }
     #[inline]
+    #[must_use]
     pub fn on_idle(&self) -> aeron_flow_control_strategy_on_idle_func_t {
         unsafe { self.get_inner_ref() }.on_idle.into()
     }
     #[inline]
+    #[must_use]
     pub fn on_setup(&self) -> aeron_flow_control_strategy_on_setup_func_t {
         unsafe { self.get_inner_ref() }.on_setup.into()
     }
     #[inline]
+    #[must_use]
     pub fn on_error(&self) -> aeron_flow_control_strategy_on_error_func_t {
         unsafe { self.get_inner_ref() }.on_error.into()
     }
     #[inline]
+    #[must_use]
     pub fn fini(&self) -> aeron_flow_control_strategy_fini_func_t {
         unsafe { self.get_inner_ref() }.fini.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_required_receivers(&self) -> aeron_flow_control_strategy_has_required_receivers_func_t {
         unsafe { self.get_inner_ref() }.has_required_receivers.into()
     }
     #[inline]
+    #[must_use]
     pub fn on_trigger_send_setup(&self) -> aeron_flow_control_strategy_on_trigger_send_setup_func_t {
         unsafe { self.get_inner_ref() }.on_trigger_send_setup.into()
     }
     #[inline]
+    #[must_use]
     pub fn max_retransmission_length(&self) -> aeron_flow_control_strategy_max_retransmission_length_func_t {
         unsafe { self.get_inner_ref() }.max_retransmission_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.state.into()
     }
@@ -41437,11 +42029,9 @@ impl<S: ResourceStorage<aeron_flow_control_tagged_options_t>> core::fmt::Debug f
         }
         f.debug_struct(stringify!(AeronFlowControlTaggedOptions))
             .field("inner", &self.inner)
-            .field(stringify!(strategy_name_length), &self.strategy_name_length())
-            .field(
-                stringify!(multicast_flow_control_rrwm),
-                &self.multicast_flow_control_rrwm(),
-            )
+            .field("strategy_name_length", &self.strategy_name_length())
+            .field("strategy_name", &self.strategy_name())
+            .field("multicast_flow_control_rrwm", &self.multicast_flow_control_rrwm())
             .finish()
     }
 }
@@ -41524,37 +42114,42 @@ impl AeronFlowControlTaggedOptions<CResource<aeron_flow_control_tagged_options_t
 impl AeronFlowControlTaggedOptions {}
 impl<S: ResourceStorage<aeron_flow_control_tagged_options_t>> AeronFlowControlTaggedOptions<S> {
     #[inline]
+    #[must_use]
     pub fn strategy_name_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.strategy_name_length.into()
     }
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn strategy_name(&self) -> &str {
-        if unsafe { self.get_inner_ref() }.strategy_name.is_null() {
-            ""
-        } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(unsafe { self.get_inner_ref() }.strategy_name)
-                    .to_str()
-                    .unwrap_or("")
+    #[must_use]
+    pub fn strategy_name(&self) -> &str {
+        {
+            let value = unsafe { self.get_inner_ref() };
+            if value.strategy_name.is_null() {
+                ""
+            } else {
+                let bytes = unsafe {
+                    std::slice::from_raw_parts(value.strategy_name.cast::<u8>(), value.strategy_name_length as usize)
+                };
+                std::str::from_utf8(bytes).unwrap_or("")
             }
         }
     }
     #[inline]
+    #[must_use]
     pub fn group_tag(&self) -> aeron_flow_control_tagged_options_stct__bindgen_ty_1 {
         unsafe { self.get_inner_ref() }.group_tag.into()
     }
     #[inline]
+    #[must_use]
     pub fn timeout_ns(&self) -> aeron_flow_control_tagged_options_stct__bindgen_ty_2 {
         unsafe { self.get_inner_ref() }.timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn group_min_size(&self) -> aeron_flow_control_tagged_options_stct__bindgen_ty_3 {
         unsafe { self.get_inner_ref() }.group_min_size.into()
     }
     #[inline]
+    #[must_use]
     pub fn multicast_flow_control_rrwm(&self) -> usize {
         unsafe { self.get_inner_ref() }.multicast_flow_control_rrwm.into()
     }
@@ -41670,244 +42265,6 @@ mod aeron_flow_control_tagged_options_t_allocation_tests {
         });
     }
 }
-unsafe impl NativeResource for aeron_fragment_assembler_t {
-    type Policy = LocalResource;
-}
-pub struct AeronFragmentAssembler<
-    S: ResourceStorage<aeron_fragment_assembler_t> = LiveCResource<aeron_fragment_assembler_t>,
-> {
-    inner: S,
-}
-#[doc = r" Non-owning form used in callbacks and lifetime-bound getters."]
-pub type AeronFragmentAssemblerRef = AeronFragmentAssembler<Borrowed<aeron_fragment_assembler_t>>;
-impl<S: ResourceStorage<aeron_fragment_assembler_t>> resource_sealed::Handle for AeronFragmentAssembler<S> {}
-impl<S: ResourceStorage<aeron_fragment_assembler_t>> ResourceHandle for AeronFragmentAssembler<S> {
-    type Native = aeron_fragment_assembler_t;
-    type Storage = S;
-    type Borrowed = AeronFragmentAssembler<Borrowed<aeron_fragment_assembler_t>>;
-}
-impl<S: ResourceStorage<aeron_fragment_assembler_t>> ResourceHandleExt for AeronFragmentAssembler<S> {
-    #[inline]
-    fn resource(&self) -> &S {
-        &self.inner
-    }
-    #[inline]
-    fn from_resource(inner: S) -> Self {
-        Self { inner }
-    }
-    #[inline]
-    fn from_borrowed(inner: Borrowed<aeron_fragment_assembler_t>) -> Self::Borrowed {
-        AeronFragmentAssembler { inner }
-    }
-}
-impl OwnedResourceHandle for AeronFragmentAssembler<LiveCResource<aeron_fragment_assembler_t>> {
-    #[inline]
-    fn from_owned(inner: CResource<aeron_fragment_assembler_t>) -> Self {
-        Self { inner: inner.into() }
-    }
-}
-impl<S: ResourceStorage<aeron_fragment_assembler_t>> core::fmt::Debug for AeronFragmentAssembler<S> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.inner.get().is_null() {
-            return f
-                .debug_struct(stringify!(AeronFragmentAssembler))
-                .field("inner", &"null")
-                .finish();
-        }
-        f.debug_struct(stringify!(AeronFragmentAssembler))
-            .field("inner", &self.inner)
-            .finish()
-    }
-}
-impl AeronFragmentAssembler<LiveCResource<aeron_fragment_assembler_t>> {
-    #[inline]
-    #[doc = "Create a fragment assembler for use with a subscription."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `delegate` to call on completed"]
-    #[doc = " \n - `delegate_clientd` to pass to delegate handler."]
-    #[doc = " \n# Return\n 0 for success and -1 for error."]
-    pub fn new<
-        AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback + 'static,
-        AeronFragmentHandlerHandlerImplPolicy: CallbackPolicy,
-    >(
-        delegate: Option<&Handler<AeronFragmentHandlerHandlerImpl, AeronFragmentHandlerHandlerImplPolicy>>,
-    ) -> Result<Self, AeronCError> {
-        if delegate.is_none() {
-            return Err(AeronCError::with_message(-1, "fragment assembler requires a delegate"));
-        }
-        let __handler_delegate = delegate;
-        let (delegate, delegate_clientd) = (
-            {
-                let callback: aeron_fragment_handler_t = if delegate.is_none() {
-                    None
-                } else {
-                    Some(
-                        aeron_fragment_handler_t_callback_catch::<
-                            AeronFragmentHandlerHandlerImpl,
-                            AeronFragmentHandlerHandlerImplPolicy,
-                        >,
-                    )
-                };
-                callback
-            },
-            delegate.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
-        );
-        let resource_constructor = ManagedCResource::<aeron_fragment_assembler_t>::new(
-            move |ctx_field| unsafe {
-                #[cfg(feature = "log-c-bindings")]
-                {
-                    let log_args = [
-                        concat!("assembler", ": ", stringify!(*mut *mut aeron_fragment_assembler_t)).to_string(),
-                        concat!("delegate", ": ", stringify!(aeron_fragment_handler_t)).to_string(),
-                    ]
-                    .join(", ");
-                    log::info!("{}({})", stringify!(aeron_fragment_assembler_create), log_args);
-                }
-                aeron_fragment_assembler_create(ctx_field, delegate, delegate_clientd)
-            },
-            Some(Box::new(move |ctx_field| unsafe {
-                #[cfg(feature = "log-c-bindings")]
-                {
-                    let log_args =
-                        [concat!("assembler", ": ", stringify!(*mut aeron_fragment_assembler_t)).to_string()]
-                            .join(", ");
-                    log::info!("{}({})", stringify!(aeron_fragment_assembler_delete), log_args);
-                }
-                aeron_fragment_assembler_delete(*ctx_field)
-            })),
-            false,
-        )?;
-        let result = Self {
-            inner: CResource::new(ResourceRef::new(resource_constructor)).into(),
-        };
-        if let Some(__handler) = __handler_delegate {
-            if let Some(__inner) = result.inner.as_owned() {
-                __inner.add_dependency(Handler::clone(__handler));
-            }
-        }
-        Ok(result)
-    }
-}
-impl AeronFragmentAssembler {
-    #[inline]
-    #[doc = "Handler function to be passed for handling fragment assembly."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `clientd` passed in the poll call (must be a `AeronFragmentAssembler`)"]
-    #[doc = " \n - `buffer` containing the data."]
-    #[doc = " \n - `header` representing the meta data for the data."]
-    #[doc = "# Safety"]
-    #[doc = "Raw pointer arguments must have the size, alignment, initialization and lifetime required by the native function. Writable pointers require exclusive access. Keep any retained pointers valid until native cleanup."]
-    #[doc = "# Safety"]
-    #[doc = "`clientd` must point to a live native assembler. Hold exclusive access to the assembler and its callback for this call; the callback must catch panics before returning through C."]
-    pub unsafe fn handler(clientd: *mut ::std::os::raw::c_void, buffer: &[u8], header: &AeronHeader) -> () {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_fragment_assembler_handler),
-                [
-                    concat!("clientd", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
-                    format!("{}: {} (len={})", "buffer", stringify!(*const u8), buffer.len())
-                ]
-                .join(", ")
-            );
-            let result = aeron_fragment_assembler_handler(
-                clientd.into(),
-                buffer.as_ptr() as *mut _,
-                buffer.len() as _,
-                header.get_inner(),
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-}
-impl<S: ResourceStorage<aeron_fragment_assembler_t>> AeronFragmentAssembler<S> {
-    #[inline]
-    #[doc = "Free an existing session buffer to reduce memory pressure when an image goes inactive or no more"]
-    #[doc = " large messages are expected."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `session_id` to have its buffer freed."]
-    #[doc = " \n# Return\n true if a buffer has been freed otherwise false."]
-    pub fn delete_session_buffer(&mut self, session_id: i32) -> bool {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_fragment_assembler_delete_session_buffer),
-                [
-                    concat!("assembler", ": ", stringify!(*mut aeron_fragment_assembler_t)).to_string(),
-                    format!("{} = {:?}", "session_id", session_id)
-                ]
-                .join(", ")
-            );
-            let result = aeron_fragment_assembler_delete_session_buffer(self.get_inner(), session_id.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[doc = r" Borrow this handle without cloning its owner."]
-    #[inline(always)]
-    pub fn as_ref(&self) -> Ref<'_, Self> {
-        Ref::new(Self::from_borrowed(unsafe { Borrowed::new(self.inner.get()) }))
-    }
-    #[inline(always)]
-    pub fn get_inner(&self) -> *mut aeron_fragment_assembler_t {
-        let pointer = self.inner.get();
-        pointer
-    }
-    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
-    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
-    #[doc = r" access for the lifetime of the returned reference."]
-    #[doc = r""]
-    #[doc = r" # Safety"]
-    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
-    #[doc = r" alive while the returned `&mut` is in use."]
-    #[inline(always)]
-    pub unsafe fn get_inner_mut(&self) -> &mut aeron_fragment_assembler_t {
-        &mut *self.inner.get()
-    }
-    #[inline(always)]
-    #[doc = r" Borrow the native struct."]
-    #[doc = r" # Safety"]
-    #[doc = r" No Rust or native call may mutate the struct while this reference"]
-    #[doc = r" is alive. Shared wrappers also require coordination with other threads."]
-    pub unsafe fn get_inner_ref(&self) -> &aeron_fragment_assembler_t {
-        unsafe { self.inner.get().as_ref() }.expect("native resource was released")
-    }
-}
-impl AeronFragmentAssembler {
-    #[doc = r" Borrow a native pointer without taking ownership."]
-    #[doc = r" # Safety"]
-    #[doc = r" The pointer must be non-null. It and its parents must remain live for every use. Calls"]
-    #[doc = r" must follow Aeron's threading and aliasing rules."]
-    #[inline]
-    pub unsafe fn from_ptr(
-        ptr: *mut aeron_fragment_assembler_t,
-    ) -> AeronFragmentAssembler<Borrowed<aeron_fragment_assembler_t>> {
-        AeronFragmentAssembler {
-            inner: unsafe { Borrowed::new_unchecked(ptr) },
-        }
-    }
-}
-impl<S: ResourceStorage<aeron_fragment_assembler_t>> From<AeronFragmentAssembler<S>>
-    for *mut aeron_fragment_assembler_t
-{
-    #[inline]
-    fn from(value: AeronFragmentAssembler<S>) -> Self {
-        value.get_inner()
-    }
-}
-impl<S: ResourceStorage<aeron_fragment_assembler_t>> From<&AeronFragmentAssembler<S>>
-    for *mut aeron_fragment_assembler_t
-{
-    #[inline]
-    fn from(value: &AeronFragmentAssembler<S>) -> Self {
-        value.get_inner()
-    }
-}
 unsafe impl NativeResource for aeron_frame_header_t {
     type Policy = LocalResource;
 }
@@ -41953,15 +42310,13 @@ impl<S: ResourceStorage<aeron_frame_header_t>> core::fmt::Debug for AeronFrameHe
         }
         f.debug_struct(stringify!(AeronFrameHeader))
             .field("inner", &self.inner)
-            .field(stringify!(frame_length), &self.frame_length())
-            .field(stringify!(type_), &self.type_())
+            .field("frame_length", &self.frame_length())
+            .field("type_", &self.type_())
             .finish()
     }
 }
 impl AeronFrameHeader<CResource<aeron_frame_header_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(frame_length: i32, version: i8, flags: u8, type_: i16) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_frame_header_t>::new(
             move |ctx_field| {
@@ -41985,9 +42340,6 @@ impl AeronFrameHeader<CResource<aeron_frame_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_frame_header_t>::new(
             move |ctx_field| {
@@ -42011,9 +42363,6 @@ impl AeronFrameHeader<CResource<aeron_frame_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronFrameHeader<Inline<aeron_frame_header_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -42028,18 +42377,22 @@ impl AeronFrameHeader<CResource<aeron_frame_header_t>> {
 impl AeronFrameHeader {}
 impl<S: ResourceStorage<aeron_frame_header_t>> AeronFrameHeader<S> {
     #[inline]
+    #[must_use]
     pub fn frame_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.frame_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn version(&self) -> i8 {
         unsafe { self.get_inner_ref() }.version.into()
     }
     #[inline]
+    #[must_use]
     pub fn flags(&self) -> u8 {
         unsafe { self.get_inner_ref() }.flags.into()
     }
     #[inline]
+    #[must_use]
     pub fn type_(&self) -> i16 {
         unsafe { self.get_inner_ref() }.type_.into()
     }
@@ -42213,15 +42566,13 @@ impl<S: ResourceStorage<aeron_get_next_available_session_id_command_t>> core::fm
         }
         f.debug_struct(stringify!(AeronGetNextAvailableSessionIdCommand))
             .field("inner", &self.inner)
-            .field(stringify!(correlated), &self.correlated())
-            .field(stringify!(stream_id), &self.stream_id())
+            .field("correlated", &self.correlated())
+            .field("stream_id", &self.stream_id())
             .finish()
     }
 }
 impl AeronGetNextAvailableSessionIdCommand<CResource<aeron_get_next_available_session_id_command_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         correlated: AeronCorrelatedCommand<Inline<aeron_correlated_command_t>>,
         stream_id: i32,
@@ -42246,9 +42597,6 @@ impl AeronGetNextAvailableSessionIdCommand<CResource<aeron_get_next_available_se
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_get_next_available_session_id_command_t>::new(
             move |ctx_field| {
@@ -42272,9 +42620,6 @@ impl AeronGetNextAvailableSessionIdCommand<CResource<aeron_get_next_available_se
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack()
     -> AeronGetNextAvailableSessionIdCommand<Inline<aeron_get_next_available_session_id_command_t>> {
         #[cfg(feature = "extra-logging")]
@@ -42290,10 +42635,12 @@ impl AeronGetNextAvailableSessionIdCommand<CResource<aeron_get_next_available_se
 impl AeronGetNextAvailableSessionIdCommand {}
 impl<S: ResourceStorage<aeron_get_next_available_session_id_command_t>> AeronGetNextAvailableSessionIdCommand<S> {
     #[inline]
+    #[must_use]
     pub fn correlated(&self) -> AeronCorrelatedCommand<Inline<aeron_correlated_command_t>> {
         unsafe { AeronCorrelatedCommand::from_native(unsafe { self.get_inner_ref() }.correlated) }
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
@@ -42505,8 +42852,7 @@ impl<S: ResourceStorage<aeron_header_t>> AeronHeader<S> {
     #[inline]
     #[doc = "Get all of the field values from the header. This will do a memcpy into the supplied header_values_t pointer."]
     #[doc = ""]
-    #[doc = "# Parameters\n \n - `header` to read values from."]
-    #[doc = " \n - `values` to copy values to, must not be null."]
+    #[doc = "# Parameters\n \n - `values` to copy values to, must not be null."]
     #[doc = " \n# Return\n 0 on success, -1 on failure."]
     pub fn values(
         &self,
@@ -42734,20 +43080,18 @@ impl<S: ResourceStorage<aeron_header_values_frame_t>> core::fmt::Debug for Aeron
         }
         f.debug_struct(stringify!(AeronHeaderValuesFrame))
             .field("inner", &self.inner)
-            .field(stringify!(frame_length), &self.frame_length())
-            .field(stringify!(type_), &self.type_())
-            .field(stringify!(term_offset), &self.term_offset())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(term_id), &self.term_id())
-            .field(stringify!(reserved_value), &self.reserved_value())
+            .field("frame_length", &self.frame_length())
+            .field("type_", &self.type_())
+            .field("term_offset", &self.term_offset())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("term_id", &self.term_id())
+            .field("reserved_value", &self.reserved_value())
             .finish()
     }
 }
 impl AeronHeaderValuesFrame<CResource<aeron_header_values_frame_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         frame_length: i32,
         version: i8,
@@ -42786,9 +43130,6 @@ impl AeronHeaderValuesFrame<CResource<aeron_header_values_frame_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_header_values_frame_t>::new(
             move |ctx_field| {
@@ -42812,9 +43153,6 @@ impl AeronHeaderValuesFrame<CResource<aeron_header_values_frame_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronHeaderValuesFrame<Inline<aeron_header_values_frame_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -42829,38 +43167,47 @@ impl AeronHeaderValuesFrame<CResource<aeron_header_values_frame_t>> {
 impl AeronHeaderValuesFrame {}
 impl<S: ResourceStorage<aeron_header_values_frame_t>> AeronHeaderValuesFrame<S> {
     #[inline]
+    #[must_use]
     pub fn frame_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.frame_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn version(&self) -> i8 {
         unsafe { self.get_inner_ref() }.version.into()
     }
     #[inline]
+    #[must_use]
     pub fn flags(&self) -> u8 {
         unsafe { self.get_inner_ref() }.flags.into()
     }
     #[inline]
+    #[must_use]
     pub fn type_(&self) -> i16 {
         unsafe { self.get_inner_ref() }.type_.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_offset(&self) -> i32 {
         unsafe { self.get_inner_ref() }.term_offset.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn reserved_value(&self) -> i64 {
         unsafe { self.get_inner_ref() }.reserved_value.into()
     }
@@ -43026,16 +43373,14 @@ impl<S: ResourceStorage<aeron_header_values_t>> core::fmt::Debug for AeronHeader
         }
         f.debug_struct(stringify!(AeronHeaderValues))
             .field("inner", &self.inner)
-            .field(stringify!(frame), &self.frame())
-            .field(stringify!(initial_term_id), &self.initial_term_id())
-            .field(stringify!(position_bits_to_shift), &self.position_bits_to_shift())
+            .field("frame", &self.frame())
+            .field("initial_term_id", &self.initial_term_id())
+            .field("position_bits_to_shift", &self.position_bits_to_shift())
             .finish()
     }
 }
 impl AeronHeaderValues<CResource<aeron_header_values_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         frame: AeronHeaderValuesFrame<Inline<aeron_header_values_frame_t>>,
         initial_term_id: i32,
@@ -43062,9 +43407,6 @@ impl AeronHeaderValues<CResource<aeron_header_values_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_header_values_t>::new(
             move |ctx_field| {
@@ -43088,9 +43430,6 @@ impl AeronHeaderValues<CResource<aeron_header_values_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronHeaderValues<Inline<aeron_header_values_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -43105,14 +43444,17 @@ impl AeronHeaderValues<CResource<aeron_header_values_t>> {
 impl AeronHeaderValues {}
 impl<S: ResourceStorage<aeron_header_values_t>> AeronHeaderValues<S> {
     #[inline]
+    #[must_use]
     pub fn frame(&self) -> AeronHeaderValuesFrame<Inline<aeron_header_values_frame_t>> {
         unsafe { AeronHeaderValuesFrame::from_native(unsafe { self.get_inner_ref() }.frame) }
     }
     #[inline]
+    #[must_use]
     pub fn initial_term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.initial_term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn position_bits_to_shift(&self) -> usize {
         unsafe { self.get_inner_ref() }.position_bits_to_shift.into()
     }
@@ -43282,14 +43624,12 @@ impl<S: ResourceStorage<aeron_heartbeat_timestamp_key_layout_t>> core::fmt::Debu
         }
         f.debug_struct(stringify!(AeronHeartbeatTimestampKeyLayout))
             .field("inner", &self.inner)
-            .field(stringify!(registration_id), &self.registration_id())
+            .field("registration_id", &self.registration_id())
             .finish()
     }
 }
 impl AeronHeartbeatTimestampKeyLayout<CResource<aeron_heartbeat_timestamp_key_layout_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(registration_id: i64) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_heartbeat_timestamp_key_layout_t>::new(
             move |ctx_field| {
@@ -43310,9 +43650,6 @@ impl AeronHeartbeatTimestampKeyLayout<CResource<aeron_heartbeat_timestamp_key_la
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_heartbeat_timestamp_key_layout_t>::new(
             move |ctx_field| {
@@ -43336,9 +43673,6 @@ impl AeronHeartbeatTimestampKeyLayout<CResource<aeron_heartbeat_timestamp_key_la
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronHeartbeatTimestampKeyLayout<Inline<aeron_heartbeat_timestamp_key_layout_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -43353,6 +43687,7 @@ impl AeronHeartbeatTimestampKeyLayout<CResource<aeron_heartbeat_timestamp_key_la
 impl AeronHeartbeatTimestampKeyLayout {}
 impl<S: ResourceStorage<aeron_heartbeat_timestamp_key_layout_t>> AeronHeartbeatTimestampKeyLayout<S> {
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
@@ -43675,10 +44010,12 @@ impl AeronIdleStrategy {
 }
 impl<S: ResourceStorage<aeron_idle_strategy_t>> AeronIdleStrategy<S> {
     #[inline]
+    #[must_use]
     pub fn idle(&self) -> aeron_idle_strategy_func_t {
         unsafe { self.get_inner_ref() }.idle.into()
     }
     #[inline]
+    #[must_use]
     pub fn init(&self) -> aeron_idle_strategy_init_func_t {
         unsafe { self.get_inner_ref() }.init.into()
     }
@@ -43798,21 +44135,16 @@ impl<S: ResourceStorage<aeron_image_buffers_ready_t>> core::fmt::Debug for Aeron
         }
         f.debug_struct(stringify!(AeronImageBuffersReady))
             .field("inner", &self.inner)
-            .field(stringify!(correlation_id), &self.correlation_id())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(
-                stringify!(subscriber_registration_id),
-                &self.subscriber_registration_id(),
-            )
-            .field(stringify!(subscriber_position_id), &self.subscriber_position_id())
+            .field("correlation_id", &self.correlation_id())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("subscriber_registration_id", &self.subscriber_registration_id())
+            .field("subscriber_position_id", &self.subscriber_position_id())
             .finish()
     }
 }
 impl AeronImageBuffersReady<CResource<aeron_image_buffers_ready_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         correlation_id: i64,
         session_id: i32,
@@ -43843,9 +44175,6 @@ impl AeronImageBuffersReady<CResource<aeron_image_buffers_ready_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_image_buffers_ready_t>::new(
             move |ctx_field| {
@@ -43869,9 +44198,6 @@ impl AeronImageBuffersReady<CResource<aeron_image_buffers_ready_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronImageBuffersReady<Inline<aeron_image_buffers_ready_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -43886,22 +44212,27 @@ impl AeronImageBuffersReady<CResource<aeron_image_buffers_ready_t>> {
 impl AeronImageBuffersReady {}
 impl<S: ResourceStorage<aeron_image_buffers_ready_t>> AeronImageBuffersReady<S> {
     #[inline]
+    #[must_use]
     pub fn correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.correlation_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn subscriber_registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.subscriber_registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn subscriber_position_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.subscriber_position_id.into()
     }
@@ -44068,15 +44399,15 @@ impl<S: ResourceStorage<aeron_image_constants_t>> core::fmt::Debug for AeronImag
         }
         f.debug_struct(stringify!(AeronImageConstants))
             .field("inner", &self.inner)
-            .field(stringify!(source_identity), &self.source_identity())
-            .field(stringify!(correlation_id), &self.correlation_id())
-            .field(stringify!(join_position), &self.join_position())
-            .field(stringify!(position_bits_to_shift), &self.position_bits_to_shift())
-            .field(stringify!(term_buffer_length), &self.term_buffer_length())
-            .field(stringify!(mtu_length), &self.mtu_length())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(initial_term_id), &self.initial_term_id())
-            .field(stringify!(subscriber_position_id), &self.subscriber_position_id())
+            .field("source_identity", &self.source_identity())
+            .field("correlation_id", &self.correlation_id())
+            .field("join_position", &self.join_position())
+            .field("position_bits_to_shift", &self.position_bits_to_shift())
+            .field("term_buffer_length", &self.term_buffer_length())
+            .field("mtu_length", &self.mtu_length())
+            .field("session_id", &self.session_id())
+            .field("initial_term_id", &self.initial_term_id())
+            .field("subscriber_position_id", &self.subscriber_position_id())
             .finish()
     }
 }
@@ -44168,6 +44499,8 @@ impl AeronImageConstants<CResource<aeron_image_constants_t>> {
 impl AeronImageConstants {}
 impl<S: ResourceStorage<aeron_image_constants_t>> AeronImageConstants<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn subscription(&self) -> Ref<'_, AeronSubscription> {
         Ref::new(unsafe {
             AeronSubscription::from_ptr(
@@ -44178,6 +44511,7 @@ impl<S: ResourceStorage<aeron_image_constants_t>> AeronImageConstants<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn source_identity(&self) -> &str {
         if unsafe { self.get_inner_ref() }.source_identity.is_null() {
             ""
@@ -44190,34 +44524,42 @@ impl<S: ResourceStorage<aeron_image_constants_t>> AeronImageConstants<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.correlation_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn join_position(&self) -> i64 {
         unsafe { self.get_inner_ref() }.join_position.into()
     }
     #[inline]
+    #[must_use]
     pub fn position_bits_to_shift(&self) -> usize {
         unsafe { self.get_inner_ref() }.position_bits_to_shift.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_buffer_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.term_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn mtu_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.mtu_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn initial_term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.initial_term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn subscriber_position_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.subscriber_position_id.into()
     }
@@ -44253,6 +44595,8 @@ impl<S: ResourceStorage<aeron_image_constants_t>> AeronImageConstants<S> {
 }
 impl<'a, S: ResourceStorage<aeron_image_constants_t>> Ref<'a, AeronImageConstants<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn subscription(&self) -> Ref<'a, AeronSubscription> {
         Ref::new(self.value.subscription().value)
     }
@@ -44331,477 +44675,6 @@ mod aeron_image_constants_t_allocation_tests {
         });
     }
 }
-unsafe impl NativeResource for aeron_image_controlled_fragment_assembler_t {
-    type Policy = LocalResource;
-}
-pub struct AeronImageControlledFragmentAssembler<
-    S: ResourceStorage<aeron_image_controlled_fragment_assembler_t> = LiveCResource<
-        aeron_image_controlled_fragment_assembler_t,
-    >,
-> {
-    inner: S,
-}
-#[doc = r" Non-owning form used in callbacks and lifetime-bound getters."]
-pub type AeronImageControlledFragmentAssemblerRef =
-    AeronImageControlledFragmentAssembler<Borrowed<aeron_image_controlled_fragment_assembler_t>>;
-impl<S: ResourceStorage<aeron_image_controlled_fragment_assembler_t>> resource_sealed::Handle
-    for AeronImageControlledFragmentAssembler<S>
-{
-}
-impl<S: ResourceStorage<aeron_image_controlled_fragment_assembler_t>> ResourceHandle
-    for AeronImageControlledFragmentAssembler<S>
-{
-    type Native = aeron_image_controlled_fragment_assembler_t;
-    type Storage = S;
-    type Borrowed = AeronImageControlledFragmentAssembler<Borrowed<aeron_image_controlled_fragment_assembler_t>>;
-}
-impl<S: ResourceStorage<aeron_image_controlled_fragment_assembler_t>> ResourceHandleExt
-    for AeronImageControlledFragmentAssembler<S>
-{
-    #[inline]
-    fn resource(&self) -> &S {
-        &self.inner
-    }
-    #[inline]
-    fn from_resource(inner: S) -> Self {
-        Self { inner }
-    }
-    #[inline]
-    fn from_borrowed(inner: Borrowed<aeron_image_controlled_fragment_assembler_t>) -> Self::Borrowed {
-        AeronImageControlledFragmentAssembler { inner }
-    }
-}
-impl OwnedResourceHandle
-    for AeronImageControlledFragmentAssembler<LiveCResource<aeron_image_controlled_fragment_assembler_t>>
-{
-    #[inline]
-    fn from_owned(inner: CResource<aeron_image_controlled_fragment_assembler_t>) -> Self {
-        Self { inner: inner.into() }
-    }
-}
-impl<S: ResourceStorage<aeron_image_controlled_fragment_assembler_t>> core::fmt::Debug
-    for AeronImageControlledFragmentAssembler<S>
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.inner.get().is_null() {
-            return f
-                .debug_struct(stringify!(AeronImageControlledFragmentAssembler))
-                .field("inner", &"null")
-                .finish();
-        }
-        f.debug_struct(stringify!(AeronImageControlledFragmentAssembler))
-            .field("inner", &self.inner)
-            .finish()
-    }
-}
-impl AeronImageControlledFragmentAssembler<LiveCResource<aeron_image_controlled_fragment_assembler_t>> {
-    #[inline]
-    #[doc = "Create an image controlled fragment assembler for use with a single image."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `delegate` to call on completed"]
-    #[doc = " \n - `delegate_clientd` to pass to delegate handler."]
-    #[doc = " \n# Return\n 0 for success and -1 for error."]
-    pub fn new<
-        AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback + 'static,
-        AeronControlledFragmentHandlerHandlerImplPolicy: CallbackPolicy,
-    >(
-        delegate: Option<
-            &Handler<AeronControlledFragmentHandlerHandlerImpl, AeronControlledFragmentHandlerHandlerImplPolicy>,
-        >,
-    ) -> Result<Self, AeronCError> {
-        if delegate.is_none() {
-            return Err(AeronCError::with_message(-1, "fragment assembler requires a delegate"));
-        }
-        let __handler_delegate = delegate;
-        let (delegate, delegate_clientd) = (
-            {
-                let callback: aeron_controlled_fragment_handler_t = if delegate.is_none() {
-                    None
-                } else {
-                    Some(
-                        aeron_controlled_fragment_handler_t_callback_catch::<
-                            AeronControlledFragmentHandlerHandlerImpl,
-                            AeronControlledFragmentHandlerHandlerImplPolicy,
-                        >,
-                    )
-                };
-                callback
-            },
-            delegate.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
-        );
-        let resource_constructor = ManagedCResource::<aeron_image_controlled_fragment_assembler_t>::new(
-            move |ctx_field| unsafe {
-                #[cfg(feature = "log-c-bindings")]
-                {
-                    let log_args = [
-                        concat!(
-                            "assembler",
-                            ": ",
-                            stringify!(*mut *mut aeron_image_controlled_fragment_assembler_t)
-                        )
-                        .to_string(),
-                        concat!("delegate", ": ", stringify!(aeron_controlled_fragment_handler_t)).to_string(),
-                    ]
-                    .join(", ");
-                    log::info!(
-                        "{}({})",
-                        stringify!(aeron_image_controlled_fragment_assembler_create),
-                        log_args
-                    );
-                }
-                aeron_image_controlled_fragment_assembler_create(ctx_field, delegate, delegate_clientd)
-            },
-            Some(Box::new(move |ctx_field| unsafe {
-                #[cfg(feature = "log-c-bindings")]
-                {
-                    let log_args = [concat!(
-                        "assembler",
-                        ": ",
-                        stringify!(*mut aeron_image_controlled_fragment_assembler_t)
-                    )
-                    .to_string()]
-                    .join(", ");
-                    log::info!(
-                        "{}({})",
-                        stringify!(aeron_image_controlled_fragment_assembler_delete),
-                        log_args
-                    );
-                }
-                aeron_image_controlled_fragment_assembler_delete(*ctx_field)
-            })),
-            false,
-        )?;
-        let result = Self {
-            inner: CResource::new(ResourceRef::new(resource_constructor)).into(),
-        };
-        if let Some(__handler) = __handler_delegate {
-            if let Some(__inner) = result.inner.as_owned() {
-                __inner.add_dependency(Handler::clone(__handler));
-            }
-        }
-        Ok(result)
-    }
-}
-impl AeronImageControlledFragmentAssembler {
-    #[inline]
-    #[doc = "Handler function to be passed for handling fragment assembly."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `clientd` passed in the poll call (must be a `AeronImageControlledFragmentAssembler`)"]
-    #[doc = " \n - `buffer` containing the data."]
-    #[doc = " \n - `header` representing the meta data for the data."]
-    #[doc = " \n# Return\n The action to be taken with regard to the stream position after the callback."]
-    #[doc = "# Safety"]
-    #[doc = "Raw pointer arguments must have the size, alignment, initialization and lifetime required by the native function. Writable pointers require exclusive access. Keep any retained pointers valid until native cleanup."]
-    #[doc = "# Safety"]
-    #[doc = "`clientd` must point to a live native assembler. Hold exclusive access to the assembler and its callback for this call; the callback must catch panics before returning through C."]
-    pub unsafe fn handler(
-        clientd: *mut ::std::os::raw::c_void,
-        buffer: &[u8],
-        header: &AeronHeader,
-    ) -> aeron_controlled_fragment_handler_action_t {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_image_controlled_fragment_assembler_handler),
-                [
-                    concat!("clientd", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
-                    format!("{}: {} (len={})", "buffer", stringify!(*const u8), buffer.len())
-                ]
-                .join(", ")
-            );
-            let result = aeron_image_controlled_fragment_assembler_handler(
-                clientd.into(),
-                buffer.as_ptr() as *mut _,
-                buffer.len() as _,
-                header.get_inner(),
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-}
-impl<S: ResourceStorage<aeron_image_controlled_fragment_assembler_t>> AeronImageControlledFragmentAssembler<S> {
-    #[doc = r" Borrow this handle without cloning its owner."]
-    #[inline(always)]
-    pub fn as_ref(&self) -> Ref<'_, Self> {
-        Ref::new(Self::from_borrowed(unsafe { Borrowed::new(self.inner.get()) }))
-    }
-    #[inline(always)]
-    pub fn get_inner(&self) -> *mut aeron_image_controlled_fragment_assembler_t {
-        let pointer = self.inner.get();
-        pointer
-    }
-    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
-    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
-    #[doc = r" access for the lifetime of the returned reference."]
-    #[doc = r""]
-    #[doc = r" # Safety"]
-    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
-    #[doc = r" alive while the returned `&mut` is in use."]
-    #[inline(always)]
-    pub unsafe fn get_inner_mut(&self) -> &mut aeron_image_controlled_fragment_assembler_t {
-        &mut *self.inner.get()
-    }
-    #[inline(always)]
-    #[doc = r" Borrow the native struct."]
-    #[doc = r" # Safety"]
-    #[doc = r" No Rust or native call may mutate the struct while this reference"]
-    #[doc = r" is alive. Shared wrappers also require coordination with other threads."]
-    pub unsafe fn get_inner_ref(&self) -> &aeron_image_controlled_fragment_assembler_t {
-        unsafe { self.inner.get().as_ref() }.expect("native resource was released")
-    }
-}
-impl AeronImageControlledFragmentAssembler {
-    #[doc = r" Borrow a native pointer without taking ownership."]
-    #[doc = r" # Safety"]
-    #[doc = r" The pointer must be non-null. It and its parents must remain live for every use. Calls"]
-    #[doc = r" must follow Aeron's threading and aliasing rules."]
-    #[inline]
-    pub unsafe fn from_ptr(
-        ptr: *mut aeron_image_controlled_fragment_assembler_t,
-    ) -> AeronImageControlledFragmentAssembler<Borrowed<aeron_image_controlled_fragment_assembler_t>> {
-        AeronImageControlledFragmentAssembler {
-            inner: unsafe { Borrowed::new_unchecked(ptr) },
-        }
-    }
-}
-impl<S: ResourceStorage<aeron_image_controlled_fragment_assembler_t>> From<AeronImageControlledFragmentAssembler<S>>
-    for *mut aeron_image_controlled_fragment_assembler_t
-{
-    #[inline]
-    fn from(value: AeronImageControlledFragmentAssembler<S>) -> Self {
-        value.get_inner()
-    }
-}
-impl<S: ResourceStorage<aeron_image_controlled_fragment_assembler_t>> From<&AeronImageControlledFragmentAssembler<S>>
-    for *mut aeron_image_controlled_fragment_assembler_t
-{
-    #[inline]
-    fn from(value: &AeronImageControlledFragmentAssembler<S>) -> Self {
-        value.get_inner()
-    }
-}
-unsafe impl NativeResource for aeron_image_fragment_assembler_t {
-    type Policy = LocalResource;
-}
-pub struct AeronImageFragmentAssembler<
-    S: ResourceStorage<aeron_image_fragment_assembler_t> = LiveCResource<aeron_image_fragment_assembler_t>,
-> {
-    inner: S,
-}
-#[doc = r" Non-owning form used in callbacks and lifetime-bound getters."]
-pub type AeronImageFragmentAssemblerRef = AeronImageFragmentAssembler<Borrowed<aeron_image_fragment_assembler_t>>;
-impl<S: ResourceStorage<aeron_image_fragment_assembler_t>> resource_sealed::Handle for AeronImageFragmentAssembler<S> {}
-impl<S: ResourceStorage<aeron_image_fragment_assembler_t>> ResourceHandle for AeronImageFragmentAssembler<S> {
-    type Native = aeron_image_fragment_assembler_t;
-    type Storage = S;
-    type Borrowed = AeronImageFragmentAssembler<Borrowed<aeron_image_fragment_assembler_t>>;
-}
-impl<S: ResourceStorage<aeron_image_fragment_assembler_t>> ResourceHandleExt for AeronImageFragmentAssembler<S> {
-    #[inline]
-    fn resource(&self) -> &S {
-        &self.inner
-    }
-    #[inline]
-    fn from_resource(inner: S) -> Self {
-        Self { inner }
-    }
-    #[inline]
-    fn from_borrowed(inner: Borrowed<aeron_image_fragment_assembler_t>) -> Self::Borrowed {
-        AeronImageFragmentAssembler { inner }
-    }
-}
-impl OwnedResourceHandle for AeronImageFragmentAssembler<LiveCResource<aeron_image_fragment_assembler_t>> {
-    #[inline]
-    fn from_owned(inner: CResource<aeron_image_fragment_assembler_t>) -> Self {
-        Self { inner: inner.into() }
-    }
-}
-impl<S: ResourceStorage<aeron_image_fragment_assembler_t>> core::fmt::Debug for AeronImageFragmentAssembler<S> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.inner.get().is_null() {
-            return f
-                .debug_struct(stringify!(AeronImageFragmentAssembler))
-                .field("inner", &"null")
-                .finish();
-        }
-        f.debug_struct(stringify!(AeronImageFragmentAssembler))
-            .field("inner", &self.inner)
-            .finish()
-    }
-}
-impl AeronImageFragmentAssembler<LiveCResource<aeron_image_fragment_assembler_t>> {
-    #[inline]
-    #[doc = "Create an image fragment assembler for use with a single image."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `delegate` to call on completed."]
-    #[doc = " \n - `delegate_clientd` to pass to delegate handler."]
-    #[doc = " \n# Return\n 0 for success and -1 for error."]
-    pub fn new<
-        AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback + 'static,
-        AeronFragmentHandlerHandlerImplPolicy: CallbackPolicy,
-    >(
-        delegate: Option<&Handler<AeronFragmentHandlerHandlerImpl, AeronFragmentHandlerHandlerImplPolicy>>,
-    ) -> Result<Self, AeronCError> {
-        if delegate.is_none() {
-            return Err(AeronCError::with_message(-1, "fragment assembler requires a delegate"));
-        }
-        let __handler_delegate = delegate;
-        let (delegate, delegate_clientd) = (
-            {
-                let callback: aeron_fragment_handler_t = if delegate.is_none() {
-                    None
-                } else {
-                    Some(
-                        aeron_fragment_handler_t_callback_catch::<
-                            AeronFragmentHandlerHandlerImpl,
-                            AeronFragmentHandlerHandlerImplPolicy,
-                        >,
-                    )
-                };
-                callback
-            },
-            delegate.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut()),
-        );
-        let resource_constructor = ManagedCResource::<aeron_image_fragment_assembler_t>::new(
-            move |ctx_field| unsafe {
-                #[cfg(feature = "log-c-bindings")]
-                {
-                    let log_args = [
-                        concat!(
-                            "assembler",
-                            ": ",
-                            stringify!(*mut *mut aeron_image_fragment_assembler_t)
-                        )
-                        .to_string(),
-                        concat!("delegate", ": ", stringify!(aeron_fragment_handler_t)).to_string(),
-                    ]
-                    .join(", ");
-                    log::info!("{}({})", stringify!(aeron_image_fragment_assembler_create), log_args);
-                }
-                aeron_image_fragment_assembler_create(ctx_field, delegate, delegate_clientd)
-            },
-            Some(Box::new(move |ctx_field| unsafe {
-                #[cfg(feature = "log-c-bindings")]
-                {
-                    let log_args =
-                        [concat!("assembler", ": ", stringify!(*mut aeron_image_fragment_assembler_t)).to_string()]
-                            .join(", ");
-                    log::info!("{}({})", stringify!(aeron_image_fragment_assembler_delete), log_args);
-                }
-                aeron_image_fragment_assembler_delete(*ctx_field)
-            })),
-            false,
-        )?;
-        let result = Self {
-            inner: CResource::new(ResourceRef::new(resource_constructor)).into(),
-        };
-        if let Some(__handler) = __handler_delegate {
-            if let Some(__inner) = result.inner.as_owned() {
-                __inner.add_dependency(Handler::clone(__handler));
-            }
-        }
-        Ok(result)
-    }
-}
-impl AeronImageFragmentAssembler {
-    #[inline]
-    #[doc = "Handler function to be passed for handling fragment assembly."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `clientd` passed in the poll call (must be a `AeronImageFragmentAssembler`)"]
-    #[doc = " \n - `buffer` containing the data."]
-    #[doc = " \n - `header` representing the meta data for the data."]
-    #[doc = "# Safety"]
-    #[doc = "Raw pointer arguments must have the size, alignment, initialization and lifetime required by the native function. Writable pointers require exclusive access. Keep any retained pointers valid until native cleanup."]
-    #[doc = "# Safety"]
-    #[doc = "`clientd` must point to a live native assembler. Hold exclusive access to the assembler and its callback for this call; the callback must catch panics before returning through C."]
-    pub unsafe fn handler(clientd: *mut ::std::os::raw::c_void, buffer: &[u8], header: &AeronHeader) -> () {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_image_fragment_assembler_handler),
-                [
-                    concat!("clientd", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string(),
-                    format!("{}: {} (len={})", "buffer", stringify!(*const u8), buffer.len())
-                ]
-                .join(", ")
-            );
-            let result = aeron_image_fragment_assembler_handler(
-                clientd.into(),
-                buffer.as_ptr() as *mut _,
-                buffer.len() as _,
-                header.get_inner(),
-            );
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-}
-impl<S: ResourceStorage<aeron_image_fragment_assembler_t>> AeronImageFragmentAssembler<S> {
-    #[doc = r" Borrow this handle without cloning its owner."]
-    #[inline(always)]
-    pub fn as_ref(&self) -> Ref<'_, Self> {
-        Ref::new(Self::from_borrowed(unsafe { Borrowed::new(self.inner.get()) }))
-    }
-    #[inline(always)]
-    pub fn get_inner(&self) -> *mut aeron_image_fragment_assembler_t {
-        let pointer = self.inner.get();
-        pointer
-    }
-    #[doc = r" Mutable access to the underlying C struct, minted from `&self`: nothing"]
-    #[doc = r" prevents two live `&mut` at once, so the caller must ensure exclusive"]
-    #[doc = r" access for the lifetime of the returned reference."]
-    #[doc = r""]
-    #[doc = r" # Safety"]
-    #[doc = r" No other reference (`&` or `&mut`) to the underlying struct may be"]
-    #[doc = r" alive while the returned `&mut` is in use."]
-    #[inline(always)]
-    pub unsafe fn get_inner_mut(&self) -> &mut aeron_image_fragment_assembler_t {
-        &mut *self.inner.get()
-    }
-    #[inline(always)]
-    #[doc = r" Borrow the native struct."]
-    #[doc = r" # Safety"]
-    #[doc = r" No Rust or native call may mutate the struct while this reference"]
-    #[doc = r" is alive. Shared wrappers also require coordination with other threads."]
-    pub unsafe fn get_inner_ref(&self) -> &aeron_image_fragment_assembler_t {
-        unsafe { self.inner.get().as_ref() }.expect("native resource was released")
-    }
-}
-impl AeronImageFragmentAssembler {
-    #[doc = r" Borrow a native pointer without taking ownership."]
-    #[doc = r" # Safety"]
-    #[doc = r" The pointer must be non-null. It and its parents must remain live for every use. Calls"]
-    #[doc = r" must follow Aeron's threading and aliasing rules."]
-    #[inline]
-    pub unsafe fn from_ptr(
-        ptr: *mut aeron_image_fragment_assembler_t,
-    ) -> AeronImageFragmentAssembler<Borrowed<aeron_image_fragment_assembler_t>> {
-        AeronImageFragmentAssembler {
-            inner: unsafe { Borrowed::new_unchecked(ptr) },
-        }
-    }
-}
-impl<S: ResourceStorage<aeron_image_fragment_assembler_t>> From<AeronImageFragmentAssembler<S>>
-    for *mut aeron_image_fragment_assembler_t
-{
-    #[inline]
-    fn from(value: AeronImageFragmentAssembler<S>) -> Self {
-        value.get_inner()
-    }
-}
-impl<S: ResourceStorage<aeron_image_fragment_assembler_t>> From<&AeronImageFragmentAssembler<S>>
-    for *mut aeron_image_fragment_assembler_t
-{
-    #[inline]
-    fn from(value: &AeronImageFragmentAssembler<S>) -> Self {
-        value.get_inner()
-    }
-}
 unsafe impl NativeResource for aeron_image_message_t {
     type Policy = LocalResource;
 }
@@ -44847,20 +44720,15 @@ impl<S: ResourceStorage<aeron_image_message_t>> core::fmt::Debug for AeronImageM
         }
         f.debug_struct(stringify!(AeronImageMessage))
             .field("inner", &self.inner)
-            .field(stringify!(correlation_id), &self.correlation_id())
-            .field(
-                stringify!(subscription_registration_id),
-                &self.subscription_registration_id(),
-            )
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(channel_length), &self.channel_length())
+            .field("correlation_id", &self.correlation_id())
+            .field("subscription_registration_id", &self.subscription_registration_id())
+            .field("stream_id", &self.stream_id())
+            .field("channel_length", &self.channel_length())
             .finish()
     }
 }
 impl AeronImageMessage<CResource<aeron_image_message_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         correlation_id: i64,
         subscription_registration_id: i64,
@@ -44889,9 +44757,6 @@ impl AeronImageMessage<CResource<aeron_image_message_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_image_message_t>::new(
             move |ctx_field| {
@@ -44915,9 +44780,6 @@ impl AeronImageMessage<CResource<aeron_image_message_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronImageMessage<Inline<aeron_image_message_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -44932,18 +44794,22 @@ impl AeronImageMessage<CResource<aeron_image_message_t>> {
 impl AeronImageMessage {}
 impl<S: ResourceStorage<aeron_image_message_t>> AeronImageMessage<S> {
     #[inline]
+    #[must_use]
     pub fn correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.correlation_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn subscription_registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.subscription_registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn channel_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.channel_length.into()
     }
@@ -45060,7 +44926,7 @@ unsafe impl NativeResource for aeron_image_t {
     type Policy = LocalResource;
 }
 #[derive(Clone)]
-pub struct AeronImage<S: ResourceStorage<aeron_image_t> = CResource<aeron_image_t>> {
+pub struct AeronImage<S: ResourceStorage<aeron_image_t> = LiveCResource<aeron_image_t>> {
     inner: S,
 }
 #[doc = r" Non-owning form used in callbacks and lifetime-bound getters."]
@@ -45085,7 +44951,7 @@ impl<S: ResourceStorage<aeron_image_t>> ResourceHandleExt for AeronImage<S> {
         AeronImage { inner }
     }
 }
-impl OwnedResourceHandle for AeronImage<CResource<aeron_image_t>> {
+impl OwnedResourceHandle for AeronImage<LiveCResource<aeron_image_t>> {
     #[inline]
     fn from_owned(inner: CResource<aeron_image_t>) -> Self {
         Self { inner: inner.into() }
@@ -45102,43 +44968,7 @@ impl<S: ResourceStorage<aeron_image_t>> core::fmt::Debug for AeronImage<S> {
             .finish()
     }
 }
-impl AeronImage<CResource<aeron_image_t>> {
-    #[inline]
-    #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
-        let resource = ManagedCResource::<aeron_image_t>::new(
-            move |ctx_field| {
-                #[cfg(feature = "extra-logging")]
-                log::info!("creating zeroed empty resource on heap {}", stringify!(aeron_image_t));
-                let inst: aeron_image_t = unsafe { std::mem::zeroed() };
-                let inner_ptr: *mut aeron_image_t = Box::into_raw(Box::new(inst));
-                unsafe { *ctx_field = inner_ptr };
-                0
-            },
-            None,
-            true,
-        )
-        .unwrap();
-        Self {
-            inner: CResource::new(ResourceRef::new(resource)).into(),
-        }
-    }
-    #[inline]
-    #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> AeronImage<Inline<aeron_image_t>> {
-        #[cfg(feature = "extra-logging")]
-        log::debug!("creating zeroed empty resource on stack {}", stringify!(aeron_image_t));
-        AeronImage {
-            inner: Inline::new(unsafe { std::mem::zeroed() }),
-        }
-    }
-}
+impl AeronImage<LiveCResource<aeron_image_t>> {}
 impl AeronImage {}
 impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[inline]
@@ -45171,8 +45001,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[inline]
     #[doc = "Fill in a structure with the constants in use by a image."]
     #[doc = ""]
-    #[doc = "# Parameters\n \n - `image` to get the constants for."]
-    #[doc = " \n - `constants` structure to fill in with the constants"]
+    #[doc = "# Parameters\n \n - `constants` structure to fill in with the constants"]
     #[doc = " \n# Return\n 0 for success and -1 for error."]
     #[doc = "# Safety"]
     #[doc = "The output may contain borrowed native pointers. Do not use those pointers after the queried handle is dropped or changed. Prefer the lifetime-bound `get_constants`, `get_buffers` or `get_values` method."]
@@ -45216,6 +45045,46 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
         }))
     }
     #[inline]
+    #[doc = "`get_constants()?.correlation_id()`. Call `get_constants()` once to read several fields"]
+    pub fn correlation_id(&self) -> Result<i64, AeronCError> {
+        Ok(self.get_constants()?.correlation_id())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.join_position()`. Call `get_constants()` once to read several fields"]
+    pub fn join_position(&self) -> Result<i64, AeronCError> {
+        Ok(self.get_constants()?.join_position())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.position_bits_to_shift()`. Call `get_constants()` once to read several fields"]
+    pub fn position_bits_to_shift(&self) -> Result<usize, AeronCError> {
+        Ok(self.get_constants()?.position_bits_to_shift())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.term_buffer_length()`. Call `get_constants()` once to read several fields"]
+    pub fn term_buffer_length(&self) -> Result<usize, AeronCError> {
+        Ok(self.get_constants()?.term_buffer_length())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.mtu_length()`. Call `get_constants()` once to read several fields"]
+    pub fn mtu_length(&self) -> Result<usize, AeronCError> {
+        Ok(self.get_constants()?.mtu_length())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.session_id()`. Call `get_constants()` once to read several fields"]
+    pub fn session_id(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.session_id())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.initial_term_id()`. Call `get_constants()` once to read several fields"]
+    pub fn initial_term_id(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.initial_term_id())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.subscriber_position_id()`. Call `get_constants()` once to read several fields"]
+    pub fn subscriber_position_id(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.subscriber_position_id())
+    }
+    #[inline]
     #[doc = "The position this image has been consumed to by the subscriber."]
     #[doc = ""]
     #[doc = " \n# Return\n the position this image has been consumed to by the subscriber."]
@@ -45234,6 +45103,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "Is the current consumed position at the end of the stream?"]
     #[doc = ""]
     #[doc = " \n# Return\n true if at the end of the stream or false if not."]
@@ -45296,6 +45166,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "Was the associated publication revoked?"]
     #[doc = ""]
     #[doc = " \n# Return\n true if the associated publication was revoked."]
@@ -45320,79 +45191,13 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = " Use a fragment assembler to assemble messages which span multiple fragments."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
-    #[doc = " \n - `clientd` to pass to the handler."]
-    #[doc = " \n - `fragment_limit` for the number of fragments to be consumed during one polling operation."]
-    #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
-    pub fn poll_with_handler<
-        AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback,
-        AeronFragmentHandlerHandlerImplPolicy: CallbackPolicy,
-    >(
-        &self,
-        handler: Option<&Handler<AeronFragmentHandlerHandlerImpl, AeronFragmentHandlerHandlerImplPolicy>>,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        let mut handler_state = handler.map(Handler::lock);
-        let (handler_callback, handler_clientd): (aeron_fragment_handler_t, *mut std::os::raw::c_void) =
-            if let Some(state) = handler_state.as_mut() {
-                if let Some(native) = state.native_poll_callback() {
-                    (native.callback, native.clientd)
-                } else {
-                    (
-                        Some(
-                            aeron_fragment_handler_t_callback_for_borrowed_handler_unwind::<
-                                AeronFragmentHandlerHandlerImpl,
-                            >,
-                        ),
-                        &mut **state as *mut AeronFragmentHandlerHandlerImpl as *mut _,
-                    )
-                }
-            } else {
-                (None, std::ptr::null_mut())
-            };
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_image_poll),
-                [
-                    concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string(),
-                    concat!("handler", ": ", stringify!(aeron_fragment_handler_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_image_poll(
-                self.get_inner(),
-                handler_callback,
-                handler_clientd,
-                fragment_limit.into(),
-            );
-            if AeronFragmentHandlerHandlerImpl::RESUMES_CAUGHT_PANIC {
-                resume_caught_panic();
-            }
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    #[doc = "Poll for new messages in a stream. If new messages are found beyond the last consumed position then they"]
-    #[doc = " will be delivered to the handler up to a limited number of fragments as specified."]
-    #[doc = " \n"]
-    #[doc = " Use a fragment assembler to assemble messages which span multiple fragments."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
-    #[doc = " \n - `clientd` to pass to the handler."]
     #[doc = " \n - `fragment_limit` for the number of fragments to be consumed during one polling operation."]
     #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
     #[doc = r""]
     #[doc = r" Borrows the callback exclusively until this call returns."]
     #[doc = r" This method uses no callback allocation, reference count,"]
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
-    #[doc = "Use `poll_with_handler` only when callback ownership must be shared."]
+    #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn poll<AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback>(
         &self,
         handler: &mut AeronFragmentHandlerHandlerImpl,
@@ -45448,17 +45253,14 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = " Use a fragment assembler to assemble messages which span multiple fragments."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
-    #[doc = " \n - `clientd` to pass to the handler."]
     #[doc = " \n - `fragment_limit` for the number of fragments to be consumed during one polling operation."]
     #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -45502,81 +45304,13 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = " Use a controlled fragment assembler to assemble messages which span multiple fragments."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
-    #[doc = " \n - `clientd` to pass to the handler."]
-    #[doc = " \n - `fragment_limit` for the number of fragments to be consumed during one polling operation."]
-    #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
-    pub fn controlled_poll_with_handler<
-        AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback,
-        AeronControlledFragmentHandlerHandlerImplPolicy: CallbackPolicy,
-    >(
-        &self,
-        handler: Option<
-            &Handler<AeronControlledFragmentHandlerHandlerImpl, AeronControlledFragmentHandlerHandlerImplPolicy>,
-        >,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        let mut handler_state = handler.map(Handler::lock);
-        let (handler_callback, handler_clientd): (aeron_controlled_fragment_handler_t, *mut std::os::raw::c_void) =
-            if let Some(state) = handler_state.as_mut() {
-                if let Some(native) = state.native_poll_callback() {
-                    (native.callback, native.clientd)
-                } else {
-                    (
-                        Some(
-                            aeron_controlled_fragment_handler_t_callback_for_borrowed_handler_unwind::<
-                                AeronControlledFragmentHandlerHandlerImpl,
-                            >,
-                        ),
-                        &mut **state as *mut AeronControlledFragmentHandlerHandlerImpl as *mut _,
-                    )
-                }
-            } else {
-                (None, std::ptr::null_mut())
-            };
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_image_controlled_poll),
-                [
-                    concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string(),
-                    concat!("handler", ": ", stringify!(aeron_controlled_fragment_handler_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_image_controlled_poll(
-                self.get_inner(),
-                handler_callback,
-                handler_clientd,
-                fragment_limit.into(),
-            );
-            if AeronControlledFragmentHandlerHandlerImpl::RESUMES_CAUGHT_PANIC {
-                resume_caught_panic();
-            }
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    #[doc = "Poll for new messages in a stream. If new messages are found beyond the last consumed position then they"]
-    #[doc = " will be delivered to the handler up to a limited number of fragments as specified."]
-    #[doc = " \n"]
-    #[doc = " Use a controlled fragment assembler to assemble messages which span multiple fragments."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
-    #[doc = " \n - `clientd` to pass to the handler."]
     #[doc = " \n - `fragment_limit` for the number of fragments to be consumed during one polling operation."]
     #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
     #[doc = r""]
     #[doc = r" Borrows the callback exclusively until this call returns."]
     #[doc = r" This method uses no callback allocation, reference count,"]
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
-    #[doc = "Use `controlled_poll_with_handler` only when callback ownership must be shared."]
+    #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn controlled_poll<AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback>(
         &self,
         handler: &mut AeronControlledFragmentHandlerHandlerImpl,
@@ -45633,17 +45367,14 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = " Use a controlled fragment assembler to assemble messages which span multiple fragments."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
-    #[doc = " \n - `clientd` to pass to the handler."]
     #[doc = " \n - `fragment_limit` for the number of fragments to be consumed during one polling operation."]
     #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -45693,76 +45424,6 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = " Use a fragment assembler to assemble messages which span multiple fragments."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
-    #[doc = " \n - `clientd` to pass to the handler."]
-    #[doc = " \n - `limit_position` to consume messages up to."]
-    #[doc = " \n - `fragment_limit` for the number of fragments to be consumed during one polling operation."]
-    #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
-    pub fn bounded_poll_with_handler<
-        AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback,
-        AeronFragmentHandlerHandlerImplPolicy: CallbackPolicy,
-    >(
-        &self,
-        handler: Option<&Handler<AeronFragmentHandlerHandlerImpl, AeronFragmentHandlerHandlerImplPolicy>>,
-        limit_position: i64,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        let mut handler_state = handler.map(Handler::lock);
-        let (handler_callback, handler_clientd): (aeron_fragment_handler_t, *mut std::os::raw::c_void) =
-            if let Some(state) = handler_state.as_mut() {
-                if let Some(native) = state.native_poll_callback() {
-                    (native.callback, native.clientd)
-                } else {
-                    (
-                        Some(
-                            aeron_fragment_handler_t_callback_for_borrowed_handler_unwind::<
-                                AeronFragmentHandlerHandlerImpl,
-                            >,
-                        ),
-                        &mut **state as *mut AeronFragmentHandlerHandlerImpl as *mut _,
-                    )
-                }
-            } else {
-                (None, std::ptr::null_mut())
-            };
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_image_bounded_poll),
-                [
-                    concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string(),
-                    concat!("handler", ": ", stringify!(aeron_fragment_handler_t)).to_string(),
-                    concat!("clientd", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_image_bounded_poll(
-                self.get_inner(),
-                handler_callback,
-                handler_clientd,
-                limit_position.into(),
-                fragment_limit.into(),
-            );
-            if AeronFragmentHandlerHandlerImpl::RESUMES_CAUGHT_PANIC {
-                resume_caught_panic();
-            }
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    #[doc = "Poll for new messages in a stream. If new messages are found beyond the last consumed position then they"]
-    #[doc = " will be delivered to the handler up to a limited number of fragments as specified or the maximum position specified."]
-    #[doc = " \n"]
-    #[doc = " Use a fragment assembler to assemble messages which span multiple fragments."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
-    #[doc = " \n - `clientd` to pass to the handler."]
     #[doc = " \n - `limit_position` to consume messages up to."]
     #[doc = " \n - `fragment_limit` for the number of fragments to be consumed during one polling operation."]
     #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
@@ -45770,7 +45431,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" Borrows the callback exclusively until this call returns."]
     #[doc = r" This method uses no callback allocation, reference count,"]
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
-    #[doc = "Use `bounded_poll_with_handler` only when callback ownership must be shared."]
+    #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn bounded_poll<AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback>(
         &self,
         handler: &mut AeronFragmentHandlerHandlerImpl,
@@ -45829,18 +45490,15 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = " Use a fragment assembler to assemble messages which span multiple fragments."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
-    #[doc = " \n - `clientd` to pass to the handler."]
     #[doc = " \n - `limit_position` to consume messages up to."]
     #[doc = " \n - `fragment_limit` for the number of fragments to be consumed during one polling operation."]
     #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -45889,78 +45547,6 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = " Use a controlled fragment assembler to assemble messages which span multiple fragments."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
-    #[doc = " \n - `clientd` to pass to the handler."]
-    #[doc = " \n - `limit_position` to consume messages up to."]
-    #[doc = " \n - `fragment_limit` for the number of fragments to be consumed during one polling operation."]
-    #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
-    pub fn bounded_controlled_poll_with_handler<
-        AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback,
-        AeronControlledFragmentHandlerHandlerImplPolicy: CallbackPolicy,
-    >(
-        &self,
-        handler: Option<
-            &Handler<AeronControlledFragmentHandlerHandlerImpl, AeronControlledFragmentHandlerHandlerImplPolicy>,
-        >,
-        limit_position: i64,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        let mut handler_state = handler.map(Handler::lock);
-        let (handler_callback, handler_clientd): (aeron_controlled_fragment_handler_t, *mut std::os::raw::c_void) =
-            if let Some(state) = handler_state.as_mut() {
-                if let Some(native) = state.native_poll_callback() {
-                    (native.callback, native.clientd)
-                } else {
-                    (
-                        Some(
-                            aeron_controlled_fragment_handler_t_callback_for_borrowed_handler_unwind::<
-                                AeronControlledFragmentHandlerHandlerImpl,
-                            >,
-                        ),
-                        &mut **state as *mut AeronControlledFragmentHandlerHandlerImpl as *mut _,
-                    )
-                }
-            } else {
-                (None, std::ptr::null_mut())
-            };
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_image_bounded_controlled_poll),
-                [
-                    concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string(),
-                    concat!("handler", ": ", stringify!(aeron_controlled_fragment_handler_t)).to_string(),
-                    concat!("clientd", ": ", stringify!(*mut ::std::os::raw::c_void)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_image_bounded_controlled_poll(
-                self.get_inner(),
-                handler_callback,
-                handler_clientd,
-                limit_position.into(),
-                fragment_limit.into(),
-            );
-            if AeronControlledFragmentHandlerHandlerImpl::RESUMES_CAUGHT_PANIC {
-                resume_caught_panic();
-            }
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    #[doc = "Poll for new messages in a stream. If new messages are found beyond the last consumed position then they"]
-    #[doc = " will be delivered to the handler up to a limited number of fragments as specified or the maximum position specified."]
-    #[doc = " \n"]
-    #[doc = " Use a controlled fragment assembler to assemble messages which span multiple fragments."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
-    #[doc = " \n - `clientd` to pass to the handler."]
     #[doc = " \n - `limit_position` to consume messages up to."]
     #[doc = " \n - `fragment_limit` for the number of fragments to be consumed during one polling operation."]
     #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
@@ -45968,7 +45554,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" Borrows the callback exclusively until this call returns."]
     #[doc = r" This method uses no callback allocation, reference count,"]
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
-    #[doc = "Use `bounded_controlled_poll_with_handler` only when callback ownership must be shared."]
+    #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn bounded_controlled_poll<
         AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback,
     >(
@@ -46030,18 +45616,15 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = " Use a controlled fragment assembler to assemble messages which span multiple fragments."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `handler` to which message fragments are delivered."]
-    #[doc = " \n - `clientd` to pass to the handler."]
     #[doc = " \n - `limit_position` to consume messages up to."]
     #[doc = " \n - `fragment_limit` for the number of fragments to be consumed during one polling operation."]
     #[doc = " \n# Return\n the number of fragments that have been consumed or -1 for error."]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -46099,77 +45682,13 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = " relevant length of the frame is data header length."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `handler` to which block is delivered."]
-    #[doc = " \n - `clientd` to pass to the handler."]
-    #[doc = " \n - `block_length_limit` up to which a block may be in length."]
-    #[doc = " \n# Return\n the number of bytes that have been consumed or -1 for error."]
-    pub fn block_poll_with_handler<
-        AeronBlockHandlerHandlerImpl: AeronBlockHandlerCallback,
-        AeronBlockHandlerHandlerImplPolicy: CallbackPolicy,
-    >(
-        &self,
-        handler: Option<&Handler<AeronBlockHandlerHandlerImpl, AeronBlockHandlerHandlerImplPolicy>>,
-        block_length_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        let mut handler_state = handler.map(Handler::lock);
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_image_block_poll),
-                [
-                    concat!("image", ": ", stringify!(*mut aeron_image_t)).to_string(),
-                    concat!("handler", ": ", stringify!(aeron_block_handler_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_image_block_poll(
-                self.get_inner(),
-                {
-                    let callback: aeron_block_handler_t = if handler_state.is_some() {
-                        Some(aeron_block_handler_t_callback_for_borrowed_handler_unwind::<AeronBlockHandlerHandlerImpl>)
-                    } else {
-                        None
-                    };
-                    callback
-                },
-                handler_state
-                    .as_mut()
-                    .map(|state| &mut **state as *mut AeronBlockHandlerHandlerImpl as *mut std::os::raw::c_void)
-                    .unwrap_or(std::ptr::null_mut()),
-                block_length_limit.into(),
-            );
-            if AeronBlockHandlerHandlerImpl::RESUMES_CAUGHT_PANIC {
-                resume_caught_panic();
-            }
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    #[doc = "Poll for new messages in a stream. If new messages are found beyond the last consumed position then they"]
-    #[doc = " will be delivered to the handler up to a limited number of bytes."]
-    #[doc = " \n"]
-    #[doc = " A scan will terminate if a padding frame is encountered. If first frame in a scan is padding then a block"]
-    #[doc = " for the padding is notified. If the padding comes after the first frame in a scan then the scan terminates"]
-    #[doc = " at the offset the padding frame begins. Padding frames are delivered singularly in a block."]
-    #[doc = " \n"]
-    #[doc = " Padding frames may be for a greater range than the limit offset but only the header needs to be valid so"]
-    #[doc = " relevant length of the frame is data header length."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `handler` to which block is delivered."]
-    #[doc = " \n - `clientd` to pass to the handler."]
     #[doc = " \n - `block_length_limit` up to which a block may be in length."]
     #[doc = " \n# Return\n the number of bytes that have been consumed or -1 for error."]
     #[doc = r""]
     #[doc = r" Borrows the callback exclusively until this call returns."]
     #[doc = r" This method uses no callback allocation, reference count,"]
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
-    #[doc = "Use `block_poll_with_handler` only when callback ownership must be shared."]
+    #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn block_poll<AeronBlockHandlerHandlerImpl: AeronBlockHandlerCallback>(
         &self,
         handler: &mut AeronBlockHandlerHandlerImpl,
@@ -46218,17 +45737,14 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = " relevant length of the frame is data header length."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `handler` to which block is delivered."]
-    #[doc = " \n - `clientd` to pass to the handler."]
     #[doc = " \n - `block_length_limit` up to which a block may be in length."]
     #[doc = " \n# Return\n the number of bytes that have been consumed or -1 for error."]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -46266,6 +45782,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn is_closed(&self) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -46357,20 +45874,6 @@ impl<S: ResourceStorage<aeron_image_t>> From<&AeronImage<S>> for *mut aeron_imag
         value.get_inner()
     }
 }
-#[cfg(test)]
-mod aeron_image_t_allocation_tests {
-    use super::*;
-    use serial_test::file_serial;
-    #[test]
-    #[file_serial(global)]
-    fn test_new_on_stack() {
-        crate::test_alloc::assert_no_allocation(|| {
-            for _ in 0..100 {
-                let _ = unsafe { AeronImage::new_zeroed_on_stack() };
-            }
-        });
-    }
-}
 unsafe impl NativeResource for aeron_int64_counter_map_t {
     type Policy = LocalResource;
 }
@@ -46416,11 +45919,11 @@ impl<S: ResourceStorage<aeron_int64_counter_map_t>> core::fmt::Debug for AeronIn
         }
         f.debug_struct(stringify!(AeronInt64CounterMap))
             .field("inner", &self.inner)
-            .field(stringify!(load_factor), &self.load_factor())
-            .field(stringify!(entries_length), &self.entries_length())
-            .field(stringify!(size), &self.size())
-            .field(stringify!(resize_threshold), &self.resize_threshold())
-            .field(stringify!(initial_value), &self.initial_value())
+            .field("load_factor", &self.load_factor())
+            .field("entries_length", &self.entries_length())
+            .field("size", &self.size())
+            .field("resize_threshold", &self.resize_threshold())
+            .field("initial_value", &self.initial_value())
             .finish()
     }
 }
@@ -46503,26 +46006,32 @@ impl AeronInt64CounterMap<CResource<aeron_int64_counter_map_t>> {
 impl AeronInt64CounterMap {}
 impl<S: ResourceStorage<aeron_int64_counter_map_t>> AeronInt64CounterMap<S> {
     #[inline]
+    #[must_use]
     pub fn entries(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.entries }
     }
     #[inline]
+    #[must_use]
     pub fn load_factor(&self) -> f32 {
         unsafe { self.get_inner_ref() }.load_factor.into()
     }
     #[inline]
+    #[must_use]
     pub fn entries_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.entries_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn size(&self) -> usize {
         unsafe { self.get_inner_ref() }.size.into()
     }
     #[inline]
+    #[must_use]
     pub fn resize_threshold(&self) -> usize {
         unsafe { self.get_inner_ref() }.resize_threshold.into()
     }
     #[inline]
+    #[must_use]
     pub fn initial_value(&self) -> i64 {
         unsafe { self.get_inner_ref() }.initial_value.into()
     }
@@ -46679,10 +46188,10 @@ impl<S: ResourceStorage<aeron_int64_to_ptr_hash_map_t>> core::fmt::Debug for Aer
         }
         f.debug_struct(stringify!(AeronInt64ToPtrHashMap))
             .field("inner", &self.inner)
-            .field(stringify!(load_factor), &self.load_factor())
-            .field(stringify!(capacity), &self.capacity())
-            .field(stringify!(size), &self.size())
-            .field(stringify!(resize_threshold), &self.resize_threshold())
+            .field("load_factor", &self.load_factor())
+            .field("capacity", &self.capacity())
+            .field("size", &self.size())
+            .field("resize_threshold", &self.resize_threshold())
             .finish()
     }
 }
@@ -46765,26 +46274,32 @@ impl AeronInt64ToPtrHashMap<CResource<aeron_int64_to_ptr_hash_map_t>> {
 impl AeronInt64ToPtrHashMap {}
 impl<S: ResourceStorage<aeron_int64_to_ptr_hash_map_t>> AeronInt64ToPtrHashMap<S> {
     #[inline]
+    #[must_use]
     pub fn keys(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.keys }
     }
     #[inline]
+    #[must_use]
     pub fn values(&self) -> *mut *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.values.into()
     }
     #[inline]
+    #[must_use]
     pub fn load_factor(&self) -> f32 {
         unsafe { self.get_inner_ref() }.load_factor.into()
     }
     #[inline]
+    #[must_use]
     pub fn capacity(&self) -> usize {
         unsafe { self.get_inner_ref() }.capacity.into()
     }
     #[inline]
+    #[must_use]
     pub fn size(&self) -> usize {
         unsafe { self.get_inner_ref() }.size.into()
     }
     #[inline]
+    #[must_use]
     pub fn resize_threshold(&self) -> usize {
         unsafe { self.get_inner_ref() }.resize_threshold.into()
     }
@@ -46947,8 +46462,8 @@ impl<S: ResourceStorage<aeron_int64_to_tagged_ptr_entry_t>> core::fmt::Debug for
         }
         f.debug_struct(stringify!(AeronInt64ToTaggedPtrEntry))
             .field("inner", &self.inner)
-            .field(stringify!(internal_flags), &self.internal_flags())
-            .field(stringify!(tag), &self.tag())
+            .field("internal_flags", &self.internal_flags())
+            .field("tag", &self.tag())
             .finish()
     }
 }
@@ -47021,14 +46536,17 @@ impl AeronInt64ToTaggedPtrEntry<CResource<aeron_int64_to_tagged_ptr_entry_t>> {
 impl AeronInt64ToTaggedPtrEntry {}
 impl<S: ResourceStorage<aeron_int64_to_tagged_ptr_entry_t>> AeronInt64ToTaggedPtrEntry<S> {
     #[inline]
+    #[must_use]
     pub fn value(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.value.into()
     }
     #[inline]
+    #[must_use]
     pub fn internal_flags(&self) -> u32 {
         unsafe { self.get_inner_ref() }.internal_flags.into()
     }
     #[inline]
+    #[must_use]
     pub fn tag(&self) -> u32 {
         unsafe { self.get_inner_ref() }.tag.into()
     }
@@ -47194,10 +46712,10 @@ impl<S: ResourceStorage<aeron_int64_to_tagged_ptr_hash_map_t>> core::fmt::Debug 
         }
         f.debug_struct(stringify!(AeronInt64ToTaggedPtrHashMap))
             .field("inner", &self.inner)
-            .field(stringify!(load_factor), &self.load_factor())
-            .field(stringify!(capacity), &self.capacity())
-            .field(stringify!(size), &self.size())
-            .field(stringify!(resize_threshold), &self.resize_threshold())
+            .field("load_factor", &self.load_factor())
+            .field("capacity", &self.capacity())
+            .field("size", &self.size())
+            .field("resize_threshold", &self.resize_threshold())
             .finish()
     }
 }
@@ -47281,10 +46799,13 @@ impl AeronInt64ToTaggedPtrHashMap<CResource<aeron_int64_to_tagged_ptr_hash_map_t
 impl AeronInt64ToTaggedPtrHashMap {}
 impl<S: ResourceStorage<aeron_int64_to_tagged_ptr_hash_map_t>> AeronInt64ToTaggedPtrHashMap<S> {
     #[inline]
+    #[must_use]
     pub fn keys(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.keys }
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn entries(&self) -> Ref<'_, AeronInt64ToTaggedPtrEntry> {
         Ref::new(unsafe {
             AeronInt64ToTaggedPtrEntry::from_ptr(
@@ -47295,18 +46816,22 @@ impl<S: ResourceStorage<aeron_int64_to_tagged_ptr_hash_map_t>> AeronInt64ToTagge
         })
     }
     #[inline]
+    #[must_use]
     pub fn load_factor(&self) -> f32 {
         unsafe { self.get_inner_ref() }.load_factor.into()
     }
     #[inline]
+    #[must_use]
     pub fn capacity(&self) -> usize {
         unsafe { self.get_inner_ref() }.capacity.into()
     }
     #[inline]
+    #[must_use]
     pub fn size(&self) -> usize {
         unsafe { self.get_inner_ref() }.size.into()
     }
     #[inline]
+    #[must_use]
     pub fn resize_threshold(&self) -> usize {
         unsafe { self.get_inner_ref() }.resize_threshold.into()
     }
@@ -47342,6 +46867,8 @@ impl<S: ResourceStorage<aeron_int64_to_tagged_ptr_hash_map_t>> AeronInt64ToTagge
 }
 impl<'a, S: ResourceStorage<aeron_int64_to_tagged_ptr_hash_map_t>> Ref<'a, AeronInt64ToTaggedPtrHashMap<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn entries(&self) -> Ref<'a, AeronInt64ToTaggedPtrEntry> {
         Ref::new(self.value.entries().value)
     }
@@ -47470,7 +46997,7 @@ impl<S: ResourceStorage<aeron_iovec_t>> core::fmt::Debug for AeronIovec<S> {
         }
         f.debug_struct(stringify!(AeronIovec))
             .field("inner", &self.inner)
-            .field(stringify!(iov_len), &self.iov_len())
+            .field("iov_len", &self.iov_len())
             .finish()
     }
 }
@@ -47536,6 +47063,7 @@ impl AeronIovec<CResource<aeron_iovec_t>> {
 impl AeronIovec {}
 impl<S: ResourceStorage<aeron_iovec_t>> AeronIovec<S> {
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" The stored pointer must be valid for the returned slice, and no"]
     #[doc = r" other Rust or native access may overlap its mutable borrow."]
@@ -47552,6 +47080,7 @@ impl<S: ResourceStorage<aeron_iovec_t>> AeronIovec<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn iov_len(&self) -> usize {
         unsafe { self.get_inner_ref() }.iov_len.into()
     }
@@ -47703,7 +47232,10 @@ impl<S: ResourceStorage<aeron_ipc_channel_params_t>> core::fmt::Debug for AeronI
         }
         f.debug_struct(stringify!(AeronIpcChannelParams))
             .field("inner", &self.inner)
-            .field(stringify!(additional_params), &self.additional_params())
+            .field("channel_tag", &self.channel_tag())
+            .field("entity_tag", &self.entity_tag())
+            .field("control_mode", &self.control_mode())
+            .field("additional_params", &self.additional_params())
             .finish()
     }
 }
@@ -47782,10 +47314,8 @@ impl AeronIpcChannelParams<CResource<aeron_ipc_channel_params_t>> {
 impl AeronIpcChannelParams {}
 impl<S: ResourceStorage<aeron_ipc_channel_params_t>> AeronIpcChannelParams<S> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn channel_tag(&self) -> &str {
+    #[must_use]
+    pub fn channel_tag(&self) -> &str {
         if unsafe { self.get_inner_ref() }.channel_tag.is_null() {
             ""
         } else {
@@ -47797,10 +47327,8 @@ impl<S: ResourceStorage<aeron_ipc_channel_params_t>> AeronIpcChannelParams<S> {
         }
     }
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn entity_tag(&self) -> &str {
+    #[must_use]
+    pub fn entity_tag(&self) -> &str {
         if unsafe { self.get_inner_ref() }.entity_tag.is_null() {
             ""
         } else {
@@ -47812,10 +47340,8 @@ impl<S: ResourceStorage<aeron_ipc_channel_params_t>> AeronIpcChannelParams<S> {
         }
     }
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn control_mode(&self) -> &str {
+    #[must_use]
+    pub fn control_mode(&self) -> &str {
         if unsafe { self.get_inner_ref() }.control_mode.is_null() {
             ""
         } else {
@@ -47827,6 +47353,7 @@ impl<S: ResourceStorage<aeron_ipc_channel_params_t>> AeronIpcChannelParams<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn additional_params(&self) -> AeronUriParams<ScopedInline<'_, aeron_uri_params_t>> {
         AeronUriParams::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.additional_params),
@@ -47990,6 +47517,7 @@ impl<S: ResourceStorage<aeron_ipc_publication_entry_t>> core::fmt::Debug for Aer
         }
         f.debug_struct(stringify!(AeronIpcPublicationEntry))
             .field("inner", &self.inner)
+            .field("log_file_name", &unsafe { self.log_file_name() })
             .finish()
     }
 }
@@ -48068,6 +47596,8 @@ impl AeronIpcPublicationEntry<CResource<aeron_ipc_publication_entry_t>> {
 impl AeronIpcPublicationEntry {}
 impl<S: ResourceStorage<aeron_ipc_publication_entry_t>> AeronIpcPublicationEntry<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn publication(&self) -> Ref<'_, AeronIpcPublication> {
         Ref::new(unsafe {
             AeronIpcPublication::from_ptr(
@@ -48078,6 +47608,8 @@ impl<S: ResourceStorage<aeron_ipc_publication_entry_t>> AeronIpcPublicationEntry
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn mapped_raw_log(&self) -> Ref<'_, AeronMappedRawLog> {
         Ref::new(unsafe {
             AeronMappedRawLog::from_ptr(
@@ -48088,6 +47620,7 @@ impl<S: ResourceStorage<aeron_ipc_publication_entry_t>> AeronIpcPublicationEntry
         })
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -48134,10 +47667,14 @@ impl<S: ResourceStorage<aeron_ipc_publication_entry_t>> AeronIpcPublicationEntry
 }
 impl<'a, S: ResourceStorage<aeron_ipc_publication_entry_t>> Ref<'a, AeronIpcPublicationEntry<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn publication(&self) -> Ref<'a, AeronIpcPublication> {
         Ref::new(self.value.publication().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn mapped_raw_log(&self) -> Ref<'a, AeronMappedRawLog> {
         Ref::new(self.value.mapped_raw_log().value)
     }
@@ -48269,36 +47806,32 @@ impl<S: ResourceStorage<aeron_ipc_publication_t>> core::fmt::Debug for AeronIpcP
         }
         f.debug_struct(stringify!(AeronIpcPublication))
             .field("inner", &self.inner)
-            .field(stringify!(log_file_name_length), &self.log_file_name_length())
-            .field(stringify!(pub_lmt_position), &self.pub_lmt_position())
-            .field(stringify!(pub_pos_position), &self.pub_pos_position())
-            .field(stringify!(position_bits_to_shift), &self.position_bits_to_shift())
-            .field(stringify!(term_window_length), &self.term_window_length())
-            .field(stringify!(trip_gain), &self.trip_gain())
-            .field(stringify!(unblock_timeout_ns), &self.unblock_timeout_ns())
+            .field("log_file_name", &unsafe { self.log_file_name() })
+            .field("log_file_name_length", &self.log_file_name_length())
+            .field("pub_lmt_position", &self.pub_lmt_position())
+            .field("pub_pos_position", &self.pub_pos_position())
+            .field("position_bits_to_shift", &self.position_bits_to_shift())
+            .field("term_window_length", &self.term_window_length())
+            .field("trip_gain", &self.trip_gain())
+            .field("unblock_timeout_ns", &self.unblock_timeout_ns())
             .field(
-                stringify!(untethered_window_limit_timeout_ns),
+                "untethered_window_limit_timeout_ns",
                 &self.untethered_window_limit_timeout_ns(),
             )
-            .field(
-                stringify!(untethered_linger_timeout_ns),
-                &self.untethered_linger_timeout_ns(),
-            )
-            .field(
-                stringify!(untethered_resting_timeout_ns),
-                &self.untethered_resting_timeout_ns(),
-            )
-            .field(stringify!(liveness_timeout_ns), &self.liveness_timeout_ns())
-            .field(stringify!(initial_term_id), &self.initial_term_id())
-            .field(stringify!(is_exclusive), &self.is_exclusive())
-            .field(stringify!(in_cool_down), &self.in_cool_down())
-            .field(stringify!(cool_down_expire_time_ns), &self.cool_down_expire_time_ns())
-            .field(stringify!(tag), &self.tag())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(starting_term_id), &self.starting_term_id())
-            .field(stringify!(starting_term_offset), &self.starting_term_offset())
-            .field(stringify!(channel_length), &self.channel_length())
+            .field("untethered_linger_timeout_ns", &self.untethered_linger_timeout_ns())
+            .field("untethered_resting_timeout_ns", &self.untethered_resting_timeout_ns())
+            .field("liveness_timeout_ns", &self.liveness_timeout_ns())
+            .field("initial_term_id", &self.initial_term_id())
+            .field("is_exclusive", &self.is_exclusive())
+            .field("in_cool_down", &self.in_cool_down())
+            .field("cool_down_expire_time_ns", &self.cool_down_expire_time_ns())
+            .field("tag", &self.tag())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("starting_term_id", &self.starting_term_id())
+            .field("starting_term_offset", &self.starting_term_offset())
+            .field("channel_length", &self.channel_length())
+            .field("channel", &unsafe { self.channel() })
             .finish()
     }
 }
@@ -48377,6 +47910,8 @@ impl AeronIpcPublication {
 }
 impl<S: ResourceStorage<aeron_ipc_publication_t>> AeronIpcPublication<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn mapped_raw_log(&self) -> Ref<'_, AeronMappedRawLog> {
         Ref::new(unsafe {
             AeronMappedRawLog::from_ptr(
@@ -48387,6 +47922,8 @@ impl<S: ResourceStorage<aeron_ipc_publication_t>> AeronIpcPublication<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn log_meta_data(&self) -> Ref<'_, AeronLogbufferMetadata> {
         Ref::new(unsafe {
             AeronLogbufferMetadata::from_ptr(
@@ -48397,6 +47934,7 @@ impl<S: ResourceStorage<aeron_ipc_publication_t>> AeronIpcPublication<S> {
         })
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -48414,10 +47952,12 @@ impl<S: ResourceStorage<aeron_ipc_publication_t>> AeronIpcPublication<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn log_file_name_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.log_file_name_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn pub_lmt_position(&self) -> AeronPosition<ScopedInline<'_, aeron_position_t>> {
         AeronPosition::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.pub_lmt_position),
@@ -48425,6 +47965,7 @@ impl<S: ResourceStorage<aeron_ipc_publication_t>> AeronIpcPublication<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn pub_pos_position(&self) -> AeronPosition<ScopedInline<'_, aeron_position_t>> {
         AeronPosition::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.pub_pos_position),
@@ -48432,84 +47973,104 @@ impl<S: ResourceStorage<aeron_ipc_publication_t>> AeronIpcPublication<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn conductor_fields(&self) -> aeron_ipc_publication_stct_aeron_ipc_publication_conductor_fields_stct {
         unsafe { self.get_inner_ref() }.conductor_fields.into()
     }
     #[inline]
+    #[must_use]
     pub fn position_bits_to_shift(&self) -> usize {
         unsafe { self.get_inner_ref() }.position_bits_to_shift.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_window_length(&self) -> i64 {
         unsafe { self.get_inner_ref() }.term_window_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn trip_gain(&self) -> i64 {
         unsafe { self.get_inner_ref() }.trip_gain.into()
     }
     #[inline]
+    #[must_use]
     pub fn unblock_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.unblock_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_window_limit_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }
             .untethered_window_limit_timeout_ns
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_linger_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.untethered_linger_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_resting_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.untethered_resting_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn liveness_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.liveness_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn initial_term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.initial_term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_exclusive(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_exclusive.into()
     }
     #[inline]
+    #[must_use]
     pub fn in_cool_down(&self) -> bool {
         unsafe { self.get_inner_ref() }.in_cool_down.into()
     }
     #[inline]
+    #[must_use]
     pub fn cool_down_expire_time_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.cool_down_expire_time_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn tag(&self) -> i64 {
         unsafe { self.get_inner_ref() }.tag.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn starting_term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.starting_term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn starting_term_offset(&self) -> usize {
         unsafe { self.get_inner_ref() }.starting_term_offset.into()
     }
     #[inline]
+    #[must_use]
     pub fn channel_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.channel_length.into()
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -48525,14 +48086,17 @@ impl<S: ResourceStorage<aeron_ipc_publication_t>> AeronIpcPublication<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn log(&self) -> aeron_ipc_publication_stct__bindgen_ty_1 {
         unsafe { self.get_inner_ref() }.log.into()
     }
     #[inline]
+    #[must_use]
     pub fn unblocked_publications_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.unblocked_publications_counter }
     }
     #[inline]
+    #[must_use]
     pub fn publications_revoked_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.publications_revoked_counter }
     }
@@ -48667,10 +48231,14 @@ impl<S: ResourceStorage<aeron_ipc_publication_t>> AeronIpcPublication<S> {
 }
 impl<'a, S: ResourceStorage<aeron_ipc_publication_t>> Ref<'a, AeronIpcPublication<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn mapped_raw_log(&self) -> Ref<'a, AeronMappedRawLog> {
         Ref::new(self.value.mapped_raw_log().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn log_meta_data(&self) -> Ref<'a, AeronLogbufferMetadata> {
         Ref::new(self.value.log_meta_data().value)
     }
@@ -48763,8 +48331,8 @@ impl<S: ResourceStorage<aeron_linger_resource_entry_t>> core::fmt::Debug for Aer
         }
         f.debug_struct(stringify!(AeronLingerResourceEntry))
             .field("inner", &self.inner)
-            .field(stringify!(has_reached_end_of_life), &self.has_reached_end_of_life())
-            .field(stringify!(timeout_ns), &self.timeout_ns())
+            .field("has_reached_end_of_life", &self.has_reached_end_of_life())
+            .field("timeout_ns", &self.timeout_ns())
             .finish()
     }
 }
@@ -48837,14 +48405,17 @@ impl AeronLingerResourceEntry<CResource<aeron_linger_resource_entry_t>> {
 impl AeronLingerResourceEntry {}
 impl<S: ResourceStorage<aeron_linger_resource_entry_t>> AeronLingerResourceEntry<S> {
     #[inline]
+    #[must_use]
     pub fn has_reached_end_of_life(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_reached_end_of_life.into()
     }
     #[inline]
+    #[must_use]
     pub fn buffer(&self) -> *mut u8 {
         unsafe { self.get_inner_ref() }.buffer.into()
     }
     #[inline]
+    #[must_use]
     pub fn timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.timeout_ns.into()
     }
@@ -49007,15 +48578,13 @@ impl<S: ResourceStorage<aeron_local_sockaddr_key_layout_t>> core::fmt::Debug for
         }
         f.debug_struct(stringify!(AeronLocalSockaddrKeyLayout))
             .field("inner", &self.inner)
-            .field(stringify!(channel_status_id), &self.channel_status_id())
-            .field(stringify!(local_sockaddr_len), &self.local_sockaddr_len())
+            .field("channel_status_id", &self.channel_status_id())
+            .field("local_sockaddr_len", &self.local_sockaddr_len())
             .finish()
     }
 }
 impl AeronLocalSockaddrKeyLayout<CResource<aeron_local_sockaddr_key_layout_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         channel_status_id: i32,
         local_sockaddr_len: i32,
@@ -49042,9 +48611,6 @@ impl AeronLocalSockaddrKeyLayout<CResource<aeron_local_sockaddr_key_layout_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_local_sockaddr_key_layout_t>::new(
             move |ctx_field| {
@@ -49068,9 +48634,6 @@ impl AeronLocalSockaddrKeyLayout<CResource<aeron_local_sockaddr_key_layout_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronLocalSockaddrKeyLayout<Inline<aeron_local_sockaddr_key_layout_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -49085,14 +48648,17 @@ impl AeronLocalSockaddrKeyLayout<CResource<aeron_local_sockaddr_key_layout_t>> {
 impl AeronLocalSockaddrKeyLayout {}
 impl<S: ResourceStorage<aeron_local_sockaddr_key_layout_t>> AeronLocalSockaddrKeyLayout<S> {
     #[inline]
+    #[must_use]
     pub fn channel_status_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.channel_status_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn local_sockaddr_len(&self) -> i32 {
         unsafe { self.get_inner_ref() }.local_sockaddr_len.into()
     }
     #[inline]
+    #[must_use]
     pub fn local_sockaddr(&self) -> [::std::os::raw::c_char; 104usize] {
         unsafe { self.get_inner_ref() }.local_sockaddr.into()
     }
@@ -49266,9 +48832,6 @@ impl<S: ResourceStorage<aeron_log_buffer_t>> core::fmt::Debug for AeronLogBuffer
 impl AeronLogBuffer<CResource<aeron_log_buffer_t>> {
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_log_buffer_t>::new(
             move |ctx_field| {
@@ -49292,9 +48855,6 @@ impl AeronLogBuffer<CResource<aeron_log_buffer_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronLogBuffer<Inline<aeron_log_buffer_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -49423,62 +48983,45 @@ impl<S: ResourceStorage<aeron_logbuffer_metadata_t>> core::fmt::Debug for AeronL
         }
         f.debug_struct(stringify!(AeronLogbufferMetadata))
             .field("inner", &self.inner)
-            .field(stringify!(active_term_count), &self.active_term_count())
-            .field(stringify!(end_of_stream_position), &self.end_of_stream_position())
-            .field(stringify!(is_connected), &self.is_connected())
-            .field(stringify!(active_transport_count), &self.active_transport_count())
-            .field(stringify!(correlation_id), &self.correlation_id())
-            .field(stringify!(initial_term_id), &self.initial_term_id())
+            .field("active_term_count", &self.active_term_count())
+            .field("end_of_stream_position", &self.end_of_stream_position())
+            .field("is_connected", &self.is_connected())
+            .field("active_transport_count", &self.active_transport_count())
+            .field("correlation_id", &self.correlation_id())
+            .field("initial_term_id", &self.initial_term_id())
+            .field("default_frame_header_length", &self.default_frame_header_length())
+            .field("mtu_length", &self.mtu_length())
+            .field("term_length", &self.term_length())
+            .field("page_size", &self.page_size())
+            .field("publication_window_length", &self.publication_window_length())
+            .field("receiver_window_length", &self.receiver_window_length())
+            .field("socket_sndbuf_length", &self.socket_sndbuf_length())
             .field(
-                stringify!(default_frame_header_length),
-                &self.default_frame_header_length(),
-            )
-            .field(stringify!(mtu_length), &self.mtu_length())
-            .field(stringify!(term_length), &self.term_length())
-            .field(stringify!(page_size), &self.page_size())
-            .field(stringify!(publication_window_length), &self.publication_window_length())
-            .field(stringify!(receiver_window_length), &self.receiver_window_length())
-            .field(stringify!(socket_sndbuf_length), &self.socket_sndbuf_length())
-            .field(
-                stringify!(os_default_socket_sndbuf_length),
+                "os_default_socket_sndbuf_length",
                 &self.os_default_socket_sndbuf_length(),
             )
+            .field("os_max_socket_sndbuf_length", &self.os_max_socket_sndbuf_length())
+            .field("socket_rcvbuf_length", &self.socket_rcvbuf_length())
             .field(
-                stringify!(os_max_socket_sndbuf_length),
-                &self.os_max_socket_sndbuf_length(),
-            )
-            .field(stringify!(socket_rcvbuf_length), &self.socket_rcvbuf_length())
-            .field(
-                stringify!(os_default_socket_rcvbuf_length),
+                "os_default_socket_rcvbuf_length",
                 &self.os_default_socket_rcvbuf_length(),
             )
+            .field("os_max_socket_rcvbuf_length", &self.os_max_socket_rcvbuf_length())
+            .field("max_resend", &self.max_resend())
+            .field("entity_tag", &self.entity_tag())
+            .field("response_correlation_id", &self.response_correlation_id())
+            .field("linger_timeout_ns", &self.linger_timeout_ns())
             .field(
-                stringify!(os_max_socket_rcvbuf_length),
-                &self.os_max_socket_rcvbuf_length(),
-            )
-            .field(stringify!(max_resend), &self.max_resend())
-            .field(stringify!(entity_tag), &self.entity_tag())
-            .field(stringify!(response_correlation_id), &self.response_correlation_id())
-            .field(stringify!(linger_timeout_ns), &self.linger_timeout_ns())
-            .field(
-                stringify!(untethered_window_limit_timeout_ns),
+                "untethered_window_limit_timeout_ns",
                 &self.untethered_window_limit_timeout_ns(),
             )
-            .field(
-                stringify!(untethered_resting_timeout_ns),
-                &self.untethered_resting_timeout_ns(),
-            )
-            .field(
-                stringify!(untethered_linger_timeout_ns),
-                &self.untethered_linger_timeout_ns(),
-            )
+            .field("untethered_resting_timeout_ns", &self.untethered_resting_timeout_ns())
+            .field("untethered_linger_timeout_ns", &self.untethered_linger_timeout_ns())
             .finish()
     }
 }
 impl AeronLogbufferMetadata<CResource<aeron_logbuffer_metadata_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         term_tail_counters: [i64; 3usize],
         active_term_count: i32,
@@ -49579,9 +49122,6 @@ impl AeronLogbufferMetadata<CResource<aeron_logbuffer_metadata_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_logbuffer_metadata_t>::new(
             move |ctx_field| {
@@ -49605,9 +49145,6 @@ impl AeronLogbufferMetadata<CResource<aeron_logbuffer_metadata_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronLogbufferMetadata<Inline<aeron_logbuffer_metadata_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -49622,164 +49159,204 @@ impl AeronLogbufferMetadata<CResource<aeron_logbuffer_metadata_t>> {
 impl AeronLogbufferMetadata {}
 impl<S: ResourceStorage<aeron_logbuffer_metadata_t>> AeronLogbufferMetadata<S> {
     #[inline]
+    #[must_use]
     pub fn term_tail_counters(&self) -> [i64; 3usize] {
         unsafe { self.get_inner_ref() }.term_tail_counters.into()
     }
     #[inline]
+    #[must_use]
     pub fn active_term_count(&self) -> i32 {
         unsafe { self.get_inner_ref() }.active_term_count.into()
     }
     #[inline]
+    #[must_use]
     pub fn pad1(&self) -> [u8; 100usize] {
         unsafe { self.get_inner_ref() }.pad1.into()
     }
     #[inline]
+    #[must_use]
     pub fn end_of_stream_position(&self) -> i64 {
         unsafe { self.get_inner_ref() }.end_of_stream_position.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_connected(&self) -> i32 {
         unsafe { self.get_inner_ref() }.is_connected.into()
     }
     #[inline]
+    #[must_use]
     pub fn active_transport_count(&self) -> i32 {
         unsafe { self.get_inner_ref() }.active_transport_count.into()
     }
     #[inline]
+    #[must_use]
     pub fn pad2(&self) -> [u8; 112usize] {
         unsafe { self.get_inner_ref() }.pad2.into()
     }
     #[inline]
+    #[must_use]
     pub fn correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.correlation_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn initial_term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.initial_term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn default_frame_header_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.default_frame_header_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn mtu_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.mtu_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.term_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn page_size(&self) -> i32 {
         unsafe { self.get_inner_ref() }.page_size.into()
     }
     #[inline]
+    #[must_use]
     pub fn publication_window_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.publication_window_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn receiver_window_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.receiver_window_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn socket_sndbuf_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.socket_sndbuf_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn os_default_socket_sndbuf_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.os_default_socket_sndbuf_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn os_max_socket_sndbuf_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.os_max_socket_sndbuf_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn socket_rcvbuf_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.socket_rcvbuf_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn os_default_socket_rcvbuf_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.os_default_socket_rcvbuf_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn os_max_socket_rcvbuf_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.os_max_socket_rcvbuf_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn max_resend(&self) -> i32 {
         unsafe { self.get_inner_ref() }.max_resend.into()
     }
     #[inline]
+    #[must_use]
     pub fn default_header(&self) -> [u8; 128usize] {
         unsafe { self.get_inner_ref() }.default_header.into()
     }
     #[inline]
+    #[must_use]
     pub fn entity_tag(&self) -> i64 {
         unsafe { self.get_inner_ref() }.entity_tag.into()
     }
     #[inline]
+    #[must_use]
     pub fn response_correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.response_correlation_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn linger_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.linger_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_window_limit_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }
             .untethered_window_limit_timeout_ns
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_resting_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.untethered_resting_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn group(&self) -> u8 {
         unsafe { self.get_inner_ref() }.group.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_response(&self) -> u8 {
         unsafe { self.get_inner_ref() }.is_response.into()
     }
     #[inline]
+    #[must_use]
     pub fn rejoin(&self) -> u8 {
         unsafe { self.get_inner_ref() }.rejoin.into()
     }
     #[inline]
+    #[must_use]
     pub fn reliable(&self) -> u8 {
         unsafe { self.get_inner_ref() }.reliable.into()
     }
     #[inline]
+    #[must_use]
     pub fn sparse(&self) -> u8 {
         unsafe { self.get_inner_ref() }.sparse.into()
     }
     #[inline]
+    #[must_use]
     pub fn signal_eos(&self) -> u8 {
         unsafe { self.get_inner_ref() }.signal_eos.into()
     }
     #[inline]
+    #[must_use]
     pub fn spies_simulate_connection(&self) -> u8 {
         unsafe { self.get_inner_ref() }.spies_simulate_connection.into()
     }
     #[inline]
+    #[must_use]
     pub fn tether(&self) -> u8 {
         unsafe { self.get_inner_ref() }.tether.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_publication_revoked(&self) -> u8 {
         unsafe { self.get_inner_ref() }.is_publication_revoked.into()
     }
     #[inline]
+    #[must_use]
     pub fn type_(&self) -> u8 {
         unsafe { self.get_inner_ref() }.type_.into()
     }
     #[inline]
+    #[must_use]
     pub fn pad3(&self) -> [u8; 2usize] {
         unsafe { self.get_inner_ref() }.pad3.into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_linger_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.untethered_linger_timeout_ns.into()
     }
@@ -49945,16 +49522,14 @@ impl<S: ResourceStorage<aeron_loss_detector_gap_t>> core::fmt::Debug for AeronLo
         }
         f.debug_struct(stringify!(AeronLossDetectorGap))
             .field("inner", &self.inner)
-            .field(stringify!(term_id), &self.term_id())
-            .field(stringify!(term_offset), &self.term_offset())
-            .field(stringify!(length), &self.length())
+            .field("term_id", &self.term_id())
+            .field("term_offset", &self.term_offset())
+            .field("length", &self.length())
             .finish()
     }
 }
 impl AeronLossDetectorGap<CResource<aeron_loss_detector_gap_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(term_id: i32, term_offset: i32, length: usize) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_loss_detector_gap_t>::new(
             move |ctx_field| {
@@ -49977,9 +49552,6 @@ impl AeronLossDetectorGap<CResource<aeron_loss_detector_gap_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_loss_detector_gap_t>::new(
             move |ctx_field| {
@@ -50003,9 +49575,6 @@ impl AeronLossDetectorGap<CResource<aeron_loss_detector_gap_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronLossDetectorGap<Inline<aeron_loss_detector_gap_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -50020,14 +49589,17 @@ impl AeronLossDetectorGap<CResource<aeron_loss_detector_gap_t>> {
 impl AeronLossDetectorGap {}
 impl<S: ResourceStorage<aeron_loss_detector_gap_t>> AeronLossDetectorGap<S> {
     #[inline]
+    #[must_use]
     pub fn term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_offset(&self) -> i32 {
         unsafe { self.get_inner_ref() }.term_offset.into()
     }
     #[inline]
+    #[must_use]
     pub fn length(&self) -> usize {
         unsafe { self.get_inner_ref() }.length.into()
     }
@@ -50189,9 +49761,9 @@ impl<S: ResourceStorage<aeron_loss_detector_t>> core::fmt::Debug for AeronLossDe
         }
         f.debug_struct(stringify!(AeronLossDetector))
             .field("inner", &self.inner)
-            .field(stringify!(scanned_gap), &self.scanned_gap())
-            .field(stringify!(active_gap), &self.active_gap())
-            .field(stringify!(expiry_ns), &self.expiry_ns())
+            .field("scanned_gap", &self.scanned_gap())
+            .field("active_gap", &self.active_gap())
+            .field("expiry_ns", &self.expiry_ns())
             .finish()
     }
 }
@@ -50275,10 +49847,13 @@ impl AeronLossDetector<CResource<aeron_loss_detector_t>> {
 impl AeronLossDetector {}
 impl<S: ResourceStorage<aeron_loss_detector_t>> AeronLossDetector<S> {
     #[inline]
+    #[must_use]
     pub fn on_gap_detected(&self) -> aeron_term_gap_scanner_on_gap_detected_func_t {
         unsafe { self.get_inner_ref() }.on_gap_detected.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn feedback_delay_state(&self) -> Ref<'_, AeronFeedbackDelayGeneratorState> {
         Ref::new(unsafe {
             AeronFeedbackDelayGeneratorState::from_ptr(
@@ -50289,18 +49864,22 @@ impl<S: ResourceStorage<aeron_loss_detector_t>> AeronLossDetector<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn on_gap_detected_clientd(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.on_gap_detected_clientd.into()
     }
     #[inline]
+    #[must_use]
     pub fn scanned_gap(&self) -> AeronLossDetectorGap<Inline<aeron_loss_detector_gap_t>> {
         unsafe { AeronLossDetectorGap::from_native(unsafe { self.get_inner_ref() }.scanned_gap) }
     }
     #[inline]
+    #[must_use]
     pub fn active_gap(&self) -> AeronLossDetectorGap<Inline<aeron_loss_detector_gap_t>> {
         unsafe { AeronLossDetectorGap::from_native(unsafe { self.get_inner_ref() }.active_gap) }
     }
     #[inline]
+    #[must_use]
     pub fn expiry_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.expiry_ns.into()
     }
@@ -50379,13 +49958,11 @@ impl<S: ResourceStorage<aeron_loss_detector_t>> AeronLossDetector<S> {
     #[doc = "# Safety"]
     #[doc = "This bypasses Rust ownership. Keep all retained pointers valid until native cleanup. Initializers require exclusive access and must not overwrite live native state or invalidate borrowed views. After raw removal or deletion, prevent all further access and Rust cleanup through every alias. Prefer the owning handle's constructor, close or cancel method."]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -50518,6 +50095,8 @@ impl<S: ResourceStorage<aeron_loss_detector_t>> AeronLossDetector<S> {
 }
 impl<'a, S: ResourceStorage<aeron_loss_detector_t>> Ref<'a, AeronLossDetector<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn feedback_delay_state(&self) -> Ref<'a, AeronFeedbackDelayGeneratorState> {
         Ref::new(self.value.feedback_delay_state().value)
     }
@@ -50717,18 +50296,22 @@ impl AeronLossGenerator<CResource<aeron_loss_generator_t>> {
 impl AeronLossGenerator {}
 impl<S: ResourceStorage<aeron_loss_generator_t>> AeronLossGenerator<S> {
     #[inline]
+    #[must_use]
     pub fn state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.state.into()
     }
     #[inline]
+    #[must_use]
     pub fn should_drop_frame_simple(&self) -> aeron_loss_generator_should_drop_frame_simple_func_t {
         unsafe { self.get_inner_ref() }.should_drop_frame_simple.into()
     }
     #[inline]
+    #[must_use]
     pub fn should_drop_frame_detailed(&self) -> aeron_loss_generator_should_drop_frame_detailed_func_t {
         unsafe { self.get_inner_ref() }.should_drop_frame_detailed.into()
     }
     #[inline]
+    #[must_use]
     pub fn close(&self) -> ::std::option::Option<unsafe extern "C" fn(generator: *mut aeron_loss_generator_stct)> {
         unsafe { self.get_inner_ref() }.close.into()
     }
@@ -50881,25 +50464,17 @@ impl<S: ResourceStorage<aeron_loss_reporter_entry_t>> core::fmt::Debug for Aeron
         }
         f.debug_struct(stringify!(AeronLossReporterEntry))
             .field("inner", &self.inner)
-            .field(stringify!(observation_count), &self.observation_count())
-            .field(stringify!(total_bytes_lost), &self.total_bytes_lost())
-            .field(
-                stringify!(first_observation_timestamp),
-                &self.first_observation_timestamp(),
-            )
-            .field(
-                stringify!(last_observation_timestamp),
-                &self.last_observation_timestamp(),
-            )
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
+            .field("observation_count", &self.observation_count())
+            .field("total_bytes_lost", &self.total_bytes_lost())
+            .field("first_observation_timestamp", &self.first_observation_timestamp())
+            .field("last_observation_timestamp", &self.last_observation_timestamp())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
             .finish()
     }
 }
 impl AeronLossReporterEntry<CResource<aeron_loss_reporter_entry_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         observation_count: i64,
         total_bytes_lost: i64,
@@ -50932,9 +50507,6 @@ impl AeronLossReporterEntry<CResource<aeron_loss_reporter_entry_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_loss_reporter_entry_t>::new(
             move |ctx_field| {
@@ -50958,9 +50530,6 @@ impl AeronLossReporterEntry<CResource<aeron_loss_reporter_entry_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronLossReporterEntry<Inline<aeron_loss_reporter_entry_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -50975,26 +50544,32 @@ impl AeronLossReporterEntry<CResource<aeron_loss_reporter_entry_t>> {
 impl AeronLossReporterEntry {}
 impl<S: ResourceStorage<aeron_loss_reporter_entry_t>> AeronLossReporterEntry<S> {
     #[inline]
+    #[must_use]
     pub fn observation_count(&self) -> i64 {
         unsafe { self.get_inner_ref() }.observation_count.into()
     }
     #[inline]
+    #[must_use]
     pub fn total_bytes_lost(&self) -> i64 {
         unsafe { self.get_inner_ref() }.total_bytes_lost.into()
     }
     #[inline]
+    #[must_use]
     pub fn first_observation_timestamp(&self) -> i64 {
         unsafe { self.get_inner_ref() }.first_observation_timestamp.into()
     }
     #[inline]
+    #[must_use]
     pub fn last_observation_timestamp(&self) -> i64 {
         unsafe { self.get_inner_ref() }.last_observation_timestamp.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
@@ -51160,8 +50735,8 @@ impl<S: ResourceStorage<aeron_loss_reporter_t>> core::fmt::Debug for AeronLossRe
         }
         f.debug_struct(stringify!(AeronLossReporter))
             .field("inner", &self.inner)
-            .field(stringify!(next_record_offset), &self.next_record_offset())
-            .field(stringify!(capacity), &self.capacity())
+            .field("next_record_offset", &self.next_record_offset())
+            .field("capacity", &self.capacity())
             .finish()
     }
 }
@@ -51311,13 +50886,11 @@ impl AeronLossReporter {
     }
     #[inline]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -51359,14 +50932,17 @@ impl AeronLossReporter {
 }
 impl<S: ResourceStorage<aeron_loss_reporter_t>> AeronLossReporter<S> {
     #[inline]
+    #[must_use]
     pub fn buffer(&self) -> *mut u8 {
         unsafe { self.get_inner_ref() }.buffer.into()
     }
     #[inline]
+    #[must_use]
     pub fn next_record_offset(&self) -> usize {
         unsafe { self.get_inner_ref() }.next_record_offset.into()
     }
     #[inline]
+    #[must_use]
     pub fn capacity(&self) -> usize {
         unsafe { self.get_inner_ref() }.capacity.into()
     }
@@ -51614,7 +51190,7 @@ impl<S: ResourceStorage<aeron_mapped_buffer_t>> core::fmt::Debug for AeronMapped
         }
         f.debug_struct(stringify!(AeronMappedBuffer))
             .field("inner", &self.inner)
-            .field(stringify!(length), &self.length())
+            .field("length", &self.length())
             .finish()
     }
 }
@@ -51686,6 +51262,7 @@ impl AeronMappedBuffer<CResource<aeron_mapped_buffer_t>> {
 impl AeronMappedBuffer {}
 impl<S: ResourceStorage<aeron_mapped_buffer_t>> AeronMappedBuffer<S> {
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" The stored pointer must be valid for the returned slice, and no"]
     #[doc = r" other Rust or native access may overlap its mutable borrow."]
@@ -51702,6 +51279,7 @@ impl<S: ResourceStorage<aeron_mapped_buffer_t>> AeronMappedBuffer<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn length(&self) -> usize {
         unsafe { self.get_inner_ref() }.length.into()
     }
@@ -51852,7 +51430,7 @@ impl<S: ResourceStorage<aeron_mapped_file_t>> core::fmt::Debug for AeronMappedFi
         }
         f.debug_struct(stringify!(AeronMappedFile))
             .field("inner", &self.inner)
-            .field(stringify!(length), &self.length())
+            .field("length", &self.length())
             .finish()
     }
 }
@@ -51924,10 +51502,12 @@ impl AeronMappedFile<CResource<aeron_mapped_file_t>> {
 impl AeronMappedFile {}
 impl<S: ResourceStorage<aeron_mapped_file_t>> AeronMappedFile<S> {
     #[inline]
+    #[must_use]
     pub fn addr(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.addr.into()
     }
     #[inline]
+    #[must_use]
     pub fn length(&self) -> usize {
         unsafe { self.get_inner_ref() }.length.into()
     }
@@ -52202,9 +51782,9 @@ impl<S: ResourceStorage<aeron_mapped_raw_log_t>> core::fmt::Debug for AeronMappe
         }
         f.debug_struct(stringify!(AeronMappedRawLog))
             .field("inner", &self.inner)
-            .field(stringify!(log_meta_data), &self.log_meta_data())
-            .field(stringify!(mapped_file), &self.mapped_file())
-            .field(stringify!(term_length), &self.term_length())
+            .field("log_meta_data", &self.log_meta_data())
+            .field("mapped_file", &self.mapped_file())
+            .field("term_length", &self.term_length())
             .finish()
     }
 }
@@ -52283,10 +51863,12 @@ impl AeronMappedRawLog<CResource<aeron_mapped_raw_log_t>> {
 impl AeronMappedRawLog {}
 impl<S: ResourceStorage<aeron_mapped_raw_log_t>> AeronMappedRawLog<S> {
     #[inline]
+    #[must_use]
     pub fn term_buffers(&self) -> [aeron_mapped_buffer_t; 3usize] {
         unsafe { self.get_inner_ref() }.term_buffers.into()
     }
     #[inline]
+    #[must_use]
     pub fn log_meta_data(&self) -> AeronMappedBuffer<ScopedInline<'_, aeron_mapped_buffer_t>> {
         AeronMappedBuffer::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.log_meta_data),
@@ -52294,6 +51876,7 @@ impl<S: ResourceStorage<aeron_mapped_raw_log_t>> AeronMappedRawLog<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn mapped_file(&self) -> AeronMappedFile<ScopedInline<'_, aeron_mapped_file_t>> {
         AeronMappedFile::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.mapped_file),
@@ -52301,6 +51884,7 @@ impl<S: ResourceStorage<aeron_mapped_raw_log_t>> AeronMappedRawLog<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn term_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.term_length.into()
     }
@@ -52531,8 +52115,8 @@ impl<S: ResourceStorage<aeron_mpsc_rb_t>> core::fmt::Debug for AeronMpscRb<S> {
         }
         f.debug_struct(stringify!(AeronMpscRb))
             .field("inner", &self.inner)
-            .field(stringify!(capacity), &self.capacity())
-            .field(stringify!(max_message_length), &self.max_message_length())
+            .field("capacity", &self.capacity())
+            .field("max_message_length", &self.max_message_length())
             .finish()
     }
 }
@@ -52609,10 +52193,13 @@ impl AeronMpscRb<CResource<aeron_mpsc_rb_t>> {
 impl AeronMpscRb {}
 impl<S: ResourceStorage<aeron_mpsc_rb_t>> AeronMpscRb<S> {
     #[inline]
+    #[must_use]
     pub fn buffer(&self) -> *mut u8 {
         unsafe { self.get_inner_ref() }.buffer.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn descriptor(&self) -> Ref<'_, AeronRbDescriptor> {
         Ref::new(unsafe {
             AeronRbDescriptor::from_ptr(
@@ -52623,10 +52210,12 @@ impl<S: ResourceStorage<aeron_mpsc_rb_t>> AeronMpscRb<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn capacity(&self) -> usize {
         unsafe { self.get_inner_ref() }.capacity.into()
     }
     #[inline]
+    #[must_use]
     pub fn max_message_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.max_message_length.into()
     }
@@ -52798,13 +52387,11 @@ impl<S: ResourceStorage<aeron_mpsc_rb_t>> AeronMpscRb<S> {
     }
     #[inline]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -52887,13 +52474,11 @@ impl<S: ResourceStorage<aeron_mpsc_rb_t>> AeronMpscRb<S> {
     }
     #[inline]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -53027,6 +52612,8 @@ impl<S: ResourceStorage<aeron_mpsc_rb_t>> AeronMpscRb<S> {
 }
 impl<'a, S: ResourceStorage<aeron_mpsc_rb_t>> Ref<'a, AeronMpscRb<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn descriptor(&self) -> Ref<'a, AeronRbDescriptor> {
         Ref::new(self.value.descriptor().value)
     }
@@ -53148,19 +52735,17 @@ impl<S: ResourceStorage<aeron_nak_header_t>> core::fmt::Debug for AeronNakHeader
         }
         f.debug_struct(stringify!(AeronNakHeader))
             .field("inner", &self.inner)
-            .field(stringify!(frame_header), &self.frame_header())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(term_id), &self.term_id())
-            .field(stringify!(term_offset), &self.term_offset())
-            .field(stringify!(length), &self.length())
+            .field("frame_header", &self.frame_header())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("term_id", &self.term_id())
+            .field("term_offset", &self.term_offset())
+            .field("length", &self.length())
             .finish()
     }
 }
 impl AeronNakHeader<CResource<aeron_nak_header_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         frame_header: AeronFrameHeader<Inline<aeron_frame_header_t>>,
         session_id: i32,
@@ -53193,9 +52778,6 @@ impl AeronNakHeader<CResource<aeron_nak_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_nak_header_t>::new(
             move |ctx_field| {
@@ -53219,9 +52801,6 @@ impl AeronNakHeader<CResource<aeron_nak_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronNakHeader<Inline<aeron_nak_header_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -53236,26 +52815,32 @@ impl AeronNakHeader<CResource<aeron_nak_header_t>> {
 impl AeronNakHeader {}
 impl<S: ResourceStorage<aeron_nak_header_t>> AeronNakHeader<S> {
     #[inline]
+    #[must_use]
     pub fn frame_header(&self) -> AeronFrameHeader<Inline<aeron_frame_header_t>> {
         unsafe { AeronFrameHeader::from_native(unsafe { self.get_inner_ref() }.frame_header) }
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_offset(&self) -> i32 {
         unsafe { self.get_inner_ref() }.term_offset.into()
     }
     #[inline]
+    #[must_use]
     pub fn length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.length.into()
     }
@@ -53413,14 +52998,12 @@ impl<S: ResourceStorage<aeron_named_interface_t>> core::fmt::Debug for AeronName
         }
         f.debug_struct(stringify!(AeronNamedInterface))
             .field("inner", &self.inner)
-            .field(stringify!(port), &self.port())
+            .field("port", &self.port())
             .finish()
     }
 }
 impl AeronNamedInterface<CResource<aeron_named_interface_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(name: [::std::os::raw::c_char; 16usize], port: ::std::os::raw::c_int) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_named_interface_t>::new(
             move |ctx_field| {
@@ -53442,9 +53025,6 @@ impl AeronNamedInterface<CResource<aeron_named_interface_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_named_interface_t>::new(
             move |ctx_field| {
@@ -53468,9 +53048,6 @@ impl AeronNamedInterface<CResource<aeron_named_interface_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronNamedInterface<Inline<aeron_named_interface_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -53485,10 +53062,12 @@ impl AeronNamedInterface<CResource<aeron_named_interface_t>> {
 impl AeronNamedInterface {}
 impl<S: ResourceStorage<aeron_named_interface_t>> AeronNamedInterface<S> {
     #[inline]
+    #[must_use]
     pub fn name(&self) -> [::std::os::raw::c_char; 16usize] {
         unsafe { self.get_inner_ref() }.name.into()
     }
     #[inline]
+    #[must_use]
     pub fn port(&self) -> ::std::os::raw::c_int {
         unsafe { self.get_inner_ref() }.port.into()
     }
@@ -53653,6 +53232,7 @@ impl<S: ResourceStorage<aeron_network_publication_entry_t>> core::fmt::Debug for
         }
         f.debug_struct(stringify!(AeronNetworkPublicationEntry))
             .field("inner", &self.inner)
+            .field("log_file_name", &unsafe { self.log_file_name() })
             .finish()
     }
 }
@@ -53731,6 +53311,8 @@ impl AeronNetworkPublicationEntry<CResource<aeron_network_publication_entry_t>> 
 impl AeronNetworkPublicationEntry {}
 impl<S: ResourceStorage<aeron_network_publication_entry_t>> AeronNetworkPublicationEntry<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn publication(&self) -> Ref<'_, AeronNetworkPublication> {
         Ref::new(unsafe {
             AeronNetworkPublication::from_ptr(
@@ -53741,6 +53323,8 @@ impl<S: ResourceStorage<aeron_network_publication_entry_t>> AeronNetworkPublicat
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn mapped_raw_log(&self) -> Ref<'_, AeronMappedRawLog> {
         Ref::new(unsafe {
             AeronMappedRawLog::from_ptr(
@@ -53751,6 +53335,7 @@ impl<S: ResourceStorage<aeron_network_publication_entry_t>> AeronNetworkPublicat
         })
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -53797,10 +53382,14 @@ impl<S: ResourceStorage<aeron_network_publication_entry_t>> AeronNetworkPublicat
 }
 impl<'a, S: ResourceStorage<aeron_network_publication_entry_t>> Ref<'a, AeronNetworkPublicationEntry<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn publication(&self) -> Ref<'a, AeronNetworkPublication> {
         Ref::new(self.value.publication().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn mapped_raw_log(&self) -> Ref<'a, AeronMappedRawLog> {
         Ref::new(self.value.mapped_raw_log().value)
     }
@@ -53934,67 +53523,59 @@ impl<S: ResourceStorage<aeron_network_publication_t>> core::fmt::Debug for Aeron
         }
         f.debug_struct(stringify!(AeronNetworkPublication))
             .field("inner", &self.inner)
-            .field(stringify!(pub_pos_position), &self.pub_pos_position())
-            .field(stringify!(pub_lmt_position), &self.pub_lmt_position())
-            .field(stringify!(snd_pos_position), &self.snd_pos_position())
-            .field(stringify!(snd_lmt_position), &self.snd_lmt_position())
-            .field(stringify!(snd_bpe_counter), &self.snd_bpe_counter())
-            .field(stringify!(snd_naks_received_counter), &self.snd_naks_received_counter())
-            .field(stringify!(retransmit_handler), &self.retransmit_handler())
-            .field(stringify!(log_file_name_length), &self.log_file_name_length())
-            .field(stringify!(has_initial_connection), &self.has_initial_connection())
-            .field(stringify!(track_sender_limits), &self.track_sender_limits())
+            .field("pub_pos_position", &self.pub_pos_position())
+            .field("pub_lmt_position", &self.pub_lmt_position())
+            .field("snd_pos_position", &self.snd_pos_position())
+            .field("snd_lmt_position", &self.snd_lmt_position())
+            .field("snd_bpe_counter", &self.snd_bpe_counter())
+            .field("snd_naks_received_counter", &self.snd_naks_received_counter())
+            .field("retransmit_handler", &self.retransmit_handler())
+            .field("log_file_name", &unsafe { self.log_file_name() })
+            .field("log_file_name_length", &self.log_file_name_length())
+            .field("has_initial_connection", &self.has_initial_connection())
+            .field("track_sender_limits", &self.track_sender_limits())
             .field(
-                stringify!(time_of_last_data_or_heartbeat_ns),
+                "time_of_last_data_or_heartbeat_ns",
                 &self.time_of_last_data_or_heartbeat_ns(),
             )
+            .field("status_message_deadline_ns", &self.status_message_deadline_ns())
+            .field("time_of_last_setup_ns", &self.time_of_last_setup_ns())
+            .field("endpoint_address", &self.endpoint_address())
+            .field("term_buffer_length", &self.term_buffer_length())
+            .field("term_window_length", &self.term_window_length())
+            .field("trip_gain", &self.trip_gain())
+            .field("linger_timeout_ns", &self.linger_timeout_ns())
+            .field("unblock_timeout_ns", &self.unblock_timeout_ns())
+            .field("connection_timeout_ns", &self.connection_timeout_ns())
             .field(
-                stringify!(status_message_deadline_ns),
-                &self.status_message_deadline_ns(),
-            )
-            .field(stringify!(time_of_last_setup_ns), &self.time_of_last_setup_ns())
-            .field(stringify!(endpoint_address), &self.endpoint_address())
-            .field(stringify!(term_buffer_length), &self.term_buffer_length())
-            .field(stringify!(term_window_length), &self.term_window_length())
-            .field(stringify!(trip_gain), &self.trip_gain())
-            .field(stringify!(linger_timeout_ns), &self.linger_timeout_ns())
-            .field(stringify!(unblock_timeout_ns), &self.unblock_timeout_ns())
-            .field(stringify!(connection_timeout_ns), &self.connection_timeout_ns())
-            .field(
-                stringify!(untethered_window_limit_timeout_ns),
+                "untethered_window_limit_timeout_ns",
                 &self.untethered_window_limit_timeout_ns(),
             )
-            .field(
-                stringify!(untethered_linger_timeout_ns),
-                &self.untethered_linger_timeout_ns(),
-            )
-            .field(
-                stringify!(untethered_resting_timeout_ns),
-                &self.untethered_resting_timeout_ns(),
-            )
-            .field(stringify!(tag), &self.tag())
-            .field(stringify!(response_correlation_id), &self.response_correlation_id())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(initial_term_id), &self.initial_term_id())
-            .field(stringify!(starting_term_id), &self.starting_term_id())
-            .field(stringify!(term_length_mask), &self.term_length_mask())
-            .field(stringify!(starting_term_offset), &self.starting_term_offset())
-            .field(stringify!(position_bits_to_shift), &self.position_bits_to_shift())
-            .field(stringify!(mtu_length), &self.mtu_length())
-            .field(stringify!(max_messages_per_send), &self.max_messages_per_send())
-            .field(stringify!(spies_simulate_connection), &self.spies_simulate_connection())
-            .field(stringify!(signal_eos), &self.signal_eos())
-            .field(stringify!(is_setup_elicited), &self.is_setup_elicited())
-            .field(stringify!(is_exclusive), &self.is_exclusive())
-            .field(stringify!(is_response), &self.is_response())
-            .field(stringify!(has_receivers), &self.has_receivers())
-            .field(stringify!(has_spies), &self.has_spies())
-            .field(stringify!(is_connected), &self.is_connected())
-            .field(stringify!(is_end_of_stream), &self.is_end_of_stream())
-            .field(stringify!(has_sender_released), &self.has_sender_released())
-            .field(stringify!(has_received_unicast_eos), &self.has_received_unicast_eos())
-            .field(stringify!(receiver_liveness_tracker), &self.receiver_liveness_tracker())
+            .field("untethered_linger_timeout_ns", &self.untethered_linger_timeout_ns())
+            .field("untethered_resting_timeout_ns", &self.untethered_resting_timeout_ns())
+            .field("tag", &self.tag())
+            .field("response_correlation_id", &self.response_correlation_id())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("initial_term_id", &self.initial_term_id())
+            .field("starting_term_id", &self.starting_term_id())
+            .field("term_length_mask", &self.term_length_mask())
+            .field("starting_term_offset", &self.starting_term_offset())
+            .field("position_bits_to_shift", &self.position_bits_to_shift())
+            .field("mtu_length", &self.mtu_length())
+            .field("max_messages_per_send", &self.max_messages_per_send())
+            .field("spies_simulate_connection", &self.spies_simulate_connection())
+            .field("signal_eos", &self.signal_eos())
+            .field("is_setup_elicited", &self.is_setup_elicited())
+            .field("is_exclusive", &self.is_exclusive())
+            .field("is_response", &self.is_response())
+            .field("has_receivers", &self.has_receivers())
+            .field("has_spies", &self.has_spies())
+            .field("is_connected", &self.is_connected())
+            .field("is_end_of_stream", &self.is_end_of_stream())
+            .field("has_sender_released", &self.has_sender_released())
+            .field("has_received_unicast_eos", &self.has_received_unicast_eos())
+            .field("receiver_liveness_tracker", &self.receiver_liveness_tracker())
             .finish()
     }
 }
@@ -54148,14 +53729,17 @@ impl AeronNetworkPublication {
 }
 impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S> {
     #[inline]
+    #[must_use]
     pub fn conductor_fields(&self) -> aeron_network_publication_stct_aeron_network_publication_conductor_fields_stct {
         unsafe { self.get_inner_ref() }.conductor_fields.into()
     }
     #[inline]
+    #[must_use]
     pub fn conductor_fields_pad(&self) -> [u8; 112usize] {
         unsafe { self.get_inner_ref() }.conductor_fields_pad.into()
     }
     #[inline]
+    #[must_use]
     pub fn pub_pos_position(&self) -> AeronPosition<ScopedInline<'_, aeron_position_t>> {
         AeronPosition::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.pub_pos_position),
@@ -54163,6 +53747,7 @@ impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S>
         })
     }
     #[inline]
+    #[must_use]
     pub fn pub_lmt_position(&self) -> AeronPosition<ScopedInline<'_, aeron_position_t>> {
         AeronPosition::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.pub_lmt_position),
@@ -54170,6 +53755,7 @@ impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S>
         })
     }
     #[inline]
+    #[must_use]
     pub fn snd_pos_position(&self) -> AeronPosition<ScopedInline<'_, aeron_position_t>> {
         AeronPosition::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.snd_pos_position),
@@ -54177,6 +53763,7 @@ impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S>
         })
     }
     #[inline]
+    #[must_use]
     pub fn snd_lmt_position(&self) -> AeronPosition<ScopedInline<'_, aeron_position_t>> {
         AeronPosition::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.snd_lmt_position),
@@ -54184,14 +53771,17 @@ impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S>
         })
     }
     #[inline]
+    #[must_use]
     pub fn snd_bpe_counter(&self) -> AeronAtomicCounter<Inline<aeron_atomic_counter_t>> {
         unsafe { AeronAtomicCounter::from_native(unsafe { self.get_inner_ref() }.snd_bpe_counter) }
     }
     #[inline]
+    #[must_use]
     pub fn snd_naks_received_counter(&self) -> AeronAtomicCounter<Inline<aeron_atomic_counter_t>> {
         unsafe { AeronAtomicCounter::from_native(unsafe { self.get_inner_ref() }.snd_naks_received_counter) }
     }
     #[inline]
+    #[must_use]
     pub fn retransmit_handler(&self) -> AeronRetransmitHandler<ScopedInline<'_, aeron_retransmit_handler_t>> {
         AeronRetransmitHandler::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.retransmit_handler),
@@ -54199,6 +53789,8 @@ impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S>
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn endpoint(&self) -> Ref<'_, AeronSendChannelEndpoint> {
         Ref::new(unsafe {
             AeronSendChannelEndpoint::from_ptr(
@@ -54209,6 +53801,8 @@ impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S>
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn flow_control(&self) -> Ref<'_, AeronFlowControlStrategy> {
         Ref::new(unsafe {
             AeronFlowControlStrategy::from_ptr(
@@ -54219,6 +53813,8 @@ impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S>
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn cached_clock(&self) -> Ref<'_, AeronClockCache> {
         Ref::new(unsafe {
             AeronClockCache::from_ptr(
@@ -54229,6 +53825,8 @@ impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S>
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn mapped_raw_log(&self) -> Ref<'_, AeronMappedRawLog> {
         Ref::new(unsafe {
             AeronMappedRawLog::from_ptr(
@@ -54239,6 +53837,8 @@ impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S>
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn log_meta_data(&self) -> Ref<'_, AeronLogbufferMetadata> {
         Ref::new(unsafe {
             AeronLogbufferMetadata::from_ptr(
@@ -54249,6 +53849,7 @@ impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S>
         })
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -54266,38 +53867,47 @@ impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S>
         }
     }
     #[inline]
+    #[must_use]
     pub fn log_file_name_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.log_file_name_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn sender_fields_pad_lhs(&self) -> [u8; 64usize] {
         unsafe { self.get_inner_ref() }.sender_fields_pad_lhs.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_initial_connection(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_initial_connection.into()
     }
     #[inline]
+    #[must_use]
     pub fn track_sender_limits(&self) -> bool {
         unsafe { self.get_inner_ref() }.track_sender_limits.into()
     }
     #[inline]
+    #[must_use]
     pub fn time_of_last_data_or_heartbeat_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.time_of_last_data_or_heartbeat_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn status_message_deadline_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.status_message_deadline_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn time_of_last_setup_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.time_of_last_setup_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn sender_fields_pad_rhs(&self) -> [u8; 64usize] {
         unsafe { self.get_inner_ref() }.sender_fields_pad_rhs.into()
     }
     #[inline]
+    #[must_use]
     pub fn endpoint_address(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
         SockaddrStorage::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.endpoint_address),
@@ -54305,164 +53915,204 @@ impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S>
         })
     }
     #[inline]
+    #[must_use]
     pub fn term_buffer_length(&self) -> i64 {
         unsafe { self.get_inner_ref() }.term_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_window_length(&self) -> i64 {
         unsafe { self.get_inner_ref() }.term_window_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn trip_gain(&self) -> i64 {
         unsafe { self.get_inner_ref() }.trip_gain.into()
     }
     #[inline]
+    #[must_use]
     pub fn linger_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.linger_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn unblock_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.unblock_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn connection_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.connection_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_window_limit_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }
             .untethered_window_limit_timeout_ns
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_linger_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.untethered_linger_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn untethered_resting_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.untethered_resting_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn tag(&self) -> i64 {
         unsafe { self.get_inner_ref() }.tag.into()
     }
     #[inline]
+    #[must_use]
     pub fn response_correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.response_correlation_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn initial_term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.initial_term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn starting_term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.starting_term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_length_mask(&self) -> i32 {
         unsafe { self.get_inner_ref() }.term_length_mask.into()
     }
     #[inline]
+    #[must_use]
     pub fn starting_term_offset(&self) -> usize {
         unsafe { self.get_inner_ref() }.starting_term_offset.into()
     }
     #[inline]
+    #[must_use]
     pub fn position_bits_to_shift(&self) -> usize {
         unsafe { self.get_inner_ref() }.position_bits_to_shift.into()
     }
     #[inline]
+    #[must_use]
     pub fn mtu_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.mtu_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn max_messages_per_send(&self) -> usize {
         unsafe { self.get_inner_ref() }.max_messages_per_send.into()
     }
     #[inline]
+    #[must_use]
     pub fn spies_simulate_connection(&self) -> bool {
         unsafe { self.get_inner_ref() }.spies_simulate_connection.into()
     }
     #[inline]
+    #[must_use]
     pub fn signal_eos(&self) -> bool {
         unsafe { self.get_inner_ref() }.signal_eos.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_setup_elicited(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_setup_elicited.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_exclusive(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_exclusive.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_response(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_response.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_receivers(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_receivers.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_spies(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_spies.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_connected(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_connected.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_end_of_stream(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_end_of_stream.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_sender_released(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_sender_released.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_received_unicast_eos(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_received_unicast_eos.into()
     }
     #[inline]
+    #[must_use]
     pub fn log(&self) -> aeron_network_publication_stct__bindgen_ty_1 {
         unsafe { self.get_inner_ref() }.log.into()
     }
     #[inline]
+    #[must_use]
     pub fn short_sends_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.short_sends_counter }
     }
     #[inline]
+    #[must_use]
     pub fn heartbeats_sent_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.heartbeats_sent_counter }
     }
     #[inline]
+    #[must_use]
     pub fn sender_flow_control_limits_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.sender_flow_control_limits_counter }
     }
     #[inline]
+    #[must_use]
     pub fn retransmits_sent_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.retransmits_sent_counter }
     }
     #[inline]
+    #[must_use]
     pub fn retransmitted_bytes_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.retransmitted_bytes_counter }
     }
     #[inline]
+    #[must_use]
     pub fn unblocked_publications_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.unblocked_publications_counter }
     }
     #[inline]
+    #[must_use]
     pub fn publications_revoked_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.publications_revoked_counter }
     }
     #[inline]
+    #[must_use]
     pub fn receiver_liveness_tracker(&self) -> AeronInt64CounterMap<ScopedInline<'_, aeron_int64_counter_map_t>> {
         AeronInt64CounterMap::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.receiver_liveness_tracker),
@@ -54754,22 +54404,32 @@ impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S>
 }
 impl<'a, S: ResourceStorage<aeron_network_publication_t>> Ref<'a, AeronNetworkPublication<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn endpoint(&self) -> Ref<'a, AeronSendChannelEndpoint> {
         Ref::new(self.value.endpoint().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn flow_control(&self) -> Ref<'a, AeronFlowControlStrategy> {
         Ref::new(self.value.flow_control().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn cached_clock(&self) -> Ref<'a, AeronClockCache> {
         Ref::new(self.value.cached_clock().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn mapped_raw_log(&self) -> Ref<'a, AeronMappedRawLog> {
         Ref::new(self.value.mapped_raw_log().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn log_meta_data(&self) -> Ref<'a, AeronLogbufferMetadata> {
         Ref::new(self.value.log_meta_data().value)
     }
@@ -54882,15 +54542,13 @@ impl<S: ResourceStorage<aeron_next_available_session_id_response_t>> core::fmt::
         }
         f.debug_struct(stringify!(AeronNextAvailableSessionIdResponse))
             .field("inner", &self.inner)
-            .field(stringify!(correlation_id), &self.correlation_id())
-            .field(stringify!(next_session_id), &self.next_session_id())
+            .field("correlation_id", &self.correlation_id())
+            .field("next_session_id", &self.next_session_id())
             .finish()
     }
 }
 impl AeronNextAvailableSessionIdResponse<CResource<aeron_next_available_session_id_response_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(correlation_id: i64, next_session_id: i32) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_next_available_session_id_response_t>::new(
             move |ctx_field| {
@@ -54912,9 +54570,6 @@ impl AeronNextAvailableSessionIdResponse<CResource<aeron_next_available_session_
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_next_available_session_id_response_t>::new(
             move |ctx_field| {
@@ -54938,9 +54593,6 @@ impl AeronNextAvailableSessionIdResponse<CResource<aeron_next_available_session_
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack()
     -> AeronNextAvailableSessionIdResponse<Inline<aeron_next_available_session_id_response_t>> {
         #[cfg(feature = "extra-logging")]
@@ -54956,10 +54608,12 @@ impl AeronNextAvailableSessionIdResponse<CResource<aeron_next_available_session_
 impl AeronNextAvailableSessionIdResponse {}
 impl<S: ResourceStorage<aeron_next_available_session_id_response_t>> AeronNextAvailableSessionIdResponse<S> {
     #[inline]
+    #[must_use]
     pub fn correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.correlation_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn next_session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.next_session_id.into()
     }
@@ -55136,8 +54790,6 @@ impl<S: ResourceStorage<aeron_on_available_counter_pair_t>> core::fmt::Debug for
 }
 impl AeronAvailableCounterPair<CResource<aeron_on_available_counter_pair_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new<AeronAvailableCounterHandlerImpl: AeronAvailableCounterCallback + Send + 'static>(
         handler: Option<&Handler<AeronAvailableCounterHandlerImpl, SharedCallback>>,
     ) -> Result<Self, AeronCError> {
@@ -55218,10 +54870,12 @@ impl AeronAvailableCounterPair<CResource<aeron_on_available_counter_pair_t>> {
 impl AeronAvailableCounterPair {}
 impl<S: ResourceStorage<aeron_on_available_counter_pair_t>> AeronAvailableCounterPair<S> {
     #[inline]
+    #[must_use]
     pub fn handler(&self) -> aeron_on_available_counter_t {
         unsafe { self.get_inner_ref() }.handler.into()
     }
     #[inline]
+    #[must_use]
     pub fn clientd(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.clientd.into()
     }
@@ -55389,8 +55043,6 @@ impl<S: ResourceStorage<aeron_on_close_client_pair_t>> core::fmt::Debug for Aero
 }
 impl AeronCloseClientPair<CResource<aeron_on_close_client_pair_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new<AeronCloseClientHandlerImpl: AeronCloseClientCallback + Send + 'static>(
         handler: Option<&Handler<AeronCloseClientHandlerImpl, SharedCallback>>,
     ) -> Result<Self, AeronCError> {
@@ -55469,10 +55121,12 @@ impl AeronCloseClientPair<CResource<aeron_on_close_client_pair_t>> {
 impl AeronCloseClientPair {}
 impl<S: ResourceStorage<aeron_on_close_client_pair_t>> AeronCloseClientPair<S> {
     #[inline]
+    #[must_use]
     pub fn handler(&self) -> aeron_on_close_client_t {
         unsafe { self.get_inner_ref() }.handler.into()
     }
     #[inline]
+    #[must_use]
     pub fn clientd(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.clientd.into()
     }
@@ -55641,8 +55295,6 @@ impl<S: ResourceStorage<aeron_on_unavailable_counter_pair_t>> core::fmt::Debug f
 }
 impl AeronUnavailableCounterPair<CResource<aeron_on_unavailable_counter_pair_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new<AeronUnavailableCounterHandlerImpl: AeronUnavailableCounterCallback + Send + 'static>(
         handler: Option<&Handler<AeronUnavailableCounterHandlerImpl, SharedCallback>>,
     ) -> Result<Self, AeronCError> {
@@ -55726,10 +55378,12 @@ impl AeronUnavailableCounterPair<CResource<aeron_on_unavailable_counter_pair_t>>
 impl AeronUnavailableCounterPair {}
 impl<S: ResourceStorage<aeron_on_unavailable_counter_pair_t>> AeronUnavailableCounterPair<S> {
     #[inline]
+    #[must_use]
     pub fn handler(&self) -> aeron_on_unavailable_counter_t {
         unsafe { self.get_inner_ref() }.handler.into()
     }
     #[inline]
+    #[must_use]
     pub fn clientd(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.clientd.into()
     }
@@ -55892,14 +55546,12 @@ impl<S: ResourceStorage<aeron_operation_succeeded_t>> core::fmt::Debug for Aeron
         }
         f.debug_struct(stringify!(AeronOperationSucceeded))
             .field("inner", &self.inner)
-            .field(stringify!(correlation_id), &self.correlation_id())
+            .field("correlation_id", &self.correlation_id())
             .finish()
     }
 }
 impl AeronOperationSucceeded<CResource<aeron_operation_succeeded_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(correlation_id: i64) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_operation_succeeded_t>::new(
             move |ctx_field| {
@@ -55920,9 +55572,6 @@ impl AeronOperationSucceeded<CResource<aeron_operation_succeeded_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_operation_succeeded_t>::new(
             move |ctx_field| {
@@ -55946,9 +55595,6 @@ impl AeronOperationSucceeded<CResource<aeron_operation_succeeded_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronOperationSucceeded<Inline<aeron_operation_succeeded_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -55963,6 +55609,7 @@ impl AeronOperationSucceeded<CResource<aeron_operation_succeeded_t>> {
 impl AeronOperationSucceeded {}
 impl<S: ResourceStorage<aeron_operation_succeeded_t>> AeronOperationSucceeded<S> {
     #[inline]
+    #[must_use]
     pub fn correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.correlation_id.into()
     }
@@ -56128,15 +55775,13 @@ impl<S: ResourceStorage<aeron_option_header_t>> core::fmt::Debug for AeronOption
         }
         f.debug_struct(stringify!(AeronOptionHeader))
             .field("inner", &self.inner)
-            .field(stringify!(option_length), &self.option_length())
-            .field(stringify!(type_), &self.type_())
+            .field("option_length", &self.option_length())
+            .field("type_", &self.type_())
             .finish()
     }
 }
 impl AeronOptionHeader<CResource<aeron_option_header_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(option_length: u16, type_: u16) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_option_header_t>::new(
             move |ctx_field| {
@@ -56158,9 +55803,6 @@ impl AeronOptionHeader<CResource<aeron_option_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_option_header_t>::new(
             move |ctx_field| {
@@ -56184,9 +55826,6 @@ impl AeronOptionHeader<CResource<aeron_option_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronOptionHeader<Inline<aeron_option_header_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -56201,10 +55840,12 @@ impl AeronOptionHeader<CResource<aeron_option_header_t>> {
 impl AeronOptionHeader {}
 impl<S: ResourceStorage<aeron_option_header_t>> AeronOptionHeader<S> {
     #[inline]
+    #[must_use]
     pub fn option_length(&self) -> u16 {
         unsafe { self.get_inner_ref() }.option_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn type_(&self) -> u16 {
         unsafe { self.get_inner_ref() }.type_.into()
     }
@@ -56362,14 +56003,12 @@ impl<S: ResourceStorage<aeron_parsed_address_t>> core::fmt::Debug for AeronParse
         }
         f.debug_struct(stringify!(AeronParsedAddress))
             .field("inner", &self.inner)
-            .field(stringify!(ip_version_hint), &self.ip_version_hint())
+            .field("ip_version_hint", &self.ip_version_hint())
             .finish()
     }
 }
 impl AeronParsedAddress<CResource<aeron_parsed_address_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         host: [::std::os::raw::c_char; 384usize],
         port: [::std::os::raw::c_char; 8usize],
@@ -56396,9 +56035,6 @@ impl AeronParsedAddress<CResource<aeron_parsed_address_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_parsed_address_t>::new(
             move |ctx_field| {
@@ -56422,9 +56058,6 @@ impl AeronParsedAddress<CResource<aeron_parsed_address_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronParsedAddress<Inline<aeron_parsed_address_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -56439,14 +56072,17 @@ impl AeronParsedAddress<CResource<aeron_parsed_address_t>> {
 impl AeronParsedAddress {}
 impl<S: ResourceStorage<aeron_parsed_address_t>> AeronParsedAddress<S> {
     #[inline]
+    #[must_use]
     pub fn host(&self) -> [::std::os::raw::c_char; 384usize] {
         unsafe { self.get_inner_ref() }.host.into()
     }
     #[inline]
+    #[must_use]
     pub fn port(&self) -> [::std::os::raw::c_char; 8usize] {
         unsafe { self.get_inner_ref() }.port.into()
     }
     #[inline]
+    #[must_use]
     pub fn ip_version_hint(&self) -> ::std::os::raw::c_int {
         unsafe { self.get_inner_ref() }.ip_version_hint.into()
     }
@@ -56604,14 +56240,12 @@ impl<S: ResourceStorage<aeron_parsed_interface_t>> core::fmt::Debug for AeronPar
         }
         f.debug_struct(stringify!(AeronParsedInterface))
             .field("inner", &self.inner)
-            .field(stringify!(ip_version_hint), &self.ip_version_hint())
+            .field("ip_version_hint", &self.ip_version_hint())
             .finish()
     }
 }
 impl AeronParsedInterface<CResource<aeron_parsed_interface_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         host: [::std::os::raw::c_char; 384usize],
         port: [::std::os::raw::c_char; 8usize],
@@ -56640,9 +56274,6 @@ impl AeronParsedInterface<CResource<aeron_parsed_interface_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_parsed_interface_t>::new(
             move |ctx_field| {
@@ -56666,9 +56297,6 @@ impl AeronParsedInterface<CResource<aeron_parsed_interface_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronParsedInterface<Inline<aeron_parsed_interface_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -56683,18 +56311,22 @@ impl AeronParsedInterface<CResource<aeron_parsed_interface_t>> {
 impl AeronParsedInterface {}
 impl<S: ResourceStorage<aeron_parsed_interface_t>> AeronParsedInterface<S> {
     #[inline]
+    #[must_use]
     pub fn host(&self) -> [::std::os::raw::c_char; 384usize] {
         unsafe { self.get_inner_ref() }.host.into()
     }
     #[inline]
+    #[must_use]
     pub fn port(&self) -> [::std::os::raw::c_char; 8usize] {
         unsafe { self.get_inner_ref() }.port.into()
     }
     #[inline]
+    #[must_use]
     pub fn prefix(&self) -> [::std::os::raw::c_char; 8usize] {
         unsafe { self.get_inner_ref() }.prefix.into()
     }
     #[inline]
+    #[must_use]
     pub fn ip_version_hint(&self) -> ::std::os::raw::c_int {
         unsafe { self.get_inner_ref() }.ip_version_hint.into()
     }
@@ -56856,15 +56488,13 @@ impl<S: ResourceStorage<aeron_per_thread_error_t>> core::fmt::Debug for AeronPer
         }
         f.debug_struct(stringify!(AeronPerThreadError))
             .field("inner", &self.inner)
-            .field(stringify!(errcode), &self.errcode())
-            .field(stringify!(offset), &self.offset())
+            .field("errcode", &self.errcode())
+            .field("offset", &self.offset())
             .finish()
     }
 }
 impl AeronPerThreadError<CResource<aeron_per_thread_error_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         errcode: ::std::os::raw::c_int,
         offset: usize,
@@ -56891,9 +56521,6 @@ impl AeronPerThreadError<CResource<aeron_per_thread_error_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_per_thread_error_t>::new(
             move |ctx_field| {
@@ -56917,9 +56544,6 @@ impl AeronPerThreadError<CResource<aeron_per_thread_error_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronPerThreadError<Inline<aeron_per_thread_error_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -56934,14 +56558,17 @@ impl AeronPerThreadError<CResource<aeron_per_thread_error_t>> {
 impl AeronPerThreadError {}
 impl<S: ResourceStorage<aeron_per_thread_error_t>> AeronPerThreadError<S> {
     #[inline]
+    #[must_use]
     pub fn errcode(&self) -> ::std::os::raw::c_int {
         unsafe { self.get_inner_ref() }.errcode.into()
     }
     #[inline]
+    #[must_use]
     pub fn offset(&self) -> usize {
         unsafe { self.get_inner_ref() }.offset.into()
     }
     #[inline]
+    #[must_use]
     pub fn errmsg(&self) -> [::std::os::raw::c_char; 8192usize] {
         unsafe { self.get_inner_ref() }.errmsg.into()
     }
@@ -57199,14 +56826,17 @@ impl AeronPortManager<CResource<aeron_port_manager_t>> {
 impl AeronPortManager {}
 impl<S: ResourceStorage<aeron_port_manager_t>> AeronPortManager<S> {
     #[inline]
+    #[must_use]
     pub fn get_managed_port(&self) -> aeron_port_manager_get_managed_port_func_t {
         unsafe { self.get_inner_ref() }.get_managed_port.into()
     }
     #[inline]
+    #[must_use]
     pub fn free_managed_port(&self) -> aeron_port_manager_free_managed_port_func_t {
         unsafe { self.get_inner_ref() }.free_managed_port.into()
     }
     #[inline]
+    #[must_use]
     pub fn state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.state.into()
     }
@@ -57354,7 +56984,7 @@ impl<S: ResourceStorage<aeron_position_t>> core::fmt::Debug for AeronPosition<S>
         }
         f.debug_struct(stringify!(AeronPosition))
             .field("inner", &self.inner)
-            .field(stringify!(counter_id), &self.counter_id())
+            .field("counter_id", &self.counter_id())
             .finish()
     }
 }
@@ -57426,10 +57056,12 @@ impl AeronPosition<CResource<aeron_position_t>> {
 impl AeronPosition {}
 impl<S: ResourceStorage<aeron_position_t>> AeronPosition<S> {
     #[inline]
+    #[must_use]
     pub fn counter_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.counter_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn value_addr(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.value_addr }
     }
@@ -57585,23 +57217,18 @@ impl<S: ResourceStorage<aeron_publication_buffers_ready_t>> core::fmt::Debug for
         }
         f.debug_struct(stringify!(AeronPublicationBuffersReady))
             .field("inner", &self.inner)
-            .field(stringify!(correlation_id), &self.correlation_id())
-            .field(stringify!(registration_id), &self.registration_id())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(position_limit_counter_id), &self.position_limit_counter_id())
-            .field(
-                stringify!(channel_status_indicator_id),
-                &self.channel_status_indicator_id(),
-            )
-            .field(stringify!(log_file_length), &self.log_file_length())
+            .field("correlation_id", &self.correlation_id())
+            .field("registration_id", &self.registration_id())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("position_limit_counter_id", &self.position_limit_counter_id())
+            .field("channel_status_indicator_id", &self.channel_status_indicator_id())
+            .field("log_file_length", &self.log_file_length())
             .finish()
     }
 }
 impl AeronPublicationBuffersReady<CResource<aeron_publication_buffers_ready_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         correlation_id: i64,
         registration_id: i64,
@@ -57636,9 +57263,6 @@ impl AeronPublicationBuffersReady<CResource<aeron_publication_buffers_ready_t>> 
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_publication_buffers_ready_t>::new(
             move |ctx_field| {
@@ -57662,9 +57286,6 @@ impl AeronPublicationBuffersReady<CResource<aeron_publication_buffers_ready_t>> 
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronPublicationBuffersReady<Inline<aeron_publication_buffers_ready_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -57679,30 +57300,37 @@ impl AeronPublicationBuffersReady<CResource<aeron_publication_buffers_ready_t>> 
 impl AeronPublicationBuffersReady {}
 impl<S: ResourceStorage<aeron_publication_buffers_ready_t>> AeronPublicationBuffersReady<S> {
     #[inline]
+    #[must_use]
     pub fn correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.correlation_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn position_limit_counter_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.position_limit_counter_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn channel_status_indicator_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.channel_status_indicator_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn log_file_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.log_file_length.into()
     }
@@ -57872,16 +57500,14 @@ impl<S: ResourceStorage<aeron_publication_command_t>> core::fmt::Debug for Aeron
         }
         f.debug_struct(stringify!(AeronPublicationCommand))
             .field("inner", &self.inner)
-            .field(stringify!(correlated), &self.correlated())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(channel_length), &self.channel_length())
+            .field("correlated", &self.correlated())
+            .field("stream_id", &self.stream_id())
+            .field("channel_length", &self.channel_length())
             .finish()
     }
 }
 impl AeronPublicationCommand<CResource<aeron_publication_command_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         correlated: AeronCorrelatedCommand<Inline<aeron_correlated_command_t>>,
         stream_id: i32,
@@ -57908,9 +57534,6 @@ impl AeronPublicationCommand<CResource<aeron_publication_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_publication_command_t>::new(
             move |ctx_field| {
@@ -57934,9 +57557,6 @@ impl AeronPublicationCommand<CResource<aeron_publication_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronPublicationCommand<Inline<aeron_publication_command_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -57951,14 +57571,17 @@ impl AeronPublicationCommand<CResource<aeron_publication_command_t>> {
 impl AeronPublicationCommand {}
 impl<S: ResourceStorage<aeron_publication_command_t>> AeronPublicationCommand<S> {
     #[inline]
+    #[must_use]
     pub fn correlated(&self) -> AeronCorrelatedCommand<Inline<aeron_correlated_command_t>> {
         unsafe { AeronCorrelatedCommand::from_native(unsafe { self.get_inner_ref() }.correlated) }
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn channel_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.channel_length.into()
     }
@@ -58127,25 +57750,19 @@ impl<S: ResourceStorage<aeron_publication_constants_t>> core::fmt::Debug for Aer
         }
         f.debug_struct(stringify!(AeronPublicationConstants))
             .field("inner", &self.inner)
-            .field(stringify!(channel), &self.channel())
-            .field(stringify!(original_registration_id), &self.original_registration_id())
-            .field(stringify!(registration_id), &self.registration_id())
-            .field(stringify!(max_possible_position), &self.max_possible_position())
-            .field(stringify!(position_bits_to_shift), &self.position_bits_to_shift())
-            .field(stringify!(term_buffer_length), &self.term_buffer_length())
-            .field(stringify!(max_message_length), &self.max_message_length())
-            .field(stringify!(max_payload_length), &self.max_payload_length())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(initial_term_id), &self.initial_term_id())
-            .field(
-                stringify!(publication_limit_counter_id),
-                &self.publication_limit_counter_id(),
-            )
-            .field(
-                stringify!(channel_status_indicator_id),
-                &self.channel_status_indicator_id(),
-            )
+            .field("channel", &self.channel())
+            .field("original_registration_id", &self.original_registration_id())
+            .field("registration_id", &self.registration_id())
+            .field("max_possible_position", &self.max_possible_position())
+            .field("position_bits_to_shift", &self.position_bits_to_shift())
+            .field("term_buffer_length", &self.term_buffer_length())
+            .field("max_message_length", &self.max_message_length())
+            .field("max_payload_length", &self.max_payload_length())
+            .field("stream_id", &self.stream_id())
+            .field("session_id", &self.session_id())
+            .field("initial_term_id", &self.initial_term_id())
+            .field("publication_limit_counter_id", &self.publication_limit_counter_id())
+            .field("channel_status_indicator_id", &self.channel_status_indicator_id())
             .finish()
     }
 }
@@ -58199,10 +57816,7 @@ impl AeronPublicationConstants<CResource<aeron_publication_constants_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_publication_constants_t>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -58225,10 +57839,7 @@ impl AeronPublicationConstants<CResource<aeron_publication_constants_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> AeronPublicationConstants<Inline<aeron_publication_constants_t>> {
+    pub fn new_zeroed_on_stack() -> AeronPublicationConstants<Inline<aeron_publication_constants_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
             "creating zeroed empty resource on stack {}",
@@ -58242,6 +57853,7 @@ impl AeronPublicationConstants<CResource<aeron_publication_constants_t>> {
 impl AeronPublicationConstants {}
 impl<S: ResourceStorage<aeron_publication_constants_t>> AeronPublicationConstants<S> {
     #[inline]
+    #[must_use]
     pub fn channel(&self) -> &str {
         if unsafe { self.get_inner_ref() }.channel.is_null() {
             ""
@@ -58254,50 +57866,62 @@ impl<S: ResourceStorage<aeron_publication_constants_t>> AeronPublicationConstant
         }
     }
     #[inline]
+    #[must_use]
     pub fn original_registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.original_registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn max_possible_position(&self) -> i64 {
         unsafe { self.get_inner_ref() }.max_possible_position.into()
     }
     #[inline]
+    #[must_use]
     pub fn position_bits_to_shift(&self) -> usize {
         unsafe { self.get_inner_ref() }.position_bits_to_shift.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_buffer_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.term_buffer_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn max_message_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.max_message_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn max_payload_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.max_payload_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn initial_term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.initial_term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn publication_limit_counter_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.publication_limit_counter_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn channel_status_indicator_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.channel_status_indicator_id.into()
     }
@@ -58380,6 +58004,11 @@ impl<S: ResourceStorage<aeron_publication_constants_t>> From<AeronPublicationCon
         unsafe { *value.get_inner().clone() }
     }
 }
+impl Default for AeronPublicationConstants<CResource<aeron_publication_constants_t>> {
+    fn default() -> Self {
+        AeronPublicationConstants::new_zeroed_on_heap()
+    }
+}
 impl<S: ResourceStorage<aeron_publication_constants_t>> AeronPublicationConstants<S> {
     #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
@@ -58458,26 +58087,21 @@ impl<S: ResourceStorage<aeron_publication_error_t>> core::fmt::Debug for AeronPu
         }
         f.debug_struct(stringify!(AeronPublicationError))
             .field("inner", &self.inner)
-            .field(stringify!(registration_id), &self.registration_id())
-            .field(
-                stringify!(destination_registration_id),
-                &self.destination_registration_id(),
-            )
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(receiver_id), &self.receiver_id())
-            .field(stringify!(group_tag), &self.group_tag())
-            .field(stringify!(address_type), &self.address_type())
-            .field(stringify!(source_port), &self.source_port())
-            .field(stringify!(error_code), &self.error_code())
-            .field(stringify!(error_message_length), &self.error_message_length())
+            .field("registration_id", &self.registration_id())
+            .field("destination_registration_id", &self.destination_registration_id())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("receiver_id", &self.receiver_id())
+            .field("group_tag", &self.group_tag())
+            .field("address_type", &self.address_type())
+            .field("source_port", &self.source_port())
+            .field("error_code", &self.error_code())
+            .field("error_message_length", &self.error_message_length())
             .finish()
     }
 }
 impl AeronPublicationError<CResource<aeron_publication_error_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         registration_id: i64,
         destination_registration_id: i64,
@@ -58522,9 +58146,6 @@ impl AeronPublicationError<CResource<aeron_publication_error_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_publication_error_t>::new(
             move |ctx_field| {
@@ -58548,9 +58169,6 @@ impl AeronPublicationError<CResource<aeron_publication_error_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronPublicationError<Inline<aeron_publication_error_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -58565,50 +58183,62 @@ impl AeronPublicationError<CResource<aeron_publication_error_t>> {
 impl AeronPublicationError {}
 impl<S: ResourceStorage<aeron_publication_error_t>> AeronPublicationError<S> {
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn destination_registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.destination_registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn receiver_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.receiver_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn group_tag(&self) -> i64 {
         unsafe { self.get_inner_ref() }.group_tag.into()
     }
     #[inline]
+    #[must_use]
     pub fn address_type(&self) -> i16 {
         unsafe { self.get_inner_ref() }.address_type.into()
     }
     #[inline]
+    #[must_use]
     pub fn source_port(&self) -> u16 {
         unsafe { self.get_inner_ref() }.source_port.into()
     }
     #[inline]
+    #[must_use]
     pub fn source_address(&self) -> [u8; 16usize] {
         unsafe { self.get_inner_ref() }.source_address.into()
     }
     #[inline]
+    #[must_use]
     pub fn error_code(&self) -> i32 {
         unsafe { self.get_inner_ref() }.error_code.into()
     }
     #[inline]
+    #[must_use]
     pub fn error_message_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.error_message_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn error_message(&self) -> [u8; 1usize] {
         unsafe { self.get_inner_ref() }.error_message.into()
     }
@@ -58772,19 +58402,16 @@ impl<S: ResourceStorage<aeron_publication_error_values_t>> core::fmt::Debug for 
         }
         f.debug_struct(stringify!(AeronPublicationErrorValues))
             .field("inner", &self.inner)
-            .field(stringify!(registration_id), &self.registration_id())
-            .field(
-                stringify!(destination_registration_id),
-                &self.destination_registration_id(),
-            )
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(receiver_id), &self.receiver_id())
-            .field(stringify!(group_tag), &self.group_tag())
-            .field(stringify!(address_type), &self.address_type())
-            .field(stringify!(source_port), &self.source_port())
-            .field(stringify!(error_code), &self.error_code())
-            .field(stringify!(error_message_length), &self.error_message_length())
+            .field("registration_id", &self.registration_id())
+            .field("destination_registration_id", &self.destination_registration_id())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("receiver_id", &self.receiver_id())
+            .field("group_tag", &self.group_tag())
+            .field("address_type", &self.address_type())
+            .field("source_port", &self.source_port())
+            .field("error_code", &self.error_code())
+            .field("error_message_length", &self.error_message_length())
             .finish()
     }
 }
@@ -58834,50 +58461,62 @@ impl AeronPublicationErrorValues<CResource<aeron_publication_error_values_t>> {
 impl AeronPublicationErrorValues {}
 impl<S: ResourceStorage<aeron_publication_error_values_t>> AeronPublicationErrorValues<S> {
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn destination_registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.destination_registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn receiver_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.receiver_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn group_tag(&self) -> i64 {
         unsafe { self.get_inner_ref() }.group_tag.into()
     }
     #[inline]
+    #[must_use]
     pub fn address_type(&self) -> i16 {
         unsafe { self.get_inner_ref() }.address_type.into()
     }
     #[inline]
+    #[must_use]
     pub fn source_port(&self) -> u16 {
         unsafe { self.get_inner_ref() }.source_port.into()
     }
     #[inline]
+    #[must_use]
     pub fn source_address(&self) -> [u8; 16usize] {
         unsafe { self.get_inner_ref() }.source_address.into()
     }
     #[inline]
+    #[must_use]
     pub fn error_code(&self) -> i32 {
         unsafe { self.get_inner_ref() }.error_code.into()
     }
     #[inline]
+    #[must_use]
     pub fn error_message_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.error_message_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn error_message(&self) -> [u8; 1usize] {
         unsafe { self.get_inner_ref() }.error_message.into()
     }
@@ -59033,13 +58672,13 @@ impl<S: ResourceStorage<aeron_publication_image_connection_t>> core::fmt::Debug 
         f.debug_struct(stringify!(AeronPublicationImageConnection))
             .field("inner", &self.inner)
             .field(
-                stringify!(resolved_control_address_for_implicit_unicast_channels),
+                "resolved_control_address_for_implicit_unicast_channels",
                 &self.resolved_control_address_for_implicit_unicast_channels(),
             )
-            .field(stringify!(is_eos), &self.is_eos())
-            .field(stringify!(time_of_last_activity_ns), &self.time_of_last_activity_ns())
-            .field(stringify!(time_of_last_frame_ns), &self.time_of_last_frame_ns())
-            .field(stringify!(eos_position), &self.eos_position())
+            .field("is_eos", &self.is_eos())
+            .field("time_of_last_activity_ns", &self.time_of_last_activity_ns())
+            .field("time_of_last_frame_ns", &self.time_of_last_frame_ns())
+            .field("eos_position", &self.eos_position())
             .finish()
     }
 }
@@ -59132,10 +58771,12 @@ impl AeronPublicationImageConnection<CResource<aeron_publication_image_connectio
 impl AeronPublicationImageConnection {}
 impl<S: ResourceStorage<aeron_publication_image_connection_t>> AeronPublicationImageConnection<S> {
     #[inline]
+    #[must_use]
     pub fn padding_before(&self) -> [u8; 64usize] {
         unsafe { self.get_inner_ref() }.padding_before.into()
     }
     #[inline]
+    #[must_use]
     pub fn resolved_control_address_for_implicit_unicast_channels(
         &self,
     ) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
@@ -59145,6 +58786,8 @@ impl<S: ResourceStorage<aeron_publication_image_connection_t>> AeronPublicationI
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn destination(&self) -> Ref<'_, AeronReceiveDestination> {
         Ref::new(unsafe {
             AeronReceiveDestination::from_ptr(
@@ -59155,6 +58798,8 @@ impl<S: ResourceStorage<aeron_publication_image_connection_t>> AeronPublicationI
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn control_addr(&self) -> Ref<'_, SockaddrStorage> {
         Ref::new(unsafe {
             SockaddrStorage::from_ptr(
@@ -59165,22 +58810,27 @@ impl<S: ResourceStorage<aeron_publication_image_connection_t>> AeronPublicationI
         })
     }
     #[inline]
+    #[must_use]
     pub fn is_eos(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_eos.into()
     }
     #[inline]
+    #[must_use]
     pub fn time_of_last_activity_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.time_of_last_activity_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn time_of_last_frame_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.time_of_last_frame_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn eos_position(&self) -> i64 {
         unsafe { self.get_inner_ref() }.eos_position.into()
     }
     #[inline]
+    #[must_use]
     pub fn padding_after(&self) -> [u8; 64usize] {
         unsafe { self.get_inner_ref() }.padding_after.into()
     }
@@ -59216,10 +58866,14 @@ impl<S: ResourceStorage<aeron_publication_image_connection_t>> AeronPublicationI
 }
 impl<'a, S: ResourceStorage<aeron_publication_image_connection_t>> Ref<'a, AeronPublicationImageConnection<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn destination(&self) -> Ref<'a, AeronReceiveDestination> {
         Ref::new(self.value.destination().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn control_addr(&self) -> Ref<'a, SockaddrStorage> {
         Ref::new(self.value.control_addr().value)
     }
@@ -59355,6 +59009,7 @@ impl<S: ResourceStorage<aeron_publication_image_entry_t>> core::fmt::Debug for A
         }
         f.debug_struct(stringify!(AeronPublicationImageEntry))
             .field("inner", &self.inner)
+            .field("log_file_name", &unsafe { self.log_file_name() })
             .finish()
     }
 }
@@ -59433,6 +59088,8 @@ impl AeronPublicationImageEntry<CResource<aeron_publication_image_entry_t>> {
 impl AeronPublicationImageEntry {}
 impl<S: ResourceStorage<aeron_publication_image_entry_t>> AeronPublicationImageEntry<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn image(&self) -> Ref<'_, AeronPublicationImage> {
         Ref::new(unsafe {
             AeronPublicationImage::from_ptr(
@@ -59443,6 +59100,8 @@ impl<S: ResourceStorage<aeron_publication_image_entry_t>> AeronPublicationImageE
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn mapped_raw_log(&self) -> Ref<'_, AeronMappedRawLog> {
         Ref::new(unsafe {
             AeronMappedRawLog::from_ptr(
@@ -59453,6 +59112,7 @@ impl<S: ResourceStorage<aeron_publication_image_entry_t>> AeronPublicationImageE
         })
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -59499,10 +59159,14 @@ impl<S: ResourceStorage<aeron_publication_image_entry_t>> AeronPublicationImageE
 }
 impl<'a, S: ResourceStorage<aeron_publication_image_entry_t>> Ref<'a, AeronPublicationImageEntry<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn image(&self) -> Ref<'a, AeronPublicationImage> {
         Ref::new(self.value.image().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn mapped_raw_log(&self) -> Ref<'a, AeronMappedRawLog> {
         Ref::new(self.value.mapped_raw_log().value)
     }
@@ -59634,54 +59298,50 @@ impl<S: ResourceStorage<aeron_publication_image_t>> core::fmt::Debug for AeronPu
         }
         f.debug_struct(stringify!(AeronPublicationImage))
             .field("inner", &self.inner)
-            .field(stringify!(source_address), &self.source_address())
-            .field(stringify!(source_identity_length), &self.source_identity_length())
-            .field(stringify!(loss_detector), &self.loss_detector())
-            .field(stringify!(feedback_delay_state), &self.feedback_delay_state())
-            .field(stringify!(rcv_hwm_position), &self.rcv_hwm_position())
-            .field(stringify!(rcv_pos_position), &self.rcv_pos_position())
-            .field(stringify!(rcv_naks_sent), &self.rcv_naks_sent())
-            .field(stringify!(log_file_name_length), &self.log_file_name_length())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(initial_term_id), &self.initial_term_id())
-            .field(stringify!(active_term_id), &self.active_term_id())
-            .field(stringify!(term_length), &self.term_length())
-            .field(stringify!(mtu_length), &self.mtu_length())
-            .field(stringify!(term_length_mask), &self.term_length_mask())
-            .field(stringify!(position_bits_to_shift), &self.position_bits_to_shift())
-            .field(stringify!(begin_loss_change), &self.begin_loss_change())
-            .field(stringify!(end_loss_change), &self.end_loss_change())
-            .field(stringify!(last_loss_change_number), &self.last_loss_change_number())
-            .field(stringify!(loss_term_id), &self.loss_term_id())
-            .field(stringify!(loss_term_offset), &self.loss_term_offset())
-            .field(stringify!(loss_length), &self.loss_length())
-            .field(stringify!(begin_sm_change), &self.begin_sm_change())
-            .field(stringify!(end_sm_change), &self.end_sm_change())
-            .field(stringify!(last_overrun_threshold), &self.last_overrun_threshold())
-            .field(stringify!(next_sm_position), &self.next_sm_position())
+            .field("source_address", &self.source_address())
+            .field("source_identity_length", &self.source_identity_length())
+            .field("loss_detector", &self.loss_detector())
+            .field("feedback_delay_state", &self.feedback_delay_state())
+            .field("rcv_hwm_position", &self.rcv_hwm_position())
+            .field("rcv_pos_position", &self.rcv_pos_position())
+            .field("rcv_naks_sent", &self.rcv_naks_sent())
+            .field("log_file_name", &unsafe { self.log_file_name() })
+            .field("log_file_name_length", &self.log_file_name_length())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("initial_term_id", &self.initial_term_id())
+            .field("active_term_id", &self.active_term_id())
+            .field("term_length", &self.term_length())
+            .field("mtu_length", &self.mtu_length())
+            .field("term_length_mask", &self.term_length_mask())
+            .field("position_bits_to_shift", &self.position_bits_to_shift())
+            .field("begin_loss_change", &self.begin_loss_change())
+            .field("end_loss_change", &self.end_loss_change())
+            .field("last_loss_change_number", &self.last_loss_change_number())
+            .field("loss_term_id", &self.loss_term_id())
+            .field("loss_term_offset", &self.loss_term_offset())
+            .field("loss_length", &self.loss_length())
+            .field("begin_sm_change", &self.begin_sm_change())
+            .field("end_sm_change", &self.end_sm_change())
+            .field("last_overrun_threshold", &self.last_overrun_threshold())
+            .field("next_sm_position", &self.next_sm_position())
+            .field("next_sm_receiver_window_length", &self.next_sm_receiver_window_length())
+            .field("max_receiver_window_length", &self.max_receiver_window_length())
+            .field("last_sm_change_number", &self.last_sm_change_number())
+            .field("last_sm_position", &self.last_sm_position())
+            .field("next_sm_deadline_ns", &self.next_sm_deadline_ns())
+            .field("sm_timeout_ns", &self.sm_timeout_ns())
+            .field("time_of_last_packet_ns", &self.time_of_last_packet_ns())
+            .field("invalidation_reason", &unsafe { self.invalidation_reason() })
+            .field("is_sm_enabled", &self.is_sm_enabled())
             .field(
-                stringify!(next_sm_receiver_window_length),
-                &self.next_sm_receiver_window_length(),
-            )
-            .field(
-                stringify!(max_receiver_window_length),
-                &self.max_receiver_window_length(),
-            )
-            .field(stringify!(last_sm_change_number), &self.last_sm_change_number())
-            .field(stringify!(last_sm_position), &self.last_sm_position())
-            .field(stringify!(next_sm_deadline_ns), &self.next_sm_deadline_ns())
-            .field(stringify!(sm_timeout_ns), &self.sm_timeout_ns())
-            .field(stringify!(time_of_last_packet_ns), &self.time_of_last_packet_ns())
-            .field(stringify!(is_sm_enabled), &self.is_sm_enabled())
-            .field(
-                stringify!(is_next_sm_deadline_reset_requested),
+                "is_next_sm_deadline_reset_requested",
                 &self.is_next_sm_deadline_reset_requested(),
             )
-            .field(stringify!(response_session_id), &self.response_session_id())
-            .field(stringify!(is_end_of_stream), &self.is_end_of_stream())
-            .field(stringify!(is_sending_eos_sm), &self.is_sending_eos_sm())
-            .field(stringify!(has_receiver_released), &self.has_receiver_released())
+            .field("response_session_id", &self.response_session_id())
+            .field("is_end_of_stream", &self.is_end_of_stream())
+            .field("is_sending_eos_sm", &self.is_sending_eos_sm())
+            .field("has_receiver_released", &self.has_receiver_released())
             .finish()
     }
 }
@@ -59793,22 +59453,27 @@ impl AeronPublicationImage {
 }
 impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
     #[inline]
+    #[must_use]
     pub fn padding_before(&self) -> [u8; 64usize] {
         unsafe { self.get_inner_ref() }.padding_before.into()
     }
     #[inline]
+    #[must_use]
     pub fn conductor_fields(&self) -> aeron_publication_image_stct_aeron_publication_image_conductor_fields_stct {
         unsafe { self.get_inner_ref() }.conductor_fields.into()
     }
     #[inline]
+    #[must_use]
     pub fn padding_after(&self) -> [u8; 64usize] {
         unsafe { self.get_inner_ref() }.padding_after.into()
     }
     #[inline]
+    #[must_use]
     pub fn connections(&self) -> aeron_publication_image_stct_image_connection_entries {
         unsafe { self.get_inner_ref() }.connections.into()
     }
     #[inline]
+    #[must_use]
     pub fn source_address(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
         SockaddrStorage::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.source_address),
@@ -59816,14 +59481,17 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn source_identity_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.source_identity_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn source_identity(&self) -> [::std::os::raw::c_char; 54usize] {
         unsafe { self.get_inner_ref() }.source_identity.into()
     }
     #[inline]
+    #[must_use]
     pub fn loss_detector(&self) -> AeronLossDetector<ScopedInline<'_, aeron_loss_detector_t>> {
         AeronLossDetector::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.loss_detector),
@@ -59831,6 +59499,7 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn feedback_delay_state(
         &self,
     ) -> AeronFeedbackDelayGeneratorState<ScopedInline<'_, aeron_feedback_delay_generator_state_t>> {
@@ -59840,6 +59509,7 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn rcv_hwm_position(&self) -> AeronPosition<ScopedInline<'_, aeron_position_t>> {
         AeronPosition::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.rcv_hwm_position),
@@ -59847,6 +59517,7 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn rcv_pos_position(&self) -> AeronPosition<ScopedInline<'_, aeron_position_t>> {
         AeronPosition::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.rcv_pos_position),
@@ -59854,10 +59525,13 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn rcv_naks_sent(&self) -> AeronAtomicCounter<Inline<aeron_atomic_counter_t>> {
         unsafe { AeronAtomicCounter::from_native(unsafe { self.get_inner_ref() }.rcv_naks_sent) }
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn endpoint(&self) -> Ref<'_, AeronReceiveChannelEndpoint> {
         Ref::new(unsafe {
             AeronReceiveChannelEndpoint::from_ptr(
@@ -59868,6 +59542,8 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn congestion_control(&self) -> Ref<'_, AeronCongestionControlStrategy> {
         Ref::new(unsafe {
             AeronCongestionControlStrategy::from_ptr(
@@ -59878,14 +59554,18 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn nano_clock(&self) -> aeron_clock_func_t {
         unsafe { self.get_inner_ref() }.nano_clock.into()
     }
     #[inline]
+    #[must_use]
     pub fn epoch_clock(&self) -> aeron_clock_func_t {
         unsafe { self.get_inner_ref() }.epoch_clock.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn cached_clock(&self) -> Ref<'_, AeronClockCache> {
         Ref::new(unsafe {
             AeronClockCache::from_ptr(
@@ -59896,6 +59576,8 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn mapped_raw_log(&self) -> Ref<'_, AeronMappedRawLog> {
         Ref::new(unsafe {
             AeronMappedRawLog::from_ptr(
@@ -59906,6 +59588,8 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn log_meta_data(&self) -> Ref<'_, AeronLogbufferMetadata> {
         Ref::new(unsafe {
             AeronLogbufferMetadata::from_ptr(
@@ -59916,6 +59600,7 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
         })
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -59933,114 +59618,142 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn log_file_name_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.log_file_name_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn initial_term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.initial_term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn active_term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.active_term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.term_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn mtu_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.mtu_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_length_mask(&self) -> i32 {
         unsafe { self.get_inner_ref() }.term_length_mask.into()
     }
     #[inline]
+    #[must_use]
     pub fn position_bits_to_shift(&self) -> usize {
         unsafe { self.get_inner_ref() }.position_bits_to_shift.into()
     }
     #[inline]
+    #[must_use]
     pub fn log(&self) -> aeron_publication_image_stct__bindgen_ty_1 {
         unsafe { self.get_inner_ref() }.log.into()
     }
     #[inline]
+    #[must_use]
     pub fn begin_loss_change(&self) -> i64 {
         unsafe { self.get_inner_ref() }.begin_loss_change.into()
     }
     #[inline]
+    #[must_use]
     pub fn end_loss_change(&self) -> i64 {
         unsafe { self.get_inner_ref() }.end_loss_change.into()
     }
     #[inline]
+    #[must_use]
     pub fn last_loss_change_number(&self) -> i64 {
         unsafe { self.get_inner_ref() }.last_loss_change_number.into()
     }
     #[inline]
+    #[must_use]
     pub fn loss_term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.loss_term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn loss_term_offset(&self) -> i32 {
         unsafe { self.get_inner_ref() }.loss_term_offset.into()
     }
     #[inline]
+    #[must_use]
     pub fn loss_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.loss_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn begin_sm_change(&self) -> i64 {
         unsafe { self.get_inner_ref() }.begin_sm_change.into()
     }
     #[inline]
+    #[must_use]
     pub fn end_sm_change(&self) -> i64 {
         unsafe { self.get_inner_ref() }.end_sm_change.into()
     }
     #[inline]
+    #[must_use]
     pub fn last_overrun_threshold(&self) -> i64 {
         unsafe { self.get_inner_ref() }.last_overrun_threshold.into()
     }
     #[inline]
+    #[must_use]
     pub fn next_sm_position(&self) -> i64 {
         unsafe { self.get_inner_ref() }.next_sm_position.into()
     }
     #[inline]
+    #[must_use]
     pub fn next_sm_receiver_window_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.next_sm_receiver_window_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn max_receiver_window_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.max_receiver_window_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn last_sm_change_number(&self) -> i64 {
         unsafe { self.get_inner_ref() }.last_sm_change_number.into()
     }
     #[inline]
+    #[must_use]
     pub fn last_sm_position(&self) -> i64 {
         unsafe { self.get_inner_ref() }.last_sm_position.into()
     }
     #[inline]
+    #[must_use]
     pub fn next_sm_deadline_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.next_sm_deadline_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn sm_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.sm_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn time_of_last_packet_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.time_of_last_packet_ns.into()
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -60056,64 +59769,79 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn is_sm_enabled(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_sm_enabled.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_next_sm_deadline_reset_requested(&self) -> bool {
         unsafe { self.get_inner_ref() }
             .is_next_sm_deadline_reset_requested
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn response_session_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.response_session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_end_of_stream(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_end_of_stream.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_sending_eos_sm(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_sending_eos_sm.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_receiver_released(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_receiver_released.into()
     }
     #[inline]
+    #[must_use]
     pub fn heartbeats_received_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.heartbeats_received_counter }
     }
     #[inline]
+    #[must_use]
     pub fn flow_control_under_runs_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.flow_control_under_runs_counter }
     }
     #[inline]
+    #[must_use]
     pub fn flow_control_over_runs_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.flow_control_over_runs_counter }
     }
     #[inline]
+    #[must_use]
     pub fn status_messages_sent_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.status_messages_sent_counter }
     }
     #[inline]
+    #[must_use]
     pub fn nak_messages_sent_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.nak_messages_sent_counter }
     }
     #[inline]
+    #[must_use]
     pub fn loss_gap_fills_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.loss_gap_fills_counter }
     }
     #[inline]
+    #[must_use]
     pub fn mapped_bytes_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.mapped_bytes_counter }
     }
     #[inline]
+    #[must_use]
     pub fn publication_images_revoked_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.publication_images_revoked_counter }
     }
     #[inline]
+    #[must_use]
     pub fn invalid_packets_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.invalid_packets_counter }
     }
@@ -60455,22 +60183,32 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
 }
 impl<'a, S: ResourceStorage<aeron_publication_image_t>> Ref<'a, AeronPublicationImage<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn endpoint(&self) -> Ref<'a, AeronReceiveChannelEndpoint> {
         Ref::new(self.value.endpoint().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn congestion_control(&self) -> Ref<'a, AeronCongestionControlStrategy> {
         Ref::new(self.value.congestion_control().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn cached_clock(&self) -> Ref<'a, AeronClockCache> {
         Ref::new(self.value.cached_clock().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn mapped_raw_log(&self) -> Ref<'a, AeronMappedRawLog> {
         Ref::new(self.value.mapped_raw_log().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn log_meta_data(&self) -> Ref<'a, AeronLogbufferMetadata> {
         Ref::new(self.value.log_meta_data().value)
     }
@@ -60563,7 +60301,7 @@ impl<S: ResourceStorage<aeron_publication_link_t>> core::fmt::Debug for AeronPub
         }
         f.debug_struct(stringify!(AeronPublicationLink))
             .field("inner", &self.inner)
-            .field(stringify!(registration_id), &self.registration_id())
+            .field("registration_id", &self.registration_id())
             .finish()
     }
 }
@@ -60636,6 +60374,8 @@ impl AeronPublicationLink<CResource<aeron_publication_link_t>> {
 impl AeronPublicationLink {}
 impl<S: ResourceStorage<aeron_publication_link_t>> AeronPublicationLink<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn resource(&self) -> Ref<'_, AeronDriverManagedResource> {
         Ref::new(unsafe {
             AeronDriverManagedResource::from_ptr(
@@ -60646,6 +60386,7 @@ impl<S: ResourceStorage<aeron_publication_link_t>> AeronPublicationLink<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
@@ -60681,6 +60422,8 @@ impl<S: ResourceStorage<aeron_publication_link_t>> AeronPublicationLink<S> {
 }
 impl<'a, S: ResourceStorage<aeron_publication_link_t>> Ref<'a, AeronPublicationLink<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn resource(&self) -> Ref<'a, AeronDriverManagedResource> {
         Ref::new(self.value.resource().value)
     }
@@ -60822,7 +60565,6 @@ impl<S: ResourceStorage<aeron_publication_t>> AeronPublication<S> {
     #[doc = "# Parameters\n \n - `iov` array for the vectors"]
     #[doc = " \n - `iovcnt` of the number of vectors"]
     #[doc = " \n - `reserved_value_supplier` to use for setting the reserved value field or NULL."]
-    #[doc = " \n - `clientd` to pass to the reserved_value_supplier."]
     #[doc = " \n# Return\n the new stream position otherwise a negative error value."]
     pub fn offerv<
         AeronReservedValueSupplierHandlerImpl: AeronReservedValueSupplierCallback,
@@ -60888,16 +60630,13 @@ impl<S: ResourceStorage<aeron_publication_t>> AeronPublication<S> {
     #[doc = "# Parameters\n \n - `iov` array for the vectors"]
     #[doc = " \n - `iovcnt` of the number of vectors"]
     #[doc = " \n - `reserved_value_supplier` to use for setting the reserved value field or NULL."]
-    #[doc = " \n - `clientd` to pass to the reserved_value_supplier."]
     #[doc = " \n# Return\n the new stream position otherwise a negative error value."]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -60965,6 +60704,7 @@ impl<S: ResourceStorage<aeron_publication_t>> AeronPublication<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "Has the publication closed?"]
     #[doc = ""]
     #[doc = " \n# Return\n true if this publication is closed."]
@@ -60983,6 +60723,7 @@ impl<S: ResourceStorage<aeron_publication_t>> AeronPublication<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "Has the publication seen an active Subscriber recently?"]
     #[doc = ""]
     #[doc = " \n# Return\n true if this publication has recently seen an active subscriber otherwise false."]
@@ -61003,8 +60744,7 @@ impl<S: ResourceStorage<aeron_publication_t>> AeronPublication<S> {
     #[inline]
     #[doc = "Fill in a structure with the constants in use by a publication."]
     #[doc = ""]
-    #[doc = "# Parameters\n \n - `publication` to get the constants for."]
-    #[doc = " \n - `constants` structure to fill in with the constants"]
+    #[doc = "# Parameters\n \n - `constants` structure to fill in with the constants"]
     #[doc = " \n# Return\n 0 for success and -1 for error."]
     #[doc = "# Safety"]
     #[doc = "The output may contain borrowed native pointers. Do not use those pointers after the queried handle is dropped or changed. Prefer the lifetime-bound `get_constants`, `get_buffers` or `get_values` method."]
@@ -61048,6 +60788,56 @@ impl<S: ResourceStorage<aeron_publication_t>> AeronPublication<S> {
             value: Inline::new(unsafe { value.assume_init() }),
             _owner: std::marker::PhantomData,
         }))
+    }
+    #[inline]
+    #[doc = "`get_constants()?.original_registration_id()`. Call `get_constants()` once to read several fields"]
+    pub fn original_registration_id(&self) -> Result<i64, AeronCError> {
+        Ok(self.get_constants()?.original_registration_id())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.registration_id()`. Call `get_constants()` once to read several fields"]
+    pub fn registration_id(&self) -> Result<i64, AeronCError> {
+        Ok(self.get_constants()?.registration_id())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.max_possible_position()`. Call `get_constants()` once to read several fields"]
+    pub fn max_possible_position(&self) -> Result<i64, AeronCError> {
+        Ok(self.get_constants()?.max_possible_position())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.position_bits_to_shift()`. Call `get_constants()` once to read several fields"]
+    pub fn position_bits_to_shift(&self) -> Result<usize, AeronCError> {
+        Ok(self.get_constants()?.position_bits_to_shift())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.term_buffer_length()`. Call `get_constants()` once to read several fields"]
+    pub fn term_buffer_length(&self) -> Result<usize, AeronCError> {
+        Ok(self.get_constants()?.term_buffer_length())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.max_message_length()`. Call `get_constants()` once to read several fields"]
+    pub fn max_message_length(&self) -> Result<usize, AeronCError> {
+        Ok(self.get_constants()?.max_message_length())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.max_payload_length()`. Call `get_constants()` once to read several fields"]
+    pub fn max_payload_length(&self) -> Result<usize, AeronCError> {
+        Ok(self.get_constants()?.max_payload_length())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.initial_term_id()`. Call `get_constants()` once to read several fields"]
+    pub fn initial_term_id(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.initial_term_id())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.publication_limit_counter_id()`. Call `get_constants()` once to read several fields"]
+    pub fn publication_limit_counter_id(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.publication_limit_counter_id())
+    }
+    #[inline]
+    #[doc = "`get_constants()?.channel_status_indicator_id()`. Call `get_constants()` once to read several fields"]
+    pub fn channel_status_indicator_id(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.channel_status_indicator_id())
     }
     #[inline]
     #[doc = "Get the current position to which the publication has advanced for this stream."]
@@ -61241,7 +61031,9 @@ impl AeronPublication {
 impl AeronPublication {
     #[doc = r" Like [`Self::close`], but notifies `on_close_complete` when the close"]
     #[doc = r" finishes. The handler must outlive the notification (keep your"]
-    #[doc = r" `Handler` alive until it has fired)."]
+    #[doc = r" `Handler` alive until it has fired). C calls it later from the conductor,"]
+    #[doc = r" so it needs a retained `SharedHandler`; it runs once at shutdown, off the"]
+    #[doc = r" hot path"]
     pub fn close_with_handler<AeronNotificationHandlerImpl: AeronNotificationCallback + Send + 'static>(
         self,
         on_close_complete: Option<&SharedHandler<AeronNotificationHandlerImpl>>,
@@ -61399,18 +61191,16 @@ impl<S: ResourceStorage<aeron_rb_descriptor_t>> core::fmt::Debug for AeronRbDesc
         }
         f.debug_struct(stringify!(AeronRbDescriptor))
             .field("inner", &self.inner)
-            .field(stringify!(tail_position), &self.tail_position())
-            .field(stringify!(head_cache_position), &self.head_cache_position())
-            .field(stringify!(head_position), &self.head_position())
-            .field(stringify!(correlation_counter), &self.correlation_counter())
-            .field(stringify!(consumer_heartbeat), &self.consumer_heartbeat())
+            .field("tail_position", &self.tail_position())
+            .field("head_cache_position", &self.head_cache_position())
+            .field("head_position", &self.head_position())
+            .field("correlation_counter", &self.correlation_counter())
+            .field("consumer_heartbeat", &self.consumer_heartbeat())
             .finish()
     }
 }
 impl AeronRbDescriptor<CResource<aeron_rb_descriptor_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         begin_pad: [u8; 128usize],
         tail_position: i64,
@@ -61453,9 +61243,6 @@ impl AeronRbDescriptor<CResource<aeron_rb_descriptor_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_rb_descriptor_t>::new(
             move |ctx_field| {
@@ -61479,9 +61266,6 @@ impl AeronRbDescriptor<CResource<aeron_rb_descriptor_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronRbDescriptor<Inline<aeron_rb_descriptor_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -61496,46 +61280,57 @@ impl AeronRbDescriptor<CResource<aeron_rb_descriptor_t>> {
 impl AeronRbDescriptor {}
 impl<S: ResourceStorage<aeron_rb_descriptor_t>> AeronRbDescriptor<S> {
     #[inline]
+    #[must_use]
     pub fn begin_pad(&self) -> [u8; 128usize] {
         unsafe { self.get_inner_ref() }.begin_pad.into()
     }
     #[inline]
+    #[must_use]
     pub fn tail_position(&self) -> i64 {
         unsafe { self.get_inner_ref() }.tail_position.into()
     }
     #[inline]
+    #[must_use]
     pub fn tail_pad(&self) -> [u8; 120usize] {
         unsafe { self.get_inner_ref() }.tail_pad.into()
     }
     #[inline]
+    #[must_use]
     pub fn head_cache_position(&self) -> i64 {
         unsafe { self.get_inner_ref() }.head_cache_position.into()
     }
     #[inline]
+    #[must_use]
     pub fn head_cache_pad(&self) -> [u8; 120usize] {
         unsafe { self.get_inner_ref() }.head_cache_pad.into()
     }
     #[inline]
+    #[must_use]
     pub fn head_position(&self) -> i64 {
         unsafe { self.get_inner_ref() }.head_position.into()
     }
     #[inline]
+    #[must_use]
     pub fn head_pad(&self) -> [u8; 120usize] {
         unsafe { self.get_inner_ref() }.head_pad.into()
     }
     #[inline]
+    #[must_use]
     pub fn correlation_counter(&self) -> i64 {
         unsafe { self.get_inner_ref() }.correlation_counter.into()
     }
     #[inline]
+    #[must_use]
     pub fn correlation_counter_pad(&self) -> [u8; 120usize] {
         unsafe { self.get_inner_ref() }.correlation_counter_pad.into()
     }
     #[inline]
+    #[must_use]
     pub fn consumer_heartbeat(&self) -> i64 {
         unsafe { self.get_inner_ref() }.consumer_heartbeat.into()
     }
     #[inline]
+    #[must_use]
     pub fn consumer_heartbeat_pad(&self) -> [u8; 120usize] {
         unsafe { self.get_inner_ref() }.consumer_heartbeat_pad.into()
     }
@@ -61695,15 +61490,13 @@ impl<S: ResourceStorage<aeron_rb_record_descriptor_t>> core::fmt::Debug for Aero
         }
         f.debug_struct(stringify!(AeronRbRecordDescriptor))
             .field("inner", &self.inner)
-            .field(stringify!(length), &self.length())
-            .field(stringify!(msg_type_id), &self.msg_type_id())
+            .field("length", &self.length())
+            .field("msg_type_id", &self.msg_type_id())
             .finish()
     }
 }
 impl AeronRbRecordDescriptor<CResource<aeron_rb_record_descriptor_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(length: i32, msg_type_id: i32) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_rb_record_descriptor_t>::new(
             move |ctx_field| {
@@ -61725,9 +61518,6 @@ impl AeronRbRecordDescriptor<CResource<aeron_rb_record_descriptor_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_rb_record_descriptor_t>::new(
             move |ctx_field| {
@@ -61751,9 +61541,6 @@ impl AeronRbRecordDescriptor<CResource<aeron_rb_record_descriptor_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronRbRecordDescriptor<Inline<aeron_rb_record_descriptor_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -61768,10 +61555,12 @@ impl AeronRbRecordDescriptor<CResource<aeron_rb_record_descriptor_t>> {
 impl AeronRbRecordDescriptor {}
 impl<S: ResourceStorage<aeron_rb_record_descriptor_t>> AeronRbRecordDescriptor<S> {
     #[inline]
+    #[must_use]
     pub fn length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.length.into()
     }
     #[inline]
+    #[must_use]
     pub fn msg_type_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.msg_type_id.into()
     }
@@ -62023,6 +61812,8 @@ impl AeronReceiveChannelEndpointEntry<CResource<aeron_receive_channel_endpoint_e
 impl AeronReceiveChannelEndpointEntry {}
 impl<S: ResourceStorage<aeron_receive_channel_endpoint_entry_t>> AeronReceiveChannelEndpointEntry<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn endpoint(&self) -> Ref<'_, AeronReceiveChannelEndpoint> {
         Ref::new(unsafe {
             AeronReceiveChannelEndpoint::from_ptr(
@@ -62064,6 +61855,8 @@ impl<S: ResourceStorage<aeron_receive_channel_endpoint_entry_t>> AeronReceiveCha
 }
 impl<'a, S: ResourceStorage<aeron_receive_channel_endpoint_entry_t>> Ref<'a, AeronReceiveChannelEndpointEntry<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn endpoint(&self) -> Ref<'a, AeronReceiveChannelEndpoint> {
         Ref::new(self.value.endpoint().value)
     }
@@ -62199,19 +61992,19 @@ impl<S: ResourceStorage<aeron_receive_channel_endpoint_t>> core::fmt::Debug for 
         }
         f.debug_struct(stringify!(AeronReceiveChannelEndpoint))
             .field("inner", &self.inner)
-            .field(stringify!(dispatcher), &self.dispatcher())
-            .field(stringify!(stream_id_to_refcnt_map), &self.stream_id_to_refcnt_map())
+            .field("dispatcher", &self.dispatcher())
+            .field("stream_id_to_refcnt_map", &self.stream_id_to_refcnt_map())
             .field(
-                stringify!(stream_and_session_id_to_refcnt_map),
+                "stream_and_session_id_to_refcnt_map",
                 &self.stream_and_session_id_to_refcnt_map(),
             )
             .field(
-                stringify!(response_stream_id_to_refcnt_map),
+                "response_stream_id_to_refcnt_map",
                 &self.response_stream_id_to_refcnt_map(),
             )
-            .field(stringify!(channel_status), &self.channel_status())
-            .field(stringify!(receiver_id), &self.receiver_id())
-            .field(stringify!(has_receiver_released), &self.has_receiver_released())
+            .field("channel_status", &self.channel_status())
+            .field("receiver_id", &self.receiver_id())
+            .field("has_receiver_released", &self.has_receiver_released())
             .finish()
     }
 }
@@ -62261,16 +62054,19 @@ impl AeronReceiveChannelEndpoint<CResource<aeron_receive_channel_endpoint_t>> {
 impl AeronReceiveChannelEndpoint {}
 impl<S: ResourceStorage<aeron_receive_channel_endpoint_t>> AeronReceiveChannelEndpoint<S> {
     #[inline]
+    #[must_use]
     pub fn conductor_fields(
         &self,
     ) -> aeron_receive_channel_endpoint_stct_aeron_receive_channel_endpoint_conductor_fields_stct {
         unsafe { self.get_inner_ref() }.conductor_fields.into()
     }
     #[inline]
+    #[must_use]
     pub fn destinations(&self) -> aeron_receive_channel_endpoint_stct_destination_stct {
         unsafe { self.get_inner_ref() }.destinations.into()
     }
     #[inline]
+    #[must_use]
     pub fn dispatcher(&self) -> AeronDataPacketDispatcher<ScopedInline<'_, aeron_data_packet_dispatcher_t>> {
         AeronDataPacketDispatcher::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.dispatcher),
@@ -62278,6 +62074,7 @@ impl<S: ResourceStorage<aeron_receive_channel_endpoint_t>> AeronReceiveChannelEn
         })
     }
     #[inline]
+    #[must_use]
     pub fn stream_id_to_refcnt_map(&self) -> AeronInt64CounterMap<ScopedInline<'_, aeron_int64_counter_map_t>> {
         AeronInt64CounterMap::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.stream_id_to_refcnt_map),
@@ -62285,6 +62082,7 @@ impl<S: ResourceStorage<aeron_receive_channel_endpoint_t>> AeronReceiveChannelEn
         })
     }
     #[inline]
+    #[must_use]
     pub fn stream_and_session_id_to_refcnt_map(
         &self,
     ) -> AeronInt64CounterMap<ScopedInline<'_, aeron_int64_counter_map_t>> {
@@ -62294,6 +62092,7 @@ impl<S: ResourceStorage<aeron_receive_channel_endpoint_t>> AeronReceiveChannelEn
         })
     }
     #[inline]
+    #[must_use]
     pub fn response_stream_id_to_refcnt_map(
         &self,
     ) -> AeronInt64CounterMap<ScopedInline<'_, aeron_int64_counter_map_t>> {
@@ -62303,10 +62102,13 @@ impl<S: ResourceStorage<aeron_receive_channel_endpoint_t>> AeronReceiveChannelEn
         })
     }
     #[inline]
+    #[must_use]
     pub fn channel_status(&self) -> AeronAtomicCounter<Inline<aeron_atomic_counter_t>> {
         unsafe { AeronAtomicCounter::from_native(unsafe { self.get_inner_ref() }.channel_status) }
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn receiver_proxy(&self) -> Ref<'_, AeronDriverReceiverProxy> {
         Ref::new(unsafe {
             AeronDriverReceiverProxy::from_ptr(
@@ -62317,10 +62119,13 @@ impl<S: ResourceStorage<aeron_receive_channel_endpoint_t>> AeronReceiveChannelEn
         })
     }
     #[inline]
+    #[must_use]
     pub fn transport_bindings(&self) -> *mut aeron_udp_channel_transport_bindings_t {
         unsafe { self.get_inner_ref() }.transport_bindings.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn cached_clock(&self) -> Ref<'_, AeronClockCache> {
         Ref::new(unsafe {
             AeronClockCache::from_ptr(
@@ -62331,38 +62136,47 @@ impl<S: ResourceStorage<aeron_receive_channel_endpoint_t>> AeronReceiveChannelEn
         })
     }
     #[inline]
+    #[must_use]
     pub fn send_nak_message(&self) -> aeron_driver_nak_message_func_t {
         unsafe { self.get_inner_ref() }.send_nak_message.into()
     }
     #[inline]
+    #[must_use]
     pub fn receiver_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.receiver_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_receiver_released(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_receiver_released.into()
     }
     #[inline]
+    #[must_use]
     pub fn group_tag(&self) -> aeron_receive_channel_endpoint_stct__bindgen_ty_1 {
         unsafe { self.get_inner_ref() }.group_tag.into()
     }
     #[inline]
+    #[must_use]
     pub fn short_sends_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.short_sends_counter }
     }
     #[inline]
+    #[must_use]
     pub fn possible_ttl_asymmetry_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.possible_ttl_asymmetry_counter }
     }
     #[inline]
+    #[must_use]
     pub fn errors_frames_sent_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.errors_frames_sent_counter }
     }
     #[inline]
+    #[must_use]
     pub fn data_loss_generator(&self) -> *const aeron_loss_generator_t {
         unsafe { self.get_inner_ref() }.data_loss_generator.into()
     }
     #[inline]
+    #[must_use]
     pub fn control_loss_generator(&self) -> *const aeron_loss_generator_t {
         unsafe { self.get_inner_ref() }.control_loss_generator.into()
     }
@@ -63368,10 +63182,14 @@ impl<S: ResourceStorage<aeron_receive_channel_endpoint_t>> AeronReceiveChannelEn
 }
 impl<'a, S: ResourceStorage<aeron_receive_channel_endpoint_t>> Ref<'a, AeronReceiveChannelEndpoint<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn receiver_proxy(&self) -> Ref<'a, AeronDriverReceiverProxy> {
         Ref::new(self.value.receiver_proxy().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn cached_clock(&self) -> Ref<'a, AeronClockCache> {
         Ref::new(self.value.cached_clock().value)
     }
@@ -63555,6 +63373,8 @@ impl AeronReceiveDestinationEntry<CResource<aeron_receive_destination_entry_t>> 
 impl AeronReceiveDestinationEntry {}
 impl<S: ResourceStorage<aeron_receive_destination_entry_t>> AeronReceiveDestinationEntry<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn destination(&self) -> Ref<'_, AeronReceiveDestination> {
         Ref::new(unsafe {
             AeronReceiveDestination::from_ptr(
@@ -63596,6 +63416,8 @@ impl<S: ResourceStorage<aeron_receive_destination_entry_t>> AeronReceiveDestinat
 }
 impl<'a, S: ResourceStorage<aeron_receive_destination_entry_t>> Ref<'a, AeronReceiveDestinationEntry<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn destination(&self) -> Ref<'a, AeronReceiveDestination> {
         Ref::new(self.value.destination().value)
     }
@@ -63729,12 +63551,12 @@ impl<S: ResourceStorage<aeron_receive_destination_t>> core::fmt::Debug for Aeron
         }
         f.debug_struct(stringify!(AeronReceiveDestination))
             .field("inner", &self.inner)
-            .field(stringify!(local_sockaddr_indicator), &self.local_sockaddr_indicator())
-            .field(stringify!(current_control_addr), &self.current_control_addr())
-            .field(stringify!(bind_addr), &self.bind_addr())
-            .field(stringify!(so_rcvbuf), &self.so_rcvbuf())
-            .field(stringify!(has_control_addr), &self.has_control_addr())
-            .field(stringify!(time_of_last_activity_ns), &self.time_of_last_activity_ns())
+            .field("local_sockaddr_indicator", &self.local_sockaddr_indicator())
+            .field("current_control_addr", &self.current_control_addr())
+            .field("bind_addr", &self.bind_addr())
+            .field("so_rcvbuf", &self.so_rcvbuf())
+            .field("has_control_addr", &self.has_control_addr())
+            .field("time_of_last_activity_ns", &self.time_of_last_activity_ns())
             .finish()
     }
 }
@@ -63784,14 +63606,18 @@ impl AeronReceiveDestination<CResource<aeron_receive_destination_t>> {
 impl AeronReceiveDestination {}
 impl<S: ResourceStorage<aeron_receive_destination_t>> AeronReceiveDestination<S> {
     #[inline]
+    #[must_use]
     pub fn conductor_fields(&self) -> aeron_receive_destination_stct_aeron_receive_destination_conductor_fields_stct {
         unsafe { self.get_inner_ref() }.conductor_fields.into()
     }
     #[inline]
+    #[must_use]
     pub fn transport(&self) -> aeron_udp_channel_transport_t {
         unsafe { self.get_inner_ref() }.transport.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn data_paths(&self) -> Ref<'_, AeronUdpChannelDataPaths> {
         Ref::new(unsafe {
             AeronUdpChannelDataPaths::from_ptr(
@@ -63802,6 +63628,8 @@ impl<S: ResourceStorage<aeron_receive_destination_t>> AeronReceiveDestination<S>
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn port_manager(&self) -> Ref<'_, AeronPortManager> {
         Ref::new(unsafe {
             AeronPortManager::from_ptr(
@@ -63812,10 +63640,12 @@ impl<S: ResourceStorage<aeron_receive_destination_t>> AeronReceiveDestination<S>
         })
     }
     #[inline]
+    #[must_use]
     pub fn local_sockaddr_indicator(&self) -> AeronAtomicCounter<Inline<aeron_atomic_counter_t>> {
         unsafe { AeronAtomicCounter::from_native(unsafe { self.get_inner_ref() }.local_sockaddr_indicator) }
     }
     #[inline]
+    #[must_use]
     pub fn current_control_addr(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
         SockaddrStorage::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.current_control_addr),
@@ -63823,6 +63653,7 @@ impl<S: ResourceStorage<aeron_receive_destination_t>> AeronReceiveDestination<S>
         })
     }
     #[inline]
+    #[must_use]
     pub fn bind_addr(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
         SockaddrStorage::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.bind_addr),
@@ -63830,18 +63661,22 @@ impl<S: ResourceStorage<aeron_receive_destination_t>> AeronReceiveDestination<S>
         })
     }
     #[inline]
+    #[must_use]
     pub fn so_rcvbuf(&self) -> usize {
         unsafe { self.get_inner_ref() }.so_rcvbuf.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_control_addr(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_control_addr.into()
     }
     #[inline]
+    #[must_use]
     pub fn time_of_last_activity_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.time_of_last_activity_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn padding(&self) -> [u8; 64usize] {
         unsafe { self.get_inner_ref() }.padding.into()
     }
@@ -63898,10 +63733,14 @@ impl<S: ResourceStorage<aeron_receive_destination_t>> AeronReceiveDestination<S>
 }
 impl<'a, S: ResourceStorage<aeron_receive_destination_t>> Ref<'a, AeronReceiveDestination<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn data_paths(&self) -> Ref<'a, AeronUdpChannelDataPaths> {
         Ref::new(self.value.data_paths().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn port_manager(&self) -> Ref<'a, AeronPortManager> {
         Ref::new(self.value.port_manager().value)
     }
@@ -64000,17 +63839,15 @@ impl<S: ResourceStorage<aeron_reject_image_command_t>> core::fmt::Debug for Aero
         }
         f.debug_struct(stringify!(AeronRejectImageCommand))
             .field("inner", &self.inner)
-            .field(stringify!(correlated), &self.correlated())
-            .field(stringify!(image_correlation_id), &self.image_correlation_id())
-            .field(stringify!(position), &self.position())
-            .field(stringify!(reason_length), &self.reason_length())
+            .field("correlated", &self.correlated())
+            .field("image_correlation_id", &self.image_correlation_id())
+            .field("position", &self.position())
+            .field("reason_length", &self.reason_length())
             .finish()
     }
 }
 impl AeronRejectImageCommand<CResource<aeron_reject_image_command_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         correlated: AeronCorrelatedCommand<Inline<aeron_correlated_command_t>>,
         image_correlation_id: i64,
@@ -64041,9 +63878,6 @@ impl AeronRejectImageCommand<CResource<aeron_reject_image_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_reject_image_command_t>::new(
             move |ctx_field| {
@@ -64067,9 +63901,6 @@ impl AeronRejectImageCommand<CResource<aeron_reject_image_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronRejectImageCommand<Inline<aeron_reject_image_command_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -64084,22 +63915,27 @@ impl AeronRejectImageCommand<CResource<aeron_reject_image_command_t>> {
 impl AeronRejectImageCommand {}
 impl<S: ResourceStorage<aeron_reject_image_command_t>> AeronRejectImageCommand<S> {
     #[inline]
+    #[must_use]
     pub fn correlated(&self) -> AeronCorrelatedCommand<Inline<aeron_correlated_command_t>> {
         unsafe { AeronCorrelatedCommand::from_native(unsafe { self.get_inner_ref() }.correlated) }
     }
     #[inline]
+    #[must_use]
     pub fn image_correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.image_correlation_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn position(&self) -> i64 {
         unsafe { self.get_inner_ref() }.position.into()
     }
     #[inline]
+    #[must_use]
     pub fn reason_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.reason_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn reason_text(&self) -> [u8; 1usize] {
         unsafe { self.get_inner_ref() }.reason_text.into()
     }
@@ -64269,15 +64105,13 @@ impl<S: ResourceStorage<aeron_remove_counter_command_t>> core::fmt::Debug for Ae
         }
         f.debug_struct(stringify!(AeronRemoveCounterCommand))
             .field("inner", &self.inner)
-            .field(stringify!(correlated), &self.correlated())
-            .field(stringify!(registration_id), &self.registration_id())
+            .field("correlated", &self.correlated())
+            .field("registration_id", &self.registration_id())
             .finish()
     }
 }
 impl AeronRemoveCounterCommand<CResource<aeron_remove_counter_command_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         correlated: AeronCorrelatedCommand<Inline<aeron_correlated_command_t>>,
         registration_id: i64,
@@ -64302,9 +64136,6 @@ impl AeronRemoveCounterCommand<CResource<aeron_remove_counter_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_remove_counter_command_t>::new(
             move |ctx_field| {
@@ -64328,9 +64159,6 @@ impl AeronRemoveCounterCommand<CResource<aeron_remove_counter_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronRemoveCounterCommand<Inline<aeron_remove_counter_command_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -64345,10 +64173,12 @@ impl AeronRemoveCounterCommand<CResource<aeron_remove_counter_command_t>> {
 impl AeronRemoveCounterCommand {}
 impl<S: ResourceStorage<aeron_remove_counter_command_t>> AeronRemoveCounterCommand<S> {
     #[inline]
+    #[must_use]
     pub fn correlated(&self) -> AeronCorrelatedCommand<Inline<aeron_correlated_command_t>> {
         unsafe { AeronCorrelatedCommand::from_native(unsafe { self.get_inner_ref() }.correlated) }
     }
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
@@ -64521,16 +64351,14 @@ impl<S: ResourceStorage<aeron_remove_publication_command_t>> core::fmt::Debug fo
         }
         f.debug_struct(stringify!(AeronRemovePublicationCommand))
             .field("inner", &self.inner)
-            .field(stringify!(correlated), &self.correlated())
-            .field(stringify!(registration_id), &self.registration_id())
-            .field(stringify!(flags), &self.flags())
+            .field("correlated", &self.correlated())
+            .field("registration_id", &self.registration_id())
+            .field("flags", &self.flags())
             .finish()
     }
 }
 impl AeronRemovePublicationCommand<CResource<aeron_remove_publication_command_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         correlated: AeronCorrelatedCommand<Inline<aeron_correlated_command_t>>,
         registration_id: i64,
@@ -64557,9 +64385,6 @@ impl AeronRemovePublicationCommand<CResource<aeron_remove_publication_command_t>
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_remove_publication_command_t>::new(
             move |ctx_field| {
@@ -64583,9 +64408,6 @@ impl AeronRemovePublicationCommand<CResource<aeron_remove_publication_command_t>
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronRemovePublicationCommand<Inline<aeron_remove_publication_command_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -64600,14 +64422,17 @@ impl AeronRemovePublicationCommand<CResource<aeron_remove_publication_command_t>
 impl AeronRemovePublicationCommand {}
 impl<S: ResourceStorage<aeron_remove_publication_command_t>> AeronRemovePublicationCommand<S> {
     #[inline]
+    #[must_use]
     pub fn correlated(&self) -> AeronCorrelatedCommand<Inline<aeron_correlated_command_t>> {
         unsafe { AeronCorrelatedCommand::from_native(unsafe { self.get_inner_ref() }.correlated) }
     }
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn flags(&self) -> u64 {
         unsafe { self.get_inner_ref() }.flags.into()
     }
@@ -64781,15 +64606,13 @@ impl<S: ResourceStorage<aeron_remove_subscription_command_t>> core::fmt::Debug f
         }
         f.debug_struct(stringify!(AeronRemoveSubscriptionCommand))
             .field("inner", &self.inner)
-            .field(stringify!(correlated), &self.correlated())
-            .field(stringify!(registration_id), &self.registration_id())
+            .field("correlated", &self.correlated())
+            .field("registration_id", &self.registration_id())
             .finish()
     }
 }
 impl AeronRemoveSubscriptionCommand<CResource<aeron_remove_subscription_command_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         correlated: AeronCorrelatedCommand<Inline<aeron_correlated_command_t>>,
         registration_id: i64,
@@ -64814,9 +64637,6 @@ impl AeronRemoveSubscriptionCommand<CResource<aeron_remove_subscription_command_
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_remove_subscription_command_t>::new(
             move |ctx_field| {
@@ -64840,9 +64660,6 @@ impl AeronRemoveSubscriptionCommand<CResource<aeron_remove_subscription_command_
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronRemoveSubscriptionCommand<Inline<aeron_remove_subscription_command_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -64857,10 +64674,12 @@ impl AeronRemoveSubscriptionCommand<CResource<aeron_remove_subscription_command_
 impl AeronRemoveSubscriptionCommand {}
 impl<S: ResourceStorage<aeron_remove_subscription_command_t>> AeronRemoveSubscriptionCommand<S> {
     #[inline]
+    #[must_use]
     pub fn correlated(&self) -> AeronCorrelatedCommand<Inline<aeron_correlated_command_t>> {
         unsafe { AeronCorrelatedCommand::from_native(unsafe { self.get_inner_ref() }.correlated) }
     }
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
@@ -65030,15 +64849,13 @@ impl<S: ResourceStorage<aeron_resolution_header_ipv4_t>> core::fmt::Debug for Ae
         }
         f.debug_struct(stringify!(AeronResolutionHeaderIpv4))
             .field("inner", &self.inner)
-            .field(stringify!(resolution_header), &self.resolution_header())
-            .field(stringify!(name_length), &self.name_length())
+            .field("resolution_header", &self.resolution_header())
+            .field("name_length", &self.name_length())
             .finish()
     }
 }
 impl AeronResolutionHeaderIpv4<CResource<aeron_resolution_header_ipv4_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         resolution_header: AeronResolutionHeader<Inline<aeron_resolution_header_t>>,
         addr: [u8; 4usize],
@@ -65108,14 +64925,17 @@ impl AeronResolutionHeaderIpv4<CResource<aeron_resolution_header_ipv4_t>> {
 impl AeronResolutionHeaderIpv4 {}
 impl<S: ResourceStorage<aeron_resolution_header_ipv4_t>> AeronResolutionHeaderIpv4<S> {
     #[inline]
+    #[must_use]
     pub fn resolution_header(&self) -> AeronResolutionHeader<Inline<aeron_resolution_header_t>> {
         unsafe { AeronResolutionHeader::from_native(unsafe { self.get_inner_ref() }.resolution_header) }
     }
     #[inline]
+    #[must_use]
     pub fn addr(&self) -> [u8; 4usize] {
         unsafe { self.get_inner_ref() }.addr.into()
     }
     #[inline]
+    #[must_use]
     pub fn name_length(&self) -> i16 {
         unsafe { self.get_inner_ref() }.name_length.into()
     }
@@ -65286,15 +65106,13 @@ impl<S: ResourceStorage<aeron_resolution_header_ipv6_t>> core::fmt::Debug for Ae
         }
         f.debug_struct(stringify!(AeronResolutionHeaderIpv6))
             .field("inner", &self.inner)
-            .field(stringify!(resolution_header), &self.resolution_header())
-            .field(stringify!(name_length), &self.name_length())
+            .field("resolution_header", &self.resolution_header())
+            .field("name_length", &self.name_length())
             .finish()
     }
 }
 impl AeronResolutionHeaderIpv6<CResource<aeron_resolution_header_ipv6_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         resolution_header: AeronResolutionHeader<Inline<aeron_resolution_header_t>>,
         addr: [u8; 16usize],
@@ -65364,14 +65182,17 @@ impl AeronResolutionHeaderIpv6<CResource<aeron_resolution_header_ipv6_t>> {
 impl AeronResolutionHeaderIpv6 {}
 impl<S: ResourceStorage<aeron_resolution_header_ipv6_t>> AeronResolutionHeaderIpv6<S> {
     #[inline]
+    #[must_use]
     pub fn resolution_header(&self) -> AeronResolutionHeader<Inline<aeron_resolution_header_t>> {
         unsafe { AeronResolutionHeader::from_native(unsafe { self.get_inner_ref() }.resolution_header) }
     }
     #[inline]
+    #[must_use]
     pub fn addr(&self) -> [u8; 16usize] {
         unsafe { self.get_inner_ref() }.addr.into()
     }
     #[inline]
+    #[must_use]
     pub fn name_length(&self) -> i16 {
         unsafe { self.get_inner_ref() }.name_length.into()
     }
@@ -65540,15 +65361,13 @@ impl<S: ResourceStorage<aeron_resolution_header_t>> core::fmt::Debug for AeronRe
         }
         f.debug_struct(stringify!(AeronResolutionHeader))
             .field("inner", &self.inner)
-            .field(stringify!(udp_port), &self.udp_port())
-            .field(stringify!(age_in_ms), &self.age_in_ms())
+            .field("udp_port", &self.udp_port())
+            .field("age_in_ms", &self.age_in_ms())
             .finish()
     }
 }
 impl AeronResolutionHeader<CResource<aeron_resolution_header_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(res_type: i8, res_flags: u8, udp_port: u16, age_in_ms: i32) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_resolution_header_t>::new(
             move |ctx_field| {
@@ -65572,9 +65391,6 @@ impl AeronResolutionHeader<CResource<aeron_resolution_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_resolution_header_t>::new(
             move |ctx_field| {
@@ -65598,9 +65414,6 @@ impl AeronResolutionHeader<CResource<aeron_resolution_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronResolutionHeader<Inline<aeron_resolution_header_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -65615,18 +65428,22 @@ impl AeronResolutionHeader<CResource<aeron_resolution_header_t>> {
 impl AeronResolutionHeader {}
 impl<S: ResourceStorage<aeron_resolution_header_t>> AeronResolutionHeader<S> {
     #[inline]
+    #[must_use]
     pub fn res_type(&self) -> i8 {
         unsafe { self.get_inner_ref() }.res_type.into()
     }
     #[inline]
+    #[must_use]
     pub fn res_flags(&self) -> u8 {
         unsafe { self.get_inner_ref() }.res_flags.into()
     }
     #[inline]
+    #[must_use]
     pub fn udp_port(&self) -> u16 {
         unsafe { self.get_inner_ref() }.udp_port.into()
     }
     #[inline]
+    #[must_use]
     pub fn age_in_ms(&self) -> i32 {
         unsafe { self.get_inner_ref() }.age_in_ms.into()
     }
@@ -65790,17 +65607,15 @@ impl<S: ResourceStorage<aeron_response_setup_header_t>> core::fmt::Debug for Aer
         }
         f.debug_struct(stringify!(AeronResponseSetupHeader))
             .field("inner", &self.inner)
-            .field(stringify!(frame_header), &self.frame_header())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(response_session_id), &self.response_session_id())
+            .field("frame_header", &self.frame_header())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("response_session_id", &self.response_session_id())
             .finish()
     }
 }
 impl AeronResponseSetupHeader<CResource<aeron_response_setup_header_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         frame_header: AeronFrameHeader<Inline<aeron_frame_header_t>>,
         session_id: i32,
@@ -65829,9 +65644,6 @@ impl AeronResponseSetupHeader<CResource<aeron_response_setup_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_response_setup_header_t>::new(
             move |ctx_field| {
@@ -65855,9 +65667,6 @@ impl AeronResponseSetupHeader<CResource<aeron_response_setup_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronResponseSetupHeader<Inline<aeron_response_setup_header_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -65872,18 +65681,22 @@ impl AeronResponseSetupHeader<CResource<aeron_response_setup_header_t>> {
 impl AeronResponseSetupHeader {}
 impl<S: ResourceStorage<aeron_response_setup_header_t>> AeronResponseSetupHeader<S> {
     #[inline]
+    #[must_use]
     pub fn frame_header(&self) -> AeronFrameHeader<Inline<aeron_frame_header_t>> {
         unsafe { AeronFrameHeader::from_native(unsafe { self.get_inner_ref() }.frame_header) }
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn response_session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.response_session_id.into()
     }
@@ -66051,10 +65864,10 @@ impl<S: ResourceStorage<aeron_retransmit_action_t>> core::fmt::Debug for AeronRe
         }
         f.debug_struct(stringify!(AeronRetransmitAction))
             .field("inner", &self.inner)
-            .field(stringify!(expiry_ns), &self.expiry_ns())
-            .field(stringify!(term_id), &self.term_id())
-            .field(stringify!(term_offset), &self.term_offset())
-            .field(stringify!(length), &self.length())
+            .field("expiry_ns", &self.expiry_ns())
+            .field("term_id", &self.term_id())
+            .field("term_offset", &self.term_offset())
+            .field("length", &self.length())
             .finish()
     }
 }
@@ -66135,22 +65948,27 @@ impl AeronRetransmitAction<CResource<aeron_retransmit_action_t>> {
 impl AeronRetransmitAction {}
 impl<S: ResourceStorage<aeron_retransmit_action_t>> AeronRetransmitAction<S> {
     #[inline]
+    #[must_use]
     pub fn expiry_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.expiry_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_offset(&self) -> i32 {
         unsafe { self.get_inner_ref() }.term_offset.into()
     }
     #[inline]
+    #[must_use]
     pub fn length(&self) -> usize {
         unsafe { self.get_inner_ref() }.length.into()
     }
     #[inline]
+    #[must_use]
     pub fn state(&self) -> aeron_retransmit_action_state_t {
         unsafe { self.get_inner_ref() }.state.into()
     }
@@ -66307,11 +66125,11 @@ impl<S: ResourceStorage<aeron_retransmit_handler_t>> core::fmt::Debug for AeronR
         }
         f.debug_struct(stringify!(AeronRetransmitHandler))
             .field("inner", &self.inner)
-            .field(stringify!(delay_timeout_ns), &self.delay_timeout_ns())
-            .field(stringify!(linger_timeout_ns), &self.linger_timeout_ns())
-            .field(stringify!(active_retransmit_count), &self.active_retransmit_count())
-            .field(stringify!(has_group_semantics), &self.has_group_semantics())
-            .field(stringify!(max_retransmits), &self.max_retransmits())
+            .field("delay_timeout_ns", &self.delay_timeout_ns())
+            .field("linger_timeout_ns", &self.linger_timeout_ns())
+            .field("active_retransmit_count", &self.active_retransmit_count())
+            .field("has_group_semantics", &self.has_group_semantics())
+            .field("max_retransmits", &self.max_retransmits())
             .finish()
     }
 }
@@ -66399,6 +66217,8 @@ impl AeronRetransmitHandler<CResource<aeron_retransmit_handler_t>> {
 impl AeronRetransmitHandler {}
 impl<S: ResourceStorage<aeron_retransmit_handler_t>> AeronRetransmitHandler<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn retransmit_action_pool(&self) -> Ref<'_, AeronRetransmitAction> {
         Ref::new(unsafe {
             AeronRetransmitAction::from_ptr(
@@ -66409,30 +66229,37 @@ impl<S: ResourceStorage<aeron_retransmit_handler_t>> AeronRetransmitHandler<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn delay_timeout_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.delay_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn linger_timeout_ns(&self) -> u64 {
         unsafe { self.get_inner_ref() }.linger_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn invalid_packets_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.invalid_packets_counter }
     }
     #[inline]
+    #[must_use]
     pub fn active_retransmit_count(&self) -> ::std::os::raw::c_int {
         unsafe { self.get_inner_ref() }.active_retransmit_count.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_group_semantics(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_group_semantics.into()
     }
     #[inline]
+    #[must_use]
     pub fn max_retransmits(&self) -> usize {
         unsafe { self.get_inner_ref() }.max_retransmits.into()
     }
     #[inline]
+    #[must_use]
     pub fn retransmit_overflow_counter(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.retransmit_overflow_counter }
     }
@@ -66670,6 +66497,8 @@ impl<S: ResourceStorage<aeron_retransmit_handler_t>> AeronRetransmitHandler<S> {
 }
 impl<'a, S: ResourceStorage<aeron_retransmit_handler_t>> Ref<'a, AeronRetransmitHandler<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn retransmit_action_pool(&self) -> Ref<'a, AeronRetransmitAction> {
         Ref::new(self.value.retransmit_action_pool().value)
     }
@@ -66799,19 +66628,17 @@ impl<S: ResourceStorage<aeron_rttm_header_t>> core::fmt::Debug for AeronRttmHead
         }
         f.debug_struct(stringify!(AeronRttmHeader))
             .field("inner", &self.inner)
-            .field(stringify!(frame_header), &self.frame_header())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(echo_timestamp), &self.echo_timestamp())
-            .field(stringify!(reception_delta), &self.reception_delta())
-            .field(stringify!(receiver_id), &self.receiver_id())
+            .field("frame_header", &self.frame_header())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("echo_timestamp", &self.echo_timestamp())
+            .field("reception_delta", &self.reception_delta())
+            .field("receiver_id", &self.receiver_id())
             .finish()
     }
 }
 impl AeronRttmHeader<CResource<aeron_rttm_header_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         frame_header: AeronFrameHeader<Inline<aeron_frame_header_t>>,
         session_id: i32,
@@ -66844,9 +66671,6 @@ impl AeronRttmHeader<CResource<aeron_rttm_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_rttm_header_t>::new(
             move |ctx_field| {
@@ -66870,9 +66694,6 @@ impl AeronRttmHeader<CResource<aeron_rttm_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronRttmHeader<Inline<aeron_rttm_header_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -66887,26 +66708,32 @@ impl AeronRttmHeader<CResource<aeron_rttm_header_t>> {
 impl AeronRttmHeader {}
 impl<S: ResourceStorage<aeron_rttm_header_t>> AeronRttmHeader<S> {
     #[inline]
+    #[must_use]
     pub fn frame_header(&self) -> AeronFrameHeader<Inline<aeron_frame_header_t>> {
         unsafe { AeronFrameHeader::from_native(unsafe { self.get_inner_ref() }.frame_header) }
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn echo_timestamp(&self) -> i64 {
         unsafe { self.get_inner_ref() }.echo_timestamp.into()
     }
     #[inline]
+    #[must_use]
     pub fn reception_delta(&self) -> i64 {
         unsafe { self.get_inner_ref() }.reception_delta.into()
     }
     #[inline]
+    #[must_use]
     pub fn receiver_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.receiver_id.into()
     }
@@ -67141,6 +66968,8 @@ impl AeronSendChannelEndpointEntry<CResource<aeron_send_channel_endpoint_entry_t
 impl AeronSendChannelEndpointEntry {}
 impl<S: ResourceStorage<aeron_send_channel_endpoint_entry_t>> AeronSendChannelEndpointEntry<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn endpoint(&self) -> Ref<'_, AeronSendChannelEndpoint> {
         Ref::new(unsafe {
             AeronSendChannelEndpoint::from_ptr(
@@ -67182,6 +67011,8 @@ impl<S: ResourceStorage<aeron_send_channel_endpoint_entry_t>> AeronSendChannelEn
 }
 impl<'a, S: ResourceStorage<aeron_send_channel_endpoint_entry_t>> Ref<'a, AeronSendChannelEndpointEntry<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn endpoint(&self) -> Ref<'a, AeronSendChannelEndpoint> {
         Ref::new(self.value.endpoint().value)
     }
@@ -67315,14 +67146,14 @@ impl<S: ResourceStorage<aeron_send_channel_endpoint_t>> core::fmt::Debug for Aer
         }
         f.debug_struct(stringify!(AeronSendChannelEndpoint))
             .field("inner", &self.inner)
-            .field(stringify!(has_sender_released), &self.has_sender_released())
-            .field(stringify!(channel_status), &self.channel_status())
-            .field(stringify!(local_sockaddr_indicator), &self.local_sockaddr_indicator())
-            .field(stringify!(tracker_num_destinations), &self.tracker_num_destinations())
-            .field(stringify!(publication_dispatch_map), &self.publication_dispatch_map())
-            .field(stringify!(current_data_addr), &self.current_data_addr())
-            .field(stringify!(bind_addr), &self.bind_addr())
-            .field(stringify!(time_of_last_sm_ns), &self.time_of_last_sm_ns())
+            .field("has_sender_released", &self.has_sender_released())
+            .field("channel_status", &self.channel_status())
+            .field("local_sockaddr_indicator", &self.local_sockaddr_indicator())
+            .field("tracker_num_destinations", &self.tracker_num_destinations())
+            .field("publication_dispatch_map", &self.publication_dispatch_map())
+            .field("current_data_addr", &self.current_data_addr())
+            .field("bind_addr", &self.bind_addr())
+            .field("time_of_last_sm_ns", &self.time_of_last_sm_ns())
             .finish()
     }
 }
@@ -67372,32 +67203,40 @@ impl AeronSendChannelEndpoint<CResource<aeron_send_channel_endpoint_t>> {
 impl AeronSendChannelEndpoint {}
 impl<S: ResourceStorage<aeron_send_channel_endpoint_t>> AeronSendChannelEndpoint<S> {
     #[inline]
+    #[must_use]
     pub fn conductor_fields(
         &self,
     ) -> aeron_send_channel_endpoint_stct_aeron_send_channel_endpoint_conductor_fields_stct {
         unsafe { self.get_inner_ref() }.conductor_fields.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_sender_released(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_sender_released.into()
     }
     #[inline]
+    #[must_use]
     pub fn transport(&self) -> aeron_udp_channel_transport_t {
         unsafe { self.get_inner_ref() }.transport.into()
     }
     #[inline]
+    #[must_use]
     pub fn channel_status(&self) -> AeronAtomicCounter<Inline<aeron_atomic_counter_t>> {
         unsafe { AeronAtomicCounter::from_native(unsafe { self.get_inner_ref() }.channel_status) }
     }
     #[inline]
+    #[must_use]
     pub fn local_sockaddr_indicator(&self) -> AeronAtomicCounter<Inline<aeron_atomic_counter_t>> {
         unsafe { AeronAtomicCounter::from_native(unsafe { self.get_inner_ref() }.local_sockaddr_indicator) }
     }
     #[inline]
+    #[must_use]
     pub fn tracker_num_destinations(&self) -> AeronAtomicCounter<Inline<aeron_atomic_counter_t>> {
         unsafe { AeronAtomicCounter::from_native(unsafe { self.get_inner_ref() }.tracker_num_destinations) }
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn destination_tracker(&self) -> Ref<'_, AeronUdpDestinationTracker> {
         Ref::new(unsafe {
             AeronUdpDestinationTracker::from_ptr(
@@ -67408,6 +67247,8 @@ impl<S: ResourceStorage<aeron_send_channel_endpoint_t>> AeronSendChannelEndpoint
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn sender_proxy(&self) -> Ref<'_, AeronDriverSenderProxy> {
         Ref::new(unsafe {
             AeronDriverSenderProxy::from_ptr(
@@ -67418,6 +67259,7 @@ impl<S: ResourceStorage<aeron_send_channel_endpoint_t>> AeronSendChannelEndpoint
         })
     }
     #[inline]
+    #[must_use]
     pub fn publication_dispatch_map(&self) -> AeronInt64ToPtrHashMap<ScopedInline<'_, aeron_int64_to_ptr_hash_map_t>> {
         AeronInt64ToPtrHashMap::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.publication_dispatch_map),
@@ -67425,10 +67267,13 @@ impl<S: ResourceStorage<aeron_send_channel_endpoint_t>> AeronSendChannelEndpoint
         })
     }
     #[inline]
+    #[must_use]
     pub fn transport_bindings(&self) -> *mut aeron_udp_channel_transport_bindings_t {
         unsafe { self.get_inner_ref() }.transport_bindings.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn data_paths(&self) -> Ref<'_, AeronUdpChannelDataPaths> {
         Ref::new(unsafe {
             AeronUdpChannelDataPaths::from_ptr(
@@ -67439,6 +67284,7 @@ impl<S: ResourceStorage<aeron_send_channel_endpoint_t>> AeronSendChannelEndpoint
         })
     }
     #[inline]
+    #[must_use]
     pub fn current_data_addr(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
         SockaddrStorage::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.current_data_addr),
@@ -67446,6 +67292,7 @@ impl<S: ResourceStorage<aeron_send_channel_endpoint_t>> AeronSendChannelEndpoint
         })
     }
     #[inline]
+    #[must_use]
     pub fn bind_addr(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
         SockaddrStorage::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.bind_addr),
@@ -67453,6 +67300,8 @@ impl<S: ResourceStorage<aeron_send_channel_endpoint_t>> AeronSendChannelEndpoint
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn port_manager(&self) -> Ref<'_, AeronPortManager> {
         Ref::new(unsafe {
             AeronPortManager::from_ptr(
@@ -67463,6 +67312,8 @@ impl<S: ResourceStorage<aeron_send_channel_endpoint_t>> AeronSendChannelEndpoint
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn cached_clock(&self) -> Ref<'_, AeronClockCache> {
         Ref::new(unsafe {
             AeronClockCache::from_ptr(
@@ -67473,22 +67324,27 @@ impl<S: ResourceStorage<aeron_send_channel_endpoint_t>> AeronSendChannelEndpoint
         })
     }
     #[inline]
+    #[must_use]
     pub fn time_of_last_sm_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.time_of_last_sm_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn on_nak_message(&self) -> aeron_driver_nak_message_func_t {
         unsafe { self.get_inner_ref() }.on_nak_message.into()
     }
     #[inline]
+    #[must_use]
     pub fn data_loss_generator(&self) -> *const aeron_loss_generator_t {
         unsafe { self.get_inner_ref() }.data_loss_generator.into()
     }
     #[inline]
+    #[must_use]
     pub fn control_loss_generator(&self) -> *const aeron_loss_generator_t {
         unsafe { self.get_inner_ref() }.control_loss_generator.into()
     }
     #[inline]
+    #[must_use]
     pub fn padding(&self) -> [u8; 64usize] {
         unsafe { self.get_inner_ref() }.padding.into()
     }
@@ -67751,22 +67607,32 @@ impl<S: ResourceStorage<aeron_send_channel_endpoint_t>> AeronSendChannelEndpoint
 }
 impl<'a, S: ResourceStorage<aeron_send_channel_endpoint_t>> Ref<'a, AeronSendChannelEndpoint<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn destination_tracker(&self) -> Ref<'a, AeronUdpDestinationTracker> {
         Ref::new(self.value.destination_tracker().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn sender_proxy(&self) -> Ref<'a, AeronDriverSenderProxy> {
         Ref::new(self.value.sender_proxy().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn data_paths(&self) -> Ref<'a, AeronUdpChannelDataPaths> {
         Ref::new(self.value.data_paths().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn port_manager(&self) -> Ref<'a, AeronPortManager> {
         Ref::new(self.value.port_manager().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn cached_clock(&self) -> Ref<'a, AeronClockCache> {
         Ref::new(self.value.cached_clock().value)
     }
@@ -67874,22 +67740,20 @@ impl<S: ResourceStorage<aeron_setup_header_t>> core::fmt::Debug for AeronSetupHe
         }
         f.debug_struct(stringify!(AeronSetupHeader))
             .field("inner", &self.inner)
-            .field(stringify!(frame_header), &self.frame_header())
-            .field(stringify!(term_offset), &self.term_offset())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(initial_term_id), &self.initial_term_id())
-            .field(stringify!(active_term_id), &self.active_term_id())
-            .field(stringify!(term_length), &self.term_length())
-            .field(stringify!(mtu), &self.mtu())
-            .field(stringify!(ttl), &self.ttl())
+            .field("frame_header", &self.frame_header())
+            .field("term_offset", &self.term_offset())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("initial_term_id", &self.initial_term_id())
+            .field("active_term_id", &self.active_term_id())
+            .field("term_length", &self.term_length())
+            .field("mtu", &self.mtu())
+            .field("ttl", &self.ttl())
             .finish()
     }
 }
 impl AeronSetupHeader<CResource<aeron_setup_header_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         frame_header: AeronFrameHeader<Inline<aeron_frame_header_t>>,
         term_offset: i32,
@@ -67928,9 +67792,6 @@ impl AeronSetupHeader<CResource<aeron_setup_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_setup_header_t>::new(
             move |ctx_field| {
@@ -67954,9 +67815,6 @@ impl AeronSetupHeader<CResource<aeron_setup_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronSetupHeader<Inline<aeron_setup_header_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -67971,38 +67829,47 @@ impl AeronSetupHeader<CResource<aeron_setup_header_t>> {
 impl AeronSetupHeader {}
 impl<S: ResourceStorage<aeron_setup_header_t>> AeronSetupHeader<S> {
     #[inline]
+    #[must_use]
     pub fn frame_header(&self) -> AeronFrameHeader<Inline<aeron_frame_header_t>> {
         unsafe { AeronFrameHeader::from_native(unsafe { self.get_inner_ref() }.frame_header) }
     }
     #[inline]
+    #[must_use]
     pub fn term_offset(&self) -> i32 {
         unsafe { self.get_inner_ref() }.term_offset.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn initial_term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.initial_term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn active_term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.active_term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn term_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.term_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn mtu(&self) -> i32 {
         unsafe { self.get_inner_ref() }.mtu.into()
     }
     #[inline]
+    #[must_use]
     pub fn ttl(&self) -> i32 {
         unsafe { self.get_inner_ref() }.ttl.into()
     }
@@ -68166,8 +68033,8 @@ impl<S: ResourceStorage<aeron_spsc_concurrent_array_queue_t>> core::fmt::Debug f
         }
         f.debug_struct(stringify!(AeronSpscConcurrentArrayQueue))
             .field("inner", &self.inner)
-            .field(stringify!(capacity), &self.capacity())
-            .field(stringify!(mask), &self.mask())
+            .field("capacity", &self.capacity())
+            .field("mask", &self.mask())
             .finish()
     }
 }
@@ -68254,34 +68121,42 @@ impl AeronSpscConcurrentArrayQueue<CResource<aeron_spsc_concurrent_array_queue_t
 impl AeronSpscConcurrentArrayQueue {}
 impl<S: ResourceStorage<aeron_spsc_concurrent_array_queue_t>> AeronSpscConcurrentArrayQueue<S> {
     #[inline]
+    #[must_use]
     pub fn padding1(&self) -> [i8; 64usize] {
         unsafe { self.get_inner_ref() }.padding1.into()
     }
     #[inline]
+    #[must_use]
     pub fn producer(&self) -> aeron_spsc_concurrent_array_queue_stct__bindgen_ty_1 {
         unsafe { self.get_inner_ref() }.producer.into()
     }
     #[inline]
+    #[must_use]
     pub fn padding2(&self) -> [i8; 64usize] {
         unsafe { self.get_inner_ref() }.padding2.into()
     }
     #[inline]
+    #[must_use]
     pub fn consumer(&self) -> aeron_spsc_concurrent_array_queue_stct__bindgen_ty_2 {
         unsafe { self.get_inner_ref() }.consumer.into()
     }
     #[inline]
+    #[must_use]
     pub fn padding3(&self) -> [i8; 64usize] {
         unsafe { self.get_inner_ref() }.padding3.into()
     }
     #[inline]
+    #[must_use]
     pub fn capacity(&self) -> usize {
         unsafe { self.get_inner_ref() }.capacity.into()
     }
     #[inline]
+    #[must_use]
     pub fn mask(&self) -> usize {
         unsafe { self.get_inner_ref() }.mask.into()
     }
     #[inline]
+    #[must_use]
     pub fn buffer(&self) -> *mut *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.buffer.into()
     }
@@ -68464,8 +68339,8 @@ impl<S: ResourceStorage<aeron_spsc_rb_t>> core::fmt::Debug for AeronSpscRb<S> {
         }
         f.debug_struct(stringify!(AeronSpscRb))
             .field("inner", &self.inner)
-            .field(stringify!(capacity), &self.capacity())
-            .field(stringify!(max_message_length), &self.max_message_length())
+            .field("capacity", &self.capacity())
+            .field("max_message_length", &self.max_message_length())
             .finish()
     }
 }
@@ -68542,10 +68417,13 @@ impl AeronSpscRb<CResource<aeron_spsc_rb_t>> {
 impl AeronSpscRb {}
 impl<S: ResourceStorage<aeron_spsc_rb_t>> AeronSpscRb<S> {
     #[inline]
+    #[must_use]
     pub fn buffer(&self) -> *mut u8 {
         unsafe { self.get_inner_ref() }.buffer.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn descriptor(&self) -> Ref<'_, AeronRbDescriptor> {
         Ref::new(unsafe {
             AeronRbDescriptor::from_ptr(
@@ -68556,10 +68434,12 @@ impl<S: ResourceStorage<aeron_spsc_rb_t>> AeronSpscRb<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn capacity(&self) -> usize {
         unsafe { self.get_inner_ref() }.capacity.into()
     }
     #[inline]
+    #[must_use]
     pub fn max_message_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.max_message_length.into()
     }
@@ -68731,13 +68611,11 @@ impl<S: ResourceStorage<aeron_spsc_rb_t>> AeronSpscRb<S> {
     }
     #[inline]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -68820,13 +68698,11 @@ impl<S: ResourceStorage<aeron_spsc_rb_t>> AeronSpscRb<S> {
     }
     #[inline]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -68930,6 +68806,8 @@ impl<S: ResourceStorage<aeron_spsc_rb_t>> AeronSpscRb<S> {
 }
 impl<'a, S: ResourceStorage<aeron_spsc_rb_t>> Ref<'a, AeronSpscRb<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn descriptor(&self) -> Ref<'a, AeronRbDescriptor> {
         Ref::new(self.value.descriptor().value)
     }
@@ -69053,16 +68931,14 @@ impl<S: ResourceStorage<aeron_static_counter_command_t>> core::fmt::Debug for Ae
         }
         f.debug_struct(stringify!(AeronStaticCounterCommand))
             .field("inner", &self.inner)
-            .field(stringify!(correlated), &self.correlated())
-            .field(stringify!(registration_id), &self.registration_id())
-            .field(stringify!(type_id), &self.type_id())
+            .field("correlated", &self.correlated())
+            .field("registration_id", &self.registration_id())
+            .field("type_id", &self.type_id())
             .finish()
     }
 }
 impl AeronStaticCounterCommand<CResource<aeron_static_counter_command_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         correlated: AeronCorrelatedCommand<Inline<aeron_correlated_command_t>>,
         registration_id: i64,
@@ -69089,9 +68965,6 @@ impl AeronStaticCounterCommand<CResource<aeron_static_counter_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_static_counter_command_t>::new(
             move |ctx_field| {
@@ -69115,9 +68988,6 @@ impl AeronStaticCounterCommand<CResource<aeron_static_counter_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronStaticCounterCommand<Inline<aeron_static_counter_command_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -69132,14 +69002,17 @@ impl AeronStaticCounterCommand<CResource<aeron_static_counter_command_t>> {
 impl AeronStaticCounterCommand {}
 impl<S: ResourceStorage<aeron_static_counter_command_t>> AeronStaticCounterCommand<S> {
     #[inline]
+    #[must_use]
     pub fn correlated(&self) -> AeronCorrelatedCommand<Inline<aeron_correlated_command_t>> {
         unsafe { AeronCorrelatedCommand::from_native(unsafe { self.get_inner_ref() }.correlated) }
     }
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn type_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.type_id.into()
     }
@@ -69309,15 +69182,13 @@ impl<S: ResourceStorage<aeron_static_counter_response_t>> core::fmt::Debug for A
         }
         f.debug_struct(stringify!(AeronStaticCounterResponse))
             .field("inner", &self.inner)
-            .field(stringify!(correlation_id), &self.correlation_id())
-            .field(stringify!(counter_id), &self.counter_id())
+            .field("correlation_id", &self.correlation_id())
+            .field("counter_id", &self.counter_id())
             .finish()
     }
 }
 impl AeronStaticCounterResponse<CResource<aeron_static_counter_response_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(correlation_id: i64, counter_id: i32) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_static_counter_response_t>::new(
             move |ctx_field| {
@@ -69339,9 +69210,6 @@ impl AeronStaticCounterResponse<CResource<aeron_static_counter_response_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_static_counter_response_t>::new(
             move |ctx_field| {
@@ -69365,9 +69233,6 @@ impl AeronStaticCounterResponse<CResource<aeron_static_counter_response_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronStaticCounterResponse<Inline<aeron_static_counter_response_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -69382,10 +69247,12 @@ impl AeronStaticCounterResponse<CResource<aeron_static_counter_response_t>> {
 impl AeronStaticCounterResponse {}
 impl<S: ResourceStorage<aeron_static_counter_response_t>> AeronStaticCounterResponse<S> {
     #[inline]
+    #[must_use]
     pub fn correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.correlation_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn counter_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.counter_id.into()
     }
@@ -69555,20 +69422,18 @@ impl<S: ResourceStorage<aeron_status_message_header_t>> core::fmt::Debug for Aer
         }
         f.debug_struct(stringify!(AeronStatusMessageHeader))
             .field("inner", &self.inner)
-            .field(stringify!(frame_header), &self.frame_header())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(consumption_term_id), &self.consumption_term_id())
-            .field(stringify!(consumption_term_offset), &self.consumption_term_offset())
-            .field(stringify!(receiver_window), &self.receiver_window())
-            .field(stringify!(receiver_id), &self.receiver_id())
+            .field("frame_header", &self.frame_header())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("consumption_term_id", &self.consumption_term_id())
+            .field("consumption_term_offset", &self.consumption_term_offset())
+            .field("receiver_window", &self.receiver_window())
+            .field("receiver_id", &self.receiver_id())
             .finish()
     }
 }
 impl AeronStatusMessageHeader<CResource<aeron_status_message_header_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         frame_header: AeronFrameHeader<Inline<aeron_frame_header_t>>,
         session_id: i32,
@@ -69646,30 +69511,37 @@ impl AeronStatusMessageHeader<CResource<aeron_status_message_header_t>> {
 impl AeronStatusMessageHeader {}
 impl<S: ResourceStorage<aeron_status_message_header_t>> AeronStatusMessageHeader<S> {
     #[inline]
+    #[must_use]
     pub fn frame_header(&self) -> AeronFrameHeader<Inline<aeron_frame_header_t>> {
         unsafe { AeronFrameHeader::from_native(unsafe { self.get_inner_ref() }.frame_header) }
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn consumption_term_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.consumption_term_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn consumption_term_offset(&self) -> i32 {
         unsafe { self.get_inner_ref() }.consumption_term_offset.into()
     }
     #[inline]
+    #[must_use]
     pub fn receiver_window(&self) -> i32 {
         unsafe { self.get_inner_ref() }.receiver_window.into()
     }
     #[inline]
+    #[must_use]
     pub fn receiver_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.receiver_id.into()
     }
@@ -69860,14 +69732,12 @@ impl<S: ResourceStorage<aeron_status_message_optional_header_t>> core::fmt::Debu
         }
         f.debug_struct(stringify!(AeronStatusMessageOptionalHeader))
             .field("inner", &self.inner)
-            .field(stringify!(group_tag), &self.group_tag())
+            .field("group_tag", &self.group_tag())
             .finish()
     }
 }
 impl AeronStatusMessageOptionalHeader<CResource<aeron_status_message_optional_header_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(group_tag: i64) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_status_message_optional_header_t>::new(
             move |ctx_field| {
@@ -69888,9 +69758,6 @@ impl AeronStatusMessageOptionalHeader<CResource<aeron_status_message_optional_he
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_status_message_optional_header_t>::new(
             move |ctx_field| {
@@ -69914,9 +69781,6 @@ impl AeronStatusMessageOptionalHeader<CResource<aeron_status_message_optional_he
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronStatusMessageOptionalHeader<Inline<aeron_status_message_optional_header_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -69931,6 +69795,7 @@ impl AeronStatusMessageOptionalHeader<CResource<aeron_status_message_optional_he
 impl AeronStatusMessageOptionalHeader {}
 impl<S: ResourceStorage<aeron_status_message_optional_header_t>> AeronStatusMessageOptionalHeader<S> {
     #[inline]
+    #[must_use]
     pub fn group_tag(&self) -> i64 {
         unsafe { self.get_inner_ref() }.group_tag.into()
     }
@@ -70100,8 +69965,9 @@ impl<S: ResourceStorage<aeron_str_to_ptr_hash_map_key_t>> core::fmt::Debug for A
         }
         f.debug_struct(stringify!(AeronStrToPtrHashMapKey))
             .field("inner", &self.inner)
-            .field(stringify!(hash_code), &self.hash_code())
-            .field(stringify!(str_length), &self.str_length())
+            .field("str_", &self.str_())
+            .field("hash_code", &self.hash_code())
+            .field("str_length", &self.str_length())
             .finish()
     }
 }
@@ -70131,10 +69997,7 @@ impl AeronStrToPtrHashMapKey<CResource<aeron_str_to_ptr_hash_map_key_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_str_to_ptr_hash_map_key_t>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -70157,10 +70020,7 @@ impl AeronStrToPtrHashMapKey<CResource<aeron_str_to_ptr_hash_map_key_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> AeronStrToPtrHashMapKey<Inline<aeron_str_to_ptr_hash_map_key_t>> {
+    pub fn new_zeroed_on_stack() -> AeronStrToPtrHashMapKey<Inline<aeron_str_to_ptr_hash_map_key_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
             "creating zeroed empty resource on stack {}",
@@ -70174,25 +70034,25 @@ impl AeronStrToPtrHashMapKey<CResource<aeron_str_to_ptr_hash_map_key_t>> {
 impl AeronStrToPtrHashMapKey {}
 impl<S: ResourceStorage<aeron_str_to_ptr_hash_map_key_t>> AeronStrToPtrHashMapKey<S> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn str_(&self) -> &str {
-        if unsafe { self.get_inner_ref() }.str_.is_null() {
-            ""
-        } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(unsafe { self.get_inner_ref() }.str_)
-                    .to_str()
-                    .unwrap_or("")
+    #[must_use]
+    pub fn str_(&self) -> &str {
+        {
+            let value = unsafe { self.get_inner_ref() };
+            if value.str_.is_null() {
+                ""
+            } else {
+                let bytes = unsafe { std::slice::from_raw_parts(value.str_.cast::<u8>(), value.str_length as usize) };
+                std::str::from_utf8(bytes).unwrap_or("")
             }
         }
     }
     #[inline]
+    #[must_use]
     pub fn hash_code(&self) -> u64 {
         unsafe { self.get_inner_ref() }.hash_code.into()
     }
     #[inline]
+    #[must_use]
     pub fn str_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.str_length.into()
     }
@@ -70275,6 +70135,11 @@ impl<S: ResourceStorage<aeron_str_to_ptr_hash_map_key_t>> From<AeronStrToPtrHash
         unsafe { *value.get_inner().clone() }
     }
 }
+impl Default for AeronStrToPtrHashMapKey<CResource<aeron_str_to_ptr_hash_map_key_t>> {
+    fn default() -> Self {
+        AeronStrToPtrHashMapKey::new_zeroed_on_heap()
+    }
+}
 impl<S: ResourceStorage<aeron_str_to_ptr_hash_map_key_t>> AeronStrToPtrHashMapKey<S> {
     #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
@@ -70355,10 +70220,10 @@ impl<S: ResourceStorage<aeron_str_to_ptr_hash_map_t>> core::fmt::Debug for Aeron
         }
         f.debug_struct(stringify!(AeronStrToPtrHashMap))
             .field("inner", &self.inner)
-            .field(stringify!(load_factor), &self.load_factor())
-            .field(stringify!(capacity), &self.capacity())
-            .field(stringify!(size), &self.size())
-            .field(stringify!(resize_threshold), &self.resize_threshold())
+            .field("load_factor", &self.load_factor())
+            .field("capacity", &self.capacity())
+            .field("size", &self.size())
+            .field("resize_threshold", &self.resize_threshold())
             .finish()
     }
 }
@@ -70442,6 +70307,8 @@ impl AeronStrToPtrHashMap<CResource<aeron_str_to_ptr_hash_map_t>> {
 impl AeronStrToPtrHashMap {}
 impl<S: ResourceStorage<aeron_str_to_ptr_hash_map_t>> AeronStrToPtrHashMap<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn keys(&self) -> Ref<'_, AeronStrToPtrHashMapKey> {
         Ref::new(unsafe {
             AeronStrToPtrHashMapKey::from_ptr(
@@ -70452,22 +70319,27 @@ impl<S: ResourceStorage<aeron_str_to_ptr_hash_map_t>> AeronStrToPtrHashMap<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn values(&self) -> *mut *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.values.into()
     }
     #[inline]
+    #[must_use]
     pub fn load_factor(&self) -> f32 {
         unsafe { self.get_inner_ref() }.load_factor.into()
     }
     #[inline]
+    #[must_use]
     pub fn capacity(&self) -> usize {
         unsafe { self.get_inner_ref() }.capacity.into()
     }
     #[inline]
+    #[must_use]
     pub fn size(&self) -> usize {
         unsafe { self.get_inner_ref() }.size.into()
     }
     #[inline]
+    #[must_use]
     pub fn resize_threshold(&self) -> usize {
         unsafe { self.get_inner_ref() }.resize_threshold.into()
     }
@@ -70503,6 +70375,8 @@ impl<S: ResourceStorage<aeron_str_to_ptr_hash_map_t>> AeronStrToPtrHashMap<S> {
 }
 impl<'a, S: ResourceStorage<aeron_str_to_ptr_hash_map_t>> Ref<'a, AeronStrToPtrHashMap<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn keys(&self) -> Ref<'a, AeronStrToPtrHashMapKey> {
         Ref::new(self.value.keys().value)
     }
@@ -70648,17 +70522,15 @@ impl<S: ResourceStorage<aeron_stream_position_counter_key_layout_t>> core::fmt::
         }
         f.debug_struct(stringify!(AeronStreamPositionCounterKeyLayout))
             .field("inner", &self.inner)
-            .field(stringify!(registration_id), &self.registration_id())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(channel_length), &self.channel_length())
+            .field("registration_id", &self.registration_id())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("channel_length", &self.channel_length())
             .finish()
     }
 }
 impl AeronStreamPositionCounterKeyLayout<CResource<aeron_stream_position_counter_key_layout_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         registration_id: i64,
         session_id: i32,
@@ -70689,9 +70561,6 @@ impl AeronStreamPositionCounterKeyLayout<CResource<aeron_stream_position_counter
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_stream_position_counter_key_layout_t>::new(
             move |ctx_field| {
@@ -70715,9 +70584,6 @@ impl AeronStreamPositionCounterKeyLayout<CResource<aeron_stream_position_counter
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack()
     -> AeronStreamPositionCounterKeyLayout<Inline<aeron_stream_position_counter_key_layout_t>> {
         #[cfg(feature = "extra-logging")]
@@ -70733,22 +70599,27 @@ impl AeronStreamPositionCounterKeyLayout<CResource<aeron_stream_position_counter
 impl AeronStreamPositionCounterKeyLayout {}
 impl<S: ResourceStorage<aeron_stream_position_counter_key_layout_t>> AeronStreamPositionCounterKeyLayout<S> {
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn channel_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.channel_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn channel(&self) -> [::std::os::raw::c_char; 92usize] {
         unsafe { self.get_inner_ref() }.channel.into()
     }
@@ -70920,7 +70791,7 @@ impl<S: ResourceStorage<aeron_subscribable_list_entry_t>> core::fmt::Debug for A
         }
         f.debug_struct(stringify!(AeronSubscribableListEntry))
             .field("inner", &self.inner)
-            .field(stringify!(counter_id), &self.counter_id())
+            .field("counter_id", &self.counter_id())
             .finish()
     }
 }
@@ -70993,10 +70864,13 @@ impl AeronSubscribableListEntry<CResource<aeron_subscribable_list_entry_t>> {
 impl AeronSubscribableListEntry {}
 impl<S: ResourceStorage<aeron_subscribable_list_entry_t>> AeronSubscribableListEntry<S> {
     #[inline]
+    #[must_use]
     pub fn counter_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.counter_id.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn subscribable(&self) -> Ref<'_, AeronSubscribable> {
         Ref::new(unsafe {
             AeronSubscribable::from_ptr(
@@ -71038,6 +70912,8 @@ impl<S: ResourceStorage<aeron_subscribable_list_entry_t>> AeronSubscribableListE
 }
 impl<'a, S: ResourceStorage<aeron_subscribable_list_entry_t>> Ref<'a, AeronSubscribableListEntry<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn subscribable(&self) -> Ref<'a, AeronSubscribable> {
         Ref::new(self.value.subscribable().value)
     }
@@ -71169,10 +71045,10 @@ impl<S: ResourceStorage<aeron_subscribable_t>> core::fmt::Debug for AeronSubscri
         }
         f.debug_struct(stringify!(AeronSubscribable))
             .field("inner", &self.inner)
-            .field(stringify!(correlation_id), &self.correlation_id())
-            .field(stringify!(length), &self.length())
-            .field(stringify!(capacity), &self.capacity())
-            .field(stringify!(inactive_count), &self.inactive_count())
+            .field("correlation_id", &self.correlation_id())
+            .field("length", &self.length())
+            .field("capacity", &self.capacity())
+            .field("inactive_count", &self.inactive_count())
             .finish()
     }
 }
@@ -71264,18 +71140,23 @@ impl AeronSubscribable<CResource<aeron_subscribable_t>> {
 impl AeronSubscribable {}
 impl<S: ResourceStorage<aeron_subscribable_t>> AeronSubscribable<S> {
     #[inline]
+    #[must_use]
     pub fn correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.correlation_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn length(&self) -> usize {
         unsafe { self.get_inner_ref() }.length.into()
     }
     #[inline]
+    #[must_use]
     pub fn capacity(&self) -> usize {
         unsafe { self.get_inner_ref() }.capacity.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn array(&self) -> Ref<'_, AeronTetherablePosition> {
         Ref::new(unsafe {
             AeronTetherablePosition::from_ptr(
@@ -71286,22 +71167,26 @@ impl<S: ResourceStorage<aeron_subscribable_t>> AeronSubscribable<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn inactive_count(&self) -> usize {
         unsafe { self.get_inner_ref() }.inactive_count.into()
     }
     #[inline]
+    #[must_use]
     pub fn add_position_hook_func(
         &self,
     ) -> ::std::option::Option<unsafe extern "C" fn(clientd: *mut ::std::os::raw::c_void, value_addr: *mut i64)> {
         unsafe { self.get_inner_ref() }.add_position_hook_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn remove_position_hook_func(
         &self,
     ) -> ::std::option::Option<unsafe extern "C" fn(clientd: *mut ::std::os::raw::c_void, value_addr: *mut i64)> {
         unsafe { self.get_inner_ref() }.remove_position_hook_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn clientd(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.clientd.into()
     }
@@ -71436,6 +71321,8 @@ impl<S: ResourceStorage<aeron_subscribable_t>> AeronSubscribable<S> {
 }
 impl<'a, S: ResourceStorage<aeron_subscribable_t>> Ref<'a, AeronSubscribable<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn array(&self) -> Ref<'a, AeronTetherablePosition> {
         Ref::new(self.value.array().value)
     }
@@ -71559,20 +71446,15 @@ impl<S: ResourceStorage<aeron_subscription_command_t>> core::fmt::Debug for Aero
         }
         f.debug_struct(stringify!(AeronSubscriptionCommand))
             .field("inner", &self.inner)
-            .field(stringify!(correlated), &self.correlated())
-            .field(
-                stringify!(registration_correlation_id),
-                &self.registration_correlation_id(),
-            )
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(channel_length), &self.channel_length())
+            .field("correlated", &self.correlated())
+            .field("registration_correlation_id", &self.registration_correlation_id())
+            .field("stream_id", &self.stream_id())
+            .field("channel_length", &self.channel_length())
             .finish()
     }
 }
 impl AeronSubscriptionCommand<CResource<aeron_subscription_command_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         correlated: AeronCorrelatedCommand<Inline<aeron_correlated_command_t>>,
         registration_correlation_id: i64,
@@ -71601,9 +71483,6 @@ impl AeronSubscriptionCommand<CResource<aeron_subscription_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_subscription_command_t>::new(
             move |ctx_field| {
@@ -71627,9 +71506,6 @@ impl AeronSubscriptionCommand<CResource<aeron_subscription_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronSubscriptionCommand<Inline<aeron_subscription_command_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -71644,18 +71520,22 @@ impl AeronSubscriptionCommand<CResource<aeron_subscription_command_t>> {
 impl AeronSubscriptionCommand {}
 impl<S: ResourceStorage<aeron_subscription_command_t>> AeronSubscriptionCommand<S> {
     #[inline]
+    #[must_use]
     pub fn correlated(&self) -> AeronCorrelatedCommand<Inline<aeron_correlated_command_t>> {
         unsafe { AeronCorrelatedCommand::from_native(unsafe { self.get_inner_ref() }.correlated) }
     }
     #[inline]
+    #[must_use]
     pub fn registration_correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_correlation_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn channel_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.channel_length.into()
     }
@@ -71825,13 +71705,10 @@ impl<S: ResourceStorage<aeron_subscription_constants_t>> core::fmt::Debug for Ae
         }
         f.debug_struct(stringify!(AeronSubscriptionConstants))
             .field("inner", &self.inner)
-            .field(stringify!(channel), &self.channel())
-            .field(stringify!(registration_id), &self.registration_id())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(
-                stringify!(channel_status_indicator_id),
-                &self.channel_status_indicator_id(),
-            )
+            .field("channel", &self.channel())
+            .field("registration_id", &self.registration_id())
+            .field("stream_id", &self.stream_id())
+            .field("channel_status_indicator_id", &self.channel_status_indicator_id())
             .finish()
     }
 }
@@ -71914,6 +71791,7 @@ impl AeronSubscriptionConstants<CResource<aeron_subscription_constants_t>> {
 impl AeronSubscriptionConstants {}
 impl<S: ResourceStorage<aeron_subscription_constants_t>> AeronSubscriptionConstants<S> {
     #[inline]
+    #[must_use]
     pub fn channel(&self) -> &str {
         if unsafe { self.get_inner_ref() }.channel.is_null() {
             ""
@@ -71926,22 +71804,27 @@ impl<S: ResourceStorage<aeron_subscription_constants_t>> AeronSubscriptionConsta
         }
     }
     #[inline]
+    #[must_use]
     pub fn on_available_image(&self) -> aeron_on_available_image_t {
         unsafe { self.get_inner_ref() }.on_available_image.into()
     }
     #[inline]
+    #[must_use]
     pub fn on_unavailable_image(&self) -> aeron_on_unavailable_image_t {
         unsafe { self.get_inner_ref() }.on_unavailable_image.into()
     }
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn channel_status_indicator_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.channel_status_indicator_id.into()
     }
@@ -72102,18 +71985,18 @@ impl<S: ResourceStorage<aeron_subscription_link_t>> core::fmt::Debug for AeronSu
         }
         f.debug_struct(stringify!(AeronSubscriptionLink))
             .field("inner", &self.inner)
-            .field(stringify!(is_tether), &self.is_tether())
-            .field(stringify!(is_sparse), &self.is_sparse())
-            .field(stringify!(is_reliable), &self.is_reliable())
-            .field(stringify!(is_rejoin), &self.is_rejoin())
-            .field(stringify!(has_session_id), &self.has_session_id())
-            .field(stringify!(is_response), &self.is_response())
-            .field(stringify!(is_setup_complete), &self.is_setup_complete())
-            .field(stringify!(stream_id), &self.stream_id())
-            .field(stringify!(session_id), &self.session_id())
-            .field(stringify!(channel_length), &self.channel_length())
-            .field(stringify!(registration_id), &self.registration_id())
-            .field(stringify!(client_id), &self.client_id())
+            .field("is_tether", &self.is_tether())
+            .field("is_sparse", &self.is_sparse())
+            .field("is_reliable", &self.is_reliable())
+            .field("is_rejoin", &self.is_rejoin())
+            .field("has_session_id", &self.has_session_id())
+            .field("is_response", &self.is_response())
+            .field("is_setup_complete", &self.is_setup_complete())
+            .field("stream_id", &self.stream_id())
+            .field("session_id", &self.session_id())
+            .field("channel_length", &self.channel_length())
+            .field("registration_id", &self.registration_id())
+            .field("client_id", &self.client_id())
             .finish()
     }
 }
@@ -72222,66 +72105,83 @@ impl AeronSubscriptionLink<CResource<aeron_subscription_link_t>> {
 impl AeronSubscriptionLink {}
 impl<S: ResourceStorage<aeron_subscription_link_t>> AeronSubscriptionLink<S> {
     #[inline]
+    #[must_use]
     pub fn channel(&self) -> [::std::os::raw::c_char; 4096usize] {
         unsafe { self.get_inner_ref() }.channel.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_tether(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_tether.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_sparse(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_sparse.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_reliable(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_reliable.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_rejoin(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_rejoin.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_session_id(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_response(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_response.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_setup_complete(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_setup_complete.into()
     }
     #[inline]
+    #[must_use]
     pub fn setup_status(&self) -> aeron_subscription_link_setup_status_t {
         unsafe { self.get_inner_ref() }.setup_status.into()
     }
     #[inline]
+    #[must_use]
     pub fn group(&self) -> aeron_inferable_boolean_t {
         unsafe { self.get_inner_ref() }.group.into()
     }
     #[inline]
+    #[must_use]
     pub fn stream_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.stream_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn session_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.session_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn channel_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.channel_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn client_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.client_id.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn endpoint(&self) -> Ref<'_, AeronReceiveChannelEndpoint> {
         Ref::new(unsafe {
             AeronReceiveChannelEndpoint::from_ptr(
@@ -72292,6 +72192,8 @@ impl<S: ResourceStorage<aeron_subscription_link_t>> AeronSubscriptionLink<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn spy_channel(&self) -> Ref<'_, AeronUdpChannel> {
         Ref::new(unsafe {
             AeronUdpChannel::from_ptr(
@@ -72302,6 +72204,7 @@ impl<S: ResourceStorage<aeron_subscription_link_t>> AeronSubscriptionLink<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn subscribable_list(&self) -> aeron_subscription_link_stct_subscribable_list_stct {
         unsafe { self.get_inner_ref() }.subscribable_list.into()
     }
@@ -72356,10 +72259,14 @@ impl<S: ResourceStorage<aeron_subscription_link_t>> AeronSubscriptionLink<S> {
 }
 impl<'a, S: ResourceStorage<aeron_subscription_link_t>> Ref<'a, AeronSubscriptionLink<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn endpoint(&self) -> Ref<'a, AeronReceiveChannelEndpoint> {
         Ref::new(self.value.endpoint().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn spy_channel(&self) -> Ref<'a, AeronUdpChannel> {
         Ref::new(self.value.spy_channel().value)
     }
@@ -72487,18 +72394,13 @@ impl<S: ResourceStorage<aeron_subscription_ready_t>> core::fmt::Debug for AeronS
         }
         f.debug_struct(stringify!(AeronSubscriptionReady))
             .field("inner", &self.inner)
-            .field(stringify!(correlation_id), &self.correlation_id())
-            .field(
-                stringify!(channel_status_indicator_id),
-                &self.channel_status_indicator_id(),
-            )
+            .field("correlation_id", &self.correlation_id())
+            .field("channel_status_indicator_id", &self.channel_status_indicator_id())
             .finish()
     }
 }
 impl AeronSubscriptionReady<CResource<aeron_subscription_ready_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(correlation_id: i64, channel_status_indicator_id: i32) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<aeron_subscription_ready_t>::new(
             move |ctx_field| {
@@ -72520,9 +72422,6 @@ impl AeronSubscriptionReady<CResource<aeron_subscription_ready_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_subscription_ready_t>::new(
             move |ctx_field| {
@@ -72546,9 +72445,6 @@ impl AeronSubscriptionReady<CResource<aeron_subscription_ready_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronSubscriptionReady<Inline<aeron_subscription_ready_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -72563,10 +72459,12 @@ impl AeronSubscriptionReady<CResource<aeron_subscription_ready_t>> {
 impl AeronSubscriptionReady {}
 impl<S: ResourceStorage<aeron_subscription_ready_t>> AeronSubscriptionReady<S> {
     #[inline]
+    #[must_use]
     pub fn correlation_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.correlation_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn channel_status_indicator_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.channel_status_indicator_id.into()
     }
@@ -72745,73 +72643,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = " Each fragment read will be a whole message if it is under MTU length. If larger than MTU then it will come"]
     #[doc = " as a series of fragments ordered within a session."]
     #[doc = " \n"]
-    #[doc = " To assemble messages that span multiple fragments then use `AeronFragmentAssembler`."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `handler` for handling each message fragment as it is read."]
-    #[doc = " \n - `fragment_limit` number of message fragments to limit when polling across multiple images."]
-    #[doc = " \n# Return\n the number of fragments received or -1 for error."]
-    pub fn poll_with_handler<
-        AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback,
-        AeronFragmentHandlerHandlerImplPolicy: CallbackPolicy,
-    >(
-        &self,
-        handler: Option<&Handler<AeronFragmentHandlerHandlerImpl, AeronFragmentHandlerHandlerImplPolicy>>,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        let mut handler_state = handler.map(Handler::lock);
-        let (handler_callback, handler_clientd): (aeron_fragment_handler_t, *mut std::os::raw::c_void) =
-            if let Some(state) = handler_state.as_mut() {
-                if let Some(native) = state.native_poll_callback() {
-                    (native.callback, native.clientd)
-                } else {
-                    (
-                        Some(
-                            aeron_fragment_handler_t_callback_for_borrowed_handler_unwind::<
-                                AeronFragmentHandlerHandlerImpl,
-                            >,
-                        ),
-                        &mut **state as *mut AeronFragmentHandlerHandlerImpl as *mut _,
-                    )
-                }
-            } else {
-                (None, std::ptr::null_mut())
-            };
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_subscription_poll),
-                [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
-                    concat!("handler", ": ", stringify!(aeron_fragment_handler_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_subscription_poll(
-                self.get_inner(),
-                handler_callback,
-                handler_clientd,
-                fragment_limit.into(),
-            );
-            if AeronFragmentHandlerHandlerImpl::RESUMES_CAUGHT_PANIC {
-                resume_caught_panic();
-            }
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    #[doc = "Poll the images under the subscription for available message fragments."]
-    #[doc = " \n"]
-    #[doc = " Each fragment read will be a whole message if it is under MTU length. If larger than MTU then it will come"]
-    #[doc = " as a series of fragments ordered within a session."]
-    #[doc = " \n"]
-    #[doc = " To assemble messages that span multiple fragments then use `AeronFragmentAssembler`."]
+    #[doc = " To assemble messages that span multiple fragments then use `FragmentAssembler`."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `handler` for handling each message fragment as it is read."]
     #[doc = " \n - `fragment_limit` number of message fragments to limit when polling across multiple images."]
@@ -72820,7 +72652,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = r" Borrows the callback exclusively until this call returns."]
     #[doc = r" This method uses no callback allocation, reference count,"]
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
-    #[doc = "Use `poll_with_handler` only when callback ownership must be shared."]
+    #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn poll<AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback>(
         &self,
         handler: &mut AeronFragmentHandlerHandlerImpl,
@@ -72875,19 +72707,17 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = " Each fragment read will be a whole message if it is under MTU length. If larger than MTU then it will come"]
     #[doc = " as a series of fragments ordered within a session."]
     #[doc = " \n"]
-    #[doc = " To assemble messages that span multiple fragments then use `AeronFragmentAssembler`."]
+    #[doc = " To assemble messages that span multiple fragments then use `FragmentAssembler`."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `handler` for handling each message fragment as it is read."]
     #[doc = " \n - `fragment_limit` number of message fragments to limit when polling across multiple images."]
     #[doc = " \n# Return\n the number of fragments received or -1 for error."]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -72932,77 +72762,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = " Each fragment read will be a whole message if it is under MTU length. If larger than MTU then it will come"]
     #[doc = " as a series of fragments ordered within a session."]
     #[doc = " \n"]
-    #[doc = " To assemble messages that span multiple fragments then use `AeronControlledFragmentAssembler`."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `handler` for handling each message fragment as it is read."]
-    #[doc = " \n - `fragment_limit` number of message fragments to limit when polling across multiple images."]
-    #[doc = " \n# Return\n the number of fragments received or -1 for error."]
-    pub fn controlled_poll_with_handler<
-        AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback,
-        AeronControlledFragmentHandlerHandlerImplPolicy: CallbackPolicy,
-    >(
-        &self,
-        handler: Option<
-            &Handler<AeronControlledFragmentHandlerHandlerImpl, AeronControlledFragmentHandlerHandlerImplPolicy>,
-        >,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        let mut handler_state = handler.map(Handler::lock);
-        let (handler_callback, handler_clientd): (aeron_controlled_fragment_handler_t, *mut std::os::raw::c_void) =
-            if let Some(state) = handler_state.as_mut() {
-                if let Some(native) = state.native_poll_callback() {
-                    (native.callback, native.clientd)
-                } else {
-                    (
-                        Some(
-                            aeron_controlled_fragment_handler_t_callback_for_borrowed_handler_unwind::<
-                                AeronControlledFragmentHandlerHandlerImpl,
-                            >,
-                        ),
-                        &mut **state as *mut AeronControlledFragmentHandlerHandlerImpl as *mut _,
-                    )
-                }
-            } else {
-                (None, std::ptr::null_mut())
-            };
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_subscription_controlled_poll),
-                [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
-                    concat!("handler", ": ", stringify!(aeron_controlled_fragment_handler_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_subscription_controlled_poll(
-                self.get_inner(),
-                handler_callback,
-                handler_clientd,
-                fragment_limit.into(),
-            );
-            if AeronControlledFragmentHandlerHandlerImpl::RESUMES_CAUGHT_PANIC {
-                resume_caught_panic();
-            }
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    #[doc = "Poll in a controlled manner the images under the subscription for available message fragments."]
-    #[doc = " Control is applied to fragments in the stream. If more fragments can be read on another stream"]
-    #[doc = " they will even if BREAK or ABORT is returned from the fragment handler."]
-    #[doc = " \n"]
-    #[doc = " Each fragment read will be a whole message if it is under MTU length. If larger than MTU then it will come"]
-    #[doc = " as a series of fragments ordered within a session."]
-    #[doc = " \n"]
-    #[doc = " To assemble messages that span multiple fragments then use `AeronControlledFragmentAssembler`."]
+    #[doc = " To assemble messages that span multiple fragments then use `ControlledFragmentAssembler`."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `handler` for handling each message fragment as it is read."]
     #[doc = " \n - `fragment_limit` number of message fragments to limit when polling across multiple images."]
@@ -73011,7 +72771,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = r" Borrows the callback exclusively until this call returns."]
     #[doc = r" This method uses no callback allocation, reference count,"]
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
-    #[doc = "Use `controlled_poll_with_handler` only when callback ownership must be shared."]
+    #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn controlled_poll<AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback>(
         &self,
         handler: &mut AeronControlledFragmentHandlerHandlerImpl,
@@ -73069,19 +72829,17 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = " Each fragment read will be a whole message if it is under MTU length. If larger than MTU then it will come"]
     #[doc = " as a series of fragments ordered within a session."]
     #[doc = " \n"]
-    #[doc = " To assemble messages that span multiple fragments then use `AeronControlledFragmentAssembler`."]
+    #[doc = " To assemble messages that span multiple fragments then use `ControlledFragmentAssembler`."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `handler` for handling each message fragment as it is read."]
     #[doc = " \n - `fragment_limit` number of message fragments to limit when polling across multiple images."]
     #[doc = " \n# Return\n the number of fragments received or -1 for error."]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -73132,63 +72890,11 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = "# Parameters\n \n - `handler` to receive a block of fragments from each image."]
     #[doc = " \n - `block_length_limit` for each image polled."]
     #[doc = " \n# Return\n the number of bytes consumed or -1 for error."]
-    pub fn block_poll_with_handler<
-        AeronBlockHandlerHandlerImpl: AeronBlockHandlerCallback,
-        AeronBlockHandlerHandlerImplPolicy: CallbackPolicy,
-    >(
-        &self,
-        handler: Option<&Handler<AeronBlockHandlerHandlerImpl, AeronBlockHandlerHandlerImplPolicy>>,
-        block_length_limit: usize,
-    ) -> ::std::os::raw::c_long {
-        let mut handler_state = handler.map(Handler::lock);
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_subscription_block_poll),
-                [
-                    concat!("subscription", ": ", stringify!(*mut aeron_subscription_t)).to_string(),
-                    concat!("handler", ": ", stringify!(aeron_block_handler_t)).to_string()
-                ]
-                .join(", ")
-            );
-            let result = aeron_subscription_block_poll(
-                self.get_inner(),
-                {
-                    let callback: aeron_block_handler_t = if handler_state.is_some() {
-                        Some(aeron_block_handler_t_callback_for_borrowed_handler_unwind::<AeronBlockHandlerHandlerImpl>)
-                    } else {
-                        None
-                    };
-                    callback
-                },
-                handler_state
-                    .as_mut()
-                    .map(|state| &mut **state as *mut AeronBlockHandlerHandlerImpl as *mut std::os::raw::c_void)
-                    .unwrap_or(std::ptr::null_mut()),
-                block_length_limit.into(),
-            );
-            if AeronBlockHandlerHandlerImpl::RESUMES_CAUGHT_PANIC {
-                resume_caught_panic();
-            }
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    #[doc = "Poll the images under the subscription for available message fragments in blocks."]
-    #[doc = " \n"]
-    #[doc = " This method is useful for operations like bulk archiving and messaging indexing."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `handler` to receive a block of fragments from each image."]
-    #[doc = " \n - `block_length_limit` for each image polled."]
-    #[doc = " \n# Return\n the number of bytes consumed or -1 for error."]
     #[doc = r""]
     #[doc = r" Borrows the callback exclusively until this call returns."]
     #[doc = r" This method uses no callback allocation, reference count,"]
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
-    #[doc = "Use `block_poll_with_handler` only when callback ownership must be shared."]
+    #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn block_poll<AeronBlockHandlerHandlerImpl: AeronBlockHandlerCallback>(
         &self,
         handler: &mut AeronBlockHandlerHandlerImpl,
@@ -73228,13 +72934,11 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = " \n - `block_length_limit` for each image polled."]
     #[doc = " \n# Return\n the number of bytes consumed or -1 for error."]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -73268,6 +72972,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "Is this subscription connected by having at least one open publication image."]
     #[doc = ""]
     #[doc = " \n# Return\n true if this subscription connected by having at least one open publication image."]
@@ -73288,8 +72993,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[inline]
     #[doc = "Fill in a structure with the constants in use by a subscription."]
     #[doc = ""]
-    #[doc = "# Parameters\n \n - `subscription` to get the constants for."]
-    #[doc = " \n - `constants` structure to fill in with the constants"]
+    #[doc = "# Parameters\n \n - `constants` structure to fill in with the constants"]
     #[doc = " \n# Return\n 0 for success and -1 for error."]
     #[doc = "# Safety"]
     #[doc = "The output may contain borrowed native pointers. Do not use those pointers after the queried handle is dropped or changed. Prefer the lifetime-bound `get_constants`, `get_buffers` or `get_values` method."]
@@ -73335,6 +73039,11 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
         }))
     }
     #[inline]
+    #[doc = "`get_constants()?.channel_status_indicator_id()`. Call `get_constants()` once to read several fields"]
+    pub fn channel_status_indicator_id(&self) -> Result<i32, AeronCError> {
+        Ok(self.get_constants()?.channel_status_indicator_id())
+    }
+    #[inline]
     #[doc = "Count of images associated to this subscription."]
     #[doc = ""]
     #[doc = " \n# Return\n count of count associated to this subscription or -1 for error."]
@@ -73362,8 +73071,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = " Note: A retain call must have a corresponding release call."]
     #[doc = " Note: Subscriptions are not threadsafe and should not be shared between subscribers."]
     #[doc = ""]
-    #[doc = "# Parameters\n \n - `subscription` that image is part of."]
-    #[doc = " \n - `image` to retain"]
+    #[doc = "# Parameters\n \n - `image` to retain"]
     #[doc = " \n# Return\n 0 for success and -1 for error."]
     #[doc = "# Safety"]
     #[doc = "This bypasses Rust ownership. Keep all retained pointers valid until native cleanup. Initializers require exclusive access and must not overwrite live native state or invalidate borrowed views. After raw removal or deletion, prevent all further access and Rust cleanup through every alias. Prefer the owning handle's constructor, close or cancel method."]
@@ -73397,8 +73105,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = ""]
     #[doc = " Note: Subscriptions are not threadsafe and should not be shared between subscribers."]
     #[doc = ""]
-    #[doc = "# Parameters\n \n - `subscription` that image is part of."]
-    #[doc = " \n - `image` to release"]
+    #[doc = "# Parameters\n \n - `image` to release"]
     #[doc = " \n# Return\n 0 for success and -1 for error."]
     #[doc = "# Safety"]
     #[doc = "This bypasses Rust ownership. Keep all retained pointers valid until native cleanup. Initializers require exclusive access and must not overwrite live native state or invalidate borrowed views. After raw removal or deletion, prevent all further access and Rust cleanup through every alias. Prefer the owning handle's constructor, close or cancel method."]
@@ -73428,6 +73135,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "Is the subscription closed."]
     #[doc = ""]
     #[doc = " \n# Return\n true if it has been closed otherwise false."]
@@ -73511,7 +73219,6 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = " representing endpoint for this subscription."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `address` buffer to hold the resolved endooint."]
-    #[doc = " \n - `address_len` available length for the copied address."]
     #[doc = " \n# Return\n -1 on error, 0 if address not found, 1 if address is found."]
     #[doc = " @see aeron_subscription_local_`Sockaddr`s"]
     pub fn resolved_endpoint(&self, address: &mut [u8]) -> Result<i32, AeronCError> {
@@ -73545,7 +73252,6 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = " representing endpoint for this subscription."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `address` buffer to hold the resolved endooint."]
-    #[doc = " \n - `address_len` available length for the copied address."]
     #[doc = " \n# Return\n -1 on error, 0 if address not found, 1 if address is found."]
     #[doc = " @see aeron_subscription_local_`Sockaddr`s"]
     pub fn resolved_endpoint_as_string(&self, max_length: usize) -> Result<String, AeronCError> {
@@ -73558,7 +73264,6 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = " representing endpoint for this subscription."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `address` buffer to hold the resolved endooint."]
-    #[doc = " \n - `address_len` available length for the copied address."]
     #[doc = " \n# Return\n -1 on error, 0 if address not found, 1 if address is found."]
     #[doc = " @see aeron_subscription_local_`Sockaddr`s"]
     #[doc = "NOTE: allocation friendly method, the string capacity must be set as it will truncate string to capacity it will never grow the string. So if you pass String::new() it will write 0 chars"]
@@ -73583,7 +73288,6 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = " does not have a wildcard port (<code>0</code>), then it will return the original URI."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `uri` buffer to hold the resolved uri."]
-    #[doc = " \n - `uri_len` length of the buffer."]
     #[doc = " \n# Return\n -1 on failure or the number of bytes written to the buffer (excluding the NULL terminator). Writing is done"]
     #[doc = " on a per key basis, so if the buffer was truncated before writing completed, it will only include the byte count up"]
     #[doc = " to the key that overflowed. However, the invariant that if the number returned >= uri_len, then output will have been"]
@@ -73619,7 +73323,6 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = " does not have a wildcard port (<code>0</code>), then it will return the original URI."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `uri` buffer to hold the resolved uri."]
-    #[doc = " \n - `uri_len` length of the buffer."]
     #[doc = " \n# Return\n -1 on failure or the number of bytes written to the buffer (excluding the NULL terminator). Writing is done"]
     #[doc = " on a per key basis, so if the buffer was truncated before writing completed, it will only include the byte count up"]
     #[doc = " to the key that overflowed. However, the invariant that if the number returned >= uri_len, then output will have been"]
@@ -73634,7 +73337,6 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = " does not have a wildcard port (<code>0</code>), then it will return the original URI."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `uri` buffer to hold the resolved uri."]
-    #[doc = " \n - `uri_len` length of the buffer."]
     #[doc = " \n# Return\n -1 on failure or the number of bytes written to the buffer (excluding the NULL terminator). Writing is done"]
     #[doc = " on a per key basis, so if the buffer was truncated before writing completed, it will only include the byte count up"]
     #[doc = " to the key that overflowed. However, the invariant that if the number returned >= uri_len, then output will have been"]
@@ -73725,7 +73427,9 @@ impl AeronSubscription {
 impl AeronSubscription {
     #[doc = r" Like [`Self::close`], but notifies `on_close_complete` when the close"]
     #[doc = r" finishes. The handler must outlive the notification (keep your"]
-    #[doc = r" `Handler` alive until it has fired)."]
+    #[doc = r" `Handler` alive until it has fired). C calls it later from the conductor,"]
+    #[doc = r" so it needs a retained `SharedHandler`; it runs once at shutdown, off the"]
+    #[doc = r" hot path"]
     pub fn close_with_handler<AeronNotificationHandlerImpl: AeronNotificationCallback + Send + 'static>(
         self,
         on_close_complete: Option<&SharedHandler<AeronNotificationHandlerImpl>>,
@@ -73850,7 +73554,8 @@ impl<S: ResourceStorage<aeron_system_counter_t>> core::fmt::Debug for AeronSyste
         }
         f.debug_struct(stringify!(AeronSystemCounter))
             .field("inner", &self.inner)
-            .field(stringify!(id), &self.id())
+            .field("label", &unsafe { self.label() })
+            .field("id", &self.id())
             .finish()
     }
 }
@@ -73879,10 +73584,7 @@ impl AeronSystemCounter<CResource<aeron_system_counter_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_system_counter_t>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -73905,10 +73607,7 @@ impl AeronSystemCounter<CResource<aeron_system_counter_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> AeronSystemCounter<Inline<aeron_system_counter_t>> {
+    pub fn new_zeroed_on_stack() -> AeronSystemCounter<Inline<aeron_system_counter_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
             "creating zeroed empty resource on stack {}",
@@ -73922,6 +73621,7 @@ impl AeronSystemCounter<CResource<aeron_system_counter_t>> {
 impl AeronSystemCounter {}
 impl<S: ResourceStorage<aeron_system_counter_t>> AeronSystemCounter<S> {
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -73937,6 +73637,7 @@ impl<S: ResourceStorage<aeron_system_counter_t>> AeronSystemCounter<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.id.into()
     }
@@ -74007,6 +73708,11 @@ impl<S: ResourceStorage<aeron_system_counter_t>> From<AeronSystemCounter<S>> for
     #[inline]
     fn from(value: AeronSystemCounter<S>) -> Self {
         unsafe { *value.get_inner().clone() }
+    }
+}
+impl Default for AeronSystemCounter<CResource<aeron_system_counter_t>> {
+    fn default() -> Self {
+        AeronSystemCounter::new_zeroed_on_heap()
     }
 }
 impl<S: ResourceStorage<aeron_system_counter_t>> AeronSystemCounter<S> {
@@ -74158,6 +73864,8 @@ impl AeronSystemCounters<CResource<aeron_system_counters_t>> {
 impl AeronSystemCounters {}
 impl<S: ResourceStorage<aeron_system_counters_t>> AeronSystemCounters<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn manager(&self) -> Ref<'_, AeronCountersManager> {
         Ref::new(unsafe {
             AeronCountersManager::from_ptr(
@@ -74224,6 +73932,8 @@ impl<S: ResourceStorage<aeron_system_counters_t>> AeronSystemCounters<S> {
 }
 impl<'a, S: ResourceStorage<aeron_system_counters_t>> Ref<'a, AeronSystemCounters<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn manager(&self) -> Ref<'a, AeronCountersManager> {
         Ref::new(self.value.manager().value)
     }
@@ -74759,7 +74469,8 @@ impl Aeron {
     #[doc = ""]
     #[doc = " \n# Return\n aeron error message for calling thread."]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `errmsg_owned()` to keep a copy."]
     pub unsafe fn errmsg<'text>() -> &'text str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -74776,6 +74487,7 @@ impl Aeron {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn errmsg_owned() -> String {
         unsafe {
             let result = aeron_errmsg();
@@ -74790,7 +74502,6 @@ impl Aeron {
     #[doc = "Get the default path used by the Aeron media driver."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `path` buffer to store the path."]
-    #[doc = " \n - `path_length` space available in the buffer"]
     #[doc = " \n# Return\n -1 if there is an issue or the number of bytes written to path excluding the terminator <code>\\0</code>. If this"]
     #[doc = " is equal to or greater than the path_length then the path has been truncated."]
     pub fn default_path(path: &mut [u8]) -> Result<i32, AeronCError> {
@@ -75091,13 +74802,11 @@ impl Aeron {
     }
     #[inline]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -75637,7 +75346,7 @@ impl Aeron {
     }
     #[inline]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
     pub unsafe fn realpath<'text>(path: &std::ffi::CStr, resolved_path: &mut [u8]) -> &'text str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -75666,7 +75375,7 @@ impl Aeron {
     }
     #[inline]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
     pub unsafe fn tmpdir<'text>(path: &mut [u8]) -> &'text str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -75802,7 +75511,7 @@ impl Aeron {
     #[doc = "# Parameters\n \n - `dir_template` to be used to create the temporary directory."]
     #[doc = " \n# Return\n the new temporary path."]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
     pub unsafe fn temp_dir<'text>(dir_template: &std::ffi::CStr) -> &'text str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -77026,6 +76735,7 @@ impl<S: ResourceStorage<aeron_t>> Aeron<S> {
         }
     }
     #[inline]
+    #[must_use]
     #[doc = "Determines if the client has been closed, e.g. via a driver timeout. Don't call this method after calling"]
     #[doc = " aeron_close as that will have already freed the associated memory."]
     #[doc = ""]
@@ -77075,6 +76785,7 @@ impl<S: ResourceStorage<aeron_t>> Aeron<S> {
         }
     }
     #[inline]
+    #[track_caller]
     #[doc = "Return the `AeronContext` that is in use by the given client."]
     #[doc = ""]
     #[doc = " \n# Return\n the `AeronContext` for the given client or NULL for an error."]
@@ -77178,7 +76889,6 @@ impl<S: ResourceStorage<aeron_t>> Aeron<S> {
     #[doc = "# Parameters\n \n - `registration_id` of the publication to be removed."]
     #[doc = " \n - `on_complete` optional callback to execute once the publication has been removed. This may happen on a separate"]
     #[doc = " thread, so the caller should ensure that clientd has the appropriate lifetime. Use NULL if not needed."]
-    #[doc = " \n - `on_complete_clientd` parameter to pass to the on_complete callback."]
     #[doc = " \n# Return\n 0 for success or -1 for error."]
     #[doc = "# Safety"]
     #[doc = "This bypasses Rust ownership. Keep all retained pointers valid until native cleanup. Initializers require exclusive access and must not overwrite live native state or invalidate borrowed views. After raw removal or deletion, prevent all further access and Rust cleanup through every alias. Prefer the owning handle's constructor, close or cancel method."]
@@ -77291,7 +77001,6 @@ impl<S: ResourceStorage<aeron_t>> Aeron<S> {
     #[doc = "# Parameters\n \n - `registration_id` of the exclusive publication to be removed."]
     #[doc = " \n - `on_complete` optional callback to execute once the exclusive publication has been removed. This may happen on"]
     #[doc = " a separate thread, so the caller should ensure that clientd has the appropriate lifetime. Use NULL if not needed."]
-    #[doc = " \n - `on_complete_clientd` parameter to pass to the on_complete callback."]
     #[doc = " \n# Return\n 0 for success or -1 for error."]
     #[doc = "# Safety"]
     #[doc = "This bypasses Rust ownership. Keep all retained pointers valid until native cleanup. Initializers require exclusive access and must not overwrite live native state or invalidate borrowed views. After raw removal or deletion, prevent all further access and Rust cleanup through every alias. Prefer the owning handle's constructor, close or cancel method."]
@@ -77403,7 +77112,6 @@ impl<S: ResourceStorage<aeron_t>> Aeron<S> {
     #[doc = "# Parameters\n \n - `registration_id` of the subscription to be removed."]
     #[doc = " \n - `on_complete` optional callback to execute once the subscription has been removed. This may happen on a separate"]
     #[doc = " thread, so the caller should ensure that clientd has the appropriate lifetime. Use NULL if not needed."]
-    #[doc = " \n - `on_complete_clientd` parameter to pass to the on_complete callback."]
     #[doc = " \n# Return\n 0 for success or -1 for error."]
     #[doc = "# Safety"]
     #[doc = "This bypasses Rust ownership. Keep all retained pointers valid until native cleanup. Initializers require exclusive access and must not overwrite live native state or invalidate borrowed views. After raw removal or deletion, prevent all further access and Rust cleanup through every alias. Prefer the owning handle's constructor, close or cancel method."]
@@ -77472,6 +77180,7 @@ impl<S: ResourceStorage<aeron_t>> Aeron<S> {
         }
     }
     #[inline]
+    #[track_caller]
     #[doc = "Return a reference to the counters reader of the given client."]
     #[doc = ""]
     #[doc = " The `AeronCountersReader` is maintained by the client. And should not be freed."]
@@ -77542,7 +77251,6 @@ impl<S: ResourceStorage<aeron_t>> Aeron<S> {
     #[doc = "# Parameters\n \n - `registration_id` of the counter to be removed."]
     #[doc = " \n - `on_complete` optional callback to execute once the counter has been removed. This may happen on a separate"]
     #[doc = " thread, so the caller should ensure that clientd has the appropriate lifetime. Use NULL if not needed."]
-    #[doc = " \n - `on_complete_clientd` parameter to pass to the on_complete callback."]
     #[doc = " \n# Return\n 0 for success or -1 for error."]
     #[doc = "# Safety"]
     #[doc = "This bypasses Rust ownership. Keep all retained pointers valid until native cleanup. Initializers require exclusive access and must not overwrite live native state or invalidate borrowed views. After raw removal or deletion, prevent all further access and Rust cleanup through every alias. Prefer the owning handle's constructor, close or cancel method."]
@@ -77829,6 +77537,8 @@ impl<S: ResourceStorage<aeron_t>> Aeron<S> {
 }
 impl<'a, S: ResourceStorage<aeron_t>> Ref<'a, Aeron<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     #[doc = "Return the `AeronContext` that is in use by the given client."]
     #[doc = ""]
     #[doc = " \n# Return\n the `AeronContext` for the given client or NULL for an error."]
@@ -77836,6 +77546,8 @@ impl<'a, S: ResourceStorage<aeron_t>> Ref<'a, Aeron<S>> {
         Ref::new(self.value.context().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     #[doc = "Return a reference to the counters reader of the given client."]
     #[doc = ""]
     #[doc = " The `AeronCountersReader` is maintained by the client. And should not be freed."]
@@ -77946,15 +77658,13 @@ impl<S: ResourceStorage<aeron_terminate_driver_command_t>> core::fmt::Debug for 
         }
         f.debug_struct(stringify!(AeronTerminateDriverCommand))
             .field("inner", &self.inner)
-            .field(stringify!(correlated), &self.correlated())
-            .field(stringify!(token_length), &self.token_length())
+            .field("correlated", &self.correlated())
+            .field("token_length", &self.token_length())
             .finish()
     }
 }
 impl AeronTerminateDriverCommand<CResource<aeron_terminate_driver_command_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         correlated: AeronCorrelatedCommand<Inline<aeron_correlated_command_t>>,
         token_length: i32,
@@ -77979,9 +77689,6 @@ impl AeronTerminateDriverCommand<CResource<aeron_terminate_driver_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_terminate_driver_command_t>::new(
             move |ctx_field| {
@@ -78005,9 +77712,6 @@ impl AeronTerminateDriverCommand<CResource<aeron_terminate_driver_command_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
     pub fn new_zeroed_on_stack() -> AeronTerminateDriverCommand<Inline<aeron_terminate_driver_command_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
@@ -78022,10 +77726,12 @@ impl AeronTerminateDriverCommand<CResource<aeron_terminate_driver_command_t>> {
 impl AeronTerminateDriverCommand {}
 impl<S: ResourceStorage<aeron_terminate_driver_command_t>> AeronTerminateDriverCommand<S> {
     #[inline]
+    #[must_use]
     pub fn correlated(&self) -> AeronCorrelatedCommand<Inline<aeron_correlated_command_t>> {
         unsafe { AeronCorrelatedCommand::from_native(unsafe { self.get_inner_ref() }.correlated) }
     }
     #[inline]
+    #[must_use]
     pub fn token_length(&self) -> i32 {
         unsafe { self.get_inner_ref() }.token_length.into()
     }
@@ -78195,14 +77901,11 @@ impl<S: ResourceStorage<aeron_tetherable_position_t>> core::fmt::Debug for Aeron
         }
         f.debug_struct(stringify!(AeronTetherablePosition))
             .field("inner", &self.inner)
-            .field(
-                stringify!(subscription_registration_id),
-                &self.subscription_registration_id(),
-            )
-            .field(stringify!(time_of_last_update_ns), &self.time_of_last_update_ns())
-            .field(stringify!(counter_id), &self.counter_id())
-            .field(stringify!(is_tether), &self.is_tether())
-            .field(stringify!(is_rejoin), &self.is_rejoin())
+            .field("subscription_registration_id", &self.subscription_registration_id())
+            .field("time_of_last_update_ns", &self.time_of_last_update_ns())
+            .field("counter_id", &self.counter_id())
+            .field("is_tether", &self.is_tether())
+            .field("is_rejoin", &self.is_rejoin())
             .finish()
     }
 }
@@ -78287,30 +77990,37 @@ impl AeronTetherablePosition<CResource<aeron_tetherable_position_t>> {
 impl AeronTetherablePosition {}
 impl<S: ResourceStorage<aeron_tetherable_position_t>> AeronTetherablePosition<S> {
     #[inline]
+    #[must_use]
     pub fn value_addr(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.value_addr }
     }
     #[inline]
+    #[must_use]
     pub fn subscription_registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.subscription_registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn time_of_last_update_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.time_of_last_update_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn state(&self) -> aeron_subscription_tether_state_t {
         unsafe { self.get_inner_ref() }.state.into()
     }
     #[inline]
+    #[must_use]
     pub fn counter_id(&self) -> i32 {
         unsafe { self.get_inner_ref() }.counter_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_tether(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_tether.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_rejoin(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_rejoin.into()
     }
@@ -78471,7 +78181,7 @@ impl<S: ResourceStorage<aeron_udp_channel_async_parse_t>> core::fmt::Debug for A
         }
         f.debug_struct(stringify!(AeronUdpChannelAsyncParse))
             .field("inner", &self.inner)
-            .field(stringify!(is_destination), &self.is_destination())
+            .field("is_destination", &self.is_destination())
             .finish()
     }
 }
@@ -78544,6 +78254,8 @@ impl AeronUdpChannelAsyncParse<CResource<aeron_udp_channel_async_parse_t>> {
 impl AeronUdpChannelAsyncParse {}
 impl<S: ResourceStorage<aeron_udp_channel_async_parse_t>> AeronUdpChannelAsyncParse<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn channel(&self) -> Ref<'_, AeronUdpChannel> {
         Ref::new(unsafe {
             AeronUdpChannel::from_ptr(
@@ -78554,6 +78266,7 @@ impl<S: ResourceStorage<aeron_udp_channel_async_parse_t>> AeronUdpChannelAsyncPa
         })
     }
     #[inline]
+    #[must_use]
     pub fn is_destination(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_destination.into()
     }
@@ -78589,6 +78302,8 @@ impl<S: ResourceStorage<aeron_udp_channel_async_parse_t>> AeronUdpChannelAsyncPa
 }
 impl<'a, S: ResourceStorage<aeron_udp_channel_async_parse_t>> Ref<'a, AeronUdpChannelAsyncParse<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn channel(&self) -> Ref<'a, AeronUdpChannel> {
         Ref::new(self.value.channel().value)
     }
@@ -78802,6 +78517,8 @@ impl AeronUdpChannelDataPaths<CResource<aeron_udp_channel_data_paths_t>> {
 impl AeronUdpChannelDataPaths {}
 impl<S: ResourceStorage<aeron_udp_channel_data_paths_t>> AeronUdpChannelDataPaths<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn outgoing_interceptors(&self) -> Ref<'_, AeronUdpChannelOutgoingInterceptor> {
         Ref::new(unsafe {
             AeronUdpChannelOutgoingInterceptor::from_ptr(
@@ -78812,6 +78529,8 @@ impl<S: ResourceStorage<aeron_udp_channel_data_paths_t>> AeronUdpChannelDataPath
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn incoming_interceptors(&self) -> Ref<'_, AeronUdpChannelIncomingInterceptor> {
         Ref::new(unsafe {
             AeronUdpChannelIncomingInterceptor::from_ptr(
@@ -78822,10 +78541,12 @@ impl<S: ResourceStorage<aeron_udp_channel_data_paths_t>> AeronUdpChannelDataPath
         })
     }
     #[inline]
+    #[must_use]
     pub fn send_func(&self) -> aeron_udp_channel_transport_send_func_t {
         unsafe { self.get_inner_ref() }.send_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn recv_func(&self) -> aeron_udp_transport_recv_func_t {
         unsafe { self.get_inner_ref() }.recv_func.into()
     }
@@ -79124,10 +78845,14 @@ impl<S: ResourceStorage<aeron_udp_channel_data_paths_t>> AeronUdpChannelDataPath
 }
 impl<'a, S: ResourceStorage<aeron_udp_channel_data_paths_t>> Ref<'a, AeronUdpChannelDataPaths<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn outgoing_interceptors(&self) -> Ref<'a, AeronUdpChannelOutgoingInterceptor> {
         Ref::new(self.value.outgoing_interceptors().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn incoming_interceptors(&self) -> Ref<'a, AeronUdpChannelIncomingInterceptor> {
         Ref::new(self.value.incoming_interceptors().value)
     }
@@ -79357,24 +79082,29 @@ impl AeronUdpChannelIncomingInterceptor<CResource<aeron_udp_channel_incoming_int
 impl AeronUdpChannelIncomingInterceptor {}
 impl<S: ResourceStorage<aeron_udp_channel_incoming_interceptor_t>> AeronUdpChannelIncomingInterceptor<S> {
     #[inline]
+    #[must_use]
     pub fn interceptor_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.interceptor_state.into()
     }
     #[inline]
+    #[must_use]
     pub fn incoming_func(&self) -> aeron_udp_channel_interceptor_incoming_func_t {
         unsafe { self.get_inner_ref() }.incoming_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn close_func(&self) -> aeron_udp_channel_interceptor_close_func_t {
         unsafe { self.get_inner_ref() }.close_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn incoming_transport_notification_func(&self) -> aeron_udp_channel_interceptor_transport_notification_func_t {
         unsafe { self.get_inner_ref() }
             .incoming_transport_notification_func
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn incoming_publication_notification_func(
         &self,
     ) -> aeron_udp_channel_interceptor_publication_notification_func_t {
@@ -79383,10 +79113,13 @@ impl<S: ResourceStorage<aeron_udp_channel_incoming_interceptor_t>> AeronUdpChann
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn incoming_image_notification_func(&self) -> aeron_udp_channel_interceptor_image_notification_func_t {
         unsafe { self.get_inner_ref() }.incoming_image_notification_func.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn next_interceptor(&self) -> Ref<'_, AeronUdpChannelIncomingInterceptor> {
         Ref::new(unsafe {
             AeronUdpChannelIncomingInterceptor::from_ptr(
@@ -79428,6 +79161,8 @@ impl<S: ResourceStorage<aeron_udp_channel_incoming_interceptor_t>> AeronUdpChann
 }
 impl<'a, S: ResourceStorage<aeron_udp_channel_incoming_interceptor_t>> Ref<'a, AeronUdpChannelIncomingInterceptor<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn next_interceptor(&self) -> Ref<'a, AeronUdpChannelIncomingInterceptor> {
         Ref::new(self.value.next_interceptor().value)
     }
@@ -79670,42 +79405,51 @@ impl AeronUdpChannelInterceptorBindings<CResource<aeron_udp_channel_interceptor_
 impl AeronUdpChannelInterceptorBindings {}
 impl<S: ResourceStorage<aeron_udp_channel_interceptor_bindings_t>> AeronUdpChannelInterceptorBindings<S> {
     #[inline]
+    #[must_use]
     pub fn outgoing_init_func(&self) -> aeron_udp_channel_interceptor_init_func_t {
         unsafe { self.get_inner_ref() }.outgoing_init_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn incoming_init_func(&self) -> aeron_udp_channel_interceptor_init_func_t {
         unsafe { self.get_inner_ref() }.incoming_init_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn outgoing_send_func(&self) -> aeron_udp_channel_interceptor_outgoing_send_func_t {
         unsafe { self.get_inner_ref() }.outgoing_send_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn incoming_func(&self) -> aeron_udp_channel_interceptor_incoming_func_t {
         unsafe { self.get_inner_ref() }.incoming_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn outgoing_close_func(&self) -> aeron_udp_channel_interceptor_close_func_t {
         unsafe { self.get_inner_ref() }.outgoing_close_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn incoming_close_func(&self) -> aeron_udp_channel_interceptor_close_func_t {
         unsafe { self.get_inner_ref() }.incoming_close_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn outgoing_transport_notification_func(&self) -> aeron_udp_channel_interceptor_transport_notification_func_t {
         unsafe { self.get_inner_ref() }
             .outgoing_transport_notification_func
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn incoming_transport_notification_func(&self) -> aeron_udp_channel_interceptor_transport_notification_func_t {
         unsafe { self.get_inner_ref() }
             .incoming_transport_notification_func
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn outgoing_publication_notification_func(
         &self,
     ) -> aeron_udp_channel_interceptor_publication_notification_func_t {
@@ -79714,6 +79458,7 @@ impl<S: ResourceStorage<aeron_udp_channel_interceptor_bindings_t>> AeronUdpChann
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn incoming_publication_notification_func(
         &self,
     ) -> aeron_udp_channel_interceptor_publication_notification_func_t {
@@ -79722,19 +79467,23 @@ impl<S: ResourceStorage<aeron_udp_channel_interceptor_bindings_t>> AeronUdpChann
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn outgoing_image_notification_func(&self) -> aeron_udp_channel_interceptor_image_notification_func_t {
         unsafe { self.get_inner_ref() }.outgoing_image_notification_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn incoming_image_notification_func(&self) -> aeron_udp_channel_interceptor_image_notification_func_t {
         unsafe { self.get_inner_ref() }.incoming_image_notification_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn meta_info(&self) -> aeron_udp_channel_interceptor_bindings_stct_interceptor_meta_info_fields {
         unsafe { self.get_inner_ref() }.meta_info.into()
     }
     #[inline]
-    pub fn load(&self, interceptors: &std::ffi::CStr) -> Ref<'_, AeronUdpChannelInterceptorBindings> {
+    #[track_caller]
+    pub fn load(&self, interceptors: &std::ffi::CStr) -> Option<Ref<'_, AeronUdpChannelInterceptorBindings>> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -79754,13 +79503,17 @@ impl<S: ResourceStorage<aeron_udp_channel_interceptor_bindings_t>> AeronUdpChann
             let result = aeron_udp_channel_interceptor_bindings_load(self.get_inner(), interceptors.as_ptr());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            Ref::new(unsafe {
-                AeronUdpChannelInterceptorBindings::from_ptr(
-                    std::ptr::NonNull::new(result as *mut _)
-                        .expect("native getter returned null")
-                        .as_ptr(),
-                )
-            })
+            if result.is_null() {
+                None
+            } else {
+                Some(Ref::new(unsafe {
+                    AeronUdpChannelInterceptorBindings::from_ptr(
+                        std::ptr::NonNull::new(result as *mut _)
+                            .expect("native getter returned null")
+                            .as_ptr(),
+                    )
+                }))
+            }
         }
     }
     #[doc = r" Borrow this handle without cloning its owner."]
@@ -80020,24 +79773,29 @@ impl AeronUdpChannelOutgoingInterceptor<CResource<aeron_udp_channel_outgoing_int
 impl AeronUdpChannelOutgoingInterceptor {}
 impl<S: ResourceStorage<aeron_udp_channel_outgoing_interceptor_t>> AeronUdpChannelOutgoingInterceptor<S> {
     #[inline]
+    #[must_use]
     pub fn interceptor_state(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.interceptor_state.into()
     }
     #[inline]
+    #[must_use]
     pub fn outgoing_send_func(&self) -> aeron_udp_channel_interceptor_outgoing_send_func_t {
         unsafe { self.get_inner_ref() }.outgoing_send_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn close_func(&self) -> aeron_udp_channel_interceptor_close_func_t {
         unsafe { self.get_inner_ref() }.close_func.into()
     }
     #[inline]
+    #[must_use]
     pub fn outgoing_transport_notification_func(&self) -> aeron_udp_channel_interceptor_transport_notification_func_t {
         unsafe { self.get_inner_ref() }
             .outgoing_transport_notification_func
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn outgoing_publication_notification_func(
         &self,
     ) -> aeron_udp_channel_interceptor_publication_notification_func_t {
@@ -80046,10 +79804,13 @@ impl<S: ResourceStorage<aeron_udp_channel_outgoing_interceptor_t>> AeronUdpChann
             .into()
     }
     #[inline]
+    #[must_use]
     pub fn outgoing_image_notification_func(&self) -> aeron_udp_channel_interceptor_image_notification_func_t {
         unsafe { self.get_inner_ref() }.outgoing_image_notification_func.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn next_interceptor(&self) -> Ref<'_, AeronUdpChannelOutgoingInterceptor> {
         Ref::new(unsafe {
             AeronUdpChannelOutgoingInterceptor::from_ptr(
@@ -80091,6 +79852,8 @@ impl<S: ResourceStorage<aeron_udp_channel_outgoing_interceptor_t>> AeronUdpChann
 }
 impl<'a, S: ResourceStorage<aeron_udp_channel_outgoing_interceptor_t>> Ref<'a, AeronUdpChannelOutgoingInterceptor<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn next_interceptor(&self) -> Ref<'a, AeronUdpChannelOutgoingInterceptor> {
         Ref::new(self.value.next_interceptor().value)
     }
@@ -80225,7 +79988,14 @@ impl<S: ResourceStorage<aeron_udp_channel_params_t>> core::fmt::Debug for AeronU
         }
         f.debug_struct(stringify!(AeronUdpChannelParams))
             .field("inner", &self.inner)
-            .field(stringify!(additional_params), &self.additional_params())
+            .field("endpoint", &self.endpoint())
+            .field("bind_interface", &self.bind_interface())
+            .field("control", &self.control())
+            .field("control_mode", &self.control_mode())
+            .field("channel_tag", &self.channel_tag())
+            .field("entity_tag", &self.entity_tag())
+            .field("ttl", &self.ttl())
+            .field("additional_params", &self.additional_params())
             .finish()
     }
 }
@@ -80312,10 +80082,8 @@ impl AeronUdpChannelParams<CResource<aeron_udp_channel_params_t>> {
 impl AeronUdpChannelParams {}
 impl<S: ResourceStorage<aeron_udp_channel_params_t>> AeronUdpChannelParams<S> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn endpoint(&self) -> &str {
+    #[must_use]
+    pub fn endpoint(&self) -> &str {
         if unsafe { self.get_inner_ref() }.endpoint.is_null() {
             ""
         } else {
@@ -80327,10 +80095,8 @@ impl<S: ResourceStorage<aeron_udp_channel_params_t>> AeronUdpChannelParams<S> {
         }
     }
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn bind_interface(&self) -> &str {
+    #[must_use]
+    pub fn bind_interface(&self) -> &str {
         if unsafe { self.get_inner_ref() }.bind_interface.is_null() {
             ""
         } else {
@@ -80342,10 +80108,8 @@ impl<S: ResourceStorage<aeron_udp_channel_params_t>> AeronUdpChannelParams<S> {
         }
     }
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn control(&self) -> &str {
+    #[must_use]
+    pub fn control(&self) -> &str {
         if unsafe { self.get_inner_ref() }.control.is_null() {
             ""
         } else {
@@ -80357,10 +80121,8 @@ impl<S: ResourceStorage<aeron_udp_channel_params_t>> AeronUdpChannelParams<S> {
         }
     }
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn control_mode(&self) -> &str {
+    #[must_use]
+    pub fn control_mode(&self) -> &str {
         if unsafe { self.get_inner_ref() }.control_mode.is_null() {
             ""
         } else {
@@ -80372,10 +80134,8 @@ impl<S: ResourceStorage<aeron_udp_channel_params_t>> AeronUdpChannelParams<S> {
         }
     }
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn channel_tag(&self) -> &str {
+    #[must_use]
+    pub fn channel_tag(&self) -> &str {
         if unsafe { self.get_inner_ref() }.channel_tag.is_null() {
             ""
         } else {
@@ -80387,10 +80147,8 @@ impl<S: ResourceStorage<aeron_udp_channel_params_t>> AeronUdpChannelParams<S> {
         }
     }
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn entity_tag(&self) -> &str {
+    #[must_use]
+    pub fn entity_tag(&self) -> &str {
         if unsafe { self.get_inner_ref() }.entity_tag.is_null() {
             ""
         } else {
@@ -80402,10 +80160,8 @@ impl<S: ResourceStorage<aeron_udp_channel_params_t>> AeronUdpChannelParams<S> {
         }
     }
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn ttl(&self) -> &str {
+    #[must_use]
+    pub fn ttl(&self) -> &str {
         if unsafe { self.get_inner_ref() }.ttl.is_null() {
             ""
         } else {
@@ -80417,6 +80173,7 @@ impl<S: ResourceStorage<aeron_udp_channel_params_t>> AeronUdpChannelParams<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn additional_params(&self) -> AeronUriParams<ScopedInline<'_, aeron_uri_params_t>> {
         AeronUriParams::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.additional_params),
@@ -80578,33 +80335,24 @@ impl<S: ResourceStorage<aeron_udp_channel_t>> core::fmt::Debug for AeronUdpChann
         }
         f.debug_struct(stringify!(AeronUdpChannel))
             .field("inner", &self.inner)
-            .field(stringify!(uri), &self.uri())
-            .field(stringify!(remote_data), &self.remote_data())
-            .field(stringify!(local_data), &self.local_data())
-            .field(stringify!(remote_control), &self.remote_control())
-            .field(stringify!(local_control), &self.local_control())
-            .field(stringify!(tag_id), &self.tag_id())
-            .field(stringify!(uri_length), &self.uri_length())
-            .field(stringify!(canonical_length), &self.canonical_length())
-            .field(stringify!(has_explicit_endpoint), &self.has_explicit_endpoint())
-            .field(stringify!(has_explicit_control), &self.has_explicit_control())
-            .field(stringify!(is_multicast), &self.is_multicast())
-            .field(stringify!(socket_sndbuf_length), &self.socket_sndbuf_length())
-            .field(stringify!(socket_rcvbuf_length), &self.socket_rcvbuf_length())
-            .field(stringify!(socket_tos), &self.socket_tos())
-            .field(stringify!(receiver_window_length), &self.receiver_window_length())
-            .field(
-                stringify!(media_rcv_timestamp_offset),
-                &self.media_rcv_timestamp_offset(),
-            )
-            .field(
-                stringify!(channel_rcv_timestamp_offset),
-                &self.channel_rcv_timestamp_offset(),
-            )
-            .field(
-                stringify!(channel_snd_timestamp_offset),
-                &self.channel_snd_timestamp_offset(),
-            )
+            .field("uri", &self.uri())
+            .field("remote_data", &self.remote_data())
+            .field("local_data", &self.local_data())
+            .field("remote_control", &self.remote_control())
+            .field("local_control", &self.local_control())
+            .field("tag_id", &self.tag_id())
+            .field("uri_length", &self.uri_length())
+            .field("canonical_length", &self.canonical_length())
+            .field("has_explicit_endpoint", &self.has_explicit_endpoint())
+            .field("has_explicit_control", &self.has_explicit_control())
+            .field("is_multicast", &self.is_multicast())
+            .field("socket_sndbuf_length", &self.socket_sndbuf_length())
+            .field("socket_rcvbuf_length", &self.socket_rcvbuf_length())
+            .field("socket_tos", &self.socket_tos())
+            .field("receiver_window_length", &self.receiver_window_length())
+            .field("media_rcv_timestamp_offset", &self.media_rcv_timestamp_offset())
+            .field("channel_rcv_timestamp_offset", &self.channel_rcv_timestamp_offset())
+            .field("channel_snd_timestamp_offset", &self.channel_snd_timestamp_offset())
             .finish()
     }
 }
@@ -80683,14 +80431,17 @@ impl AeronUdpChannel {
 }
 impl<S: ResourceStorage<aeron_udp_channel_t>> AeronUdpChannel<S> {
     #[inline]
+    #[must_use]
     pub fn original_uri(&self) -> [::std::os::raw::c_char; 4096usize] {
         unsafe { self.get_inner_ref() }.original_uri.into()
     }
     #[inline]
+    #[must_use]
     pub fn canonical_form(&self) -> [::std::os::raw::c_char; 4096usize] {
         unsafe { self.get_inner_ref() }.canonical_form.into()
     }
     #[inline]
+    #[must_use]
     pub fn uri(&self) -> AeronUri<ScopedInline<'_, aeron_uri_t>> {
         AeronUri::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.uri),
@@ -80698,6 +80449,7 @@ impl<S: ResourceStorage<aeron_udp_channel_t>> AeronUdpChannel<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn remote_data(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
         SockaddrStorage::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.remote_data),
@@ -80705,6 +80457,7 @@ impl<S: ResourceStorage<aeron_udp_channel_t>> AeronUdpChannel<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn local_data(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
         SockaddrStorage::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.local_data),
@@ -80712,6 +80465,7 @@ impl<S: ResourceStorage<aeron_udp_channel_t>> AeronUdpChannel<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn remote_control(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
         SockaddrStorage::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.remote_control),
@@ -80719,6 +80473,7 @@ impl<S: ResourceStorage<aeron_udp_channel_t>> AeronUdpChannel<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn local_control(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
         SockaddrStorage::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.local_control),
@@ -80726,70 +80481,87 @@ impl<S: ResourceStorage<aeron_udp_channel_t>> AeronUdpChannel<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn tag_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.tag_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn interface_index(&self) -> ::std::os::raw::c_uint {
         unsafe { self.get_inner_ref() }.interface_index.into()
     }
     #[inline]
+    #[must_use]
     pub fn uri_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.uri_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn canonical_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.canonical_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn multicast_ttl(&self) -> u8 {
         unsafe { self.get_inner_ref() }.multicast_ttl.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_explicit_endpoint(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_explicit_endpoint.into()
     }
     #[inline]
+    #[must_use]
     pub fn has_explicit_control(&self) -> bool {
         unsafe { self.get_inner_ref() }.has_explicit_control.into()
     }
     #[inline]
+    #[must_use]
     pub fn control_mode(&self) -> aeron_udp_channel_control_mode {
         unsafe { self.get_inner_ref() }.control_mode.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_multicast(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_multicast.into()
     }
     #[inline]
+    #[must_use]
     pub fn ats_status(&self) -> aeron_uri_ats_status_t {
         unsafe { self.get_inner_ref() }.ats_status.into()
     }
     #[inline]
+    #[must_use]
     pub fn socket_sndbuf_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.socket_sndbuf_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn socket_rcvbuf_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.socket_rcvbuf_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn socket_tos(&self) -> i32 {
         unsafe { self.get_inner_ref() }.socket_tos.into()
     }
     #[inline]
+    #[must_use]
     pub fn receiver_window_length(&self) -> usize {
         unsafe { self.get_inner_ref() }.receiver_window_length.into()
     }
     #[inline]
+    #[must_use]
     pub fn media_rcv_timestamp_offset(&self) -> i32 {
         unsafe { self.get_inner_ref() }.media_rcv_timestamp_offset.into()
     }
     #[inline]
+    #[must_use]
     pub fn channel_rcv_timestamp_offset(&self) -> i32 {
         unsafe { self.get_inner_ref() }.channel_rcv_timestamp_offset.into()
     }
     #[inline]
+    #[must_use]
     pub fn channel_snd_timestamp_offset(&self) -> i32 {
         unsafe { self.get_inner_ref() }.channel_snd_timestamp_offset.into()
     }
@@ -80965,12 +80737,12 @@ impl<S: ResourceStorage<aeron_udp_destination_entry_t>> core::fmt::Debug for Aer
         }
         f.debug_struct(stringify!(AeronUdpDestinationEntry))
             .field("inner", &self.inner)
-            .field(stringify!(time_of_last_activity_ns), &self.time_of_last_activity_ns())
-            .field(stringify!(destination_timeout_ns), &self.destination_timeout_ns())
-            .field(stringify!(receiver_id), &self.receiver_id())
-            .field(stringify!(registration_id), &self.registration_id())
-            .field(stringify!(is_receiver_id_valid), &self.is_receiver_id_valid())
-            .field(stringify!(addr), &self.addr())
+            .field("time_of_last_activity_ns", &self.time_of_last_activity_ns())
+            .field("destination_timeout_ns", &self.destination_timeout_ns())
+            .field("receiver_id", &self.receiver_id())
+            .field("registration_id", &self.registration_id())
+            .field("is_receiver_id_valid", &self.is_receiver_id_valid())
+            .field("addr", &self.addr())
             .finish()
     }
 }
@@ -81060,30 +80832,38 @@ impl AeronUdpDestinationEntry<CResource<aeron_udp_destination_entry_t>> {
 impl AeronUdpDestinationEntry {}
 impl<S: ResourceStorage<aeron_udp_destination_entry_t>> AeronUdpDestinationEntry<S> {
     #[inline]
+    #[must_use]
     pub fn padding_before(&self) -> [u8; 64usize] {
         unsafe { self.get_inner_ref() }.padding_before.into()
     }
     #[inline]
+    #[must_use]
     pub fn time_of_last_activity_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.time_of_last_activity_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn destination_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.destination_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
     pub fn receiver_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.receiver_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn registration_id(&self) -> i64 {
         unsafe { self.get_inner_ref() }.registration_id.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_receiver_id_valid(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_receiver_id_valid.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn uri(&self) -> Ref<'_, AeronUri> {
         Ref::new(unsafe {
             AeronUri::from_ptr(
@@ -81094,6 +80874,7 @@ impl<S: ResourceStorage<aeron_udp_destination_entry_t>> AeronUdpDestinationEntry
         })
     }
     #[inline]
+    #[must_use]
     pub fn addr(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
         SockaddrStorage::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.addr),
@@ -81101,6 +80882,7 @@ impl<S: ResourceStorage<aeron_udp_destination_entry_t>> AeronUdpDestinationEntry
         })
     }
     #[inline]
+    #[must_use]
     pub fn padding_after(&self) -> [u8; 64usize] {
         unsafe { self.get_inner_ref() }.padding_after.into()
     }
@@ -81136,6 +80918,8 @@ impl<S: ResourceStorage<aeron_udp_destination_entry_t>> AeronUdpDestinationEntry
 }
 impl<'a, S: ResourceStorage<aeron_udp_destination_entry_t>> Ref<'a, AeronUdpDestinationEntry<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn uri(&self) -> Ref<'a, AeronUri> {
         Ref::new(self.value.uri().value)
     }
@@ -81269,9 +81053,9 @@ impl<S: ResourceStorage<aeron_udp_destination_tracker_t>> core::fmt::Debug for A
         }
         f.debug_struct(stringify!(AeronUdpDestinationTracker))
             .field("inner", &self.inner)
-            .field(stringify!(is_manual_control_mode), &self.is_manual_control_mode())
-            .field(stringify!(destination_timeout_ns), &self.destination_timeout_ns())
-            .field(stringify!(round_robin_index), &self.round_robin_index())
+            .field("is_manual_control_mode", &self.is_manual_control_mode())
+            .field("destination_timeout_ns", &self.destination_timeout_ns())
+            .field("round_robin_index", &self.round_robin_index())
             .finish()
     }
 }
@@ -81321,18 +81105,23 @@ impl AeronUdpDestinationTracker<CResource<aeron_udp_destination_tracker_t>> {
 impl AeronUdpDestinationTracker {}
 impl<S: ResourceStorage<aeron_udp_destination_tracker_t>> AeronUdpDestinationTracker<S> {
     #[inline]
+    #[must_use]
     pub fn padding_before(&self) -> [u8; 64usize] {
         unsafe { self.get_inner_ref() }.padding_before.into()
     }
     #[inline]
+    #[must_use]
     pub fn destinations(&self) -> aeron_udp_destination_tracker_stct_aeron_udp_destination_tracker_destinations_stct {
         unsafe { self.get_inner_ref() }.destinations.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_manual_control_mode(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_manual_control_mode.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn cached_clock(&self) -> Ref<'_, AeronClockCache> {
         Ref::new(unsafe {
             AeronClockCache::from_ptr(
@@ -81343,10 +81132,13 @@ impl<S: ResourceStorage<aeron_udp_destination_tracker_t>> AeronUdpDestinationTra
         })
     }
     #[inline]
+    #[must_use]
     pub fn destination_timeout_ns(&self) -> i64 {
         unsafe { self.get_inner_ref() }.destination_timeout_ns.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn data_paths(&self) -> Ref<'_, AeronUdpChannelDataPaths> {
         Ref::new(unsafe {
             AeronUdpChannelDataPaths::from_ptr(
@@ -81357,14 +81149,17 @@ impl<S: ResourceStorage<aeron_udp_destination_tracker_t>> AeronUdpDestinationTra
         })
     }
     #[inline]
+    #[must_use]
     pub fn num_destinations_addr(&self) -> &mut i64 {
         unsafe { &mut *unsafe { self.get_inner_ref() }.num_destinations_addr }
     }
     #[inline]
+    #[must_use]
     pub fn round_robin_index(&self) -> ::std::os::raw::c_int {
         unsafe { self.get_inner_ref() }.round_robin_index.into()
     }
     #[inline]
+    #[must_use]
     pub fn padding_after(&self) -> [u8; 64usize] {
         unsafe { self.get_inner_ref() }.padding_after.into()
     }
@@ -81626,10 +81421,14 @@ impl<S: ResourceStorage<aeron_udp_destination_tracker_t>> AeronUdpDestinationTra
 }
 impl<'a, S: ResourceStorage<aeron_udp_destination_tracker_t>> Ref<'a, AeronUdpDestinationTracker<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn cached_clock(&self) -> Ref<'a, AeronClockCache> {
         Ref::new(self.value.cached_clock().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn data_paths(&self) -> Ref<'a, AeronUdpChannelDataPaths> {
         Ref::new(self.value.data_paths().value)
     }
@@ -81728,6 +81527,8 @@ impl<S: ResourceStorage<aeron_uri_param_t>> core::fmt::Debug for AeronUriParam<S
         }
         f.debug_struct(stringify!(AeronUriParam))
             .field("inner", &self.inner)
+            .field("key", &self.key())
+            .field("value", &self.value())
             .finish()
     }
 }
@@ -81756,10 +81557,7 @@ impl AeronUriParam<CResource<aeron_uri_param_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_uri_param_t>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -81782,10 +81580,7 @@ impl AeronUriParam<CResource<aeron_uri_param_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> AeronUriParam<Inline<aeron_uri_param_t>> {
+    pub fn new_zeroed_on_stack() -> AeronUriParam<Inline<aeron_uri_param_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
             "creating zeroed empty resource on stack {}",
@@ -81799,10 +81594,8 @@ impl AeronUriParam<CResource<aeron_uri_param_t>> {
 impl AeronUriParam {}
 impl<S: ResourceStorage<aeron_uri_param_t>> AeronUriParam<S> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn key(&self) -> &str {
+    #[must_use]
+    pub fn key(&self) -> &str {
         if unsafe { self.get_inner_ref() }.key.is_null() {
             ""
         } else {
@@ -81814,10 +81607,8 @@ impl<S: ResourceStorage<aeron_uri_param_t>> AeronUriParam<S> {
         }
     }
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn value(&self) -> &str {
+    #[must_use]
+    pub fn value(&self) -> &str {
         if unsafe { self.get_inner_ref() }.value.is_null() {
             ""
         } else {
@@ -81895,6 +81686,11 @@ impl<S: ResourceStorage<aeron_uri_param_t>> From<AeronUriParam<S>> for aeron_uri
     #[inline]
     fn from(value: AeronUriParam<S>) -> Self {
         unsafe { *value.get_inner().clone() }
+    }
+}
+impl Default for AeronUriParam<CResource<aeron_uri_param_t>> {
+    fn default() -> Self {
+        AeronUriParam::new_zeroed_on_heap()
     }
 }
 impl<S: ResourceStorage<aeron_uri_param_t>> AeronUriParam<S> {
@@ -81975,7 +81771,7 @@ impl<S: ResourceStorage<aeron_uri_params_t>> core::fmt::Debug for AeronUriParams
         }
         f.debug_struct(stringify!(AeronUriParams))
             .field("inner", &self.inner)
-            .field(stringify!(length), &self.length())
+            .field("length", &self.length())
             .finish()
     }
 }
@@ -82048,7 +81844,7 @@ impl AeronUriParams<CResource<aeron_uri_params_t>> {
 impl AeronUriParams {
     #[inline]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
     #[doc = "# Safety"]
     #[doc = "Raw pointer arguments must have the size, alignment, initialization and lifetime required by the native function. Writable pointers require exclusive access. Keep any retained pointers valid until native cleanup."]
     pub unsafe fn aeron_uri_find_param_value<'text>(
@@ -82079,10 +81875,13 @@ impl AeronUriParams {
 }
 impl<S: ResourceStorage<aeron_uri_params_t>> AeronUriParams<S> {
     #[inline]
+    #[must_use]
     pub fn length(&self) -> usize {
         unsafe { self.get_inner_ref() }.length.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn array(&self) -> Ref<'_, AeronUriParam> {
         Ref::new(unsafe {
             AeronUriParam::from_ptr(
@@ -82311,6 +82110,8 @@ impl<S: ResourceStorage<aeron_uri_params_t>> AeronUriParams<S> {
 }
 impl<'a, S: ResourceStorage<aeron_uri_params_t>> Ref<'a, AeronUriParams<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn array(&self) -> Ref<'a, AeronUriParam> {
         Ref::new(self.value.array().value)
     }
@@ -82433,8 +82234,8 @@ impl<S: ResourceStorage<aeron_uri_string_builder_t>> core::fmt::Debug for AeronU
         }
         f.debug_struct(stringify!(AeronUriStringBuilder))
             .field("inner", &self.inner)
-            .field(stringify!(params), &self.params())
-            .field(stringify!(closed), &self.closed())
+            .field("params", &self.params())
+            .field("closed", &self.closed())
             .finish()
     }
 }
@@ -82484,6 +82285,7 @@ impl AeronUriStringBuilder<CResource<aeron_uri_string_builder_t>> {
 impl AeronUriStringBuilder {}
 impl<S: ResourceStorage<aeron_uri_string_builder_t>> AeronUriStringBuilder<S> {
     #[inline]
+    #[must_use]
     pub fn params(&self) -> AeronStrToPtrHashMap<ScopedInline<'_, aeron_str_to_ptr_hash_map_t>> {
         AeronStrToPtrHashMap::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.params),
@@ -82491,6 +82293,7 @@ impl<S: ResourceStorage<aeron_uri_string_builder_t>> AeronUriStringBuilder<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn closed(&self) -> bool {
         unsafe { self.get_inner_ref() }.closed.into()
     }
@@ -82568,7 +82371,8 @@ impl<S: ResourceStorage<aeron_uri_string_builder_t>> AeronUriStringBuilder<S> {
     }
     #[inline]
     #[doc = "# Safety"]
-    #[doc = "Keep the backing allocation alive and unchanged for every use of the returned text. No setter, poll, native call or other alias may replace, free or write its bytes while borrowed. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "Use `get_owned()` to keep a copy."]
     pub unsafe fn get(&self, key: &std::ffi::CStr) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -82593,6 +82397,7 @@ impl<S: ResourceStorage<aeron_uri_string_builder_t>> AeronUriStringBuilder<S> {
     }
     #[doc = r" Copy the native text into an owned string. This allocates for nonempty text."]
     #[inline]
+    #[must_use]
     pub fn get_owned(&self, key: &std::ffi::CStr) -> String {
         unsafe {
             let result = aeron_uri_string_builder_get(self.get_inner(), key.as_ptr());
@@ -83258,13 +83063,11 @@ impl AeronUri {
     #[doc = "# Safety"]
     #[doc = "Raw pointer arguments must have the size, alignment, initialization and lifetime required by the native function. Writable pointers require exclusive access. Keep any retained pointers valid until native cleanup."]
     #[doc = r""]
-    #[doc = r""]
-    #[doc = r" **Stack-borrowed closure** (`_fn` variant): the `FnMut` closure lives on the"]
-    #[doc = r" caller's stack and is borrowed for this call only. The callback fires"]
-    #[doc = r" synchronously inside the call, so nothing is heap-allocated, nothing is stored,"]
-    #[doc = r" and the closure may borrow local state. Prefer this over the retained"]
-    #[doc = r" [`Handler`]-based form on the hot path; only generated for callbacks the C"]
-    #[doc = r" client does not retain (i.e. not stored for later firing)."]
+    #[doc = r" Stack-borrowed closure variant. The `FnMut` closure lives on the caller's"]
+    #[doc = r" stack and is borrowed for this call only. The callback fires synchronously,"]
+    #[doc = r" so nothing is heap-allocated or stored and the closure may borrow local"]
+    #[doc = r" state. Generated only for callbacks C does not retain. Prefer it to the"]
+    #[doc = r" [`Handler`] form on the hot path"]
     #[doc = r""]
     #[doc = r" # Panics"]
     #[doc = r""]
@@ -83318,14 +83121,17 @@ impl AeronUri {
 }
 impl<S: ResourceStorage<aeron_uri_t>> AeronUri<S> {
     #[inline]
+    #[must_use]
     pub fn mutable_uri(&self) -> [::std::os::raw::c_char; 4096usize] {
         unsafe { self.get_inner_ref() }.mutable_uri.into()
     }
     #[inline]
+    #[must_use]
     pub fn type_(&self) -> aeron_uri_type_t {
         unsafe { self.get_inner_ref() }.type_.into()
     }
     #[inline]
+    #[must_use]
     pub fn params(&self) -> aeron_uri_stct__bindgen_ty_1 {
         unsafe { self.get_inner_ref() }.params.into()
     }
@@ -83639,13 +83445,13 @@ impl<S: ResourceStorage<aeron_wildcard_port_manager_t>> core::fmt::Debug for Aer
         }
         f.debug_struct(stringify!(AeronWildcardPortManager))
             .field("inner", &self.inner)
-            .field(stringify!(port_manager), &self.port_manager())
-            .field(stringify!(port_table), &self.port_table())
-            .field(stringify!(low_port), &self.low_port())
-            .field(stringify!(high_port), &self.high_port())
-            .field(stringify!(next_port), &self.next_port())
-            .field(stringify!(is_sender), &self.is_sender())
-            .field(stringify!(is_os_wildcard), &self.is_os_wildcard())
+            .field("port_manager", &self.port_manager())
+            .field("port_table", &self.port_table())
+            .field("low_port", &self.low_port())
+            .field("high_port", &self.high_port())
+            .field("next_port", &self.next_port())
+            .field("is_sender", &self.is_sender())
+            .field("is_os_wildcard", &self.is_os_wildcard())
             .finish()
     }
 }
@@ -83789,6 +83595,7 @@ impl AeronWildcardPortManager {
 }
 impl<S: ResourceStorage<aeron_wildcard_port_manager_t>> AeronWildcardPortManager<S> {
     #[inline]
+    #[must_use]
     pub fn port_manager(&self) -> AeronPortManager<ScopedInline<'_, aeron_port_manager_t>> {
         AeronPortManager::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.port_manager),
@@ -83796,6 +83603,7 @@ impl<S: ResourceStorage<aeron_wildcard_port_manager_t>> AeronWildcardPortManager
         })
     }
     #[inline]
+    #[must_use]
     pub fn port_table(&self) -> AeronInt64CounterMap<ScopedInline<'_, aeron_int64_counter_map_t>> {
         AeronInt64CounterMap::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.port_table),
@@ -83803,22 +83611,27 @@ impl<S: ResourceStorage<aeron_wildcard_port_manager_t>> AeronWildcardPortManager
         })
     }
     #[inline]
+    #[must_use]
     pub fn low_port(&self) -> u16 {
         unsafe { self.get_inner_ref() }.low_port.into()
     }
     #[inline]
+    #[must_use]
     pub fn high_port(&self) -> u16 {
         unsafe { self.get_inner_ref() }.high_port.into()
     }
     #[inline]
+    #[must_use]
     pub fn next_port(&self) -> u16 {
         unsafe { self.get_inner_ref() }.next_port.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_sender(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_sender.into()
     }
     #[inline]
+    #[must_use]
     pub fn is_os_wildcard(&self) -> bool {
         unsafe { self.get_inner_ref() }.is_os_wildcard.into()
     }
@@ -84036,7 +83849,10 @@ impl<S: ResourceStorage<ifaddrs>> core::fmt::Debug for Ifaddrs<S> {
         if self.inner.get().is_null() {
             return f.debug_struct(stringify!(Ifaddrs)).field("inner", &"null").finish();
         }
-        f.debug_struct(stringify!(Ifaddrs)).field("inner", &self.inner).finish()
+        f.debug_struct(stringify!(Ifaddrs))
+            .field("inner", &self.inner)
+            .field("ifa_name", &unsafe { self.ifa_name() })
+            .finish()
     }
 }
 impl Ifaddrs<CResource<ifaddrs>> {
@@ -84079,6 +83895,8 @@ impl Ifaddrs<CResource<ifaddrs>> {
 impl Ifaddrs {}
 impl<S: ResourceStorage<ifaddrs>> Ifaddrs<S> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn ifa_next(&self) -> Ref<'_, Ifaddrs> {
         Ref::new(unsafe {
             Ifaddrs::from_ptr(
@@ -84089,6 +83907,7 @@ impl<S: ResourceStorage<ifaddrs>> Ifaddrs<S> {
         })
     }
     #[inline]
+    #[must_use]
     #[doc = r" # Safety"]
     #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
     #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
@@ -84104,10 +83923,13 @@ impl<S: ResourceStorage<ifaddrs>> Ifaddrs<S> {
         }
     }
     #[inline]
+    #[must_use]
     pub fn ifa_flags(&self) -> ::std::os::raw::c_uint {
         unsafe { self.get_inner_ref() }.ifa_flags.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn ifa_addr(&self) -> Ref<'_, Sockaddr> {
         Ref::new(unsafe {
             Sockaddr::from_ptr(
@@ -84118,6 +83940,8 @@ impl<S: ResourceStorage<ifaddrs>> Ifaddrs<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn ifa_netmask(&self) -> Ref<'_, Sockaddr> {
         Ref::new(unsafe {
             Sockaddr::from_ptr(
@@ -84128,6 +83952,8 @@ impl<S: ResourceStorage<ifaddrs>> Ifaddrs<S> {
         })
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn ifa_dstaddr(&self) -> Ref<'_, Sockaddr> {
         Ref::new(unsafe {
             Sockaddr::from_ptr(
@@ -84138,6 +83964,7 @@ impl<S: ResourceStorage<ifaddrs>> Ifaddrs<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn ifa_data(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.ifa_data.into()
     }
@@ -84188,18 +84015,26 @@ impl<S: ResourceStorage<ifaddrs>> Ifaddrs<S> {
 }
 impl<'a, S: ResourceStorage<ifaddrs>> Ref<'a, Ifaddrs<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn ifa_next(&self) -> Ref<'a, Ifaddrs> {
         Ref::new(self.value.ifa_next().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn ifa_addr(&self) -> Ref<'a, Sockaddr> {
         Ref::new(self.value.ifa_addr().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn ifa_netmask(&self) -> Ref<'a, Sockaddr> {
         Ref::new(self.value.ifa_netmask().value)
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn ifa_dstaddr(&self) -> Ref<'a, Sockaddr> {
         Ref::new(self.value.ifa_dstaddr().value)
     }
@@ -84546,6 +84381,7 @@ impl InAddr<CResource<in_addr>> {
 impl InAddr {}
 impl<S: ResourceStorage<in_addr>> InAddr<S> {
     #[inline]
+    #[must_use]
     pub fn s_addr(&self) -> in_addr_t {
         unsafe { self.get_inner_ref() }.s_addr.into()
     }
@@ -84729,7 +84565,7 @@ impl<S: ResourceStorage<iovec>> core::fmt::Debug for Iovec<S> {
         }
         f.debug_struct(stringify!(Iovec))
             .field("inner", &self.inner)
-            .field(stringify!(iov_len), &self.iov_len())
+            .field("iov_len", &self.iov_len())
             .finish()
     }
 }
@@ -84795,10 +84631,12 @@ impl Iovec<CResource<iovec>> {
 impl Iovec {}
 impl<S: ResourceStorage<iovec>> Iovec<S> {
     #[inline]
+    #[must_use]
     pub fn iov_base(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.iov_base.into()
     }
     #[inline]
+    #[must_use]
     pub fn iov_len(&self) -> usize {
         unsafe { self.get_inner_ref() }.iov_len.into()
     }
@@ -84946,7 +84784,7 @@ impl<S: ResourceStorage<mmsghdr>> core::fmt::Debug for Mmsghdr<S> {
         }
         f.debug_struct(stringify!(Mmsghdr))
             .field("inner", &self.inner)
-            .field(stringify!(msg_hdr), &self.msg_hdr())
+            .field("msg_hdr", &self.msg_hdr())
             .finish()
     }
 }
@@ -85012,6 +84850,7 @@ impl Mmsghdr<CResource<mmsghdr>> {
 impl Mmsghdr {}
 impl<S: ResourceStorage<mmsghdr>> Mmsghdr<S> {
     #[inline]
+    #[must_use]
     pub fn msg_hdr(&self) -> Msghdr<ScopedInline<'_, msghdr>> {
         Msghdr::from_resource(ScopedInline {
             value: Inline::new(unsafe { self.get_inner_ref() }.msg_hdr),
@@ -85019,6 +84858,7 @@ impl<S: ResourceStorage<mmsghdr>> Mmsghdr<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn msg_len(&self) -> ::std::os::raw::c_uint {
         unsafe { self.get_inner_ref() }.msg_len.into()
     }
@@ -85166,8 +85006,8 @@ impl<S: ResourceStorage<msghdr>> core::fmt::Debug for Msghdr<S> {
         }
         f.debug_struct(stringify!(Msghdr))
             .field("inner", &self.inner)
-            .field(stringify!(msg_iovlen), &self.msg_iovlen())
-            .field(stringify!(msg_flags), &self.msg_flags())
+            .field("msg_iovlen", &self.msg_iovlen())
+            .field("msg_flags", &self.msg_flags())
             .finish()
     }
 }
@@ -85247,14 +85087,18 @@ impl Msghdr<CResource<msghdr>> {
 impl Msghdr {}
 impl<S: ResourceStorage<msghdr>> Msghdr<S> {
     #[inline]
+    #[must_use]
     pub fn msg_name(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.msg_name.into()
     }
     #[inline]
+    #[must_use]
     pub fn msg_namelen(&self) -> socklen_t {
         unsafe { self.get_inner_ref() }.msg_namelen.into()
     }
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn msg_iov(&self) -> Ref<'_, Iovec> {
         Ref::new(unsafe {
             Iovec::from_ptr(
@@ -85265,18 +85109,22 @@ impl<S: ResourceStorage<msghdr>> Msghdr<S> {
         })
     }
     #[inline]
+    #[must_use]
     pub fn msg_iovlen(&self) -> ::std::os::raw::c_int {
         unsafe { self.get_inner_ref() }.msg_iovlen.into()
     }
     #[inline]
+    #[must_use]
     pub fn msg_control(&self) -> *mut ::std::os::raw::c_void {
         unsafe { self.get_inner_ref() }.msg_control.into()
     }
     #[inline]
+    #[must_use]
     pub fn msg_controllen(&self) -> socklen_t {
         unsafe { self.get_inner_ref() }.msg_controllen.into()
     }
     #[inline]
+    #[must_use]
     pub fn msg_flags(&self) -> ::std::os::raw::c_int {
         unsafe { self.get_inner_ref() }.msg_flags.into()
     }
@@ -85312,6 +85160,8 @@ impl<S: ResourceStorage<msghdr>> Msghdr<S> {
 }
 impl<'a, S: ResourceStorage<msghdr>> Ref<'a, Msghdr<S>> {
     #[inline]
+    #[must_use]
+    #[track_caller]
     pub fn msg_iov(&self) -> Ref<'a, Iovec> {
         Ref::new(self.value.msg_iov().value)
     }
@@ -85430,14 +85280,12 @@ impl<S: ResourceStorage<pollfd>> core::fmt::Debug for Pollfd<S> {
         }
         f.debug_struct(stringify!(Pollfd))
             .field("inner", &self.inner)
-            .field(stringify!(fd), &self.fd())
+            .field("fd", &self.fd())
             .finish()
     }
 }
 impl Pollfd<CResource<pollfd>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub fn new(
         fd: ::std::os::raw::c_int,
         events: ::std::os::raw::c_short,
@@ -85501,14 +85349,17 @@ impl Pollfd<CResource<pollfd>> {
 impl Pollfd {}
 impl<S: ResourceStorage<pollfd>> Pollfd<S> {
     #[inline]
+    #[must_use]
     pub fn fd(&self) -> ::std::os::raw::c_int {
         unsafe { self.get_inner_ref() }.fd.into()
     }
     #[inline]
+    #[must_use]
     pub fn events(&self) -> ::std::os::raw::c_short {
         unsafe { self.get_inner_ref() }.events.into()
     }
     #[inline]
+    #[must_use]
     pub fn revents(&self) -> ::std::os::raw::c_short {
         unsafe { self.get_inner_ref() }.revents.into()
     }
@@ -85747,14 +85598,17 @@ impl Sockaddr<CResource<sockaddr>> {
 impl Sockaddr {}
 impl<S: ResourceStorage<sockaddr>> Sockaddr<S> {
     #[inline]
+    #[must_use]
     pub fn sa_len(&self) -> __uint8_t {
         unsafe { self.get_inner_ref() }.sa_len.into()
     }
     #[inline]
+    #[must_use]
     pub fn sa_family(&self) -> sa_family_t {
         unsafe { self.get_inner_ref() }.sa_family.into()
     }
     #[inline]
+    #[must_use]
     pub fn sa_data(&self) -> [::std::os::raw::c_char; 14usize] {
         unsafe { self.get_inner_ref() }.sa_data.into()
     }
@@ -85954,10 +85808,12 @@ impl SockaddrStorage<CResource<sockaddr_storage>> {
 impl SockaddrStorage {}
 impl<S: ResourceStorage<sockaddr_storage>> SockaddrStorage<S> {
     #[inline]
+    #[must_use]
     pub fn ss_len(&self) -> __uint8_t {
         unsafe { self.get_inner_ref() }.ss_len.into()
     }
     #[inline]
+    #[must_use]
     pub fn ss_family(&self) -> sa_family_t {
         unsafe { self.get_inner_ref() }.ss_family.into()
     }
@@ -86252,10 +86108,12 @@ impl Timespec<CResource<timespec>> {
 impl Timespec {}
 impl<S: ResourceStorage<timespec>> Timespec<S> {
     #[inline]
+    #[must_use]
     pub fn tv_sec(&self) -> __darwin_time_t {
         unsafe { self.get_inner_ref() }.tv_sec.into()
     }
     #[inline]
+    #[must_use]
     pub fn tv_nsec(&self) -> ::std::os::raw::c_long {
         unsafe { self.get_inner_ref() }.tv_nsec.into()
     }
@@ -89233,6 +89091,10 @@ impl AeronFprintfHandlerCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_fprintf_handler_t_callback<F: AeronFprintfHandlerCallback, P: CallbackPolicy>(
     arg1: *const ::std::os::raw::c_char,
     arg2: u64,
@@ -89281,6 +89143,10 @@ unsafe extern "C" fn aeron_fprintf_handler_t_callback<F: AeronFprintfHandlerCall
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_fprintf_handler_t_callback_catch<F: AeronFprintfHandlerCallback, P: CallbackPolicy>(
     arg1: *const ::std::os::raw::c_char,
     arg2: u64,
@@ -89329,6 +89195,10 @@ unsafe extern "C" fn aeron_fprintf_handler_t_callback_catch<F: AeronFprintfHandl
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_fprintf_handler_t_callback_for_once_closure_catch<
     F: FnMut(&str, u64, &str, *mut ::std::os::raw::c_char) -> ::std::os::raw::c_int,
 >(
@@ -89478,6 +89348,10 @@ impl AeronErrorHandlerCallback for NoHandler {
 }
 #[allow(dead_code)]
 #[doc = "The error handler to be called when an error occurs."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_error_handler_t_callback<F: AeronErrorHandlerCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     errcode: ::std::os::raw::c_int,
@@ -89517,6 +89391,10 @@ unsafe extern "C" fn aeron_error_handler_t_callback<F: AeronErrorHandlerCallback
 }
 #[allow(dead_code)]
 #[doc = "The error handler to be called when an error occurs."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_error_handler_t_callback_catch<F: AeronErrorHandlerCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     errcode: ::std::os::raw::c_int,
@@ -89556,6 +89434,10 @@ unsafe extern "C" fn aeron_error_handler_t_callback_catch<F: AeronErrorHandlerCa
 }
 #[allow(dead_code)]
 #[doc = "The error handler to be called when an error occurs."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_error_handler_t_callback_for_once_closure_catch<
     F: FnMut(::std::os::raw::c_int, &str) -> (),
 >(
@@ -89721,6 +89603,10 @@ impl AeronPublicationErrorFrameHandlerCallback for NoHandler {
 #[doc = "The error frame handler to be called when the driver notifies the client about an error frame being received."]
 #[doc = " The data passed to this callback will only be valid for the lifetime of the callback. The user should use"]
 #[doc = " <code>aeron_publication_error_values_copy</code> if they require the data to live longer than that."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback<
     F: AeronPublicationErrorFrameHandlerCallback,
     P: CallbackPolicy,
@@ -89761,6 +89647,10 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback<
 #[doc = "The error frame handler to be called when the driver notifies the client about an error frame being received."]
 #[doc = " The data passed to this callback will only be valid for the lifetime of the callback. The user should use"]
 #[doc = " <code>aeron_publication_error_values_copy</code> if they require the data to live longer than that."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_catch<
     F: AeronPublicationErrorFrameHandlerCallback,
     P: CallbackPolicy,
@@ -89801,6 +89691,10 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_catch<
 #[doc = "The error frame handler to be called when the driver notifies the client about an error frame being received."]
 #[doc = " The data passed to this callback will only be valid for the lifetime of the callback. The user should use"]
 #[doc = " <code>aeron_publication_error_values_copy</code> if they require the data to live longer than that."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_for_once_closure_catch<
     F: FnMut(&AeronPublicationErrorValues<Borrowed<aeron_publication_error_values_t>>) -> (),
 >(
@@ -89923,6 +89817,10 @@ impl AeronNotificationCallback for NoHandler {
 }
 #[allow(dead_code)]
 #[doc = "Generalised notification callback."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_notification_t_callback<F: AeronNotificationCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
@@ -89948,6 +89846,10 @@ unsafe extern "C" fn aeron_notification_t_callback<F: AeronNotificationCallback,
 }
 #[allow(dead_code)]
 #[doc = "Generalised notification callback."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_notification_t_callback_catch<F: AeronNotificationCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
@@ -89973,6 +89875,10 @@ unsafe extern "C" fn aeron_notification_t_callback_catch<F: AeronNotificationCal
 }
 #[allow(dead_code)]
 #[doc = "Generalised notification callback."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_notification_t_callback_for_once_closure_catch<F: FnMut() -> ()>(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
@@ -90152,6 +90058,10 @@ impl AeronNewPublicationCallback for NoHandler {
 #[doc = " @param stream_id within the channel of the publication"]
 #[doc = " @param session_id of the publication"]
 #[doc = " @param correlation_id used by the publication"]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_on_new_publication_t_callback<F: AeronNewPublicationCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     channel: *const ::std::os::raw::c_char,
@@ -90206,6 +90116,10 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback<F: AeronNewPublicationC
 #[doc = " @param stream_id within the channel of the publication"]
 #[doc = " @param session_id of the publication"]
 #[doc = " @param correlation_id used by the publication"]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_on_new_publication_t_callback_catch<F: AeronNewPublicationCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     channel: *const ::std::os::raw::c_char,
@@ -90260,6 +90174,10 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback_catch<F: AeronNewPublic
 #[doc = " @param stream_id within the channel of the publication"]
 #[doc = " @param session_id of the publication"]
 #[doc = " @param correlation_id used by the publication"]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_on_new_publication_t_callback_for_once_closure_catch<F: FnMut(&str, i32, i32, i64) -> ()>(
     clientd: *mut ::std::os::raw::c_void,
     channel: *const ::std::os::raw::c_char,
@@ -90422,6 +90340,10 @@ impl AeronNewSubscriptionCallback for NoHandler {
 #[doc = " @param stream_id within the channel of the subscription"]
 #[doc = " @param session_id of the subscription"]
 #[doc = " @param correlation_id used by the subscription"]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_on_new_subscription_t_callback<F: AeronNewSubscriptionCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     channel: *const ::std::os::raw::c_char,
@@ -90473,6 +90395,10 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback<F: AeronNewSubscriptio
 #[doc = " @param stream_id within the channel of the subscription"]
 #[doc = " @param session_id of the subscription"]
 #[doc = " @param correlation_id used by the subscription"]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_on_new_subscription_t_callback_catch<F: AeronNewSubscriptionCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     channel: *const ::std::os::raw::c_char,
@@ -90524,6 +90450,10 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback_catch<F: AeronNewSubsc
 #[doc = " @param stream_id within the channel of the subscription"]
 #[doc = " @param session_id of the subscription"]
 #[doc = " @param correlation_id used by the subscription"]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_on_new_subscription_t_callback_for_once_closure_catch<F: FnMut(&str, i32, i64) -> ()>(
     clientd: *mut ::std::os::raw::c_void,
     channel: *const ::std::os::raw::c_char,
@@ -90710,6 +90640,10 @@ impl AeronAvailableImageCallback for NoHandler {
 #[doc = " @param clientd to be returned in the call."]
 #[doc = " @param subscription that image is part of."]
 #[doc = " @param image that has become available."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_on_available_image_t_callback<F: AeronAvailableImageCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     subscription: *mut aeron_subscription_t,
@@ -90749,6 +90683,10 @@ unsafe extern "C" fn aeron_on_available_image_t_callback<F: AeronAvailableImageC
 #[doc = " @param clientd to be returned in the call."]
 #[doc = " @param subscription that image is part of."]
 #[doc = " @param image that has become available."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_on_available_image_t_callback_catch<F: AeronAvailableImageCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     subscription: *mut aeron_subscription_t,
@@ -90788,6 +90726,10 @@ unsafe extern "C" fn aeron_on_available_image_t_callback_catch<F: AeronAvailable
 #[doc = " @param clientd to be returned in the call."]
 #[doc = " @param subscription that image is part of."]
 #[doc = " @param image that has become available."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_on_available_image_t_callback_for_once_closure_catch<
     F: FnMut(&AeronSubscription<Borrowed<aeron_subscription_t>>, &AeronImage<Borrowed<aeron_image_t>>) -> (),
 >(
@@ -90971,6 +90913,10 @@ impl AeronUnavailableImageCallback for NoHandler {
 #[doc = " @param clientd to be returned in the call."]
 #[doc = " @param subscription that image is part of."]
 #[doc = " @param image that has become unavailable."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_on_unavailable_image_t_callback<F: AeronUnavailableImageCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     subscription: *mut aeron_subscription_t,
@@ -91011,6 +90957,10 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback<F: AeronUnavailableIm
 #[doc = " @param clientd to be returned in the call."]
 #[doc = " @param subscription that image is part of."]
 #[doc = " @param image that has become unavailable."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_on_unavailable_image_t_callback_catch<
     F: AeronUnavailableImageCallback,
     P: CallbackPolicy,
@@ -91054,6 +91004,10 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback_catch<
 #[doc = " @param clientd to be returned in the call."]
 #[doc = " @param subscription that image is part of."]
 #[doc = " @param image that has become unavailable."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_on_unavailable_image_t_callback_for_once_closure_catch<
     F: FnMut(&AeronSubscription<Borrowed<aeron_subscription_t>>, &AeronImage<Borrowed<aeron_image_t>>) -> (),
 >(
@@ -91236,6 +91190,10 @@ impl AeronAvailableCounterCallback for NoHandler {
 #[doc = " @param counters_reader that holds the counter."]
 #[doc = " @param registration_id of the counter."]
 #[doc = " @param counter_id of the counter."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_on_available_counter_t_callback<F: AeronAvailableCounterCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     counters_reader: *mut aeron_counters_reader_t,
@@ -91279,6 +91237,10 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback<F: AeronAvailableCoun
 #[doc = " @param counters_reader that holds the counter."]
 #[doc = " @param registration_id of the counter."]
 #[doc = " @param counter_id of the counter."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_on_available_counter_t_callback_catch<
     F: AeronAvailableCounterCallback,
     P: CallbackPolicy,
@@ -91325,6 +91287,10 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback_catch<
 #[doc = " @param counters_reader that holds the counter."]
 #[doc = " @param registration_id of the counter."]
 #[doc = " @param counter_id of the counter."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_on_available_counter_t_callback_for_once_closure_catch<
     F: FnMut(&AeronCountersReader<Borrowed<aeron_counters_reader_t>>, i64, i32) -> (),
 >(
@@ -91510,6 +91476,10 @@ impl AeronUnavailableCounterCallback for NoHandler {
 #[doc = " @param counters_reader that holds the counter."]
 #[doc = " @param registration_id of the counter."]
 #[doc = " @param counter_id of the counter."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_on_unavailable_counter_t_callback<F: AeronUnavailableCounterCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     counters_reader: *mut aeron_counters_reader_t,
@@ -91553,6 +91523,10 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback<F: AeronUnavailable
 #[doc = " @param counters_reader that holds the counter."]
 #[doc = " @param registration_id of the counter."]
 #[doc = " @param counter_id of the counter."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_on_unavailable_counter_t_callback_catch<
     F: AeronUnavailableCounterCallback,
     P: CallbackPolicy,
@@ -91599,6 +91573,10 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback_catch<
 #[doc = " @param counters_reader that holds the counter."]
 #[doc = " @param registration_id of the counter."]
 #[doc = " @param counter_id of the counter."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_on_unavailable_counter_t_callback_for_once_closure_catch<
     F: FnMut(&AeronCountersReader<Borrowed<aeron_counters_reader_t>>, i64, i32) -> (),
 >(
@@ -91733,6 +91711,10 @@ impl AeronCloseClientCallback for NoHandler {
 #[doc = "Function called by aeron_client_t to deliver notifications that the client is closing."]
 #[doc = ""]
 #[doc = " @param clientd to be returned in the call."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_on_close_client_t_callback<F: AeronCloseClientCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
@@ -91760,6 +91742,10 @@ unsafe extern "C" fn aeron_on_close_client_t_callback<F: AeronCloseClientCallbac
 #[doc = "Function called by aeron_client_t to deliver notifications that the client is closing."]
 #[doc = ""]
 #[doc = " @param clientd to be returned in the call."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_on_close_client_t_callback_catch<F: AeronCloseClientCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
@@ -91787,6 +91773,10 @@ unsafe extern "C" fn aeron_on_close_client_t_callback_catch<F: AeronCloseClientC
 #[doc = "Function called by aeron_client_t to deliver notifications that the client is closing."]
 #[doc = ""]
 #[doc = " @param clientd to be returned in the call."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_on_close_client_t_callback_for_once_closure_catch<F: FnMut() -> ()>(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
@@ -91904,6 +91894,10 @@ impl AeronAgentStartFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_agent_on_start_func_t_callback<F: AeronAgentStartFuncCallback, P: CallbackPolicy>(
     state: *mut ::std::os::raw::c_void,
     role_name: *const ::std::os::raw::c_char,
@@ -91937,6 +91931,10 @@ unsafe extern "C" fn aeron_agent_on_start_func_t_callback<F: AeronAgentStartFunc
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_agent_on_start_func_t_callback_catch<F: AeronAgentStartFuncCallback, P: CallbackPolicy>(
     state: *mut ::std::os::raw::c_void,
     role_name: *const ::std::os::raw::c_char,
@@ -91970,6 +91968,10 @@ unsafe extern "C" fn aeron_agent_on_start_func_t_callback_catch<F: AeronAgentSta
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_agent_on_start_func_t_callback_for_once_closure_catch<F: FnMut(&str) -> ()>(
     state: *mut ::std::os::raw::c_void,
     role_name: *const ::std::os::raw::c_char,
@@ -92161,6 +92163,10 @@ impl AeronCountersReaderForeachCounterFuncCallback for NoHandler {
 #[doc = " @param label for the counter."]
 #[doc = " @param label_length for the counter."]
 #[doc = " @param clientd to be returned in the call"]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback<
     F: AeronCountersReaderForeachCounterFuncCallback,
     P: CallbackPolicy,
@@ -92239,6 +92245,10 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback<
 #[doc = " @param label for the counter."]
 #[doc = " @param label_length for the counter."]
 #[doc = " @param clientd to be returned in the call"]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback_catch<
     F: AeronCountersReaderForeachCounterFuncCallback,
     P: CallbackPolicy,
@@ -92313,6 +92323,10 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback_catch
 #[doc = " @param label for the counter."]
 #[doc = " @param label_length for the counter."]
 #[doc = " @param clientd to be returned in the call"]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback_for_once_closure_catch<
     F: FnMut(i64, i32, i32, &[u8], &str) -> (),
 >(
@@ -92474,6 +92488,10 @@ impl AeronReservedValueSupplierCallback for NoHandler {
 #[doc = " @param clientd passed to the offer function."]
 #[doc = " @param buffer of the entire frame, including Aeron data header."]
 #[doc = " @param frame_length of the entire frame."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_reserved_value_supplier_t_callback<
     F: AeronReservedValueSupplierCallback,
     P: CallbackPolicy,
@@ -92523,6 +92541,10 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback<
 #[doc = " @param clientd passed to the offer function."]
 #[doc = " @param buffer of the entire frame, including Aeron data header."]
 #[doc = " @param frame_length of the entire frame."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_reserved_value_supplier_t_callback_catch<
     F: AeronReservedValueSupplierCallback,
     P: CallbackPolicy,
@@ -92568,6 +92590,10 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback_catch<
 #[doc = " @param clientd passed to the offer function."]
 #[doc = " @param buffer of the entire frame, including Aeron data header."]
 #[doc = " @param frame_length of the entire frame."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_reserved_value_supplier_t_callback_for_once_closure_catch<F: FnMut(&mut [u8]) -> i64>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *mut u8,
@@ -92719,6 +92745,10 @@ impl AeronFragmentHandlerCallback for NoHandler {
 #[doc = " @param buffer containing the data."]
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback<F: AeronFragmentHandlerCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
@@ -92768,6 +92798,10 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback<F: AeronFragmentHa
 #[doc = " @param buffer containing the data."]
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_catch<
     F: AeronFragmentHandlerCallback,
     P: CallbackPolicy,
@@ -92820,6 +92854,10 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_catch<
 #[doc = " @param buffer containing the data."]
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_catch<
     F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> (),
 >(
@@ -92873,6 +92911,10 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_c
 #[doc = " @param buffer containing the data."]
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_borrowed_handler_catch<
     F: AeronFragmentHandlerCallback,
 >(
@@ -92926,6 +92968,10 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_borrowed_handl
 #[doc = " @param buffer containing the data."]
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_unwind<
     F: AeronFragmentHandlerCallback,
     P: CallbackPolicy,
@@ -92976,6 +93022,10 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_unwind<
 #[doc = " @param buffer containing the data."]
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_unwind<
     F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> (),
 >(
@@ -93027,6 +93077,10 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_u
 #[doc = " @param buffer containing the data."]
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_borrowed_handler_unwind<
     F: AeronFragmentHandlerCallback,
 >(
@@ -93208,6 +93262,10 @@ impl AeronControlledFragmentHandlerCallback for NoHandler {
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
 #[doc = " @return The action to be taken with regard to the stream position after the callback."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback<
     F: AeronControlledFragmentHandlerCallback,
     P: CallbackPolicy,
@@ -93265,6 +93323,10 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback<
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
 #[doc = " @return The action to be taken with regard to the stream position after the callback."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_catch<
     F: AeronControlledFragmentHandlerCallback,
     P: CallbackPolicy,
@@ -93321,6 +93383,10 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_catch<
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
 #[doc = " @return The action to be taken with regard to the stream position after the callback."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_once_closure_catch<
     F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> aeron_controlled_fragment_handler_action_t,
 >(
@@ -93375,6 +93441,10 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_onc
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
 #[doc = " @return The action to be taken with regard to the stream position after the callback."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_borrowed_handler_catch<
     F: AeronControlledFragmentHandlerCallback,
 >(
@@ -93429,6 +93499,10 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_bor
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
 #[doc = " @return The action to be taken with regard to the stream position after the callback."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_unwind<
     F: AeronControlledFragmentHandlerCallback,
     P: CallbackPolicy,
@@ -93483,6 +93557,10 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_unwind<
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
 #[doc = " @return The action to be taken with regard to the stream position after the callback."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_once_closure_unwind<
     F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> aeron_controlled_fragment_handler_action_t,
 >(
@@ -93535,6 +93613,10 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_onc
 #[doc = " @param length of the data in bytes."]
 #[doc = " @param header representing the meta data for the data."]
 #[doc = " @return The action to be taken with regard to the stream position after the callback."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_borrowed_handler_unwind<
     F: AeronControlledFragmentHandlerCallback,
 >(
@@ -93683,6 +93765,10 @@ impl AeronBlockHandlerCallback for NoHandler {
 #[doc = " @param length of the block in bytes, including any frame headers that is aligned."]
 #[doc = " @param session_id of the stream containing this block of message fragments."]
 #[doc = " @param term_id of the stream containing this block of message fragments."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C-unwind" fn aeron_block_handler_t_callback<F: AeronBlockHandlerCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
@@ -93734,6 +93820,10 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback<F: AeronBlockHandlerC
 #[doc = " @param length of the block in bytes, including any frame headers that is aligned."]
 #[doc = " @param session_id of the stream containing this block of message fragments."]
 #[doc = " @param term_id of the stream containing this block of message fragments."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C-unwind" fn aeron_block_handler_t_callback_catch<F: AeronBlockHandlerCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
@@ -93785,6 +93875,10 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_catch<F: AeronBlockHa
 #[doc = " @param length of the block in bytes, including any frame headers that is aligned."]
 #[doc = " @param session_id of the stream containing this block of message fragments."]
 #[doc = " @param term_id of the stream containing this block of message fragments."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_once_closure_catch<F: FnMut(&[u8], i32, i32) -> ()>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
@@ -93838,6 +93932,10 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_once_closure_catc
 #[doc = " @param length of the block in bytes, including any frame headers that is aligned."]
 #[doc = " @param session_id of the stream containing this block of message fragments."]
 #[doc = " @param term_id of the stream containing this block of message fragments."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_borrowed_handler_catch<F: AeronBlockHandlerCallback>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
@@ -93891,6 +93989,10 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_borrowed_handler_
 #[doc = " @param length of the block in bytes, including any frame headers that is aligned."]
 #[doc = " @param session_id of the stream containing this block of message fragments."]
 #[doc = " @param term_id of the stream containing this block of message fragments."]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C-unwind" fn aeron_block_handler_t_callback_unwind<F: AeronBlockHandlerCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
@@ -93940,6 +94042,10 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_unwind<F: AeronBlockH
 #[doc = " @param length of the block in bytes, including any frame headers that is aligned."]
 #[doc = " @param session_id of the stream containing this block of message fragments."]
 #[doc = " @param term_id of the stream containing this block of message fragments."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_once_closure_unwind<F: FnMut(&[u8], i32, i32) -> ()>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
@@ -93991,6 +94097,10 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_once_closure_unwi
 #[doc = " @param length of the block in bytes, including any frame headers that is aligned."]
 #[doc = " @param session_id of the stream containing this block of message fragments."]
 #[doc = " @param term_id of the stream containing this block of message fragments."]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_borrowed_handler_unwind<F: AeronBlockHandlerCallback>(
     clientd: *mut ::std::os::raw::c_void,
     buffer: *const u8,
@@ -94190,6 +94300,10 @@ impl AeronErrorLogReaderFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_error_log_reader_func_t_callback<F: AeronErrorLogReaderFuncCallback, P: CallbackPolicy>(
     observation_count: i32,
     first_observation_timestamp: i64,
@@ -94250,6 +94364,10 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback<F: AeronErrorLogRead
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_error_log_reader_func_t_callback_catch<
     F: AeronErrorLogReaderFuncCallback,
     P: CallbackPolicy,
@@ -94313,6 +94431,10 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_error_log_reader_func_t_callback_for_once_closure_catch<
     F: FnMut(i32, i64, i64, &str) -> (),
 >(
@@ -94575,6 +94697,10 @@ impl AeronLossReporterReadEntryFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback<
     F: AeronLossReporterReadEntryFuncCallback,
     P: CallbackPolicy,
@@ -94662,6 +94788,10 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback_catch<
     F: AeronLossReporterReadEntryFuncCallback,
     P: CallbackPolicy,
@@ -94752,6 +94882,10 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback_for_once_closure_catch<
     F: FnMut(i64, i64, i64, i64, i32, i32, &str, &str) -> (),
 >(
@@ -94931,6 +95065,10 @@ impl AeronIdleStrategyFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_idle_strategy_func_t_callback<F: AeronIdleStrategyFuncCallback, P: CallbackPolicy>(
     state: *mut ::std::os::raw::c_void,
     work_count: ::std::os::raw::c_int,
@@ -94960,6 +95098,10 @@ unsafe extern "C" fn aeron_idle_strategy_func_t_callback<F: AeronIdleStrategyFun
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_idle_strategy_func_t_callback_catch<F: AeronIdleStrategyFuncCallback, P: CallbackPolicy>(
     state: *mut ::std::os::raw::c_void,
     work_count: ::std::os::raw::c_int,
@@ -94989,6 +95131,10 @@ unsafe extern "C" fn aeron_idle_strategy_func_t_callback_catch<F: AeronIdleStrat
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_idle_strategy_func_t_callback_for_once_closure_catch<
     F: FnMut(::std::os::raw::c_int) -> (),
 >(
@@ -95112,6 +95258,10 @@ impl AeronUriParseCallbackCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_uri_parse_callback_t_callback<F: AeronUriParseCallbackCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     key: *const ::std::os::raw::c_char,
@@ -95158,6 +95308,10 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback<F: AeronUriParseCallbac
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_uri_parse_callback_t_callback_catch<F: AeronUriParseCallbackCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     key: *const ::std::os::raw::c_char,
@@ -95200,6 +95354,10 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback_catch<F: AeronUriParseC
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_uri_parse_callback_t_callback_for_once_closure_catch<
     F: FnMut(&str, &str) -> ::std::os::raw::c_int,
 >(
@@ -95334,6 +95492,10 @@ impl AeronDriverTerminationValidatorFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_driver_termination_validator_func_t_callback<
     F: AeronDriverTerminationValidatorFuncCallback,
     P: CallbackPolicy,
@@ -95381,6 +95543,10 @@ unsafe extern "C" fn aeron_driver_termination_validator_func_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_driver_termination_validator_func_t_callback_catch<
     F: AeronDriverTerminationValidatorFuncCallback,
     P: CallbackPolicy,
@@ -95424,6 +95590,10 @@ unsafe extern "C" fn aeron_driver_termination_validator_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_driver_termination_validator_func_t_callback_for_once_closure_catch<
     F: FnMut(&mut [u8]) -> bool,
 >(
@@ -95558,6 +95728,10 @@ impl AeronDriverTerminationHookFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_driver_termination_hook_func_t_callback<
     F: AeronDriverTerminationHookFuncCallback,
     P: CallbackPolicy,
@@ -95585,6 +95759,10 @@ unsafe extern "C" fn aeron_driver_termination_hook_func_t_callback<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_driver_termination_hook_func_t_callback_catch<
     F: AeronDriverTerminationHookFuncCallback,
     P: CallbackPolicy,
@@ -95615,6 +95793,10 @@ unsafe extern "C" fn aeron_driver_termination_hook_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_driver_termination_hook_func_t_callback_for_once_closure_catch<F: FnMut() -> ()>(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
@@ -95732,6 +95914,10 @@ impl AeronQueueDrainFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_queue_drain_func_t_callback<F: AeronQueueDrainFuncCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     item: *mut ::std::os::raw::c_void,
@@ -95761,6 +95947,10 @@ unsafe extern "C" fn aeron_queue_drain_func_t_callback<F: AeronQueueDrainFuncCal
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_queue_drain_func_t_callback_catch<F: AeronQueueDrainFuncCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     item: *mut ::std::os::raw::c_void,
@@ -95790,6 +95980,10 @@ unsafe extern "C" fn aeron_queue_drain_func_t_callback_catch<F: AeronQueueDrainF
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_queue_drain_func_t_callback_for_once_closure_catch<
     F: FnMut(*mut ::std::os::raw::c_void) -> (),
 >(
@@ -95919,6 +96113,10 @@ impl AeronRbHandlerCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_rb_handler_t_callback<F: AeronRbHandlerCallback, P: CallbackPolicy>(
     arg1: i32,
     arg2: *const ::std::os::raw::c_void,
@@ -95952,6 +96150,10 @@ unsafe extern "C" fn aeron_rb_handler_t_callback<F: AeronRbHandlerCallback, P: C
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_rb_handler_t_callback_catch<F: AeronRbHandlerCallback, P: CallbackPolicy>(
     arg1: i32,
     arg2: *const ::std::os::raw::c_void,
@@ -95985,6 +96187,10 @@ unsafe extern "C" fn aeron_rb_handler_t_callback_catch<F: AeronRbHandlerCallback
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_rb_handler_t_callback_for_once_closure_catch<
     F: FnMut(i32, *const ::std::os::raw::c_void, usize) -> (),
 >(
@@ -96147,6 +96353,10 @@ impl AeronRbControlledHandlerCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_rb_controlled_handler_t_callback<F: AeronRbControlledHandlerCallback, P: CallbackPolicy>(
     arg1: i32,
     arg2: *const ::std::os::raw::c_void,
@@ -96184,6 +96394,10 @@ unsafe extern "C" fn aeron_rb_controlled_handler_t_callback<F: AeronRbControlled
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_rb_controlled_handler_t_callback_catch<
     F: AeronRbControlledHandlerCallback,
     P: CallbackPolicy,
@@ -96220,6 +96434,10 @@ unsafe extern "C" fn aeron_rb_controlled_handler_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_rb_controlled_handler_t_callback_for_once_closure_catch<
     F: FnMut(i32, *const ::std::os::raw::c_void, usize) -> aeron_rb_read_action_t,
 >(
@@ -96387,6 +96605,10 @@ impl AeronFlowControlStrategyIdleFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_flow_control_strategy_on_idle_func_t_callback<
     F: AeronFlowControlStrategyIdleFuncCallback,
     P: CallbackPolicy,
@@ -96437,6 +96659,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_idle_func_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_flow_control_strategy_on_idle_func_t_callback_catch<
     F: AeronFlowControlStrategyIdleFuncCallback,
     P: CallbackPolicy,
@@ -96483,6 +96709,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_idle_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_flow_control_strategy_on_idle_func_t_callback_for_once_closure_catch<
     F: FnMut(i64, i64, i64, bool) -> i64,
 >(
@@ -96679,6 +96909,10 @@ impl AeronFlowControlStrategySmFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback<
     F: AeronFlowControlStrategySmFuncCallback,
     P: CallbackPolicy,
@@ -96741,6 +96975,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback_catch<
     F: AeronFlowControlStrategySmFuncCallback,
     P: CallbackPolicy,
@@ -96799,6 +97037,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback_for_once_closure_catch<
     F: FnMut(&[u8], &SockaddrStorage<Borrowed<sockaddr_storage>>, i64, i32, usize, i64) -> i64,
 >(
@@ -96992,6 +97234,10 @@ impl AeronFlowControlStrategySetupFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_flow_control_strategy_on_setup_func_t_callback<
     F: AeronFlowControlStrategySetupFuncCallback,
     P: CallbackPolicy,
@@ -97051,6 +97297,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_setup_func_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_flow_control_strategy_on_setup_func_t_callback_catch<
     F: AeronFlowControlStrategySetupFuncCallback,
     P: CallbackPolicy,
@@ -97106,6 +97356,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_setup_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_flow_control_strategy_on_setup_func_t_callback_for_once_closure_catch<
     F: FnMut(&[u8], i64, i64, usize, i64) -> i64,
 >(
@@ -97291,6 +97545,10 @@ impl AeronFlowControlStrategyErrorFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback<
     F: AeronFlowControlStrategyErrorFuncCallback,
     P: CallbackPolicy,
@@ -97344,6 +97602,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback_catch<
     F: AeronFlowControlStrategyErrorFuncCallback,
     P: CallbackPolicy,
@@ -97393,6 +97655,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback_for_once_closure_catch<
     F: FnMut(&[u8], &SockaddrStorage<Borrowed<sockaddr_storage>>, i64) -> (),
 >(
@@ -97572,6 +97838,10 @@ impl AeronFlowControlStrategyTriggerSendSetupFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_callback<
     F: AeronFlowControlStrategyTriggerSendSetupFuncCallback,
     P: CallbackPolicy,
@@ -97625,6 +97895,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_ca
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_callback_catch<
     F: AeronFlowControlStrategyTriggerSendSetupFuncCallback,
     P: CallbackPolicy,
@@ -97674,6 +97948,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_ca
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_callback_for_once_closure_catch<
     F: FnMut(&[u8], &SockaddrStorage<Borrowed<sockaddr_storage>>, i64) -> (),
 >(
@@ -97860,6 +98138,10 @@ impl AeronFlowControlStrategyMaxRetransmissionLengthFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_flow_control_strategy_max_retransmission_length_func_t_callback<
     F: AeronFlowControlStrategyMaxRetransmissionLengthFuncCallback,
     P: CallbackPolicy,
@@ -97910,6 +98192,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_max_retransmission_length_func_
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_flow_control_strategy_max_retransmission_length_func_t_callback_catch<
     F: AeronFlowControlStrategyMaxRetransmissionLengthFuncCallback,
     P: CallbackPolicy,
@@ -97956,6 +98242,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_max_retransmission_length_func_
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_flow_control_strategy_max_retransmission_length_func_t_callback_for_once_closure_catch<
     F: FnMut(usize, usize, usize, usize) -> usize,
 >(
@@ -98092,6 +98382,10 @@ impl AeronCongestionControlStrategyShouldMeasureRttFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_congestion_control_strategy_should_measure_rtt_func_t_callback<
     F: AeronCongestionControlStrategyShouldMeasureRttFuncCallback,
     P: CallbackPolicy,
@@ -98131,6 +98425,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_should_measure_rtt_func_t
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_congestion_control_strategy_should_measure_rtt_func_t_callback_catch<
     F: AeronCongestionControlStrategyShouldMeasureRttFuncCallback,
     P: CallbackPolicy,
@@ -98166,6 +98464,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_should_measure_rtt_func_t
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_congestion_control_strategy_should_measure_rtt_func_t_callback_for_once_closure_catch<
     F: FnMut(i64) -> bool,
 >(
@@ -98292,6 +98594,10 @@ impl AeronCongestionControlStrategyRttmSentFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_sent_func_t_callback<
     F: AeronCongestionControlStrategyRttmSentFuncCallback,
     P: CallbackPolicy,
@@ -98331,6 +98637,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_sent_func_t_callb
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_sent_func_t_callback_catch<
     F: AeronCongestionControlStrategyRttmSentFuncCallback,
     P: CallbackPolicy,
@@ -98366,6 +98676,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_sent_func_t_callb
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_sent_func_t_callback_for_once_closure_catch<
     F: FnMut(i64) -> (),
 >(
@@ -98531,6 +98845,10 @@ impl AeronCongestionControlStrategyRttmFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback<
     F: AeronCongestionControlStrategyRttmFuncCallback,
     P: CallbackPolicy,
@@ -98576,6 +98894,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback_catch<
     F: AeronCongestionControlStrategyRttmFuncCallback,
     P: CallbackPolicy,
@@ -98617,6 +98939,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback_c
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback_for_once_closure_catch<
     F: FnMut(i64, i64, &SockaddrStorage<Borrowed<sockaddr_storage>>) -> (),
 >(
@@ -98748,6 +99074,10 @@ impl AeronCongestionControlStrategyInitialWindowLengthFuncCallback for NoHandler
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_congestion_control_strategy_initial_window_length_func_t_callback<
     F: AeronCongestionControlStrategyInitialWindowLengthFuncCallback,
     P: CallbackPolicy,
@@ -98782,6 +99112,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_initial_window_length_fun
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_congestion_control_strategy_initial_window_length_func_t_callback_catch<
     F: AeronCongestionControlStrategyInitialWindowLengthFuncCallback,
     P: CallbackPolicy,
@@ -98812,6 +99146,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_initial_window_length_fun
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_congestion_control_strategy_initial_window_length_func_t_callback_for_once_closure_catch<
     F: FnMut() -> i32,
 >(
@@ -98932,6 +99270,10 @@ impl AeronCongestionControlStrategyMaxWindowLengthFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_congestion_control_strategy_max_window_length_func_t_callback<
     F: AeronCongestionControlStrategyMaxWindowLengthFuncCallback,
     P: CallbackPolicy,
@@ -98966,6 +99308,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_max_window_length_func_t_
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_congestion_control_strategy_max_window_length_func_t_callback_catch<
     F: AeronCongestionControlStrategyMaxWindowLengthFuncCallback,
     P: CallbackPolicy,
@@ -98996,6 +99342,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_max_window_length_func_t_
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_congestion_control_strategy_max_window_length_func_t_callback_for_once_closure_catch<
     F: FnMut() -> i32,
 >(
@@ -99106,6 +99456,10 @@ impl AeronAgentDoWorkFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_agent_do_work_func_t_callback<F: AeronAgentDoWorkFuncCallback, P: CallbackPolicy>(
     arg1: *mut ::std::os::raw::c_void,
 ) -> ::std::os::raw::c_int {
@@ -99134,6 +99488,10 @@ unsafe extern "C" fn aeron_agent_do_work_func_t_callback<F: AeronAgentDoWorkFunc
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_agent_do_work_func_t_callback_catch<F: AeronAgentDoWorkFuncCallback, P: CallbackPolicy>(
     arg1: *mut ::std::os::raw::c_void,
 ) -> ::std::os::raw::c_int {
@@ -99158,6 +99516,10 @@ unsafe extern "C" fn aeron_agent_do_work_func_t_callback_catch<F: AeronAgentDoWo
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_agent_do_work_func_t_callback_for_once_closure_catch<F: FnMut() -> ::std::os::raw::c_int>(
     arg1: *mut ::std::os::raw::c_void,
 ) -> ::std::os::raw::c_int {
@@ -99275,6 +99637,10 @@ impl AeronAgentCloseFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_agent_on_close_func_t_callback<F: AeronAgentCloseFuncCallback, P: CallbackPolicy>(
     arg1: *mut ::std::os::raw::c_void,
 ) -> () {
@@ -99299,6 +99665,10 @@ unsafe extern "C" fn aeron_agent_on_close_func_t_callback<F: AeronAgentCloseFunc
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_agent_on_close_func_t_callback_catch<F: AeronAgentCloseFuncCallback, P: CallbackPolicy>(
     arg1: *mut ::std::os::raw::c_void,
 ) -> () {
@@ -99323,6 +99693,10 @@ unsafe extern "C" fn aeron_agent_on_close_func_t_callback_catch<F: AeronAgentClo
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_agent_on_close_func_t_callback_for_once_closure_catch<F: FnMut() -> ()>(
     arg1: *mut ::std::os::raw::c_void,
 ) -> () {
@@ -99484,6 +99858,10 @@ impl AeronCountersReaderForeachMetadataFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_counters_reader_foreach_metadata_func_t_callback<
     F: AeronCountersReaderForeachMetadataFuncCallback,
     P: CallbackPolicy,
@@ -99546,6 +99924,10 @@ unsafe extern "C" fn aeron_counters_reader_foreach_metadata_func_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_counters_reader_foreach_metadata_func_t_callback_catch<
     F: AeronCountersReaderForeachMetadataFuncCallback,
     P: CallbackPolicy,
@@ -99604,6 +99986,10 @@ unsafe extern "C" fn aeron_counters_reader_foreach_metadata_func_t_callback_catc
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_counters_reader_foreach_metadata_func_t_callback_for_once_closure_catch<
     F: FnMut(i32, i32, &[u8], &[u8]) -> (),
 >(
@@ -99753,6 +100139,10 @@ impl AeronDutyCycleTrackerUpdateFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_duty_cycle_tracker_update_func_t_callback<
     F: AeronDutyCycleTrackerUpdateFuncCallback,
     P: CallbackPolicy,
@@ -99788,6 +100178,10 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_update_func_t_callback<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_duty_cycle_tracker_update_func_t_callback_catch<
     F: AeronDutyCycleTrackerUpdateFuncCallback,
     P: CallbackPolicy,
@@ -99823,6 +100217,10 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_update_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_duty_cycle_tracker_update_func_t_callback_for_once_closure_catch<F: FnMut(i64) -> ()>(
     state: *mut ::std::os::raw::c_void,
     now_ns: i64,
@@ -99947,6 +100345,10 @@ impl AeronDutyCycleTrackerMeasureAndUpdateFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_duty_cycle_tracker_measure_and_update_func_t_callback<
     F: AeronDutyCycleTrackerMeasureAndUpdateFuncCallback,
     P: CallbackPolicy,
@@ -99986,6 +100388,10 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_measure_and_update_func_t_callback
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_duty_cycle_tracker_measure_and_update_func_t_callback_catch<
     F: AeronDutyCycleTrackerMeasureAndUpdateFuncCallback,
     P: CallbackPolicy,
@@ -100021,6 +100427,10 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_measure_and_update_func_t_callback
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_duty_cycle_tracker_measure_and_update_func_t_callback_for_once_closure_catch<
     F: FnMut(i64) -> (),
 >(
@@ -100151,6 +100561,10 @@ impl AeronInt64CounterMapForEachFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_int64_counter_map_for_each_func_t_callback<
     F: AeronInt64CounterMapForEachFuncCallback,
     P: CallbackPolicy,
@@ -100188,6 +100602,10 @@ unsafe extern "C" fn aeron_int64_counter_map_for_each_func_t_callback<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_int64_counter_map_for_each_func_t_callback_catch<
     F: AeronInt64CounterMapForEachFuncCallback,
     P: CallbackPolicy,
@@ -100225,6 +100643,10 @@ unsafe extern "C" fn aeron_int64_counter_map_for_each_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_int64_counter_map_for_each_func_t_callback_for_once_closure_catch<
     F: FnMut(i64, i64) -> (),
 >(
@@ -100352,6 +100774,10 @@ impl AeronInt64CounterMapPredicateFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_int64_counter_map_predicate_func_t_callback<
     F: AeronInt64CounterMapPredicateFuncCallback,
     P: CallbackPolicy,
@@ -100393,6 +100819,10 @@ unsafe extern "C" fn aeron_int64_counter_map_predicate_func_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_int64_counter_map_predicate_func_t_callback_catch<
     F: AeronInt64CounterMapPredicateFuncCallback,
     P: CallbackPolicy,
@@ -100430,6 +100860,10 @@ unsafe extern "C" fn aeron_int64_counter_map_predicate_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_int64_counter_map_predicate_func_t_callback_for_once_closure_catch<
     F: FnMut(i64, i64) -> bool,
 >(
@@ -100612,6 +101046,10 @@ impl AeronPortManagerGetManagedPortFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback<
     F: AeronPortManagerGetManagedPortFuncCallback,
     P: CallbackPolicy,
@@ -100659,6 +101097,10 @@ unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback_catch<
     F: AeronPortManagerGetManagedPortFuncCallback,
     P: CallbackPolicy,
@@ -100702,6 +101144,10 @@ unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback_for_once_closure_catch<
     F: FnMut(
         &SockaddrStorage<Borrowed<sockaddr_storage>>,
@@ -100858,6 +101304,10 @@ impl AeronPortManagerFreeManagedPortFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback<
     F: AeronPortManagerFreeManagedPortFuncCallback,
     P: CallbackPolicy,
@@ -100899,6 +101349,10 @@ unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback_catch<
     F: AeronPortManagerFreeManagedPortFuncCallback,
     P: CallbackPolicy,
@@ -100936,6 +101390,10 @@ unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback_for_once_closure_catch<
     F: FnMut(&SockaddrStorage<Borrowed<sockaddr_storage>>) -> (),
 >(
@@ -101055,6 +101513,10 @@ impl AeronEndOfLifeResourceFreeCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback<
     F: AeronEndOfLifeResourceFreeCallback,
     P: CallbackPolicy,
@@ -101086,6 +101548,10 @@ unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback_catch<
     F: AeronEndOfLifeResourceFreeCallback,
     P: CallbackPolicy,
@@ -101116,6 +101582,10 @@ unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback_for_once_closure_catch<F: FnMut() -> bool>(
     resource: *mut ::std::os::raw::c_void,
 ) -> bool {
@@ -101235,6 +101705,10 @@ impl AeronSendChannelLossSupplierFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_send_channel_loss_supplier_func_t_callback<
     F: AeronSendChannelLossSupplierFuncCallback,
     P: CallbackPolicy,
@@ -101270,6 +101744,10 @@ unsafe extern "C" fn aeron_send_channel_loss_supplier_func_t_callback<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_send_channel_loss_supplier_func_t_callback_catch<
     F: AeronSendChannelLossSupplierFuncCallback,
     P: CallbackPolicy,
@@ -101305,6 +101783,10 @@ unsafe extern "C" fn aeron_send_channel_loss_supplier_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_send_channel_loss_supplier_func_t_callback_for_once_closure_catch<
     F: FnMut(*mut aeron_send_channel_endpoint_stct) -> (),
 >(
@@ -101449,6 +101931,10 @@ impl AeronReceiveChannelLossSupplierFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_receive_channel_loss_supplier_func_t_callback<
     F: AeronReceiveChannelLossSupplierFuncCallback,
     P: CallbackPolicy,
@@ -101488,6 +101974,10 @@ unsafe extern "C" fn aeron_receive_channel_loss_supplier_func_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_receive_channel_loss_supplier_func_t_callback_catch<
     F: AeronReceiveChannelLossSupplierFuncCallback,
     P: CallbackPolicy,
@@ -101523,6 +102013,10 @@ unsafe extern "C" fn aeron_receive_channel_loss_supplier_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_receive_channel_loss_supplier_func_t_callback_for_once_closure_catch<
     F: FnMut(*mut aeron_receive_channel_endpoint_stct) -> (),
 >(
@@ -101653,6 +102147,10 @@ impl AeronStrToPtrHashMapForEachFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback<
     F: AeronStrToPtrHashMapForEachFuncCallback,
     P: CallbackPolicy,
@@ -101709,6 +102207,10 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback_catch<
     F: AeronStrToPtrHashMapForEachFuncCallback,
     P: CallbackPolicy,
@@ -101761,6 +102263,10 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback_for_once_closure_catch<
     F: FnMut(&str, *mut ::std::os::raw::c_void) -> (),
 >(
@@ -101908,6 +102414,10 @@ impl AeronInt64ToPtrHashMapForEachFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_int64_to_ptr_hash_map_for_each_func_t_callback<
     F: AeronInt64ToPtrHashMapForEachFuncCallback,
     P: CallbackPolicy,
@@ -101949,6 +102459,10 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_for_each_func_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_int64_to_ptr_hash_map_for_each_func_t_callback_catch<
     F: AeronInt64ToPtrHashMapForEachFuncCallback,
     P: CallbackPolicy,
@@ -101986,6 +102500,10 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_for_each_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_int64_to_ptr_hash_map_for_each_func_t_callback_for_once_closure_catch<
     F: FnMut(i64, *mut ::std::os::raw::c_void) -> (),
 >(
@@ -102137,6 +102655,10 @@ impl AeronInt64ToPtrHashMapPredicateFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_int64_to_ptr_hash_map_predicate_func_t_callback<
     F: AeronInt64ToPtrHashMapPredicateFuncCallback,
     P: CallbackPolicy,
@@ -102178,6 +102700,10 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_predicate_func_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_int64_to_ptr_hash_map_predicate_func_t_callback_catch<
     F: AeronInt64ToPtrHashMapPredicateFuncCallback,
     P: CallbackPolicy,
@@ -102215,6 +102741,10 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_predicate_func_t_callback_catch
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_int64_to_ptr_hash_map_predicate_func_t_callback_for_once_closure_catch<
     F: FnMut(i64, *mut ::std::os::raw::c_void) -> bool,
 >(
@@ -102379,6 +102909,10 @@ impl AeronUriHostnameResolverFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback<
     F: AeronUriHostnameResolverFuncCallback,
     P: CallbackPolicy,
@@ -102427,6 +102961,10 @@ unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback_catch<
     F: AeronUriHostnameResolverFuncCallback,
     P: CallbackPolicy,
@@ -102474,6 +103012,10 @@ unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback_for_once_closure_catch<
     F: FnMut(&str, &Addrinfo<Borrowed<addrinfo>>, *mut *mut addrinfo) -> ::std::os::raw::c_int,
 >(
@@ -102674,6 +103216,10 @@ impl AeronIfaddrFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_ifaddr_func_t_callback<F: AeronIfaddrFuncCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     name: *const ::std::os::raw::c_char,
@@ -102718,6 +103264,10 @@ unsafe extern "C" fn aeron_ifaddr_func_t_callback<F: AeronIfaddrFuncCallback, P:
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_ifaddr_func_t_callback_catch<F: AeronIfaddrFuncCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
     name: *const ::std::os::raw::c_char,
@@ -102762,6 +103312,10 @@ unsafe extern "C" fn aeron_ifaddr_func_t_callback_catch<F: AeronIfaddrFuncCallba
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_ifaddr_func_t_callback_for_once_closure_catch<
     F: FnMut(
         &str,
@@ -102938,6 +103492,10 @@ impl AeronRetransmitHandlerResendFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_retransmit_handler_resend_func_t_callback<
     F: AeronRetransmitHandlerResendFuncCallback,
     P: CallbackPolicy,
@@ -102981,6 +103539,10 @@ unsafe extern "C" fn aeron_retransmit_handler_resend_func_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_retransmit_handler_resend_func_t_callback_catch<
     F: AeronRetransmitHandlerResendFuncCallback,
     P: CallbackPolicy,
@@ -103020,6 +103582,10 @@ unsafe extern "C" fn aeron_retransmit_handler_resend_func_t_callback_catch<
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_retransmit_handler_resend_func_t_callback_for_once_closure_catch<
     F: FnMut(i32, i32, usize) -> ::std::os::raw::c_int,
 >(
@@ -103173,6 +103739,10 @@ impl AeronLossGeneratorShouldDropFrameSimpleFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_loss_generator_should_drop_frame_simple_func_t_callback<
     F: AeronLossGeneratorShouldDropFrameSimpleFuncCallback,
     P: CallbackPolicy,
@@ -103223,6 +103793,10 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_simple_func_t_callba
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_loss_generator_should_drop_frame_simple_func_t_callback_catch<
     F: AeronLossGeneratorShouldDropFrameSimpleFuncCallback,
     P: CallbackPolicy,
@@ -103269,6 +103843,10 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_simple_func_t_callba
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_loss_generator_should_drop_frame_simple_func_t_callback_for_once_closure_catch<
     F: FnMut(*const sockaddr_storage, &[u8]) -> bool,
 >(
@@ -103476,6 +104054,10 @@ impl AeronLossGeneratorShouldDropFrameDetailedFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_loss_generator_should_drop_frame_detailed_func_t_callback<
     F: AeronLossGeneratorShouldDropFrameDetailedFuncCallback,
     P: CallbackPolicy,
@@ -103535,6 +104117,10 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_detailed_func_t_call
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_loss_generator_should_drop_frame_detailed_func_t_callback_catch<
     F: AeronLossGeneratorShouldDropFrameDetailedFuncCallback,
     P: CallbackPolicy,
@@ -103590,6 +104176,10 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_detailed_func_t_call
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_loss_generator_should_drop_frame_detailed_func_t_callback_for_once_closure_catch<
     F: FnMut(*const sockaddr_storage, *const u8, i32, i32, i32, i32, i32) -> bool,
 >(
@@ -103771,6 +104361,10 @@ impl AeronInt64ToTaggedPtrHashMapForEachFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback<
     F: AeronInt64ToTaggedPtrHashMapForEachFuncCallback,
     P: CallbackPolicy,
@@ -103814,6 +104408,10 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback_catch<
     F: AeronInt64ToTaggedPtrHashMapForEachFuncCallback,
     P: CallbackPolicy,
@@ -103853,6 +104451,10 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback_for_once_closure_catch<
     F: FnMut(i64, u32, *mut ::std::os::raw::c_void) -> (),
 >(
@@ -104013,6 +104615,10 @@ impl AeronInt64ToTaggedPtrHashMapPredicateFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callback<
     F: AeronInt64ToTaggedPtrHashMapPredicateFuncCallback,
     P: CallbackPolicy,
@@ -104056,6 +104662,10 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callbac
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callback_catch<
     F: AeronInt64ToTaggedPtrHashMapPredicateFuncCallback,
     P: CallbackPolicy,
@@ -104095,6 +104705,10 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callbac
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callback_for_once_closure_catch<
     F: FnMut(i64, u32, *mut ::std::os::raw::c_void) -> bool,
 >(
@@ -104260,6 +104874,10 @@ impl AeronTermGapScannerGapDetectedFuncCallback for NoHandler {
     }
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback<
     F: AeronTermGapScannerGapDetectedFuncCallback,
     P: CallbackPolicy,
@@ -104307,6 +104925,10 @@ unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback<
     )
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" `Handler` callback: every call takes `Handler::lock_raw`, a `RefCell` borrow"]
+#[doc = r" check or a `SharedHandler` mutex. Used by retained setters, close"]
+#[doc = r" notifications and non-poll methods that take a `Handler`. Polls never use it"]
 unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback_catch<
     F: AeronTermGapScannerGapDetectedFuncCallback,
     P: CallbackPolicy,
@@ -104346,6 +104968,10 @@ unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback_catc
     })
 }
 #[allow(dead_code)]
+#[doc = r""]
+#[doc = r" Borrowed callback: `clientd` is the caller's `&mut F` for this call only."]
+#[doc = r" No `lock()`, `RefCell`, mutex or reference count. `poll`, `poll_fn` and"]
+#[doc = r" other `_fn` methods use this form"]
 unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback_for_once_closure_catch<
     F: FnMut(i32, i32, usize) -> (),
 >(

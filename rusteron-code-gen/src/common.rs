@@ -528,6 +528,12 @@ impl<Owner: Clone, T> Clone for OwnedWithReference<Owner, T> {
 ///
 /// The closure calls the C close function, such as `aeron_close`. Reference-counted
 /// dependencies keep parent resources open until their children drop.
+// Performance: these fields are off the hot path. Publications, subscriptions,
+// counters and the client use `LiveCResource`, which caches the pointer, so
+// offer and poll never read them. `CResource` handles such as `AeronImage` pay
+// one Acquire load per `get()`, a plain load on x86-64 and `ldar` on aarch64.
+// The mutexes, `OnceLock` and flags only run on start, close, dependency changes
+// and blocking waits
 #[allow(dead_code)]
 pub struct ManagedCResource<T: NativeResource> {
     resource: std::sync::atomic::AtomicPtr<T>,
@@ -1059,8 +1065,8 @@ impl AeronErrorType {
 ///
 /// Construction is allocation-free (never reads `aeron_errmsg()`), so retry loops
 /// that discard the error stay cheap. Attach the message via `capture_errmsg()`
-/// (at the error site) or `with_message()`; `Display` / `get_last_err_message()`
-/// otherwise read the live `aeron_errmsg()` buffer.
+/// (at the error site) or `with_message()`. Otherwise `Display` and
+/// `get_last_err_message_owned()` read the live `aeron_errmsg()` buffer.
 #[derive(Clone)]
 pub struct AeronCError {
     pub code: i32,
@@ -1088,9 +1094,7 @@ impl AeronCError {
                 let backtrace = Backtrace::capture();
                 let backtrace = format!("{:?}", backtrace);
 
-                // Compile the backtrace-parsing regex ONCE, not per error.
-                // `from_code` sits on the error path; re-compiling the regex on
-                // every Aeron error (including back-pressure retries) is wasteful.
+                // Compile the regex once: `from_code` runs on every Aeron error, including back-pressure retries
                 static BACKTRACE_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
                 let re = BACKTRACE_RE
                     .get_or_init(|| regex::Regex::new(r#"fn: "([^"]+)", file: "([^"]+)", line: (\d+)"#).unwrap());
@@ -1383,11 +1387,9 @@ pub struct NativePollCallback<'a, F> {
 /// context neither updates that copy nor frees the old handler. Borrowed wrappers
 /// retain nothing, so keep your `Handler` alive while C can call it.
 ///
-/// Earlier manual cleanup often freed handlers while C could still call them,
-/// causing crashes or memory corruption. Keeping them through cleanup avoids this
-/// mistake, but keeps replaced closures and their captured values in memory too.
-/// Earlier release needs to track every C user through connection setup and cleanup.
-/// An `Arc` alone cannot track C's raw pointer copies.
+/// Retaining handlers through cleanup prevents C from calling a freed handler, but
+/// keeps replaced closures and their captured values in memory too. An `Arc` alone
+/// cannot track the raw pointer copies C makes.
 ///
 /// For retained callbacks, keep the `SharedHandler` returned by the setter and change
 /// its state with [`Self::lock`]. This waits for an active callback and must not be done
@@ -1398,15 +1400,16 @@ pub struct NativePollCallback<'a, F> {
 /// Use `*_fn` or `*_once` for callbacks that run during the call. Their closures
 /// stay on the stack, can borrow local variables and need no heap allocation.
 ///
-/// `Handler<T>` stays on its thread and uses `RefCell` to check mutable borrows.
-/// Local state access needs no mutex or atomic operation. Explicit
-/// `poll_with_handler` calls acquire one borrow guard for the whole call.
-/// [`SharedHandler<T>`] uses a mutex and is `Send + Sync` when `T: Send`.
-/// Shared callbacks acquire that mutex when invoked and can wait for another
-/// thread holding it. Use [`Self::lock`] to inspect or change callback state.
-/// Normal `poll` takes `&mut callback` and needs no runtime borrow check.
-/// For a receive loop with one callback owner, `poll_fn` or an owned
-/// `FragmentAssembler` uses direct Rust borrowing without callback guards.
+/// `Handler` is only for callbacks C keeps after the call returns, such as error, image,
+/// counter and close handlers. None of these run on the poll path. Polls never take a
+/// `Handler`: `poll(&mut callback)`, `poll_fn` and the owned assemblers borrow the callback
+/// directly with no `RefCell`, mutex or reference count.
+///
+/// `Handler<T>` stays on its thread and uses `RefCell` to check mutable borrows, with no
+/// mutex or atomic operation. [`SharedHandler<T>`] uses a mutex and is `Send + Sync` when
+/// `T: Send`. It takes that mutex on each callback and can wait for another thread holding
+/// it. Use [`Self::lock`] to inspect or change callback state. To poll with state held in
+/// a `Handler`, pass `&mut *handler.lock()`: one borrow check per poll call.
 pub struct Handler<T, P: CallbackPolicy = LocalCallback> {
     inner: P::Owner<T>,
 }
@@ -1473,14 +1476,16 @@ impl<T, P: CallbackPolicy> Handler<T, P> {
     /// acquires a mutex and may wait for a callback or another state guard.
     /// Neither form clones the handler or allocates memory to acquire the guard.
     ///
-    /// Explicit `poll_with_handler` calls hold one guard for the whole poll. `poll`, `poll_fn`
-    /// and an owned `FragmentAssembler` use direct Rust borrowing without these
-    /// guards; prefer them when one polling thread owns the callback.
+    /// Polls never call this. `poll(&mut *handler.lock(), limit)` in your own code holds one
+    /// guard for the whole poll
     #[inline]
     pub fn lock(&self) -> P::Guard<'_, T> {
         P::lock(&self.inner)
     }
 
+    /// Called by the `Handler` trampolines for callbacks C retains. The poll trampolines
+    /// borrow `&mut F` directly and never call this
+    ///
     /// # Safety
     /// `raw` must come from a live `Handler<T, P>` and remain valid for the call.
     #[inline]
@@ -1897,12 +1902,6 @@ impl IntoCString for String {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Idle strategies for poll loops. Pure-Rust port of Aeron's `IdleStrategy`
-// (Java/C++): pass the work count from the last `poll` to `idle(work_count)`; it returns
-// immediately when work was done, otherwise backs off the CPU (spin / yield / sleep).
-// ---------------------------------------------------------------------------
-
 /// Back off a poll loop when the last cycle did no work. Mirrors Aeron's `IdleStrategy`:
 /// `idle(work_count)` returns immediately when `work_count > 0`, otherwise spins / yields /
 /// sleeps depending on the implementation.
@@ -2206,16 +2205,13 @@ mod handler_tests {
 mod managed_c_resource_lifecycle_tests {
     use super::*;
 
-    // These tests pin down `manual_close_required`, the field that powers the
-    // Drop-time leak warning. The exact `AeronCncMetadata::load_from_file` bug
-    // was a `new(_, None, false)` resource, so the first test asserts that
-    // construction shape trips the flag. The resource pointers are dummies
-    // (never dereferenced); only the field value is checked.
+    // `manual_close_required` drives the Drop-time leak warning. The resource pointers
+    // are dummies (never dereferenced); only the field value is checked.
 
     #[test]
     #[cfg(not(feature = "strict-lifecycle"))] // would panic on drop under strict-lifecycle
     fn manual_close_required_true_for_none_cleanup_no_struct() {
-        // The bug shape: owned, no cleanup closure, no Rust struct ownership.
+        // Owned, no cleanup closure, no Rust struct ownership.
         let r: ManagedCResource<u8> = ManagedCResource::<u8>::new(
             |ctx| {
                 unsafe { *ctx = 0x1 as *mut u8 };

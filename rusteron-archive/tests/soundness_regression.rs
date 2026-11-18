@@ -55,7 +55,6 @@ fn retained_archive_context_survives_close_and_final_clone_drop() -> Result<(), 
     assert!(weak.upgrade().is_some());
     let nested_client = retained.as_ref().get_aeron();
     assert_eq!(nested_client.get_inner(), client.get_inner());
-    drop(nested_client);
     retained.as_ref().invoke_error_handler(1, 0, c"retained context");
     assert_eq!(weak.upgrade().unwrap().load(Ordering::Relaxed), 1);
     drop(retained);

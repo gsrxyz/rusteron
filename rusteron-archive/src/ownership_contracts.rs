@@ -52,3 +52,9 @@ fn archive_context_transfer_is_not_a_borrowed_getter() {}
 /// fn check(archive: &AeronArchive) { archive.get_and_own_control_response_subscription(); }
 /// ```
 fn archive_subscription_transfer_is_not_a_borrowed_getter() {}
+
+/// ```compile_fail,E0599
+/// # use rusteron_archive::*;
+/// fn check(value: &AeronArchivePersistentSubscription) { unsafe { value.get_and_own_persistent_subscription_context(); } }
+/// ```
+fn persistent_subscription_context_stays_owned_by_rust() {}

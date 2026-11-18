@@ -7,8 +7,11 @@ it as a standalone process or embed it in a Rust application.
 > For production deployments, we recommend the Aeron Java or C media driver.
 > The embedded version here is best suited to integration tests and lightweight environments.
 
-[GSR](https://www.gsr.io) sponsors and maintains Rusteron. It has run in GSR's
-low-latency trading system since early 2025.
+## Sponsored by GSR
+
+Rusteron is sponsored and maintained by [GSR](https://www.gsr.io), a global leader in algorithmic trading and market making in digital assets.
+Rusteron has been running in production in GSR's low-latency trading system since the beginning of 2025. It is mature and battle tested.
+It is developed under the GSR GitHub organisation. We welcome contributions, feedback and discussion. To integrate or contribute, open an issue or reach out directly.
 
 [Installation](#installation) · [Examples](#usage-examples) ·
 [UDP tuning](#udp-polling-and-send-batches) ·
@@ -16,7 +19,7 @@ low-latency trading system since early 2025.
 
 ## Installation
 
-This branch documents the 0.3 API. For a static build:
+For a static build:
 
 ```toml
 [dependencies]
@@ -34,14 +37,6 @@ See [BUILD.md](https://github.com/gsrxyz/rusteron/blob/main/BUILD.md) for prereq
 
 ## Usage examples
 
-For simple state updates, keep the setter's returned `SharedHandler` and use
-`handler.lock()`. This acquires a mutex shared with callback invocations; keep
-updates short. It does not add a lock to transport `offer` or `poll_fn`. See
-[synchronization costs](https://github.com/gsrxyz/rusteron/blob/main/docs/thread-safety.md#hot-path-behaviour).
-Use `AeronErrorHandlerSlot` when replacement must not wait for an active callback.
-Old callbacks are freed after their last call. See the
-[example](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/examples/replaceable_error_handler.rs).
-
 <details>
 <summary>Standalone media driver</summary>
 
@@ -54,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     context.set_dir(c"target/aeron")?;
     let driver = AeronDriver::new(&context)?;
     driver.start(true)?; // run the conductor duty cycle on this thread
-    // SAFETY: driver initialization froze this context configuration.
+    // SAFETY: driver initialisation froze this context configuration.
     println!("media driver running in {}", unsafe { context.get_dir() });
     loop {
         driver.main_idle_strategy(driver.main_do_work()?);
@@ -107,21 +102,20 @@ context.set_network_publication_max_messages_per_send(4)?;
 ```
 
 The socket poll limit defaults to 4. A send batch must fit within
-`sender_io_vector_capacity`. Driver initialization rejects a larger batch. The
+`sender_io_vector_capacity`. Driver initialisation rejects a larger batch. The
 maximum send batch is 64 messages.
 
 ---
 
 ## Building C against Aeron's headers
 
-Some driver extensions are C compiled against Aeron's own headers. The main one is a custom
-UDP transport, such as kernel bypass with DPDK or ef_vi. It fills in Aeron's
+Some driver extensions are C compiled against Aeron's own headers, such as a custom UDP
+transport (for example kernel bypass with DPDK or ef_vi). It fills in Aeron's
 `aeron_udp_channel_transport_bindings_t` and is installed with
 `AeronDriverContext::set_udp_channel_transport_bindings`. That C must see the headers of the
-Aeron this crate builds, or the structs it fills in will not match the driver's, and those
-headers exist only in this crate's vendored Aeron sources. So the crate declares
-`links = "aeron_driver"`, and Cargo hands their paths to the build script of every crate that
-depends on it directly:
+Aeron this crate builds, and they exist only in this crate's vendored Aeron sources. The
+crate declares `links = "aeron_driver"`, so Cargo passes their paths to the build script of
+every crate that depends on it directly:
 
 | Variable | Directory |
 |---|---|
@@ -141,10 +135,10 @@ fn main() {
 }
 ```
 
-Cargo allows one package per `links` name in a build. Two
-semver-incompatible versions of `rusteron-media-driver` cannot share a dependency graph. The
-workspace crate [`links-test`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-media-driver/links-test) compiles a C file against these paths, to check that these
-header paths work.
+Cargo allows one package per `links` name in a build, so two semver-incompatible versions
+of `rusteron-media-driver` cannot share a dependency graph. The workspace crate
+[`links-test`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-media-driver/links-test)
+compiles a C file against these paths.
 
 <a id="contributing--license"></a>
 
@@ -155,7 +149,7 @@ Dual-licensed under MIT or Apache-2.0.
 
 ---
 
-## Acknowledgments
+## Acknowledgements
 
 Special thanks to:
 

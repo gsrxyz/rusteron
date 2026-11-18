@@ -1,7 +1,7 @@
 //! # Persistent Subscription failure & recovery
 //!
 //! The failure-mode companion to `persistent_subscription.rs`. A persistent subscription
-//! rides through the loss of the live stream:
+//! survives the loss of the live stream:
 //!
 //! 1. replay + join live (`on_live_joined`);
 //! 2. the live publication dies → `on_live_left`. The subscription re-reads the recording,

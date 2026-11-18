@@ -14,7 +14,7 @@ use std::thread::JoinHandle;
 /// # use rusteron_media_driver::testing::EmbeddedDriver;
 /// let driver = EmbeddedDriver::launch().unwrap();
 /// // connect clients against driver.dir() ...
-/// // driver stops + joins when it goes out of scope
+/// // driver stops and joins when it goes out of scope
 /// ```
 pub struct EmbeddedDriver {
     dir: String,
@@ -37,7 +37,7 @@ impl EmbeddedDriver {
         let context = AeronDriverContext::new()?;
         context.set_dir_delete_on_shutdown(true)?;
         context.set_dir_delete_on_start(true)?;
-        // SAFETY: the text is copied before set_dir changes this local context.
+        // SAFETY: the text is copied before set_dir changes this local context
         context.set_dir(&format!("{}{}", unsafe { context.get_dir() }, Aeron::nano_clock()).into_c_string())?;
         configure(&context)?;
         let dir = context.get_dir_owned();
@@ -95,7 +95,7 @@ mod tests {
         let driver = EmbeddedDriver::launch().unwrap();
         assert!(!driver.dir().is_empty());
         let dir = driver.dir().to_string();
-        drop(driver); // stops + joins; dir deleted on shutdown
+        drop(driver); // stops, joins and deletes the dir
         assert!(!std::path::Path::new(&dir).join("cnc.dat").exists());
     }
 

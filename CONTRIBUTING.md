@@ -4,7 +4,6 @@ Submit bug fixes, documentation changes and new features through pull requests.
 
 ## Before you start
 
-- Submit changes via pull requests from a fork.
 - Run `cargo fmt --all`, `cargo clippy --all -- --deny warnings` and `cargo test` before submitting (CI enforces all three).
 - All contributions are dual-licensed under MIT and Apache-2.0.
 
@@ -47,7 +46,7 @@ Use [GitHub Issues](https://github.com/gsrxyz/rusteron/issues) to report bugs, r
 
 To fix typos, clarify text or fill in missing details, open a PR. Documentation-only changes do not need new tests.
 CI compiles the client, Archive and migration guide examples against the
-generated libraries. Examples retain this check when moved out of a README.
+generated libraries.
 
 ## Ownership and lifetime checks
 

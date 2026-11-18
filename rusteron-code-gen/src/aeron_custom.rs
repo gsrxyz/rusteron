@@ -219,9 +219,16 @@ impl AeronCnc {
     #[inline]
     pub fn read(aeron_dir: &std::ffi::CStr, mut handler: impl FnMut(&mut AeronCncRef)) -> Result<(), AeronCError> {
         let cnc = ManagedCResource::initialise(move |cnc| unsafe { aeron_cnc_init(cnc, aeron_dir.as_ptr(), 0) })?;
+        // Close on unwind too, so a panicking handler does not leak the mapped file
+        struct CloseOnDrop(*mut aeron_cnc_t);
+        impl Drop for CloseOnDrop {
+            fn drop(&mut self) {
+                unsafe { aeron_cnc_close(self.0) };
+            }
+        }
+        let _close = CloseOnDrop(cnc);
         let mut cnc = unsafe { AeronCnc::from_ptr(cnc) };
         handler(&mut cnc);
-        unsafe { aeron_cnc_close(cnc.get_inner()) };
         Ok(())
     }
 
@@ -500,7 +507,7 @@ impl AeronSubscription {
         )
         .ok()?;
         Some(AeronImage {
-            inner: CResource::new(ResourceRef::new(resource)),
+            inner: CResource::new(ResourceRef::new(resource)).into(),
         })
     }
 
@@ -834,11 +841,64 @@ impl<S: ResourceStorage<aeron_counters_reader_t>> AeronCountersReader<S> {
     /// let registration_id = publication.get_constants()?.registration_id;
     /// let limit_counter = counters_reader
     ///     .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, registration_id);
+    /// // or, typed
+    /// let limit_counter = counters_reader
+    ///     .find_by_counter_type_and_registration_id(AeronCounterTypeId::PublisherLimit, registration_id);
     /// ```
     pub fn find_by_type_and_registration_id(&self, type_id: i32, registration_id: i64) -> Option<i32> {
         self.find_by_type_id(type_id, |key| {
             key.len() >= 8 && i64::from_le_bytes(key[..8].try_into().unwrap()) == registration_id
         })
+    }
+
+    /// [`Self::find_by_type_id`] with a typed counter type
+    #[inline]
+    pub fn find_by_counter_type(
+        &self,
+        counter_type: AeronCounterTypeId,
+        predicate: impl FnMut(&[u8]) -> bool,
+    ) -> Option<i32> {
+        self.find_by_type_id(counter_type.code(), predicate)
+    }
+
+    /// [`Self::find_by_type_and_registration_id`] with a typed counter type, e.g.
+    /// `reader.find_by_counter_type_and_registration_id(AeronCounterTypeId::PublisherLimit, registration_id)`
+    #[inline]
+    pub fn find_by_counter_type_and_registration_id(
+        &self,
+        counter_type: AeronCounterTypeId,
+        registration_id: i64,
+    ) -> Option<i32> {
+        self.find_by_type_and_registration_id(counter_type.code(), registration_id)
+    }
+
+    /// [`Self::counter_type_id`] as an [`AeronCounterTypeId`]. Application-defined
+    /// types come back as [`AeronCounterTypeId::Unknown`]
+    #[inline]
+    pub fn counter_type(&self, counter_id: i32) -> Result<AeronCounterTypeId, AeronCError> {
+        self.counter_type_id(counter_id).map(AeronCounterTypeId::from_code)
+    }
+
+    /// [`Self::counter_state`] as an [`AeronCounterState`]
+    #[inline]
+    pub fn counter_record_state(&self, counter_id: i32) -> Result<AeronCounterState, AeronCError> {
+        self.counter_state(counter_id).map(AeronCounterState::from_code)
+    }
+
+    /// The value of a media driver system counter. The driver refuses to start unless
+    /// each system counter's id equals its enum value, so no lookup is needed
+    #[inline]
+    pub fn system_counter_value(&self, counter: AeronSystemCounterType) -> Result<i64, AeronCError> {
+        self.get_counter_value(counter as i32)
+    }
+
+    /// [`Self::foreach_counter_fn`] with the type id converted to an [`AeronCounterTypeId`].
+    /// The callback receives `(value, counter_id, counter_type, key, label)`
+    #[inline]
+    pub fn foreach_typed_counter_fn(&self, mut func: impl FnMut(i64, i32, AeronCounterTypeId, &[u8], &str)) {
+        self.foreach_counter_fn(|value, id, type_id, key, label| {
+            func(value, id, AeronCounterTypeId::from_code(type_id), key, label)
+        });
     }
 
     #[inline]
@@ -964,128 +1024,6 @@ impl Aeron {
         }
         log::error!("failed to create aeron client for {:?}", context);
         Err(AeronErrorType::TimedOut.into())
-    }
-}
-
-impl AeronFragmentAssembler {
-    /// Deletes the native assembler and releases its callback.
-    pub fn delete(self) -> Result<i32, AeronCError> {
-        self.inner.close_resource_deferred_if_shared()?;
-        Ok(0)
-    }
-}
-
-impl AeronControlledFragmentAssembler {
-    /// Deletes the native assembler and releases its callback.
-    pub fn delete(self) -> Result<i32, AeronCError> {
-        self.inner.close_resource_deferred_if_shared()?;
-        Ok(0)
-    }
-}
-
-impl AeronImageFragmentAssembler {
-    /// Deletes the native assembler and releases its callback.
-    pub fn delete(self) -> Result<i32, AeronCError> {
-        self.inner.close_resource_deferred_if_shared()?;
-        Ok(0)
-    }
-}
-
-impl AeronImageControlledFragmentAssembler {
-    /// Deletes the native assembler and releases its callback.
-    pub fn delete(self) -> Result<i32, AeronCError> {
-        self.inner.close_resource_deferred_if_shared()?;
-        Ok(0)
-    }
-}
-
-// The delegate's panic is caught so the assembler state stays valid; the poll raises it on return
-impl AeronFragmentHandlerCallback for AeronFragmentAssembler {
-    const RESUMES_CAUGHT_PANIC: bool = true;
-
-    #[inline]
-    fn native_poll_callback(&mut self) -> Option<NativePollCallback<'_, aeron_fragment_handler_t>> {
-        // SAFETY: C and C-unwind use the same calling convention. The native
-        // assembler calls a delegate that catches panics before returning to C.
-        let callback = unsafe {
-            std::mem::transmute::<_, aeron_fragment_handler_t>(Some(
-                aeron_fragment_assembler_handler as unsafe extern "C" fn(_, _, _, _),
-            ))
-        };
-        Some(NativePollCallback {
-            callback,
-            clientd: self.get_inner().cast(),
-            borrow: std::marker::PhantomData,
-        })
-    }
-
-    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader) -> () {
-        unsafe {
-            aeron_fragment_assembler_handler(
-                self.get_inner() as *mut _,
-                buffer.as_ptr(),
-                buffer.len(),
-                header.get_inner(),
-            )
-        }
-    }
-}
-
-impl AeronControlledFragmentHandlerCallback for AeronControlledFragmentAssembler {
-    const RESUMES_CAUGHT_PANIC: bool = true;
-
-    #[inline]
-    fn native_poll_callback(&mut self) -> Option<NativePollCallback<'_, aeron_controlled_fragment_handler_t>> {
-        // SAFETY: C and C-unwind use the same calling convention. The native
-        // assembler calls a delegate that catches panics before returning to C.
-        let callback = unsafe {
-            std::mem::transmute::<_, aeron_controlled_fragment_handler_t>(Some(
-                aeron_controlled_fragment_assembler_handler as unsafe extern "C" fn(_, _, _, _) -> _,
-            ))
-        };
-        Some(NativePollCallback {
-            callback,
-            clientd: self.get_inner().cast(),
-            borrow: std::marker::PhantomData,
-        })
-    }
-
-    fn handle_aeron_controlled_fragment_handler(
-        &mut self,
-        buffer: &[u8],
-        header: &AeronHeader,
-    ) -> aeron_controlled_fragment_handler_action_t {
-        unsafe {
-            aeron_controlled_fragment_assembler_handler(
-                self.get_inner() as *mut _,
-                buffer.as_ptr(),
-                buffer.len(),
-                header.get_inner(),
-            )
-        }
-    }
-}
-
-impl<T: AeronFragmentHandlerCallback + 'static> Handler<T> {
-    /// Wrap `handler` in a fragment assembler; both are reference-counted and freed
-    /// automatically when the last clones drop (the assembler keeps the delegate alive).
-    pub fn with_fragment_assembler(handler: T) -> Result<(Handler<AeronFragmentAssembler>, Handler<T>), AeronCError> {
-        let handler = Handler::new(handler);
-        Ok((Handler::new(AeronFragmentAssembler::new(Some(&handler))?), handler))
-    }
-}
-
-impl<T: AeronControlledFragmentHandlerCallback + 'static> Handler<T> {
-    /// Wrap `handler` in a controlled fragment assembler; both are reference-counted and
-    /// freed automatically when the last clones drop.
-    pub fn with_controlled_fragment_assembler(
-        handler: T,
-    ) -> Result<(Handler<AeronControlledFragmentAssembler>, Handler<T>), AeronCError> {
-        let handler = Handler::new(handler);
-        Ok((
-            Handler::new(AeronControlledFragmentAssembler::new(Some(&handler))?),
-            handler,
-        ))
     }
 }
 
@@ -1392,22 +1330,6 @@ macro_rules! impl_publication_methods {
                     AeronStatus::Disconnected
                 }
             }
-
-            /// Accessor for the registration id (no direct C accessor exists;
-            /// backed by [`Self::get_constants`]). `session_id`, `stream_id` and `channel`
-            /// have cheap direct getters, so prefer those; for `registration_id` /
-            /// `max_payload_length` in a hot loop, call [`Self::get_constants`] once and
-            /// reuse the returned [`AeronPublicationConstants`].
-            #[inline]
-            pub fn registration_id(&self) -> Result<i64, AeronCError> {
-                self.get_constants().map(|c| c.registration_id())
-            }
-
-            /// Accessor for the max payload length (see [`Self::registration_id`]).
-            #[inline]
-            pub fn max_payload_length(&self) -> Result<usize, AeronCError> {
-                self.get_constants().map(|c| c.max_payload_length())
-            }
         }
     };
 }
@@ -1450,6 +1372,24 @@ impl<S: ResourceStorage<aeron_publication_t>> AeronPublication<S> {
         buffer_claim: &AeronBufferClaim<impl ResourceStorage<aeron_buffer_claim_t>>,
     ) -> Result<i64, AeronOfferError> {
         AeronOfferError::from_position(self.try_claim_raw(length, buffer_claim))
+    }
+}
+
+impl AeronExclusivePublication {
+    /// Safe version of [`Self::revoke`]: revokes and closes the publication, then notifies
+    /// `on_close_complete` like [`Self::close_with_handler`]. Errors without revoking when
+    /// another owning clone is alive. Runs once at shutdown, so the `SharedHandler` mutex is
+    /// off the hot path
+    pub fn revoke_with_handler<AeronNotificationHandlerImpl: AeronNotificationCallback + Send + 'static>(
+        self,
+        on_close_complete: Option<&SharedHandler<AeronNotificationHandlerImpl>>,
+    ) -> Result<(), AeronCError> {
+        // Check before setting the flag, or a refused close would still revoke on the last close
+        if self.inner.as_owned().is_some_and(|owner| ResourceRef::strong_count(owner) > 1) {
+            return Err(AeronCError::with_message(-1, "revoke_with_handler requires the last owning handle"));
+        }
+        self.revoke_on_close();
+        self.close_with_handler(on_close_complete)
     }
 }
 
@@ -1537,254 +1477,10 @@ impl AeronErrorHandlerCallback for AeronErrorLogger {
     }
 }
 
-/// Runs the closure when dropped, so cleanup also happens when a panic unwinds
-struct OnDrop<F: FnMut()>(F);
-
-impl<F: FnMut()> Drop for OnDrop<F> {
-    fn drop(&mut self) {
-        (self.0)()
-    }
-}
-
-pub struct FnMutMessageHandler {
-    func: fn(*mut (), &[u8], &AeronHeader),
-    ctx: *mut (),
-}
-
-impl AeronFragmentHandlerCallback for FnMutMessageHandler {
-    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader) -> () {
-        self.call(buffer, header);
-    }
-}
-
-impl FnMutMessageHandler {
-    pub const fn new() -> Self {
-        Self {
-            func: Self::noop,
-            ctx: std::ptr::null_mut(),
-        }
-    }
-
-    #[inline]
-    /// Point this handler at `ctx` / `func` so the next [`call`](Self::call)
-    /// dispatches into them.
-    ///
-    /// # Safety
-    /// `ctx` must stay live, unmoved and exclusively available to this handler
-    /// until `clear` or the next `set`. The handler stores its address without a lifetime.
-    pub unsafe fn set<T>(&mut self, ctx: &mut T, func: fn(&mut T, &[u8], &AeronHeader)) -> &mut Self {
-        self.func = Self::wrap::<T>(func);
-        self.ctx = ctx as *mut T as *mut ();
-        self
-    }
-
-    #[inline(always)]
-    pub fn call(&mut self, msg: &[u8], header: &AeronHeader) {
-        (self.func)(self.ctx, msg, header);
-    }
-
-    /// Drop the borrowed `ctx` so a later stray [`call`](Self::call) is a safe no-op
-    /// (the `noop` func is restored and the pointer nulled) rather than a use-after-free.
-    ///
-    /// [`AeronFragmentClosureAssembler::poll`] calls this before returning so the
-    /// raw pointer never outlives the borrow it was created from.
-    #[inline]
-    pub const fn clear(&mut self) {
-        self.func = Self::noop;
-        self.ctx = std::ptr::null_mut();
-    }
-
-    #[inline]
-    fn wrap<T>(f: fn(&mut T, &[u8], &AeronHeader)) -> fn(*mut (), &[u8], &AeronHeader) {
-        // SAFETY: `fn(&mut T,…)` and `fn(*mut(),…)` have the same ABI/representation
-        unsafe { std::mem::transmute(f) }
-    }
-
-    fn noop(_: *mut (), _: &[u8], _: &AeronHeader) {
-        // default no-op handler
-    }
-}
-
-/// A poll target whose raw fragments can be reassembled by [`AeronFragmentAssembler`].
-/// Implemented for [`AeronSubscription`] here and for archive types in rusteron-archive.
-pub trait FragmentAssemblable {
-    fn poll_with_assembler(
-        &self,
-        assembler: Option<&Handler<AeronFragmentAssembler>>,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError>;
-}
-
-impl FragmentAssemblable for AeronSubscription {
-    #[inline]
-    fn poll_with_assembler(
-        &self,
-        assembler: Option<&Handler<AeronFragmentAssembler>>,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        self.poll_with_handler(assembler, fragment_limit)
-    }
-}
-
-pub struct AeronFragmentClosureAssembler {
-    assembler: Handler<AeronFragmentAssembler>,
-    handler: Handler<FnMutMessageHandler>,
-}
-
-impl AeronFragmentClosureAssembler {
-    pub fn new() -> Result<Self, AeronCError> {
-        let handler = Handler::new(FnMutMessageHandler::new());
-        Ok(Self {
-            assembler: Handler::new(AeronFragmentAssembler::new(Some(&handler))?),
-            handler,
-        })
-    }
-
-    /// Poll `pollable` (a subscription or persistent subscription), dispatching each
-    /// reassembled message to `func`. `ctx` is borrowed only for the duration of the call.
-    ///
-    /// Returns the fragment count from the underlying poll.
-    pub fn poll<P: FragmentAssemblable, T>(
-        &mut self,
-        pollable: &P,
-        ctx: &mut T,
-        func: fn(&mut T, &[u8], &AeronHeader),
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        unsafe {
-            self.handler.get_mut().set(ctx, func);
-        }
-        // clear `ctx` on return and on unwind, so no dangling pointer is left behind
-        let handler = &self.handler;
-        let _clear = OnDrop(|| unsafe { handler.get_mut().clear() });
-        pollable.poll_with_assembler(Some(&self.assembler), fragment_limit)
-    }
-}
-
-pub struct FnMutControlledMessageHandler {
-    func: fn(*mut (), &[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t,
-    ctx: *mut (),
-}
-
-impl FnMutControlledMessageHandler {
-    pub const fn new() -> Self {
-        Self {
-            func: Self::noop,
-            ctx: std::ptr::null_mut(),
-        }
-    }
-
-    #[inline]
-    /// Point this handler at `ctx` / `func` so the next [`call`](Self::call)
-    /// dispatches into them.
-    ///
-    /// # Safety
-    /// `ctx` must stay live, unmoved and exclusively available to this handler
-    /// until `clear` or the next `set`. The handler stores its address without a lifetime.
-    pub unsafe fn set<T>(
-        &mut self,
-        ctx: &mut T,
-        func: fn(&mut T, &[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t,
-    ) -> &mut Self {
-        self.func = Self::wrap::<T>(func);
-        self.ctx = ctx as *mut T as *mut ();
-        self
-    }
-
-    #[inline(always)]
-    pub fn call(&mut self, msg: &[u8], header: &AeronHeader) -> aeron_controlled_fragment_handler_action_t {
-        (self.func)(self.ctx, msg, header)
-    }
-
-    /// Drop the borrowed `ctx` (cf. [`FnMutMessageHandler::clear`]) so a later stray
-    /// [`call`](Self::call) returns `CONTINUE` instead of dereferencing a stale pointer.
-    #[inline]
-    pub const fn clear(&mut self) {
-        self.func = Self::noop;
-        self.ctx = std::ptr::null_mut();
-    }
-
-    #[inline]
-    fn wrap<T>(
-        f: fn(&mut T, &[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t,
-    ) -> fn(*mut (), &[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t {
-        unsafe { std::mem::transmute(f) }
-    }
-
-    fn noop(_: *mut (), _: &[u8], _: &AeronHeader) -> aeron_controlled_fragment_handler_action_t {
-        bindings::aeron_controlled_fragment_handler_action_en::AERON_ACTION_CONTINUE
-    }
-}
-
-impl AeronControlledFragmentHandlerCallback for FnMutControlledMessageHandler {
-    fn handle_aeron_controlled_fragment_handler(
-        &mut self,
-        buffer: &[u8],
-        header: &AeronHeader,
-    ) -> aeron_controlled_fragment_handler_action_t {
-        self.call(buffer, header)
-    }
-}
-
-/// A poll target whose raw fragments can be reassembled by [`AeronControlledFragmentAssembler`].
-pub trait ControlledFragmentAssemblable {
-    fn controlled_poll_with_assembler(
-        &self,
-        assembler: Option<&Handler<AeronControlledFragmentAssembler>>,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError>;
-}
-
-impl ControlledFragmentAssemblable for AeronSubscription {
-    #[inline]
-    fn controlled_poll_with_assembler(
-        &self,
-        assembler: Option<&Handler<AeronControlledFragmentAssembler>>,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        self.controlled_poll_with_handler(assembler, fragment_limit)
-    }
-}
-
-pub struct AeronControlledFragmentClosureAssembler {
-    assembler: Handler<AeronControlledFragmentAssembler>,
-    handler: Handler<FnMutControlledMessageHandler>,
-}
-
-impl AeronControlledFragmentClosureAssembler {
-    pub fn new() -> Result<Self, AeronCError> {
-        let handler = Handler::new(FnMutControlledMessageHandler::new());
-        Ok(Self {
-            assembler: Handler::new(AeronControlledFragmentAssembler::new(Some(&handler))?),
-            handler,
-        })
-    }
-
-    /// Controlled poll of `pollable`, dispatching each (possibly reassembled) message to
-    /// `func`. `ctx` is borrowed only for the duration of the call.
-    pub fn poll<P: ControlledFragmentAssemblable, T>(
-        &mut self,
-        pollable: &P,
-        ctx: &mut T,
-        func: fn(&mut T, &[u8], &AeronHeader) -> aeron_controlled_fragment_handler_action_t,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        unsafe {
-            self.handler.get_mut().set(ctx, func);
-        }
-        // clear `ctx` on return and on unwind, so no dangling pointer is left behind
-        let handler = &self.handler;
-        let _clear = OnDrop(|| unsafe { handler.get_mut().clear() });
-        pollable.controlled_poll_with_assembler(Some(&self.assembler), fragment_limit)
-    }
-}
-
 /// Status transition tracker that emits only when the observed [`AeronStatus`]
 /// differs from the previously recorded state.
 ///
-/// Mirrors the reactive side-channel pattern in wingfoil's `AeronStatusStream`,
-/// useful for driving application-level state machines (e.g. reconnect logic,
-/// UI indicators) that need to react to connection changes without polling.
+/// Use it to drive reconnect logic or UI indicators from connection changes.
 ///
 /// # Example
 /// ```ignore
@@ -1844,8 +1540,8 @@ impl Default for AeronStatusTracker {
 /// This validates the shape and character set of endpoint strings passed to
 /// [`AeronUriStringBuilder::endpoint`] or used directly in channel URIs like
 /// `aeron:udp?endpoint=localhost:40123`. Aeron does not validate input upfront;
-/// this function catches malformed endpoints before they reach the C layer,
-/// providing clearer error messages than the generic C parse failures.
+/// this function rejects malformed endpoints before they reach the C layer, with
+/// clearer errors than the C parse failures.
 ///
 /// # Accepted forms
 /// - `hostname:port` with host alphanumeric plus `-` and `.`, port 0-65535
@@ -2410,201 +2106,338 @@ impl AeronCError {
     }
 }
 
-/// A fragment assembler that owns its callback.
-///
-/// Polling and changing callback state require an exclusive borrow. No reference
-/// count, mutex or runtime callback borrow check is needed while polling.
-/// The callback may borrow local state. This assembler stays on its thread and
-/// cannot be cloned; use `Handler` when several owners need the same callback.
-///
-/// Use [`Self::handler`] and [`Self::handler_mut`] to access callback state
-/// between calls to [`Self::poll`].
-pub struct FragmentAssembler<T> {
-    native: std::ptr::NonNull<aeron_fragment_assembler_t>,
-    handler: Box<T>,
-    _local: std::marker::PhantomData<std::rc::Rc<()>>,
+// Owned assemblers
+//
+// The four native assemblers share one shape: C keeps a pointer to the boxed callback, and the
+// assembler itself is the handler passed to `poll`. The multi-session ones keep a buffer per
+// session in a hash map. The image ones keep one buffer for a single image, allocated at create,
+// so reassembly never looks up or allocates a session buffer while polling
+macro_rules! owned_assembler {
+    (
+        $(#[$doc:meta])*
+        $name:ident, $native:ty, $callback:ident, $handle:ident -> $action:ty,
+        $create:ident, $delete:ident, $assemble:ident, $catch:ident,
+        $native_handler:ty, poll $target:ident<$target_native:ty>.$poll:ident
+    ) => {
+        $(#[$doc])*
+        pub struct $name<T> {
+            native: std::ptr::NonNull<$native>,
+            handler: Box<T>,
+            _local: std::marker::PhantomData<std::rc::Rc<()>>,
+        }
+
+        impl<T: $callback> $name<T> {
+            pub fn new(handler: T) -> Result<Self, AeronCError> {
+                let mut handler = Box::new(handler);
+                let mut native = std::ptr::null_mut();
+                // SAFETY: the callback stays at a stable address until after native
+                // cleanup. The delegate catches panics before returning through C.
+                let result = unsafe { $create(&mut native, Some($catch::<T>), (&mut *handler as *mut T).cast()) };
+                if result < 0 {
+                    return Err(AeronCError::from_code(result));
+                }
+                let native = std::ptr::NonNull::new(native).ok_or_else(|| AeronCError::from_code(-1))?;
+                Ok(Self { native, handler, _local: std::marker::PhantomData })
+            }
+
+            /// Read callback state between polls.
+            pub fn handler(&self) -> &T {
+                &self.handler
+            }
+
+            /// Change callback state between polls.
+            pub fn handler_mut(&mut self) -> &mut T {
+                &mut self.handler
+            }
+
+            /// Poll and call the handler with complete messages.
+            #[inline]
+            pub fn poll<S: ResourceStorage<$target_native>>(
+                &mut self,
+                source: &$target<S>,
+                fragment_limit: usize,
+            ) -> Result<i32, AeronCError> {
+                source.$poll(self, fragment_limit)
+            }
+        }
+
+        impl<T> Drop for $name<T> {
+            fn drop(&mut self) {
+                // SAFETY: this is the only owner. The callback is still alive here.
+                unsafe {
+                    $delete(self.native.as_ptr());
+                }
+            }
+        }
+
+        impl<T: $callback> $callback for $name<T> {
+            const RESUMES_CAUGHT_PANIC: bool = true;
+
+            #[inline]
+            fn native_poll_callback(&mut self) -> Option<NativePollCallback<'_, $native_handler>> {
+                // SAFETY: C and C-unwind have the same calling convention. The delegate
+                // catches panics before returning through the native assembler.
+                let callback = unsafe {
+                    std::mem::transmute::<_, $native_handler>(Some(
+                        $assemble as unsafe extern "C" fn(_, _, _, _) -> _,
+                    ))
+                };
+                Some(NativePollCallback { callback, clientd: self.native.as_ptr().cast(), borrow: std::marker::PhantomData })
+            }
+
+            fn $handle(&mut self, buffer: &[u8], header: &AeronHeader) -> $action {
+                // SAFETY: exclusive access keeps the native assembler and its delegate
+                // valid for this call. The buffer and header are borrowed until it returns.
+                unsafe { $assemble(self.native.as_ptr().cast(), buffer.as_ptr(), buffer.len(), header.get_inner()) }
+            }
+        }
+    };
 }
 
-impl<T: AeronFragmentHandlerCallback> FragmentAssembler<T> {
-    pub fn new(handler: T) -> Result<Self, AeronCError> {
-        let mut handler = Box::new(handler);
-        let mut native = std::ptr::null_mut();
-        // SAFETY: the callback stays at a stable address until after native
-        // cleanup. The delegate catches panics before returning through C.
-        let result = unsafe {
-            aeron_fragment_assembler_create(
-                &mut native,
-                Some(aeron_fragment_handler_t_callback_for_borrowed_handler_catch::<T>),
-                (&mut *handler as *mut T).cast(),
-            )
-        };
-        if result < 0 {
-            return Err(AeronCError::from_code(result));
-        }
-        let native = std::ptr::NonNull::new(native).ok_or_else(|| AeronCError::from_code(-1))?;
-        Ok(Self {
-            native,
-            handler,
-            _local: std::marker::PhantomData,
-        })
-    }
+owned_assembler!(
+    /// A fragment assembler that owns its callback.
+    ///
+    /// Polling and changing callback state require an exclusive borrow. No reference
+    /// count, mutex or runtime callback borrow check is needed while polling.
+    /// The callback may borrow local state. This assembler stays on its thread and
+    /// cannot be cloned
+    ///
+    /// Use [`Self::handler`] and [`Self::handler_mut`] to access callback state
+    /// between calls to [`Self::poll`]. Use [`AeronImageFragmentAssembler`] when polling one image
+    FragmentAssembler, aeron_fragment_assembler_t, AeronFragmentHandlerCallback,
+    handle_aeron_fragment_handler -> (),
+    aeron_fragment_assembler_create, aeron_fragment_assembler_delete, aeron_fragment_assembler_handler,
+    aeron_fragment_handler_t_callback_for_borrowed_handler_catch,
+    aeron_fragment_handler_t, poll AeronSubscription<aeron_subscription_t>.poll
+);
 
-    /// Read callback state between polls.
-    pub fn handler(&self) -> &T {
-        &self.handler
-    }
+owned_assembler!(
+    /// A controlled fragment assembler that owns its callback.
+    ///
+    /// Use this when the callback needs to return `CONTINUE`, `ABORT`, `BREAK`, or
+    /// `COMMIT`. Like [`FragmentAssembler`], it can borrow local state, requires an
+    /// exclusive borrow while polling, and has no lock or reference count on the
+    /// polling path. Use [`Self::handler_mut`] to change callback state between polls.
+    ControlledFragmentAssembler, aeron_controlled_fragment_assembler_t, AeronControlledFragmentHandlerCallback,
+    handle_aeron_controlled_fragment_handler -> aeron_controlled_fragment_handler_action_t,
+    aeron_controlled_fragment_assembler_create, aeron_controlled_fragment_assembler_delete,
+    aeron_controlled_fragment_assembler_handler,
+    aeron_controlled_fragment_handler_t_callback_for_borrowed_handler_catch,
+    aeron_controlled_fragment_handler_t, poll AeronSubscription<aeron_subscription_t>.controlled_poll
+);
 
-    /// Change callback state between polls.
-    pub fn handler_mut(&mut self) -> &mut T {
-        &mut self.handler
-    }
+owned_assembler!(
+    /// A fragment assembler for a single image, such as one from
+    /// [`AeronSubscription::image_at_index`], that owns its callback.
+    ///
+    /// Unlike [`FragmentAssembler`] it keeps one buffer, allocated in [`Self::new`], so a
+    /// fragmented message needs no session lookup or allocation while polling. Feed it fragments
+    /// from one session only
+    AeronImageFragmentAssembler, aeron_image_fragment_assembler_t, AeronFragmentHandlerCallback,
+    handle_aeron_fragment_handler -> (),
+    aeron_image_fragment_assembler_create, aeron_image_fragment_assembler_delete,
+    aeron_image_fragment_assembler_handler,
+    aeron_fragment_handler_t_callback_for_borrowed_handler_catch,
+    aeron_fragment_handler_t, poll AeronImage<aeron_image_t>.poll
+);
 
+owned_assembler!(
+    /// The controlled counterpart of [`AeronImageFragmentAssembler`], for a single image
+    AeronImageControlledFragmentAssembler, aeron_image_controlled_fragment_assembler_t,
+    AeronControlledFragmentHandlerCallback,
+    handle_aeron_controlled_fragment_handler -> aeron_controlled_fragment_handler_action_t,
+    aeron_image_controlled_fragment_assembler_create, aeron_image_controlled_fragment_assembler_delete,
+    aeron_image_controlled_fragment_assembler_handler,
+    aeron_controlled_fragment_handler_t_callback_for_borrowed_handler_catch,
+    aeron_controlled_fragment_handler_t, poll AeronImage<aeron_image_t>.controlled_poll
+);
+
+impl<T> FragmentAssembler<T> {
     /// Release the partial message buffer for a session, if one exists.
     pub fn delete_session_buffer(&mut self, session_id: i32) -> bool {
         // SAFETY: the native assembler is live and exclusively borrowed.
         unsafe { aeron_fragment_assembler_delete_session_buffer(self.native.as_ptr(), session_id) }
     }
-
-    #[inline]
-    pub fn poll(&mut self, subscription: &AeronSubscription, fragment_limit: usize) -> Result<i32, AeronCError> {
-        subscription.poll(self, fragment_limit)
-    }
 }
 
-impl<T> Drop for FragmentAssembler<T> {
-    fn drop(&mut self) {
-        // SAFETY: this is the only owner. The callback is still alive here.
-        unsafe {
-            aeron_fragment_assembler_delete(self.native.as_ptr());
-        }
-    }
-}
-
-impl<T: AeronFragmentHandlerCallback> AeronFragmentHandlerCallback for FragmentAssembler<T> {
-    const RESUMES_CAUGHT_PANIC: bool = true;
-
-    #[inline]
-    fn native_poll_callback(&mut self) -> Option<NativePollCallback<'_, aeron_fragment_handler_t>> {
-        // SAFETY: C and C-unwind have the same calling convention. The delegate
-        // catches panics before returning through the native assembler.
-        let callback = unsafe {
-            std::mem::transmute::<_, aeron_fragment_handler_t>(Some(
-                aeron_fragment_assembler_handler as unsafe extern "C" fn(_, _, _, _),
-            ))
-        };
-        Some(NativePollCallback {
-            callback,
-            clientd: self.native.as_ptr().cast(),
-            borrow: std::marker::PhantomData,
-        })
-    }
-
-    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader) {
-        // SAFETY: exclusive access keeps the native assembler and its delegate
-        // valid for this call. The buffer and header are borrowed until it returns.
-        unsafe {
-            aeron_fragment_assembler_handler(
-                self.native.as_ptr().cast(), buffer.as_ptr(), buffer.len(), header.get_inner(),
-            );
-        }
-    }
-}
-
-/// A controlled fragment assembler that owns its callback.
-///
-/// Use this when the callback needs to return `CONTINUE`, `ABORT`, `BREAK`, or
-/// `COMMIT`. Like [`FragmentAssembler`], it can borrow local state, requires an
-/// exclusive borrow while polling, and has no lock or reference count on the
-/// polling path. Use [`Self::handler_mut`] to change callback state between polls.
-pub struct ControlledFragmentAssembler<T> {
-    native: std::ptr::NonNull<aeron_controlled_fragment_assembler_t>,
-    handler: Box<T>,
-    _local: std::marker::PhantomData<std::rc::Rc<()>>,
-}
-
-impl<T: AeronControlledFragmentHandlerCallback> ControlledFragmentAssembler<T> {
-    pub fn new(handler: T) -> Result<Self, AeronCError> {
-        let mut handler = Box::new(handler);
-        let mut native = std::ptr::null_mut();
-        // SAFETY: the callback has a stable address until after native cleanup.
-        // Panics are caught before the delegate returns to C.
-        let result = unsafe {
-            aeron_controlled_fragment_assembler_create(
-                &mut native,
-                Some(aeron_controlled_fragment_handler_t_callback_for_borrowed_handler_catch::<T>),
-                (&mut *handler as *mut T).cast(),
-            )
-        };
-        if result < 0 {
-            return Err(AeronCError::from_code(result));
-        }
-        let native = std::ptr::NonNull::new(native).ok_or_else(|| AeronCError::from_code(-1))?;
-        Ok(Self {
-            native,
-            handler,
-            _local: std::marker::PhantomData,
-        })
-    }
-
-    /// Read callback state between polls.
-    pub fn handler(&self) -> &T {
-        &self.handler
-    }
-
-    /// Change callback state between polls.
-    pub fn handler_mut(&mut self) -> &mut T {
-        &mut self.handler
-    }
-
+impl<T> ControlledFragmentAssembler<T> {
     /// Release the partial message buffer for a session, if one exists.
     pub fn delete_session_buffer(&mut self, session_id: i32) -> bool {
         // SAFETY: the native assembler is live and exclusively borrowed.
         unsafe { aeron_controlled_fragment_assembler_delete_session_buffer(self.native.as_ptr(), session_id) }
     }
-
-    /// Poll a subscription and call the handler with complete messages.
-    #[inline]
-    pub fn poll(&mut self, subscription: &AeronSubscription, fragment_limit: usize) -> Result<i32, AeronCError> {
-        subscription.controlled_poll(self, fragment_limit)
-    }
 }
 
-impl<T> Drop for ControlledFragmentAssembler<T> {
-    fn drop(&mut self) {
-        // SAFETY: this is the only owner. The callback is still alive here.
-        unsafe {
-            aeron_controlled_fragment_assembler_delete(self.native.as_ptr());
+// The native assembler struct is opaque, so its delegate cannot change per poll. The closure
+// assemblers give C one fixed delegate that reads this slot, and every entry point writes the
+// closure into the slot before C can call it. A stale pointer from an earlier call is never read
+struct ClosureSlot<A> {
+    call: unsafe fn(*mut (), &[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> A,
+    ctx: *mut (),
+}
+
+impl<A> ClosureSlot<A> {
+    #[inline(always)]
+    fn set<F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> A>(&mut self, f: &mut F) {
+        unsafe fn shim<A, F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> A>(
+            ctx: *mut (), buffer: &[u8], header: &AeronHeader<Borrowed<aeron_header_t>>,
+        ) -> A {
+            // SAFETY: `set` stored a live `&mut F` that stays borrowed for the whole poll
+            unsafe { (*ctx.cast::<F>())(buffer, header) }
         }
+        self.call = shim::<A, F>;
+        self.ctx = (f as *mut F).cast();
     }
 }
 
-impl<T: AeronControlledFragmentHandlerCallback> AeronControlledFragmentHandlerCallback for ControlledFragmentAssembler<T> {
+impl AeronFragmentHandlerCallback for ClosureSlot<()> {
+    #[inline(always)]
+    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader<Borrowed<aeron_header_t>>) {
+        // SAFETY: only reached from a poll that called `set` first
+        unsafe { (self.call)(self.ctx, buffer, header) }
+    }
+}
+
+impl AeronControlledFragmentHandlerCallback for ClosureSlot<aeron_controlled_fragment_handler_action_t> {
+    #[inline(always)]
+    fn handle_aeron_controlled_fragment_handler(
+        &mut self, buffer: &[u8], header: &AeronHeader<Borrowed<aeron_header_t>>,
+    ) -> aeron_controlled_fragment_handler_action_t {
+        // SAFETY: only reached from a poll that called `set` first
+        unsafe { (self.call)(self.ctx, buffer, header) }
+    }
+}
+
+/// A fragment assembler that takes a new closure on every poll.
+///
+/// Use [`FragmentAssembler`] when the callback is a fixed struct. This one costs one extra
+/// indirect call per complete message and has no lock, reference count or allocation per poll.
+/// A persistent subscription already reassembles, so poll it with `poll_fn` instead
+///
+/// ```ignore
+/// let mut assembler = AeronFragmentClosureAssembler::new()?;
+/// assembler.poll(&subscription, |msg, header| println!("{} bytes", msg.len()), 10)?;
+/// // Or with any poll that takes a handler
+/// subscription.poll(&mut assembler.with(|msg, _header| total += msg.len()), 10)?;
+/// ```
+pub struct AeronFragmentClosureAssembler {
+    inner: FragmentAssembler<ClosureSlot<()>>,
+}
+
+impl AeronFragmentClosureAssembler {
+    pub fn new() -> Result<Self, AeronCError> {
+        fn noop(_: *mut (), _: &[u8], _: &AeronHeader<Borrowed<aeron_header_t>>) {}
+        Ok(Self { inner: FragmentAssembler::new(ClosureSlot { call: noop, ctx: std::ptr::null_mut() })? })
+    }
+
+    /// Wrap `handler` so this assembler can be passed to any poll that takes a fragment handler
+    #[inline]
+    pub fn with<F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>)>(&mut self, handler: F) -> FragmentClosureHandler<'_, F> {
+        FragmentClosureHandler { assembler: &mut self.inner, handler }
+    }
+
+    /// Poll a subscription and call `handler` with complete messages
+    #[inline]
+    pub fn poll<S: ResourceStorage<aeron_subscription_t>, F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>)>(
+        &mut self, subscription: &AeronSubscription<S>, handler: F, fragment_limit: usize,
+    ) -> Result<i32, AeronCError> {
+        subscription.poll(&mut self.with(handler), fragment_limit)
+    }
+
+    /// Release the partial message buffer for a session, if one exists.
+    pub fn delete_session_buffer(&mut self, session_id: i32) -> bool {
+        self.inner.delete_session_buffer(session_id)
+    }
+}
+
+/// A closure bound to a [`AeronFragmentClosureAssembler`] for one poll call
+pub struct FragmentClosureHandler<'a, F> {
+    assembler: &'a mut FragmentAssembler<ClosureSlot<()>>,
+    handler: F,
+}
+
+impl<F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>)> AeronFragmentHandlerCallback for FragmentClosureHandler<'_, F> {
+    const RESUMES_CAUGHT_PANIC: bool = true;
+
+    #[inline]
+    fn native_poll_callback(&mut self) -> Option<NativePollCallback<'_, aeron_fragment_handler_t>> {
+        // The poll borrows `self` until it returns, so the closure cannot move while C uses it
+        self.assembler.handler_mut().set(&mut self.handler);
+        self.assembler.native_poll_callback()
+    }
+
+    #[inline]
+    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader<Borrowed<aeron_header_t>>) {
+        self.assembler.handler_mut().set(&mut self.handler);
+        self.assembler.handle_aeron_fragment_handler(buffer, header)
+    }
+}
+
+/// A controlled fragment assembler that takes a new closure on every poll.
+///
+/// Use [`ControlledFragmentAssembler`] when the callback is a fixed struct. Costs and usage
+/// match [`AeronFragmentClosureAssembler`], but the closure returns the poll action.
+/// A persistent subscription already reassembles, so poll it with `controlled_poll_fn` instead
+pub struct AeronControlledFragmentClosureAssembler {
+    inner: ControlledFragmentAssembler<ClosureSlot<aeron_controlled_fragment_handler_action_t>>,
+}
+
+impl AeronControlledFragmentClosureAssembler {
+    pub fn new() -> Result<Self, AeronCError> {
+        fn abort(_: *mut (), _: &[u8], _: &AeronHeader<Borrowed<aeron_header_t>>) -> aeron_controlled_fragment_handler_action_t {
+            aeron_controlled_fragment_handler_action_t::AERON_ACTION_ABORT
+        }
+        Ok(Self { inner: ControlledFragmentAssembler::new(ClosureSlot { call: abort, ctx: std::ptr::null_mut() })? })
+    }
+
+    /// Wrap `handler` so this assembler can be passed to any controlled poll
+    #[inline]
+    pub fn with<F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> aeron_controlled_fragment_handler_action_t>(
+        &mut self, handler: F,
+    ) -> ControlledFragmentClosureHandler<'_, F> {
+        ControlledFragmentClosureHandler { assembler: &mut self.inner, handler }
+    }
+
+    /// Poll a subscription and call `handler` with complete messages
+    #[inline]
+    pub fn poll<
+        S: ResourceStorage<aeron_subscription_t>,
+        F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> aeron_controlled_fragment_handler_action_t,
+    >(
+        &mut self, subscription: &AeronSubscription<S>, handler: F, fragment_limit: usize,
+    ) -> Result<i32, AeronCError> {
+        subscription.controlled_poll(&mut self.with(handler), fragment_limit)
+    }
+
+    /// Release the partial message buffer for a session, if one exists.
+    pub fn delete_session_buffer(&mut self, session_id: i32) -> bool {
+        self.inner.delete_session_buffer(session_id)
+    }
+}
+
+/// A closure bound to a [`AeronControlledFragmentClosureAssembler`] for one poll call
+pub struct ControlledFragmentClosureHandler<'a, F> {
+    assembler: &'a mut ControlledFragmentAssembler<ClosureSlot<aeron_controlled_fragment_handler_action_t>>,
+    handler: F,
+}
+
+impl<F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> aeron_controlled_fragment_handler_action_t>
+    AeronControlledFragmentHandlerCallback for ControlledFragmentClosureHandler<'_, F>
+{
     const RESUMES_CAUGHT_PANIC: bool = true;
 
     #[inline]
     fn native_poll_callback(&mut self) -> Option<NativePollCallback<'_, aeron_controlled_fragment_handler_t>> {
-        // SAFETY: both ABIs have the same calling convention. The delegate
-        // catches panics before returning through the native assembler.
-        let callback = unsafe {
-            std::mem::transmute::<_, aeron_controlled_fragment_handler_t>(Some(
-                aeron_controlled_fragment_assembler_handler as unsafe extern "C" fn(_, _, _, _) -> _,
-            ))
-        };
-        Some(NativePollCallback {
-            callback,
-            clientd: self.native.as_ptr().cast(),
-            borrow: std::marker::PhantomData,
-        })
+        // The poll borrows `self` until it returns, so the closure cannot move while C uses it
+        self.assembler.handler_mut().set(&mut self.handler);
+        self.assembler.native_poll_callback()
     }
 
+    #[inline]
     fn handle_aeron_controlled_fragment_handler(
-        &mut self, buffer: &[u8], header: &AeronHeader,
+        &mut self, buffer: &[u8], header: &AeronHeader<Borrowed<aeron_header_t>>,
     ) -> aeron_controlled_fragment_handler_action_t {
-        // SAFETY: the assembler is exclusively borrowed and owns its delegate.
-        unsafe {
-            aeron_controlled_fragment_assembler_handler(
-                self.native.as_ptr().cast(), buffer.as_ptr(), buffer.len(), header.get_inner(),
-            )
-        }
+        self.assembler.handler_mut().set(&mut self.handler);
+        self.assembler.handle_aeron_controlled_fragment_handler(buffer, header)
     }
 }

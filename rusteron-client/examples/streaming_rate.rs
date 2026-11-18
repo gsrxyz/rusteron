@@ -29,7 +29,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let running_ctrl_c = Arc::clone(&running);
     ctrlc::set_handler(move || running_ctrl_c.store(false, Ordering::SeqCst))?;
 
-    // Embedded media driver (the C samples assume an external `aeronmd`).
     // embedded media driver with RAII teardown (stops + joins on drop)
     let driver = EmbeddedDriver::launch()?;
 
@@ -67,10 +66,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         loop {
             let fragments = assembler.poll(
                 &subscription,
-                &mut counters,
-                |c, buf, _hdr| {
-                    c.0 += 1;
-                    c.1 += buf.len() as u64;
+                |buf, _hdr| {
+                    counters.0 += 1;
+                    counters.1 += buf.len() as u64;
                 },
                 FRAGMENT_LIMIT,
             )?;

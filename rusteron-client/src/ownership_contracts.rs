@@ -1,25 +1,3 @@
-//! Compile-time ownership and FFI safety contracts.
-//! Run with `cargo test --doc ownership_contracts --features static`.
-
-/// ```compile_fail,E0133
-/// # use rusteron_client::*;
-/// let mut handler = FnMutMessageHandler::new();
-/// let mut state = 0;
-/// handler.set(&mut state, |state, _, _| *state += 1);
-/// ```
-fn erased_message_handler_cannot_store_a_context_in_safe_code() {}
-
-/// ```compile_fail,E0133
-/// # use rusteron_client::*;
-/// let mut handler = FnMutControlledMessageHandler::new();
-/// let mut state = 0;
-/// handler.set(&mut state, |state, _, _| {
-///     *state += 1;
-///     bindings::aeron_controlled_fragment_handler_action_en::AERON_ACTION_CONTINUE
-/// });
-/// ```
-fn erased_controlled_handler_cannot_store_a_context_in_safe_code() {}
-
 /// ```compile_fail,E0133
 /// # use rusteron_client::*;
 /// fn check(params: bindings::aeron_uri_stct__bindgen_ty_1) {
@@ -150,13 +128,6 @@ fn scoped_output_has_no_clone() {}
 /// ```
 fn claim_guard_has_no_clone() {}
 
-/// ```compile_fail,E0277
-/// # use rusteron_client::*;
-/// # fn require_clone<T: Clone>(_: &T) {}
-/// fn check(value: &AeronFragmentAssembler) { require_clone(value); }
-/// ```
-fn unique_assembler_has_no_clone() {}
-
 /// ```compile_fail,E0133
 /// # use rusteron_client::*;
 /// fn check(pointer: *mut std::ffi::c_void) { Aeron::free(pointer); }
@@ -175,26 +146,6 @@ fn native_unmap_requires_unsafe() {}
 /// ```
 fn native_buffer_initializer_requires_unsafe() {}
 
-/// ```compile_fail,E0277
-/// # use rusteron_client::*;
-/// # fn require_clone<T: Clone>(_: &T) {}
-/// fn check(value: &AeronImageFragmentAssembler) { require_clone(value); }
-/// ```
-fn image_assembler_has_no_clone() {}
-
-/// ```compile_fail,E0277
-/// # use rusteron_client::*;
-/// # fn require_clone<T: Clone>(_: &T) {}
-/// fn check(value: &AeronImageControlledFragmentAssembler) { require_clone(value); }
-/// ```
-fn image_controlled_assembler_has_no_clone() {}
-
-/// ```compile_fail,E0382
-/// # use rusteron_client::*;
-/// fn check(value: AeronImageFragmentAssembler) { value.delete().unwrap(); value.delete().unwrap(); }
-/// ```
-fn image_assembler_delete_consumes_owner() {}
-
 /// ```compile_fail,E0624
 /// # use rusteron_client::*;
 /// fn check(value: &AeronAsyncAddPublication) { AeronPublication::new(value); }
@@ -206,12 +157,6 @@ fn async_constructor_cannot_bypass_poll() {}
 /// fn check(value: &AeronAsyncAddPublication) { value.as_ref(); }
 /// ```
 fn async_handle_has_no_cached_borrow() {}
-
-/// ```compile_fail,E0133
-/// # use rusteron_client::*;
-/// fn check(header: &AeronHeader) { AeronImageFragmentAssembler::handler(std::ptr::null_mut(), &[], header); }
-/// ```
-fn image_assembler_raw_handler_requires_unsafe() {}
 
 /// ```compile_fail,E0505
 /// # use rusteron_client::*;

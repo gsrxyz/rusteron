@@ -289,14 +289,20 @@ pub fn classify_method_args(
     }
 }
 
-// not ideal to have these constants but these are exceptions to the rule
-/// Types a C setter takes ownership of. C frees them, so `self` must not keep them too
+// exceptions to the general ownership rule
+/// Types a C setter takes ownership of. C frees them, so `self` must not keep them too.
+/// The generator also derives from this list that their setters are `unsafe` and their
+/// getters return `Option`, as C holds NULL until the setter runs
 const C_OWNED_SET_TYPES: &[&str] = &["aeron_counter_t", "aeron_udp_channel_interceptor_bindings_t"];
+
+pub(crate) fn is_c_owned_set_type(c_type: &str) -> bool {
+    C_OWNED_SET_TYPES.iter().any(|t| c_type.ends_with(t))
+}
 
 /// Whether a C setter keeps a pointer to `arg` without owning it (e.g.
 /// aeron_archive_context_set_aeron). If so, `self` must keep `arg` alive
 fn setter_borrows_arg(method: &Method, arg: &Arg) -> bool {
-    method.fn_name.contains("_set_") && !C_OWNED_SET_TYPES.iter().any(|t| arg.c_type.ends_with(t))
+    method.fn_name.contains("_set_") && !is_c_owned_set_type(&arg.c_type)
 }
 
 fn own_archive_callback_setter(name: &str) -> bool {

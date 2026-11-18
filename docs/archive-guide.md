@@ -14,10 +14,10 @@ See the [Archive README](../rusteron-archive/README.md) for setup and examples.
 Supported owning wrappers implement `Clone` and share the same underlying Aeron
 C resource. Borrowed and inline storage do not implement `Clone`.
 
-`AeronArchiveContext` has no `Clone` implementation. A `Ref` returned by an archive
+`AeronArchiveContext` has no `Clone`. A `Ref` returned by an archive
 borrows that archive and cannot be cloned. Use `retain_archive_context()` or
-`aeron_owned()` to retain the archive while using its child through `as_ref()`.
-If setup code needs to share an owning context, create it inside `Rc` and clone
+`aeron_owned()` to keep the archive alive while using its child through `as_ref()`.
+To share an owning context in setup code, create it inside an `Rc` and clone
 the `Rc`.
 
 Native fragment assemblers and callback-only structs such as
@@ -26,28 +26,23 @@ Native fragment assemblers and callback-only structs such as
 For plain data structs, `.clone_struct()` makes a shallow copy; it is `unsafe`
 when the struct holds pointers such as strings.
 
-### Mutable and immutable APIs
+### Resource management
 
 Most methods take `&self` and update the C resource without transferring ownership.
-
-### Resource management caveats
-
-Owning constructors and completed asynchronous registrations manage native
-cleanup. Setters such as `set_aeron()` retain the dependencies needed by the
-context. A borrowed getter does not create an independent native owner.
+Owning constructors and completed asynchronous registrations clean up native
+resources. A borrowed getter does not create an independent native owner.
 
 `archive.get_archive_context()`, the pollers and other getters return a `Ref`, which
-borrows the archive. The compiler stops you from dropping or closing the archive while
-you still use the result. The archive context has no `Clone` or safe raw-pointer/native-struct
-conversion that can turn this borrow into an owned context. Retained-callback setters
-and new archive connections require an owning context and reject a borrowed one. See
+borrows the archive. The compiler stops you dropping or closing the archive while
+you still use the result. Retained-callback setters and new archive connections
+need an owning context and reject a borrowed one. See
 [the migration guide](migrating_0.2_to_0.3.md#archive-ownership-and-strings).
 
 ### Handlers and errors
 
 Retained-callback setters accept a closure or callback implementation by value.
 The registering resource keeps it alive. The setter returns a `SharedHandler`
-for synchronized state access.
+for synchronised state access.
 For synchronous polling, pass a stack closure:
 
 ```rust,no_run
@@ -63,68 +58,29 @@ subscription.poll_fn(|buf: &[u8], header: &AeronHeader| println!("{} bytes", buf
 
 `Handlers::NONE` fits any optional callback slot.
 
-### Why replaced handlers stay alive
+<a id="why-replaced-handlers-stay-alive"></a>
+
+### Replacing handlers on a context
 
 `AeronArchiveAsyncConnect::new_with_aeron()` copies the C archive context, including
 its handler pointers, before you poll for the connection. Replacing a handler on the
-original context only changes that context. The connection keeps using the earlier
-handler. Configure handlers before starting a connection if it should use them.
+original context afterwards changes only that context. The connection keeps the handler
+it copied. Configure handlers before starting a connection.
 
-`SharedHandler` uses `Arc`, but C copies raw pointers. Those copies do not increase the
-Rust reference count or tell Rust when C has finished using the handler.
-
-The error, recording-signal, delegating-invoker and custom idle-strategy setters
-replace the context's retained handler after a successful C call. Replacing or
-clearing an unused handler releases its captured values. Each pending connection
-keeps a snapshot of the registrations it copied. On success, that snapshot moves
-to the connected archive. Explicit shared-handler clones can keep a callback alive longer.
-
-Connections still retain the source context because C borrows its idle-strategy
-state. That source context keeps its current handler, even if only an earlier
-connection retains the context. This does not keep a history of replaced handlers.
-Credential-supplier registrations and transport-client callbacks retain their
-existing cleanup rules.
-
-An archive-owned context is borrowed. Its retained-callback setters and new
-connection methods return an error before changing C. Configure an owning context
-before connecting. Replacing a running or borrowed callback returns an error;
-change it after the call finishes. A native idle strategy cannot be replaced after initialization,
-because existing connections may still use its state.
-
-This example assumes `ctx` contains the channels of a running archive and uses `aeron`:
-
-```rust,no_run
-# use rusteron_archive::*;
-# use std::time::Duration;
-# fn snippet(ctx: &AeronArchiveContext, aeron: &Aeron) -> Result<(), AeronCError> {
-use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
-
-let old_calls = Arc::new(AtomicUsize::new(0));
-let old_capture = old_calls.clone();
-ctx.set_error_handler(Some(move |_, _: &str| {
-    old_capture.fetch_add(1, Ordering::SeqCst);
-}))?;
-
-// Aeron copies the old handler pointer here, before poll_blocking().
-let connecting = AeronArchiveAsyncConnect::new_with_aeron(ctx, aeron)?;
-let new_calls = Arc::new(AtomicUsize::new(0));
-let new_capture = new_calls.clone();
-ctx.set_error_handler(Some(move |_, _: &str| {
-    new_capture.fetch_add(1, Ordering::SeqCst);
-}))?;
-let archive = connecting.poll_blocking(Duration::from_secs(5))?;
-
-// Invoke each context's handler directly to check which callback it holds.
-archive.get_archive_context().invoke_error_handler(1, 0, c"connected context");
-ctx.invoke_error_handler(2, 0, c"original context");
-assert_eq!(old_calls.load(Ordering::SeqCst), 1);
-assert_eq!(new_calls.load(Ordering::SeqCst), 1);
-# Ok(()) }
-```
-
-The [regression test](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/src/lib.rs) starts an archive and checks
-that a connection uses its original handler, unused replacements are freed, and
-closing the connection releases its old handler while the source context remains alive.
+- The error, recording-signal, delegating-invoker and custom idle-strategy setters
+  replace the context's retained handler after a successful C call. Replacing or
+  clearing an unused handler frees its captured values.
+- A pending connection keeps the registrations it copied. On success they move to the
+  connected archive. Explicit `SharedHandler` clones can keep a callback alive longer.
+- A connection keeps its source context alive, because C borrows the idle-strategy state.
+- An archive-owned context is borrowed. Its retained-callback setters and connection
+  methods return an error before changing C. Configure an owning context before
+  connecting.
+- Replacing a running or borrowed callback returns an error. Change it after the call
+  finishes.
+- Do not replace the idle strategy after connecting. Aeron 1.54.2 frees the Rust
+  handler's state when the context closes
+  ([aeron#2250](https://github.com/aeron-io/aeron/issues/2250)).
 
 ### Replacing callback state through its handler
 
@@ -133,14 +89,12 @@ for a running callback. `handler.lock()` gives exclusive access to its state.
 Changing that state also affects connections that copied the same native handler
 pointer. It does not register another callback.
 
-This shared handler uses a mutex for state updates and each callback invocation.
-Keep updates short to limit callback delays. Transport receive loops can use
-`poll_fn` or an owned assembler with direct Rust borrowing and no callback mutex.
-Local `Handler::lock()` and `borrow()` use a `RefCell` check without a mutex or
-atomic operation. See [synchronization costs](thread-safety.md#hot-path-behaviour).
+A shared handler uses a mutex for state updates and each callback call, so keep
+updates short. For transport receive loops, use `poll_fn` or an owned assembler,
+which take no callback mutex. See [callback costs](thread-safety.md#hot-path-behaviour).
 
 A concrete callback struct can update its fields without dynamic dispatch. To
-replace it with different closure types, choose a boxed callback when registering:
+replace it with different closure types, register a boxed callback:
 
 ```rust,no_run
 use rusteron_archive::*;
@@ -160,14 +114,12 @@ drop(previous); // Drop captured values after releasing the handler lock.
 # Ok(()) }
 ```
 
-The boxed form adds a dynamic callback call. Both forms use the existing handler
-lock without cloning a callback owner on each invocation. Keep the returned
-handler; passing another handler as the setter's callback value adds a wrapper
-and another lock.
+The boxed form adds a dynamic call. Keep the returned handler. Passing another
+handler as the setter's callback value adds a wrapper and another lock.
 
-Replacement waits for an active callback, and must not be attempted from inside
-that same callback. Use a slot when replacement must finish while an earlier
-call is still running, or when a callback needs to replace or clear itself.
+Replacement waits for an active callback and must not be attempted from inside
+that callback. Use a slot when replacement must finish while an earlier
+call is still running, or when a callback must replace or clear itself.
 
 ### Changing a callback without waiting for an active call
 
@@ -195,11 +147,10 @@ handler.clear();
 Old callbacks and their captured values are freed after their last call finishes.
 Archive connections share the slot, so they also use the new callback.
 
-Callbacks can change captured values. Captures must be owned and safe to move
-between threads. Calls to the same callback run one at a time. It can replace
-or clear itself, but calling itself again will deadlock. A non-empty slot takes
-two internal mutex locks and clones an `Arc` per invocation. Calling it through
-a retained handler adds the handler's own lock, for three lock acquisitions in total.
+Captures must be owned and safe to move between threads. Calls to the same callback
+run one at a time. A callback can replace or clear itself, but calling itself again
+deadlocks. A non-empty slot takes two internal mutex locks and clones an `Arc` per
+call. Called through a retained handler, it adds the handler's own lock, for three.
 
 The [runnable example](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/examples/replaceable_error_handler.rs)
 needs no archive server:
@@ -221,8 +172,8 @@ use rusteron_archive::{
 let handler = AeronControlledFragmentHandlerSlot::new(|| AERON_ACTION_ABORT);
 ```
 
-Handler registration, callbacks, error checking and idle strategies work the
-same way as in `rusteron-client`. See these sections of its documentation:
+Handler registration, callbacks, error checking and idle strategies work as in
+`rusteron-client`:
 
 - [Client handlers and callbacks](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/README.md#handlers-and-callbacks)
 - [Client errors and offer results](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/README.md#errors--offer-results)
@@ -235,15 +186,14 @@ Constructors, async-connect and context setters return `AeronCError`.
 `From<AeronArchiveError> for AeronCError` keeps `?` working across both and
 preserves the native code and captured message.
 
-Rusteron reads `aeron_errcode()` after a failed control request. It does not
-parse the message to identify the error. Known codes use Aeron's public
-`AERON_ARCHIVE_ERROR_CODE_*` and `AERON_ARCHIVE_CLIENT_ERROR_*` constants.
-Other errors retain their numeric code and sign in `Unknown(code)`.
+Known codes map to Aeron's public `AERON_ARCHIVE_ERROR_CODE_*` and
+`AERON_ARCHIVE_CLIENT_ERROR_*` constants. Other errors keep their numeric code and
+sign in `Unknown(code)`.
 
 Archive error handlers receive positive native codes. Convert them with
-`AeronArchiveErrorCode::from_native_code(code)`. This also accepts negative
+`AeronArchiveErrorCode::from_native_code(code)`, which also accepts negative
 thread-local Archive codes. `as_native_code()` returns the negative code for a
-known variant and preserves the original value for an unknown code.
+known variant and the original value for an unknown code.
 
 ---
 
@@ -253,7 +203,7 @@ known variant and preserves the original value for an unknown code.
 Use `length(-2)` to replay all available data and stop. An empty recording returns
 `AeronArchiveErrorCode::EmptyRecording`, whether it is still recording or has stopped.
 Use `length(-1)` to follow a live recording. That replay waits for new messages when the
-recording is empty. These values come from `aeron_archive.h`.
+recording is empty.
 
 ```rust
 use rusteron_archive::AeronArchiveReplayParams;
@@ -300,18 +250,11 @@ loop {
 # }
 ```
 
-Each persistent subscription has its own Archive client. Every poll checks its
-control session before reading the live image. On two 4-vCPU Azure VMs on
-2026-10-09, an idle poll took 22 to 24 ns with the client's conductor thread,
-compared with 8 to 12 ns for a plain subscription. With 100 persistent subscriptions,
-the per-subscription poll took 35 ns on AMD and 43 ns on Intel.
-
-With the agent invoker, every poll also runs the conductor. An idle poll then took
-54 to 62 ns, or 69 ns on AMD and 107 ns on Intel with 100 subscriptions. The
-conductor thread took longer to bring 100 subscriptions to LIVE, 3.6 to 3.8 s
-compared with about 0.8 s for the invoker. Its 16 ms idle sleep,
-`AERON_CLIENT_IDLE_SLEEP_DURATION`, may explain that difference. These measurements
-precede the run in BENCHMARKS.md.
+Each persistent subscription has its own Archive client, and every poll checks its
+control session before reading the live image. Each poll costs a little more than a
+plain subscription poll. With the agent invoker, every poll also runs the client's
+conductor, so use the conductor thread when you run many persistent subscriptions on
+one client.
 
 Blocking archive calls use the C client's default backoff strategy between
 polls. Aeron C++ yields instead. Use `archive_context.set_idle_strategy(..)` to
@@ -323,18 +266,16 @@ replace the default strategy.
 
 ## Persistent subscriptions
 
-A persistent subscription replays a recording from a start position, then merges into the live stream. A consumer catches up on history without missing new messages and without a gap at the handover. It was introduced in Aeron Archive 1.51.0.
+A persistent subscription replays a recording from a start position, then merges into the live stream. A consumer catches up on history without missing new messages and without a gap at the handover. It needs Aeron Archive 1.51.0 or later.
 
 - [Aeron persistent subscription release notes](https://aeron.io/software-release/persistent-subscriptions-replay-to-live-transitions/)
 - [Aeron wiki on persistent subscriptions](https://github.com/aeron-io/aeron/wiki/Persistent-Subscriptions)
-- [Aeron publications and subscriptions](https://aeron.io/docs/aeron/publications-subscriptions/)
 
-Create a persistent subscription with
+Create one with
 `PersistentSubscriptionBuilder::new_with_aeron(&archive_context, &aeron)` and
 `build()`. The subscription and its archive context share one client.
 Implement `PersistentSubscriptionListener` to receive state changes and errors.
-These APIs wrap the C `aeron_archive_persistent_subscription_*` functions and
-expose the fields in Aeron's `PersistentSubscription.Context`.
+The builder exposes the fields of Aeron's `PersistentSubscription.Context`.
 
 ```rust,no_run
 # use rusteron_archive::{Aeron, AeronArchiveContext, AeronPublication};
@@ -383,14 +324,14 @@ ps.close()?;
 ```
 
 `ps.poll_fn()` runs the persistent subscription state machine and its Archive
-client. It does not need calls on your `AeronArchive`. See [Duty cycle](#duty-cycle)
+client. It needs no calls on your `AeronArchive`. See [Duty cycle](#duty-cycle)
 for what else to call each cycle. Loop until `ps.is_live()` returns true.
 Check `ps.has_failed()` each iteration and use `get_failure_reason()` on failure.
 The listener's `on_error` reports non-terminal errors. `on_live_left` and
 `on_live_joined` can run repeatedly if the subscription loses and rejoins the
 live stream.
 
-A persistent subscription reassembles fragments internally. The C `aeron_archive_persistent_subscription_poll` routes each image through `aeron_image_fragment_assembler_handler`, so your handler receives whole messages directly. Poll for complete messages:
+A persistent subscription reassembles fragments itself, so your handler receives whole messages directly:
 
 ```rust,no_run
 # use rusteron_archive::*;
@@ -402,24 +343,23 @@ loop {
 # }
 ```
 
-Use `AeronFragmentClosureAssembler` to reuse a collector across subscription
-types. It polls the persistent subscription and advances its state machine.
-Do not also call `ps.poll_fn(...)` separately. That would consume messages before
-the assembler receives them.
+Poll with `ps.poll_fn`, or `ps.controlled_poll_fn` for the controlled form, rather than
+a fragment assembler. Every message already arrives whole, so an assembler on a
+persistent subscription only adds a call per message. It still works if you want to
+share handler code with plain subscriptions. Pass it to `ps.poll`, for example through
+`AeronFragmentClosureAssembler::with`, and it passes each message through unchanged.
+`AeronControlledFragmentClosureAssembler` and `ControlledFragmentAssembler` work the same
+way with `ps.controlled_poll`.
 
 ```rust,no_run
 # use rusteron_archive::*;
-# #[derive(Default)]
-# struct Collector { done: bool }
-# impl Collector { fn on_msg(&mut self, _msg: &[u8], _header: &AeronHeader) { self.done = true; } }
-# fn snippet(ps: AeronArchivePersistentSubscription) -> Result<(), Box<dyn std::error::Error>> {
+# fn snippet(ps: &AeronArchivePersistentSubscription) -> Result<(), AeronCError> {
 let mut assembler = AeronFragmentClosureAssembler::new()?;
-let mut ctx = Collector::default();
+let mut total = 0;
 loop {
-    assembler.poll(&ps, &mut ctx, Collector::on_msg, 100)?;  // polls the PS internally
-    if ctx.done { break; }
+    ps.poll(&mut assembler.with(|msg, _hdr| total += msg.len()), 100)?;
 }
-# Ok(()) }
+# }
 ```
 
 The examples cover these cases:
@@ -439,14 +379,8 @@ Run the standalone subscription example with
 
 Blocking control requests return `AeronArchiveError` with a typed `code`.
 `archive.poll_for_error()` reads unsolicited errors with their typed code and
-full message from the native response poller. It returns `Some(error)` even
-when the message is empty. Rusteron creates no temporary message buffer for the poll.
+full message. It returns `Some(error)` even when the message is empty.
 The error-handling example shows both forms. The replication example follows
 Aeron's `RecordingReplicator` sample.
-
-The `persistent_subscription_tests::test_persistent_subscription_listener_live_joined`
-test checks listener callbacks. The
-`persistent_subscription_integration::test_end_to_end_persistent_subscription`
-test checks recording, replay and live delivery.
 
 ---

@@ -62,6 +62,10 @@ mod mdc_mds_guide_doctests {}
 #[doc = include_str!("../../docs/media_driver_configuration_and_backpressure_guide.md")]
 mod media_driver_guide_doctests {}
 
+#[cfg(doctest)]
+#[doc = include_str!("../../docs/client-guide.md")]
+mod client_guide_doctests {}
+
 /// An owned claim borrows its publication until it is committed or aborted.
 ///
 /// ```compile_fail,E0505
@@ -154,7 +158,7 @@ mod panic_tests;
 
 #[cfg(test)]
 mod aeron_version_tests {
-    //! Regressions for the C URI changes and builder options in Aeron 1.54.
+    //! Tests for the C URI changes and builder options in Aeron 1.54.
 
     use super::*;
     use std::ffi::CStr;
@@ -264,8 +268,8 @@ mod aeron_version_tests {
 }
 
 #[cfg(test)]
-mod assembler_session_cleanup {
-    //! Exercise session-buffer deletion against fragments delivered by an embedded driver.
+mod assembler_tests {
+    //! Reassembly and session-buffer cleanup for every assembler, against an embedded driver
 
     use super::*;
     use rusteron_media_driver::testing::EmbeddedDriver;
@@ -274,23 +278,27 @@ mod assembler_session_cleanup {
     use std::rc::Rc;
     use std::time::{Duration, Instant};
 
+    type Received = Rc<RefCell<Vec<Vec<u8>>>>;
+    type Regular = Box<dyn FnMut(&[u8], &AeronHeader)>;
+    type Controlled = Box<dyn FnMut(&[u8], &AeronHeader) -> bindings::aeron_controlled_fragment_handler_action_t>;
+
     enum Assembler {
-        Regular(Handler<AeronFragmentAssembler>),
-        Controlled(Handler<AeronControlledFragmentAssembler>),
+        Regular(FragmentAssembler<Regular>),
+        Controlled(ControlledFragmentAssembler<Controlled>),
     }
 
     impl Assembler {
-        fn poll(&self, subscription: &AeronSubscription, limit: usize) -> Result<i32, AeronCError> {
+        fn poll(&mut self, subscription: &AeronSubscription, limit: usize) -> Result<i32, AeronCError> {
             match self {
-                Self::Regular(handler) => subscription.poll_with_handler(Some(handler), limit),
-                Self::Controlled(handler) => subscription.controlled_poll_with_handler(Some(handler), limit),
+                Self::Regular(assembler) => assembler.poll(subscription, limit),
+                Self::Controlled(assembler) => assembler.poll(subscription, limit),
             }
         }
 
-        fn delete_session_buffer(&self, session_id: i32) -> bool {
+        fn delete_session_buffer(&mut self, session_id: i32) -> bool {
             match self {
-                Self::Regular(handler) => handler.lock().delete_session_buffer(session_id),
-                Self::Controlled(handler) => handler.lock().delete_session_buffer(session_id),
+                Self::Regular(assembler) => assembler.delete_session_buffer(session_id),
+                Self::Controlled(assembler) => assembler.delete_session_buffer(session_id),
             }
         }
     }
@@ -308,7 +316,16 @@ mod assembler_session_cleanup {
         }
     }
 
-    fn exercise_session_cleanup(controlled: bool) -> Result<(), Box<dyn std::error::Error>> {
+    // Fields drop in declaration order, so the handles close before the client and driver
+    struct Ipc {
+        subscription: AeronSubscription,
+        publication: AeronPublication,
+        _client: Aeron,
+        _context: AeronContext,
+        _driver: EmbeddedDriver,
+    }
+
+    fn connect_ipc(stream_id: i32) -> Result<Ipc, Box<dyn std::error::Error>> {
         // RAII stops the driver on assertion failure too; handles drop before it.
         let driver = EmbeddedDriver::launch_with(|ctx| {
             ctx.set_threading_mode(
@@ -329,27 +346,41 @@ mod assembler_session_cleanup {
         client.start()?;
         let subscription = client.add_subscription(
             AERON_IPC_STREAM,
-            1540,
+            stream_id,
             Handlers::NONE,
             Handlers::NONE,
             Duration::from_secs(5),
         )?;
-        let publication = client.add_publication(AERON_IPC_STREAM, 1540, Duration::from_secs(5))?;
+        let publication = client.add_publication(AERON_IPC_STREAM, stream_id, Duration::from_secs(5))?;
         wait(|| subscription.is_connected() && publication.is_connected());
+        Ok(Ipc {
+            subscription,
+            publication,
+            _client: client,
+            _context: context,
+            _driver: driver,
+        })
+    }
 
-        let messages = Rc::new(RefCell::new(Vec::new()));
+    fn exercise_session_cleanup(controlled: bool) -> Result<(), Box<dyn std::error::Error>> {
+        let Ipc {
+            subscription,
+            publication,
+            ..
+        } = &connect_ipc(1540)?;
+        let messages = Received::default();
         let received = messages.clone();
-        let assembler = if controlled {
-            let (assembler, _) = Handler::with_controlled_fragment_assembler(move |buffer: &[u8], _: &AeronHeader| {
+        let mut assembler = if controlled {
+            let handler: Controlled = Box::new(move |buffer: &[u8], _: &AeronHeader| {
                 received.borrow_mut().push(buffer.to_vec());
                 bindings::aeron_controlled_fragment_handler_action_t::AERON_ACTION_CONTINUE
-            })?;
-            Assembler::Controlled(assembler)
+            });
+            Assembler::Controlled(ControlledFragmentAssembler::new(handler)?)
         } else {
-            let (assembler, _) = Handler::with_fragment_assembler(move |buffer: &[u8], _: &AeronHeader| {
+            let handler: Regular = Box::new(move |buffer: &[u8], _: &AeronHeader| {
                 received.borrow_mut().push(buffer.to_vec());
-            })?;
-            Assembler::Regular(assembler)
+            });
+            Assembler::Regular(FragmentAssembler::new(handler)?)
         };
         let session_id = publication.session_id();
         assert!(!assembler.delete_session_buffer(session_id));
@@ -398,6 +429,217 @@ mod assembler_session_cleanup {
     fn controlled_fragment_assembler_discards_partial_session_and_reassembles_again()
     -> Result<(), Box<dyn std::error::Error>> {
         exercise_session_cleanup(true)
+    }
+
+    #[test]
+    fn fragment_assembler_keeps_delegate_alive() -> Result<(), Box<dyn std::error::Error>> {
+        struct Delegate(Rc<std::cell::Cell<bool>>);
+        impl Drop for Delegate {
+            fn drop(&mut self) {
+                self.0.set(true);
+            }
+        }
+        impl AeronFragmentHandlerCallback for Delegate {
+            fn handle_aeron_fragment_handler(&mut self, _: &[u8], _: &AeronHeader) {}
+        }
+
+        let dropped = Rc::new(std::cell::Cell::new(false));
+        let mut assembler = FragmentAssembler::new(Delegate(dropped.clone()))?;
+        assert!(!assembler.delete_session_buffer(42));
+        assert!(!dropped.get(), "delegate freed while the assembler still points at it");
+        drop(assembler);
+        assert!(dropped.get());
+        Ok(())
+    }
+
+    #[test]
+    fn controlled_fragment_assembler_delete_unknown_session_buffer() -> Result<(), AeronCError> {
+        let mut assembler =
+            ControlledFragmentAssembler::new(|_: &[u8], _: &AeronHeader| Action::AERON_ACTION_CONTINUE)?;
+        assert!(!assembler.delete_session_buffer(42));
+        let mut closure = AeronControlledFragmentClosureAssembler::new()?;
+        assert!(!closure.delete_session_buffer(42));
+        Ok(())
+    }
+
+    // Assembler matrix: every assembler flavour, through `poll` and `controlled_poll`, on a
+    // subscription and on one of its images. Each case must deliver a small message and a
+    // fragmented one exactly once with the bytes intact
+
+    type Action = bindings::aeron_controlled_fragment_handler_action_t;
+
+    fn reassembles<P>(
+        stream_id: i32,
+        make: impl FnOnce(Received) -> Result<P, AeronCError>,
+    ) -> Result<(), Box<dyn std::error::Error>>
+    where
+        P: FnMut(&AeronSubscription) -> Result<i32, AeronCError>,
+    {
+        let ipc = connect_ipc(stream_id)?;
+        let small = vec![0x5a; 32];
+        let large: Vec<u8> = (0..ipc.publication.max_payload_length()? * 3 + 5)
+            .map(|i| i as u8)
+            .collect();
+        for message in [&small, &large] {
+            wait(|| match ipc.publication.offer(message) {
+                Ok(_) => true,
+                Err(e) if e.is_retryable() => false,
+                Err(e) => panic!("offer failed: {e}"),
+            });
+        }
+
+        let received = Received::default();
+        let mut poll = make(received.clone())?;
+        wait(|| {
+            poll(&ipc.subscription).unwrap();
+            received.borrow().len() >= 2
+        });
+        // Further polls must not redeliver anything
+        for _ in 0..10 {
+            poll(&ipc.subscription)?;
+        }
+        assert_eq!(received.borrow().as_slice(), &[small, large]);
+        Ok(())
+    }
+
+    fn image(subscription: &AeronSubscription) -> Result<AeronImage, AeronCError> {
+        subscription.image_at_index(0).ok_or_else(|| AeronCError::from_code(-1))
+    }
+
+    fn push(received: &Received) -> impl FnMut(&[u8], &AeronHeader) + use<> {
+        let received = received.clone();
+        move |msg, _| received.borrow_mut().push(msg.to_vec())
+    }
+
+    // Aborts the first complete fragmented message once, so each controlled case also proves
+    // the assembler hands the same message back on the next poll
+    fn push_controlled(received: &Received) -> impl FnMut(&[u8], &AeronHeader) -> Action + use<> {
+        let received = received.clone();
+        let mut aborted = false;
+        move |msg, _| {
+            if msg.len() > 32 && !aborted {
+                aborted = true;
+                return Action::AERON_ACTION_ABORT;
+            }
+            received.borrow_mut().push(msg.to_vec());
+            Action::AERON_ACTION_CONTINUE
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn subscription_poll_with_fragment_assembler() -> Result<(), Box<dyn std::error::Error>> {
+        reassembles(1601, |rx| {
+            let mut asm = FragmentAssembler::new(push(&rx))?;
+            Ok(move |sub: &AeronSubscription| asm.poll(sub, 10))
+        })
+    }
+
+    #[test]
+    #[serial]
+    fn subscription_poll_with_fragment_closure_assembler() -> Result<(), Box<dyn std::error::Error>> {
+        reassembles(1602, |rx| {
+            let mut asm = AeronFragmentClosureAssembler::new()?;
+            let mut on_message = push(&rx);
+            Ok(move |sub: &AeronSubscription| asm.poll(sub, &mut on_message, 10))
+        })
+    }
+
+    #[test]
+    #[serial]
+    fn subscription_poll_with_fragment_closure_handler() -> Result<(), Box<dyn std::error::Error>> {
+        reassembles(1603, |rx| {
+            let mut asm = AeronFragmentClosureAssembler::new()?;
+            let mut on_message = push(&rx);
+            Ok(move |sub: &AeronSubscription| sub.poll(&mut asm.with(&mut on_message), 10))
+        })
+    }
+
+    #[test]
+    #[serial]
+    fn subscription_controlled_poll_with_controlled_fragment_assembler() -> Result<(), Box<dyn std::error::Error>> {
+        reassembles(1604, |rx| {
+            let mut asm = ControlledFragmentAssembler::new(push_controlled(&rx))?;
+            Ok(move |sub: &AeronSubscription| asm.poll(sub, 10))
+        })
+    }
+
+    #[test]
+    #[serial]
+    fn subscription_controlled_poll_with_controlled_fragment_closure_assembler()
+    -> Result<(), Box<dyn std::error::Error>> {
+        reassembles(1605, |rx| {
+            let mut asm = AeronControlledFragmentClosureAssembler::new()?;
+            let mut on_message = push_controlled(&rx);
+            Ok(move |sub: &AeronSubscription| asm.poll(sub, &mut on_message, 10))
+        })
+    }
+
+    #[test]
+    #[serial]
+    fn subscription_controlled_poll_with_controlled_fragment_closure_handler() -> Result<(), Box<dyn std::error::Error>>
+    {
+        reassembles(1606, |rx| {
+            let mut asm = AeronControlledFragmentClosureAssembler::new()?;
+            let mut on_message = push_controlled(&rx);
+            Ok(move |sub: &AeronSubscription| sub.controlled_poll(&mut asm.with(&mut on_message), 10))
+        })
+    }
+
+    #[test]
+    #[serial]
+    fn image_poll_with_image_fragment_assembler() -> Result<(), Box<dyn std::error::Error>> {
+        reassembles(1611, |rx| {
+            let mut asm = AeronImageFragmentAssembler::new(push(&rx))?;
+            Ok(move |sub: &AeronSubscription| asm.poll(&image(sub)?, 10))
+        })
+    }
+
+    #[test]
+    #[serial]
+    fn image_poll_with_fragment_assembler() -> Result<(), Box<dyn std::error::Error>> {
+        reassembles(1612, |rx| {
+            let mut asm = FragmentAssembler::new(push(&rx))?;
+            Ok(move |sub: &AeronSubscription| image(sub)?.poll(&mut asm, 10))
+        })
+    }
+
+    #[test]
+    #[serial]
+    fn image_poll_with_fragment_closure_handler() -> Result<(), Box<dyn std::error::Error>> {
+        reassembles(1613, |rx| {
+            let mut asm = AeronFragmentClosureAssembler::new()?;
+            let mut on_message = push(&rx);
+            Ok(move |sub: &AeronSubscription| image(sub)?.poll(&mut asm.with(&mut on_message), 10))
+        })
+    }
+
+    #[test]
+    #[serial]
+    fn image_controlled_poll_with_image_controlled_fragment_assembler() -> Result<(), Box<dyn std::error::Error>> {
+        reassembles(1614, |rx| {
+            let mut asm = AeronImageControlledFragmentAssembler::new(push_controlled(&rx))?;
+            Ok(move |sub: &AeronSubscription| asm.poll(&image(sub)?, 10))
+        })
+    }
+
+    #[test]
+    #[serial]
+    fn image_controlled_poll_with_controlled_fragment_assembler() -> Result<(), Box<dyn std::error::Error>> {
+        reassembles(1615, |rx| {
+            let mut asm = ControlledFragmentAssembler::new(push_controlled(&rx))?;
+            Ok(move |sub: &AeronSubscription| image(sub)?.controlled_poll(&mut asm, 10))
+        })
+    }
+
+    #[test]
+    #[serial]
+    fn image_controlled_poll_with_controlled_fragment_closure_handler() -> Result<(), Box<dyn std::error::Error>> {
+        reassembles(1616, |rx| {
+            let mut asm = AeronControlledFragmentClosureAssembler::new()?;
+            let mut on_message = push_controlled(&rx);
+            Ok(move |sub: &AeronSubscription| image(sub)?.controlled_poll(&mut asm.with(&mut on_message), 10))
+        })
     }
 }
 
@@ -576,7 +818,7 @@ mod idle_strategy_tests {
             (AeronIdleStrategyKind::Backoff, "backoff"),
         ] {
             ctx.set_idle_strategy_kind(kind).unwrap();
-            // SAFETY: this expression consumes the text before any context mutation.
+            // SAFETY: this expression consumes the text before any context mutation
             assert_eq!(name, unsafe { ctx.get_idle_strategy() }, "kind {kind:?}");
         }
     }
@@ -688,39 +930,6 @@ mod tests {
     use std::time::{Duration, Instant};
 
     #[test]
-    fn fragment_assembler_keeps_delegate_alive() -> Result<(), Box<dyn Error>> {
-        struct Delegate(Arc<AtomicBool>);
-        impl Drop for Delegate {
-            fn drop(&mut self) {
-                self.0.store(true, Ordering::SeqCst);
-            }
-        }
-        impl AeronFragmentHandlerCallback for Delegate {
-            fn handle_aeron_fragment_handler(&mut self, _: &[u8], _: &AeronHeader) {}
-        }
-
-        let dropped = Arc::new(AtomicBool::new(false));
-        let (assembler, delegate) = Handler::with_fragment_assembler(Delegate(dropped.clone()))?;
-        assert!(!assembler.lock().delete_session_buffer(42));
-        drop(delegate);
-        assert!(
-            !dropped.load(Ordering::SeqCst),
-            "delegate freed while the assembler still points at it"
-        );
-        drop(assembler);
-        assert!(dropped.load(Ordering::SeqCst));
-        Ok(())
-    }
-
-    #[test]
-    fn controlled_fragment_assembler_delete_unknown_session_buffer() -> Result<(), AeronCError> {
-        let delegate = Handler::new(FnMutControlledMessageHandler::new());
-        let mut assembler = AeronControlledFragmentAssembler::new(Some(&delegate))?;
-        assert!(!assembler.delete_session_buffer(42));
-        Ok(())
-    }
-
-    #[test]
     #[serial]
     fn subscription_resolved_endpoint_reports_ephemeral_port() {
         let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
@@ -763,6 +972,73 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
+    #[test]
+    #[serial]
+    fn resolving_a_channel_without_a_wildcard_port_returns_the_channel() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+        let channel = "aeron:udp?endpoint=127.0.0.1:40457";
+        let subscription = aeron
+            .add_subscription(
+                &channel.into_c_string(),
+                1911,
+                Handlers::NONE,
+                Handlers::NONE,
+                Duration::from_secs(5),
+            )
+            .expect("subscription");
+        assert_eq!(
+            subscription
+                .try_resolve_channel_endpoint_port_as_string(channel.len() + 1)
+                .expect("resolved channel"),
+            channel
+        );
+        drop(subscription);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    /// Aeron 1.54.2 copies a channel without a wildcard port with strcpy and ignores `uri_len`.
+    /// The sub-slice keeps any overflow inside `buffer`, so the tail shows whether C wrote past it
+    // TODO: un-ignore once a vendored Aeron release fixes https://github.com/aeron-io/aeron/issues/2250
+    #[test]
+    #[serial]
+    #[ignore = "Aeron 1.54.2 overflows uri, https://github.com/aeron-io/aeron/issues/2250"]
+    fn resolving_a_channel_into_a_short_buffer_stays_within_it() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+        let channel = "aeron:udp?endpoint=127.0.0.1:40458";
+        let subscription = aeron
+            .add_subscription(
+                &channel.into_c_string(),
+                1912,
+                Handlers::NONE,
+                Handlers::NONE,
+                Duration::from_secs(5),
+            )
+            .expect("subscription");
+        let mut buffer = [0xAA; 64];
+        let _ = subscription.try_resolve_channel_endpoint_port(&mut buffer[..16]);
+        assert!(buffer[16..].iter().all(|&byte| byte == 0xAA));
+        drop(subscription);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    #[test]
+    #[serial]
+    fn cnc_read_closes_the_file_when_the_handler_panics() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+        let dir = driver.dir().into_c_string();
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            AeronCnc::read(&dir, |_| panic!("handler panic"))
+        }));
+        assert!(panicked.is_err());
+        let mut heartbeat = 0;
+        AeronCnc::read(&dir, |cnc| heartbeat = cnc.get_to_driver_heartbeat_ms().unwrap()).expect("read after panic");
+        assert!(heartbeat > 0);
+        drop(aeron);
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
     /// Client-level handlers registered from temporaries stay alive until the client
     /// closes, and the close handler fires during that close.
     #[test]
@@ -792,14 +1068,14 @@ mod tests {
         let media_driver_ctx = AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
         let aeron = Aeron::new(&ctx)?;
         aeron.start()?;
@@ -919,7 +1195,7 @@ mod tests {
 
             assert!(Aeron::epoch_clock() > 0);
             // the context holds a clone of the handler; dropping both frees the
-            // callback value exactly once (verified by the alloc-count check below)
+            // callback value exactly once
         }
 
         assert!(
@@ -939,14 +1215,14 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
         let error_handler = SharedHandler::new_shared(ErrorCount::default());
         ctx.set_error_handler(Some(error_handler.clone()))?;
@@ -1040,14 +1316,14 @@ mod tests {
         let media_driver_ctx = AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
         let error_handler = SharedHandler::new_shared(ErrorCount::default());
         ctx.set_error_handler(Some(error_handler.clone()))?;
@@ -1206,14 +1482,14 @@ mod tests {
         let media_driver_ctx = AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
         let error_handler = SharedHandler::new_shared(ErrorCount::default());
         ctx.set_error_handler(Some(error_handler.clone()))?;
@@ -1322,14 +1598,14 @@ mod tests {
         let media_driver_ctx = AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
         let error_handler = SharedHandler::new_shared(ErrorCount::default());
         ctx.set_error_handler(Some(error_handler.clone()))?;
@@ -1464,14 +1740,14 @@ mod tests {
         let media_driver_ctx = AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
         let error_handler = SharedHandler::new_shared(ErrorCount::default());
         ctx.set_error_handler(Some(error_handler.clone()))?;
@@ -1565,13 +1841,13 @@ mod tests {
         let media_driver_ctx = AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         media_driver_ctx.set_dir(&format!("{}alloc-guard", unsafe { media_driver_ctx.get_dir() }).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
         let error_handler = SharedHandler::new_shared(ErrorCount::default());
         ctx.set_error_handler(Some(error_handler.clone()))?;
@@ -1642,14 +1918,14 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
         let error_handler = SharedHandler::new_shared(ErrorCount::default());
         ctx.set_error_handler(Some(error_handler.clone()))?;
@@ -1737,14 +2013,14 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
         let error_handler = SharedHandler::new_shared(ErrorCount::default());
         ctx.set_error_handler(Some(error_handler.clone()))?;
@@ -1776,14 +2052,14 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
         let error_handler = SharedHandler::new_shared(ErrorCount::default());
         ctx.set_error_handler(Some(error_handler.clone()))?;
@@ -1815,14 +2091,14 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
         let error_handler = SharedHandler::new_shared(ErrorCount::default());
         ctx.set_error_handler(Some(error_handler.clone()))?;
@@ -1851,8 +2127,8 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         let (liveness_ns, unblock_ns, driver_timeout_ms) = if running_under_valgrind() {
             (180_000_000_000u64, 185_000_000_000u64, 180_000)
@@ -1867,9 +2143,9 @@ mod tests {
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         assert_eq!(unsafe { media_driver_ctx.get_dir() }, unsafe { ctx.get_dir() });
         // Keep client-side keepalive threshold aligned with the slow Valgrind environment.
         ctx.set_driver_timeout_ms(driver_timeout_ms)?;
@@ -1899,16 +2175,16 @@ mod tests {
         aeron.start()?;
         info!("client started");
 
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         assert!(AeronCncMetadata::load_from_file(&unsafe { ctx.get_dir() })?.pid() > 0);
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         let cstr = std::ffi::CString::new(unsafe { ctx.get_dir() }).unwrap();
         AeronCncMetadata::read_from_file(&cstr, |cnc| {
             assert!(cnc.pid() > 0);
         })?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         assert!(AeronCnc::open(&unsafe { ctx.get_dir() }.into_c_string())?.get_to_driver_heartbeat_ms()? > 0);
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         let cstr = std::ffi::CString::new(unsafe { ctx.get_dir() }).unwrap();
         for _ in 0..50 {
             AeronCnc::read(&cstr, |cnc| {
@@ -1972,8 +2248,6 @@ mod tests {
             })
         };
 
-        let mut assembler = AeronFragmentClosureAssembler::new()?;
-
         struct Context {
             count: Arc<AtomicUsize>,
             stop: Arc<AtomicBool>,
@@ -1986,6 +2260,29 @@ mod tests {
             stop: stop.clone(),
             string_len,
         };
+
+        fn process_msg(ctx: &mut Context, buffer: &[u8], header: &AeronHeader) {
+            ctx.count.fetch_add(1, Ordering::SeqCst);
+
+            let values = header.get_values().unwrap();
+            assert_ne!(values.frame().session_id(), 0);
+
+            if buffer.len() != ctx.string_len {
+                ctx.stop.store(true, Ordering::SeqCst);
+                error!(
+                    "ERROR: message was {} but was expecting {} [header={:?}]",
+                    buffer.len(),
+                    ctx.string_len,
+                    header
+                );
+                sleep(Duration::from_secs(1));
+            }
+
+            assert_eq!(buffer.len(), ctx.string_len);
+            assert_eq!(buffer, "1".repeat(ctx.string_len).as_bytes());
+        }
+
+        let mut assembler = AeronFragmentClosureAssembler::new()?;
 
         // Start the timer
         let start_time = Instant::now();
@@ -2005,28 +2302,11 @@ mod tests {
                 break Ok(());
             }
 
-            fn process_msg(ctx: &mut Context, buffer: &[u8], header: &AeronHeader) {
-                ctx.count.fetch_add(1, Ordering::SeqCst);
-
-                let values = header.get_values().unwrap();
-                assert_ne!(values.frame().session_id(), 0);
-
-                if buffer.len() != ctx.string_len {
-                    ctx.stop.store(true, Ordering::SeqCst);
-                    error!(
-                        "ERROR: message was {} but was expecting {} [header={:?}]",
-                        buffer.len(),
-                        ctx.string_len,
-                        header
-                    );
-                    sleep(Duration::from_secs(1));
-                }
-
-                assert_eq!(buffer.len(), ctx.string_len);
-                assert_eq!(buffer, "1".repeat(ctx.string_len).as_bytes());
-            }
-
-            assembler.poll(&subscription, &mut context, process_msg, 128)?;
+            assembler.poll(
+                &subscription,
+                |buffer, header| process_msg(&mut context, buffer, header),
+                128,
+            )?;
             assert_eq!(123, subscription.stream_id().unwrap());
         };
 
@@ -2043,7 +2323,7 @@ mod tests {
 
         // Release all context handlers now that Aeron and the driver are stopped.
 
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         let cnc = AeronCnc::open(&unsafe { ctx.get_dir() }.into_c_string())?;
         cnc.counters_reader()
             .foreach_counter_fn(|value: i64, id: i32, type_id: i32, key: &[u8], label: &str| {
@@ -2080,8 +2360,8 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         let (liveness_ns, unblock_ns, driver_timeout_ms) = if running_under_valgrind() {
             (180_000_000_000u64, 185_000_000_000u64, 180_000)
@@ -2096,9 +2376,9 @@ mod tests {
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         assert_eq!(unsafe { media_driver_ctx.get_dir() }, unsafe { ctx.get_dir() });
         // Keep client-side keepalive threshold aligned with slow Valgrind environment.
         ctx.set_driver_timeout_ms(driver_timeout_ms)?;
@@ -2201,7 +2481,7 @@ mod tests {
             }
         }
 
-        let (closure, inner_handler) = Handler::with_fragment_assembler(FragmentHandler {
+        let mut assembler = FragmentAssembler::new(FragmentHandler {
             count_copy,
             stop2,
             string_len,
@@ -2220,7 +2500,7 @@ mod tests {
                 if c > 100 {
                     break Ok(());
                 }
-                subscription.poll_with_handler(Some(&closure), 128)?;
+                assembler.poll(&subscription, 128)?;
             }
         };
 
@@ -2243,16 +2523,16 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         assert_eq!(unsafe { media_driver_ctx.get_dir() }, unsafe { ctx.get_dir() });
         let error_handler = SharedHandler::new_shared(ErrorCount::default());
         ctx.set_error_handler(Some(error_handler.clone()))?;
@@ -2390,8 +2670,8 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         media_driver_ctx.set_client_liveness_timeout_ns(liveness_timeout_ns)?;
         media_driver_ctx.set_image_liveness_timeout_ns(liveness_timeout_ns)?;
@@ -2401,7 +2681,7 @@ mod tests {
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
         ctx.set_driver_timeout_ms(driver_timeout_ms)?;
         let error_handler = SharedHandler::new_shared(TestErrorCount::default());
@@ -2476,8 +2756,8 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         media_driver_ctx.set_client_liveness_timeout_ns(60_000_000_000)?;
         media_driver_ctx.set_image_liveness_timeout_ns(60_000_000_000)?;
@@ -2487,7 +2767,7 @@ mod tests {
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
         let error_handler = SharedHandler::new_shared(TestErrorCount::default());
         ctx.set_error_handler(Some(error_handler.clone()))?;
@@ -2565,14 +2845,14 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         let (_stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
         let error_handler = SharedHandler::new_shared(AeronErrorHandlerLogger);
         ctx.set_error_handler(Some(error_handler.clone()))?;
@@ -2607,23 +2887,21 @@ mod tests {
     #[test]
     #[serial]
     pub fn structural_close_safety_test() -> Result<(), Box<dyn error::Error>> {
-        // Under the new design, close(self) consumes the handle, so use-after-close
-        // is a compile error, not a runtime check. This test verifies that
-        // Dropping ManagedCResource frees
-        // the C resource without errors.
+        // close(self) consumes the handle, so use-after-close is a compile error.
+        // Dropping a ManagedCResource must free the C resource without errors.
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
 
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         let (_stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
         let error_handler = SharedHandler::new_shared(TestErrorCount::default());
         ctx.set_error_handler(Some(error_handler.clone()))?;
@@ -2653,14 +2931,14 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        // SAFETY: this expression consumes the text before any context mutation.
         media_driver_ctx
+            // SAFETY: the text is used at once, before any setter can change it
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())?;
         let (_stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
         let ctx = AeronContext::new()?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
         let error_handler = SharedHandler::new_shared(TestErrorCount::default());
         ctx.set_error_handler(Some(error_handler.clone()))?;
@@ -2986,8 +3264,8 @@ mod tests {
         let ctx = AeronContext::new()?;
         let sub_context = aeron_sub.context();
         // SAFETY: the client has frozen this context configuration.
-        // SAFETY: this expression consumes the text before any context mutation.
-        ctx.set_dir(&unsafe { unsafe { sub_context.get_dir() } }.into_c_string())?;
+        // SAFETY: the text is used at once, before any setter can change it
+        ctx.set_dir(&unsafe { sub_context.get_dir() }.into_c_string())?;
         let aeron = Aeron::new(&ctx)?;
         aeron.start()?;
 
@@ -3070,17 +3348,16 @@ mod tests {
         let media_driver_ctx = rusteron_media_driver::AeronDriverContext::new()?;
         media_driver_ctx.set_dir_delete_on_shutdown(true)?;
         media_driver_ctx.set_dir_delete_on_start(true)?;
-        media_driver_ctx
-            // SAFETY: this expression consumes the text before any context mutation.
-            .set_dir(
-                &format!(
-                    "{}{}-{}",
-                    unsafe { media_driver_ctx.get_dir() },
-                    Aeron::epoch_clock(),
-                    instance
-                )
-                .into_c_string(),
-            )?;
+        media_driver_ctx.set_dir(
+            &format!(
+                "{}{}-{}",
+                // SAFETY: the text is used at once, before any setter can change it
+                unsafe { media_driver_ctx.get_dir() },
+                Aeron::epoch_clock(),
+                instance
+            )
+            .into_c_string(),
+        )?;
         let (stop, driver_handle) =
             rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
         Ok((media_driver_ctx, stop, driver_handle))
@@ -3335,7 +3612,7 @@ mod tests {
             media_driver_ctx.set_dir_delete_on_shutdown(true)?;
             media_driver_ctx.set_dir_delete_on_start(true)?;
             media_driver_ctx
-                // SAFETY: this expression consumes the text before any context mutation.
+                // SAFETY: this expression consumes the text before any context mutation
                 .set_dir(
                     &format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string(),
                 )?;
@@ -3343,7 +3620,7 @@ mod tests {
                 rusteron_media_driver::AeronDriver::launch_embedded(media_driver_ctx.clone(), false);
 
             let ctx = AeronContext::new()?;
-            // SAFETY: this expression consumes the text before any context mutation.
+            // SAFETY: this expression consumes the text before any context mutation
             ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())?;
             let error_handler = SharedHandler::new_shared(ErrorCount::default());
             ctx.set_error_handler(Some(error_handler.clone()))?;
@@ -3473,19 +3750,15 @@ mod tests {
 
     // Use-after-free tests: aeron dropped before children
     //
-    // When `drop(aeron)` fires first, the C side calls `aeron_close()` which
-    // frees every registered resource (publications, subscriptions, counters,
-    // exclusive publications) via `aeron_client_conductor_on_close()`.
+    // `aeron_close()` frees every registered resource (publications, subscriptions,
+    // counters, exclusive publications) via `aeron_client_conductor_on_close()`.
+    // The Rust wrappers do not see this, and `close_already_called` stays `false`,
+    // so a later method call through `get_inner()` dereferences a dangling pointer.
     //
-    // The Rust wrappers don't know this happened. Their `close_already_called`
-    // flag is still `false`, so any subsequent method call that goes through
-    // `get_inner()` dereferences a dangling pointer.
-    //
-    // These tests save the raw C pointer before `drop(aeron)`, then call C
-    // functions directly on it afterwards to eliminate intermediate Drop
-    // machinery that could trigger re-allocation.
+    // These tests save the raw C pointer before `drop(aeron)` and call C functions on
+    // it directly, which avoids Drop machinery that could re-allocate.
 
-    // Ported from Aeron's SessionSpecificPublicationTest and ResponseChannelsTest.
+    // Channels from Aeron's SessionSpecificPublicationTest and ResponseChannelsTest.
     fn session_test_channels() -> [std::ffi::CString; 2] {
         let port = rusteron_media_driver::testing::find_unused_udp_port(21300).expect("no UDP port available");
         [
@@ -3739,21 +4012,18 @@ mod tests {
         let counter_ptr: *mut aeron_counter_t = counter.get_inner();
         let excl_pub_ptr: *mut aeron_exclusive_publication_t = excl_pub.get_inner();
 
-        // SAFE: drop(aeron) does NOT call aeron_close(). Children still
-        // hold Rc references, keeping the C client alive.
+        // drop(aeron) does not call aeron_close(): the children hold Rc references
+        // that keep the C client alive.
         drop(aeron);
 
-        // Read raw pointers. These access VALID (not freed) memory
+        // The C client is still alive, so these reads touch valid memory
         let _closed = unsafe { aeron_publication_is_closed(pub_ptr) };
         let _connected = unsafe { aeron_subscription_is_connected(sub_ptr) };
         let _counter_closed = unsafe { aeron_counter_is_closed(counter_ptr) };
         let _excl_closed = unsafe { aeron_exclusive_publication_is_closed(excl_pub_ptr) };
         let _channel = unsafe { aeron_publication_channel(pub_ptr) };
 
-        // The children remain usable after drop(aeron).
-
-        // Drop the children. The last one releases Rc<Aeron>, so
-        // aeron_close() fires in the correct order.
+        // The last child to drop releases Rc<Aeron> and fires aeron_close().
         drop(publisher);
         drop(subscription);
         drop(counter);
@@ -3842,6 +4112,32 @@ mod tests {
 
         assert_eq!(1, notification_count.load(Ordering::SeqCst));
 
+        assert!(aeron.close().is_ok());
+        teardown_aeron_after_uaf_test(driver, error_handler);
+    }
+
+    #[test]
+    #[serial]
+    fn revoke_with_handler_requires_the_last_clone_and_notifies_once() {
+        let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
+        let notification_count = Arc::new(AtomicUsize::new(0));
+        let close_handler = SharedHandler::new_shared(CloseNotificationCount {
+            count: notification_count.clone(),
+        });
+        let publisher = aeron
+            .add_exclusive_publication(AERON_IPC_STREAM, 1152, Duration::from_secs(5))
+            .unwrap();
+        let publisher_clone = publisher.clone();
+
+        assert!(publisher.revoke_with_handler(Some(&close_handler)).is_err());
+        assert!(!publisher_clone.is_closed());
+        assert!(publisher_clone.revoke_with_handler(Some(&close_handler)).is_ok());
+
+        let start = Instant::now();
+        while notification_count.load(Ordering::SeqCst) == 0 && start.elapsed() < Duration::from_secs(5) {
+            sleep(Duration::from_millis(10));
+        }
+        assert_eq!(1, notification_count.load(Ordering::SeqCst));
         assert!(aeron.close().is_ok());
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
@@ -4205,7 +4501,7 @@ mod tests {
         media_driver_ctx.set_dir_delete_on_shutdown(true).unwrap();
         media_driver_ctx.set_dir_delete_on_start(true).unwrap();
         media_driver_ctx
-            // SAFETY: this expression consumes the text before any context mutation.
+            // SAFETY: this expression consumes the text before any context mutation
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())
             .unwrap();
         let (stop, driver_handle) =
@@ -4217,7 +4513,7 @@ mod tests {
         let available = Arc::new(AtomicUsize::new(0));
 
         let ctx = AeronContext::new().unwrap();
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())
             .unwrap();
         let errors_cb = errors.clone();
@@ -4338,8 +4634,8 @@ mod tests {
         let _ = driver_handle.join();
     }
 
-    /// Issue #70: `get_counter_value(-1)` read through a null pointer and aborted. Ids that are not
-    /// counters must give an error, and a real counter must still read
+    /// `get_counter_value(-1)` must not read through a null pointer. Ids that are not
+    /// counters give an error, and a real counter still reads
     #[test]
     #[serial]
     fn get_counter_value_rejects_ids_that_are_not_counters() {
@@ -4468,7 +4764,7 @@ mod tests {
         let counters = aeron.counters_reader();
         let pub_registration_id = publisher.get_constants().unwrap().registration_id();
         let limit_counter = counters
-            .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, pub_registration_id)
+            .find_by_counter_type_and_registration_id(AeronCounterTypeId::PublisherLimit, pub_registration_id)
             .expect("publisher limit counter");
         assert!(
             counters.get_counter_value(limit_counter).unwrap() > 0,
@@ -4481,13 +4777,13 @@ mod tests {
 
         let sub_registration_id = subscription.get_constants().unwrap().registration_id();
         let position_counter = counters
-            .find_by_type_and_registration_id(AERON_COUNTER_SUBSCRIPTION_POSITION_TYPE_ID as i32, sub_registration_id)
+            .find_by_counter_type_and_registration_id(AeronCounterTypeId::SubscriptionPosition, sub_registration_id)
             .expect("subscriber position counter");
         assert!(counters.get_counter_value(position_counter).unwrap() >= 0);
 
         assert!(
             counters
-                .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, -12345)
+                .find_by_counter_type_and_registration_id(AeronCounterTypeId::PublisherLimit, -12345)
                 .is_none()
         );
 
@@ -4524,7 +4820,7 @@ mod tests {
         while start.elapsed() < Duration::from_secs(5) {
             let _ = publisher.offer_raw(b"probe", Handlers::NONE);
             if let Some(counter) = counters
-                .find_by_type_and_registration_id(AERON_COUNTER_SUBSCRIPTION_POSITION_TYPE_ID as i32, registration_id)
+                .find_by_counter_type_and_registration_id(AeronCounterTypeId::SubscriptionPosition, registration_id)
             {
                 leaked_counter = Some(counter);
                 break;
@@ -4571,7 +4867,7 @@ mod tests {
         while start.elapsed() < Duration::from_secs(5) {
             let _ = publisher.offer_raw(b"probe", Handlers::NONE);
             if let Some(counter) = counters
-                .find_by_type_and_registration_id(AERON_COUNTER_SUBSCRIPTION_POSITION_TYPE_ID as i32, registration_id)
+                .find_by_counter_type_and_registration_id(AeronCounterTypeId::SubscriptionPosition, registration_id)
             {
                 leaked_counter = Some(counter);
                 break;
@@ -4654,8 +4950,8 @@ mod tests {
         let start = Instant::now();
         let mut leaked_counter = None;
         while start.elapsed() < Duration::from_secs(5) {
-            leaked_counter = counters
-                .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, registration_id);
+            leaked_counter =
+                counters.find_by_counter_type_and_registration_id(AeronCounterTypeId::PublisherLimit, registration_id);
             if leaked_counter.is_none() {
                 break;
             }
@@ -4699,8 +4995,8 @@ mod tests {
         let start = Instant::now();
         let mut leaked_counter = None;
         while start.elapsed() < Duration::from_secs(5) {
-            leaked_counter = counters
-                .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, registration_id);
+            leaked_counter =
+                counters.find_by_counter_type_and_registration_id(AeronCounterTypeId::PublisherLimit, registration_id);
             if leaked_counter.is_none() {
                 break;
             }
@@ -4772,12 +5068,12 @@ mod tests {
 
             let counters = aeron.counters_reader();
             let start = Instant::now();
-            let mut still_present = counters
-                .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, registration_id);
+            let mut still_present =
+                counters.find_by_counter_type_and_registration_id(AeronCounterTypeId::PublisherLimit, registration_id);
             while still_present.is_some() && start.elapsed() < Duration::from_secs(5) {
                 sleep(Duration::from_millis(50));
                 still_present = counters
-                    .find_by_type_and_registration_id(AERON_COUNTER_PUBLISHER_LIMIT_TYPE_ID as i32, registration_id);
+                    .find_by_counter_type_and_registration_id(AeronCounterTypeId::PublisherLimit, registration_id);
             }
             assert!(
                 still_present.is_none(),
@@ -5527,8 +5823,8 @@ mod tests {
         drop(driver);
     }
 
-    /// Closing the subscription releases a retained image with it, and the C client then
-    /// frees the image, so dropping the handle afterwards must not release it again.
+    /// A retained image keeps its subscription open, so closing the subscription handle
+    /// leaves the image usable until the image itself is dropped
     #[test]
     #[serial]
     fn retained_image_keeps_its_subscription_alive_until_drop() {
@@ -5578,17 +5874,11 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// `close_now` with a complex object graph where Rust drops children before
-    /// the parent. In 0.2's deferred-close model, children close immediately when
-    /// dropped, so calling `close_now()` on a parent after all children have been
-    /// dropped must be safe, as the C client handles already-closed resources
-    /// gracefully. This test verifies no segfaults or double-frees (CI runs this
-    /// under ASan which catches use-after-free).
+    /// `close_now` on a parent after all its children have dropped must not
+    /// segfault or double-free. CI runs this under ASan.
     ///
-    /// WARNING: if any child handle survives `close_now()`, its C resources are
-    /// freed and the handle becomes unsafe to use (dangling pointer). You MUST
-    /// drop all children before calling `close_now()`, or explicitly `std::mem::forget`
-    /// them and accept the UB.
+    /// WARNING: a child that survives `close_now()` holds a dangling pointer. Drop
+    /// all children first, or `std::mem::forget` them and accept the UB.
     #[test]
     #[serial]
     fn close_now_after_all_children_dropped_is_safe() {
@@ -5645,18 +5935,14 @@ mod tests {
         // Valgrind will catch any double-frees or use-after-free from this test
     }
 
-    /// DANGER: This test documents the UB scenario where children survive
-    /// `close_now()`. This is commented-out because it WILL segfault (ASan would
-    /// catch it as use-after-free). This proves you MUST drop all children before
-    /// calling `close_now()`.
+    /// Documents the UB when a child survives `close_now()`. It is commented out
+    /// because it segfaults (ASan reports a use-after-free).
     ///
-    /// What happens:
+    /// Sequence:
     /// 1. `aeron.close_now()` frees the Aeron C client
     /// 2. All publications/subscriptions are freed in C
     /// 3. But `pub2` still holds a non-null pointer to freed memory
     /// 4. `drop(pub2)` calls `aeron_publication_close()` on dangling pointer → UB
-    ///
-    /// DO NOT call `close_now()` with surviving children, as it's fundamentally unsafe.
     #[test]
     #[serial]
     #[ignore = "this test WILL segfault - it documents the UB scenario"]
@@ -5694,7 +5980,7 @@ mod tests {
         media_driver_ctx.set_dir_delete_on_shutdown(true).unwrap();
         media_driver_ctx.set_dir_delete_on_start(true).unwrap();
         media_driver_ctx
-            // SAFETY: this expression consumes the text before any context mutation.
+            // SAFETY: this expression consumes the text before any context mutation
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())
             .unwrap();
         let (stop, driver_handle) =
@@ -5702,7 +5988,7 @@ mod tests {
 
         let aeron = {
             let ctx = AeronContext::new().unwrap();
-            // SAFETY: this expression consumes the text before any context mutation.
+            // SAFETY: this expression consumes the text before any context mutation
             ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())
                 .unwrap();
             let aeron = Aeron::new(&ctx).unwrap();
@@ -5769,7 +6055,7 @@ mod tests {
         media_driver_ctx.set_dir_delete_on_shutdown(true).unwrap();
         media_driver_ctx.set_dir_delete_on_start(true).unwrap();
         media_driver_ctx
-            // SAFETY: this expression consumes the text before any context mutation.
+            // SAFETY: this expression consumes the text before any context mutation
             .set_dir(&format!("{}{}", unsafe { media_driver_ctx.get_dir() }, Aeron::epoch_clock()).into_c_string())
             .unwrap();
         let (stop, driver_handle) =
@@ -5777,7 +6063,7 @@ mod tests {
 
         let errors = Arc::new(AtomicUsize::new(0));
         let ctx = AeronContext::new().unwrap();
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         ctx.set_dir(&unsafe { media_driver_ctx.get_dir() }.into_c_string())
             .unwrap();
         // short keepalive so the driver loss is detected quickly
@@ -5829,7 +6115,7 @@ mod tests {
             "client error handler should have reported the driver keepalive timeout"
         );
 
-        // An add issued after the conductor closed fails straight away, which is also correct
+        // An add issued after the conductor closed fails straight away
         if let Ok(pending) = pending {
             let start = Instant::now();
             let outcome = loop {
@@ -5877,6 +6163,17 @@ mod tests {
         drop(context);
         assert_eq!(Arc::strong_count(&handler.inner), 2);
         client.close().unwrap();
+        assert_eq!(Arc::strong_count(&handler.inner), 1);
+
+        // While a context still holds the handler, closing the client must not release it
+        let context = AeronContext::new().unwrap();
+        context.set_dir(&driver.dir().into_c_string()).unwrap();
+        context.set_error_handler(Some(handler.clone())).unwrap();
+        let client = Aeron::new(&context).unwrap();
+        client.start().unwrap();
+        client.close().unwrap();
+        assert_eq!(Arc::strong_count(&handler.inner), 2);
+        drop(context);
         assert_eq!(Arc::strong_count(&handler.inner), 1);
     }
 
@@ -6118,25 +6415,19 @@ mod tests {
 
     // Structural teardown verification via memory protection
     //
-    // Under the new design, the Rc dependency graph enforces
-    // teardown order: `aeron_close()` can only fire once every child's
-    // Rc<Aeron> is released.  This section proves that:
+    // The Rc dependency graph orders teardown: `aeron_close()` fires only once every
+    // child's Rc<Aeron> is released. The test below checks that:
     //
-    //  1. `drop(aeron)` is SAFE while children are alive (Rc keeps the
-    //     C client alive).
-    //  2. `drop(publisher)` triggers `aeron_close()` (when its Rc<Aeron>
-    //     is the last handle), which frees the publication. UAF after
-    //     the publisher drops is the *correct* C-level behaviour.
+    //  1. `drop(aeron)` is safe while children are alive (Rc keeps the C client alive).
+    //  2. `drop(publisher)` triggers `aeron_close()` when its Rc<Aeron> is the last
+    //     handle, which frees the publication.
     //
-    // To prove (2) we use `mprotect(PROT_NONE)` on the page containing
-    // the dangling pointer after `aeron_close()`.  Any access then
-    // triggers SIGBUS/SIGSEGV, proving the pointer targets freed memory.
+    // For (2), `mprotect(PROT_NONE)` on the page holding the dangling pointer makes any
+    // access raise SIGBUS/SIGSEGV, which shows the pointer targets freed memory.
+    // `mprotect` works at page level on malloc'd heap memory on Linux/macOS. The test
+    // forks so the mprotect runs in a child and the parent test runner is never at risk.
     //
-    // On Linux/macOS `mprotect` on malloc'd heap memory works at the page
-    // level.  This test uses `fork()` so the dangerous mprotect runs in a
-    // child process, so the parent test runner is never at risk.
-    //
-    // The test passes when the child exits with SIGABRT (teardown proven).
+    // The test passes when the child exits with SIGABRT.
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     const PROT_NONE: i32 = 0;
@@ -6169,18 +6460,16 @@ mod tests {
         std::process::abort();
     }
 
-    /// Prove the Rc graph teardown frees C memory: after the last child handle
-    /// drops (triggering deferred `aeron_close()`), `mprotect(PROT_NONE)` on the
-    /// publication's page causes a SIGBUS on access, confirming the memory was freed.
+    /// Checks that Rc graph teardown frees C memory: after the last child handle
+    /// drops and the deferred `aeron_close()` runs, `mprotect(PROT_NONE)` on the
+    /// publication's page raises SIGBUS on access.
     ///
-    /// It uses `mprotect(PROT_NONE)`, which affects an entire VM page.  If other live
-    /// heap allocations share the
-    /// same page as the freed Aeron resource the process may crash during
-    /// teardown too, so we call `std::process::abort` on detection and
-    /// `std::process::exit(0)` on the no-crash path.
+    /// `mprotect(PROT_NONE)` affects an entire VM page. Live heap allocations that share
+    /// the page with the freed Aeron resource can crash teardown too, so the child calls
+    /// `std::process::abort` on detection and `std::process::exit(0)` on the no-crash path.
     ///
-    /// Uses `fork()` to isolate the dangerous mprotect + access into
-    /// a child process.  The parent waits for the child's exit status:
+    /// The mprotect and access run in a `fork()`ed child. The parent waits for the
+    /// child's exit status:
     ///
     /// | Child exit | Meaning | Test result |
     /// |---|---|---|
@@ -6202,10 +6491,9 @@ mod tests {
         const SIGBUS: i32 = 7;
         const SIGSEGV: i32 = 11;
 
-        // This test deliberately forks, mprotects, and `mem::forget`s the driver
-        // to PROVE Rc teardown frees the C resource. It is not a memory-hygiene
-        // target, and its non-standard teardown (native-executed child + unusual
-        // close ordering) confuses Valgrind's leak accounting. Skip under Valgrind.
+        // The test forks, mprotects and `mem::forget`s the driver. Its non-standard
+        // teardown (native-executed child, unusual close ordering) confuses Valgrind's
+        // leak accounting, so it is skipped under Valgrind.
         if running_under_valgrind() {
             return;
         }
@@ -6233,14 +6521,12 @@ mod tests {
 
                 let raw_ptr: *mut aeron_publication_t = publisher.get_inner();
 
-                // Step 1: drop(aeron) is SAFE under the new design. The
-                // publisher still holds an Rc<Aeron>, so aeron_close()
-                // is deferred.
+                // Step 1: drop(aeron) defers aeron_close() because the publisher
+                // still holds an Rc<Aeron>.
                 drop(aeron);
 
-                // Step 2: drop(publisher). The Rc<Aeron> refcount drops
-                // to 0, triggering aeron_close().  aeron_close() frees all
-                // C resources including the publication at raw_ptr.
+                // Step 2: the last Rc<Aeron> drops and aeron_close() frees all C
+                // resources, including the publication at raw_ptr.
                 drop(publisher);
 
                 // Step 3: mprotect the page.  raw_ptr is now dangling.

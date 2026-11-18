@@ -1,13 +1,16 @@
-//! Native lifetime regressions. These also run under Valgrind without a Java archive.
+//! Native lifetime tests. These also run under Valgrind without a Java archive.
 use rusteron_archive::*;
 use rusteron_media_driver::testing::EmbeddedDriver;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 fn driver() -> EmbeddedDriver {
-    EmbeddedDriver::launch_with(|context| {
+    // Parallel tests can read the same nano clock value, so the counter keeps directories apart
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    EmbeddedDriver::launch_with(move |context| {
         let directory = std::env::temp_dir().join(format!(
-            "rusteron-lifecycle-{}-{}",
+            "rusteron-lifecycle-{}-{}-{id}",
             std::process::id(),
             Aeron::nano_clock()
         ));
@@ -93,26 +96,6 @@ fn terminal_destination_poll_invalidates_all_aliases() {
         ))
         .is_err()
     );
-}
-
-#[test]
-fn image_assemblers_release_their_delegates_once() {
-    let capture = Rc::new(());
-    let weak = Rc::downgrade(&capture);
-    let handler = Handler::new(move |_: &[u8], _: &AeronHeader| {
-        std::hint::black_box(&capture);
-    });
-    let assembler = AeronImageFragmentAssembler::new(Some(&handler)).unwrap();
-    drop(handler);
-    assert!(weak.upgrade().is_some());
-    assembler.delete().unwrap();
-    assert!(weak.upgrade().is_none());
-
-    let controlled_handler = Handler::new(|_: &[u8], _: &AeronHeader| {
-        bindings::aeron_controlled_fragment_handler_action_t::AERON_ACTION_CONTINUE
-    });
-    let controlled = AeronImageControlledFragmentAssembler::new(Some(&controlled_handler)).unwrap();
-    controlled.delete().unwrap();
 }
 
 fn persistent_context(client: &Aeron, archive: &AeronArchiveContext) -> AeronArchivePersistentSubscriptionContext {
@@ -231,9 +214,50 @@ fn failed_persistent_creation_preserves_listener_and_releases_configuration() {
 }
 
 #[test]
-fn assemblers_reject_missing_delegate() {
-    assert!(AeronFragmentAssembler::new(Handlers::NONE).is_err());
-    assert!(AeronControlledFragmentAssembler::new(Handlers::NONE).is_err());
-    assert!(AeronImageFragmentAssembler::new(Handlers::NONE).is_err());
-    assert!(AeronImageControlledFragmentAssembler::new(Handlers::NONE).is_err());
+fn borrowed_persistent_context_rejects_dependencies_without_panicking() {
+    let driver = driver();
+    let client = Aeron::connect_dir(driver.dir()).unwrap();
+    let archive = AeronArchiveContext::new().unwrap();
+    archive.set_aeron(&client).unwrap();
+    let owned = AeronArchivePersistentSubscriptionContext::new().unwrap();
+    // SAFETY: owned outlives every use of this borrowed handle.
+    let borrowed = unsafe { AeronArchivePersistentSubscriptionContext::from_ptr(owned.get_inner()) };
+    for result in [borrowed.set_aeron(&client), borrowed.set_archive_context(&archive)] {
+        let err = result.unwrap_err();
+        assert!(
+            err.message()
+                .is_some_and(|m| m.contains("borrowed context cannot be changed")),
+            "{err:?}"
+        );
+    }
+    owned.set_aeron(&client).unwrap();
+    owned.set_archive_context(&archive).unwrap();
+}
+
+#[test]
+fn archive_connect_times_out_when_no_archive_answers() {
+    let driver = driver();
+    let client = Aeron::connect_dir(driver.dir()).unwrap();
+    let started = Instant::now();
+    let result = AeronArchive::connect(
+        &client,
+        "aeron:udp?endpoint=localhost:9",
+        "aeron:udp?endpoint=localhost:0",
+        None,
+        Duration::from_millis(200),
+    );
+    assert!(result.is_err());
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert!(AeronArchive::connect(&client, "not-a-uri", "aeron:ipc", None, Duration::from_millis(200)).is_err());
+}
+
+#[test]
+fn archive_error_display_names_the_code_and_message() {
+    let err = AeronArchiveError {
+        code: AeronArchiveErrorCode::from_code(5),
+        message: "no such recording".into(),
+    };
+    let text = err.to_string();
+    assert!(text.starts_with("archive error "), "{text}");
+    assert!(text.ends_with(": no such recording"), "{text}");
 }

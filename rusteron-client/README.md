@@ -3,8 +3,11 @@
 Fast, idiomatic Rust for Aeron IPC and UDP messaging, using the Aeron C API
 directly. Connect to a Media Driver, publish messages and poll subscriptions.
 
-[GSR](https://www.gsr.io) sponsors and maintains Rusteron. It has run in GSR's
-low-latency trading system since early 2025.
+## Sponsored by GSR
+
+Rusteron is sponsored and maintained by [GSR](https://www.gsr.io), a global leader in algorithmic trading and market making in digital assets.
+Rusteron has been running in production in GSR's low-latency trading system since the beginning of 2025. It is mature and battle tested.
+It is developed under the GSR GitHub organisation. We welcome contributions, feedback and discussion. To integrate or contribute, open an issue or reach out directly.
 
 [Quick start](#minimal-pubsub) · [Sending](#errors-and-offer-results) ·
 [Callbacks](#handlers-and-callbacks) ·
@@ -12,7 +15,7 @@ low-latency trading system since early 2025.
 
 ## Installation
 
-This branch documents the 0.3 API. Add a static client dependency:
+Add a static client dependency:
 
 ```toml
 [dependencies]
@@ -114,24 +117,24 @@ for retry loops and reserved values.
 | Conductor callback | Owned callback setter, or `SharedHandler::new_shared(callback)` |
 | No optional callback | `Handlers::NONE` |
 
-Use `poll(&mut callback, limit)`, `poll_fn` or an owned assembler on latency-sensitive receive threads.
-These APIs use direct Rust borrowing without callback guards. Local `Handler::lock()` and
-`borrow()` use `RefCell` borrow checks, without a mutex or atomic operation.
-Only the explicit `poll_with_handler` form acquires a callback guard. Ordinary
-`poll` calls borrow the callback exclusively through Rust's type system.
-`SharedHandler::lock()` acquires a mutex and can wait for an active callback;
-shared callbacks also acquire it when invoked.
-See [synchronization costs](https://github.com/gsrxyz/rusteron/blob/main/docs/thread-safety.md#hot-path-behaviour).
+On latency-sensitive receive threads, use `poll(&mut callback, limit)`,
+`poll_fn` or an owned assembler. These borrow the callback through Rust's type
+system and take no guard. Local `Handler::lock()` and `borrow()` use `RefCell`
+borrow checks, with no mutex or atomic operation. Polls never take a `Handler`;
+pass `&mut *handler.lock()` to poll with its state. `SharedHandler::lock()` takes a
+mutex and can wait for an active callback, and shared callbacks take it when invoked.
+See [synchronisation costs](https://github.com/gsrxyz/rusteron/blob/main/docs/thread-safety.md#hot-path-behaviour).
 
-Create an assembler once and reuse it:
+Create an assembler once and reuse it. `AeronFragmentClosureAssembler` takes a new
+closure on each poll; `FragmentAssembler::new(callback)` owns one fixed callback:
 
 ```rust,no_run
 # use rusteron_client::*;
 # fn receive(subscription: &AeronSubscription) -> Result<(), AeronCError> {
-let mut assembler = FragmentAssembler::new(|message: &[u8], _header: &AeronHeader| {
+let mut assembler = AeronFragmentClosureAssembler::new()?;
+assembler.poll(subscription, |message, _header| {
     println!("received a complete {}-byte message", message.len());
-})?;
-assembler.poll(subscription, 64)?;
+}, 64)?;
 # Ok(()) }
 ```
 
@@ -159,7 +162,7 @@ see the [handler lifetime guide](https://github.com/gsrxyz/rusteron/blob/main/do
   releases that owner; native cleanup waits for the last owner, including children.
 - Getters return lifetime-bound `Ref` views. These views cannot be cloned or outlive
   their parent. `as_ref()` creates another short borrow.
-- Contexts are configured before native initialization. Later changes are rejected.
+- Contexts are configured before native initialisation. Later changes are rejected.
 - Raw-pointer construction, native struct references and forced cleanup require
   `unsafe` and the documented caller guarantees.
 

@@ -33,6 +33,17 @@ pub(crate) fn method(wrapper: &str, method: &Method) -> StringView {
 pub(crate) fn field(wrapper: &str, field: &str) -> StringView {
     match (wrapper, field) {
         ("aeron_archive_encoded_credentials_t", "data") => StringView::BorrowedWithLength("length"),
+        // These keys point into caller storage and carry their own length, so they are not NUL terminated
+        ("aeron_str_to_ptr_hash_map_key_t", "str_") => StringView::BorrowedWithLength("str_length"),
+        ("aeron_flow_control_tagged_options_t", "strategy_name") => {
+            StringView::BorrowedWithLength("strategy_name_length")
+        }
+        // Plain data with no native methods and no safe native writer. Every way to fill
+        // their pointers (`new`, `from_native`, `from_ptr`, `clone_struct`) is unsafe and
+        // requires the text to outlive the handle, and zeroed storage reads as empty
+        ("aeron_udp_channel_params_t" | "aeron_ipc_channel_params_t", _) | ("aeron_uri_param_t", "key" | "value") => {
+            StringView::Borrowed
+        }
         // The role name stays fixed until unsafe native close. Runner constructors
         // require its storage to remain valid for every use of the runner.
         ("aeron_agent_runner_t", "role_name")

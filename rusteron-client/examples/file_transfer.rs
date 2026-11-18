@@ -128,13 +128,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         offset = end;
 
         // drain the subscription as we go (single process; a real receiver is remote)
-        assembler.poll(&subscription, &mut receiver, on_message, 64)?;
+        assembler.poll(&subscription, |buf, hdr| on_message(&mut receiver, buf, hdr), 64)?;
     }
 
     // drain the tail until every byte has arrived
     let deadline = Instant::now() + Duration::from_secs(10);
     while receiver.received < FILE_SIZE as u64 && Instant::now() < deadline {
-        if assembler.poll(&subscription, &mut receiver, on_message, 64)? == 0 {
+        if assembler.poll(&subscription, |buf, hdr| on_message(&mut receiver, buf, hdr), 64)? == 0 {
             sleep(Duration::from_millis(1));
         }
     }

@@ -35,6 +35,40 @@ pub const CUSTOM_AERON_CODE: &str = include_str!("./aeron_custom.rs");
 pub const CUSTOM_ARCHIVE_CODE: &str = include_str!("./aeron_custom_archive.rs");
 pub const COMMON_CODE: &str = include_str!("./common.rs");
 
+/// The owned assemblers in `aeron_custom.rs` (`FragmentAssembler`, `AeronImageFragmentAssembler`
+/// and their controlled forms) drive the native assemblers directly, so drop the generated
+/// wrappers that would otherwise share their names
+fn remove_native_assemblers(bindings: &mut CBinding) {
+    bindings
+        .wrappers
+        .retain(|name, _| !name.ends_with("fragment_assembler_t"));
+    // Fields pointing at a removed assembler would otherwise get a public raw pointer getter
+    for wrapper in bindings.wrappers.values_mut() {
+        wrapper
+            .fields
+            .retain(|field| !field.c_type.contains("fragment_assembler_t"));
+    }
+    // Without their wrappers the C docs would name the native assembler types, so point
+    // them at the hand-written replacements instead
+    for wrapper in bindings.wrappers.values_mut() {
+        for docs in std::iter::once(&mut wrapper.docs).chain(wrapper.methods.iter_mut().map(|m| &mut m.docs)) {
+            *docs = std::mem::take(docs)
+                .into_iter()
+                .map(|doc| {
+                    // Image names first, as the generic names are substrings of them
+                    doc.replace(
+                        "aeron_image_controlled_fragment_assembler_t",
+                        "`AeronImageControlledFragmentAssembler`",
+                    )
+                    .replace("aeron_image_fragment_assembler_t", "`AeronImageFragmentAssembler`")
+                    .replace("aeron_controlled_fragment_assembler_t", "`ControlledFragmentAssembler`")
+                    .replace("aeron_fragment_assembler_t", "`FragmentAssembler`")
+                })
+                .collect();
+        }
+    }
+}
+
 /// Generate the current Rust wrappers from parsed, target-specific C bindings.
 /// This does not run bindgen, rustfmt, or any native build tools.
 pub fn generate_wrappers(bindings: &mut CBinding, wrapper_type_filter: fn(&str) -> bool) -> TokenStream {
@@ -43,6 +77,8 @@ pub fn generate_wrappers(bindings: &mut CBinding, wrapper_type_filter: fn(&str) 
     for handler in bindings.handlers.iter_mut() {
         let _ = generate_handlers(handler, &bindings_copy);
     }
+
+    remove_native_assemblers(bindings);
 
     let mut stream = TokenStream::new();
     for (p, wrapper) in bindings
@@ -71,12 +107,10 @@ pub fn generate_wrappers(bindings: &mut CBinding, wrapper_type_filter: fn(&str) 
     stream
 }
 
-/// Minimal `AeronArchiveError` stub for the `archive` trybuild test only. The real
-/// type with native error codes and Display lives in `aeron_custom_archive.rs` and is
-/// pulled into rusteron-archive via its build.rs. The trybuild test compiles generated
-/// code in isolation, so the real CUSTOM_ARCHIVE_CODE can't be used (it references
-/// hand-written rusteron-archive/src/lib.rs types). Generated aeron_archive_t methods
-/// only reference `AeronArchiveError::from_code(i32)`, so a bare struct suffices.
+/// Minimal `AeronArchiveError` stub for the `archive` trybuild test only. The real type
+/// lives in `aeron_custom_archive.rs` and depends on hand-written `rusteron-archive` types,
+/// which the isolated trybuild compile cannot see. Generated `aeron_archive_t` methods
+/// only call `AeronArchiveError::from_code(i32)`, so a bare struct suffices.
 #[cfg(test)]
 const TRYBUILD_ARCHIVE_ERROR_STUB: &str = r#"
     #[derive(Debug, Clone)]
@@ -126,8 +160,7 @@ pub fn format_with_rustfmt(code: &str) -> Result<String, std::io::Error> {
 
     let formatted_code = String::from_utf8_lossy(&output.stdout).to_string();
 
-    // If the input was non-empty but the output is empty, that's an error
-    // But if the input was empty/whitespace only, empty output is fine
+    // Empty output is an error unless the input was empty or whitespace only
     if !code.trim().is_empty() && formatted_code.trim().is_empty() {
         Err(std::io::Error::new(
             std::io::ErrorKind::Other,
@@ -160,8 +193,7 @@ mod tests {
     use quote::ToTokens;
     use std::fs;
 
-    // valgrind can give false positives, so we don't want to run on tests which are 100% rust
-    // and do not have any chance of any undefined behaviour i.e. parsing rs and generating code
+    // Valgrind reports false positives on these pure-Rust parsing and code generation tests
     fn running_under_valgrind() -> bool {
         std::env::var_os("RUSTERON_VALGRIND").is_some()
     }
@@ -195,9 +227,10 @@ mod tests {
         let file = write_to_file(TokenStream::new(), true, "client.rs");
         let bindings_copy = bindings.clone();
         for handler in bindings.handlers.iter_mut() {
-            // need to run this first so I know the FnMut(xxxx) which is required in generate_rust_code
+            // Populates the FnMut signatures that generate_rust_code needs
             let _ = crate::generate_handlers(handler, &bindings_copy);
         }
+        crate::remove_native_assemblers(&mut bindings);
         for (p, w) in bindings.wrappers.values().enumerate() {
             let code = crate::generate_rust_code(
                 w,
@@ -210,6 +243,11 @@ mod tests {
             );
             write_to_file(code, false, "client.rs");
         }
+        append_to_file(
+            &file,
+            &format_with_rustfmt(&crate::convenience::system_counter_enum(&bindings.constants).to_string()).unwrap(),
+        )
+        .unwrap();
         append_to_file(
             &file,
             &format_with_rustfmt(&crate::constant_enums::generate(&bindings.constants).to_string()).unwrap(),
@@ -259,9 +297,10 @@ mod tests {
 
         let bindings_copy = bindings.clone();
         for handler in bindings.handlers.iter_mut() {
-            // need to run this first so I know the FnMut(xxxx) which is required in generate_rust_code
+            // Populates the FnMut signatures that generate_rust_code needs
             let _ = crate::generate_handlers(handler, &bindings_copy);
         }
+        crate::remove_native_assemblers(&mut bindings);
         for (p, w) in bindings
             .wrappers
             .values()
@@ -279,6 +318,11 @@ mod tests {
             );
             write_to_file(code, false, "md.rs");
         }
+        append_to_file(
+            &file,
+            &format_with_rustfmt(&crate::convenience::system_counter_enum(&bindings.constants).to_string()).unwrap(),
+        )
+        .unwrap();
         append_to_file(
             &file,
             &format_with_rustfmt(&crate::constant_enums::generate(&bindings.constants).to_string()).unwrap(),
@@ -326,9 +370,10 @@ mod tests {
         let file = write_to_file(TokenStream::new(), true, "archive.rs");
         let bindings_copy = bindings.clone();
         for handler in bindings.handlers.iter_mut() {
-            // need to run this first so I know the FnMut(xxxx) which is required in generate_rust_code
+            // Populates the FnMut signatures that generate_rust_code needs
             let _ = crate::generate_handlers(handler, &bindings_copy);
         }
+        crate::remove_native_assemblers(&mut bindings);
         for (p, w) in bindings.wrappers.values().enumerate() {
             let code = crate::generate_rust_code(
                 w,
@@ -341,6 +386,11 @@ mod tests {
             );
             write_to_file(code, false, "archive.rs");
         }
+        append_to_file(
+            &file,
+            &format_with_rustfmt(&crate::convenience::system_counter_enum(&bindings.constants).to_string()).unwrap(),
+        )
+        .unwrap();
         append_to_file(
             &file,
             &format_with_rustfmt(&crate::constant_enums::generate(&bindings.constants).to_string()).unwrap(),
@@ -361,12 +411,10 @@ mod tests {
         append_to_file(&file, ARCHIVE_BINDINGS).unwrap();
         append_to_file(&file, "}").unwrap();
         append_to_file(&file, CUSTOM_AERON_CODE).unwrap();
-        // The generated aeron_archive_t methods reference AeronArchiveError, which in the
-        // real crate is supplied by CUSTOM_ARCHIVE_CODE. That file also references
-        // hand-written rusteron-archive/src/lib.rs types (e.g. AeronArchiveAsyncConnect),
-        // so it can't be compiled standalone here. Inject a minimal stub instead. The
-        // trybuild test only checks generated signatures compile; the real type's
-        // behaviour is covered by rusteron-archive's own tests.
+        // The real `AeronArchiveError` comes from CUSTOM_ARCHIVE_CODE, which references
+        // hand-written `rusteron-archive` types (e.g. `AeronArchiveAsyncConnect`) and cannot
+        // compile standalone. Inject a stub: this test only checks that generated signatures
+        // compile, and `rusteron-archive` tests cover the real type
         append_to_file(&file, TRYBUILD_ARCHIVE_ERROR_STUB).unwrap();
         append_to_file(&file, "\npub fn main() {}\n").unwrap();
         t.pass(file)
@@ -384,10 +432,8 @@ mod tests {
             .unwrap_or_else(|_| panic!("rustfmt failed on regenerated {bindings_file}"))
     }
 
-    /// Regenerate `aeron.rs` exactly as `build.rs` does (single rustfmt pass over
-    /// the whole stream, test-modules disabled) and assert it byte-matches the
-    /// committed `docs-rs/aeron.rs`. Catches "forgot to rebuild with
-    /// `COPY_BINDINGS=true`" drift as a CI failure instead of a stale docs.rs.
+    /// Regenerates `aeron.rs` as `build.rs` does (one rustfmt pass over the whole stream,
+    /// test modules disabled) and asserts it byte-matches the committed `docs-rs/aeron.rs`
     fn assert_aeron_rs_snapshot_matches(
         bindings_file: &str,
         snapshot_rel_path: &str,
@@ -400,12 +446,16 @@ mod tests {
 
         let snapshot_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(snapshot_rel_path);
         let generated = generate_aeron_rs(bindings_file, skip_filter, extra_custom_code);
+        // `COPY_BINDINGS=true` regenerates from the host's bindings, which differ per platform,
+        // so refresh from the committed bindings instead
+        if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
+            fs::write(&snapshot_path, &generated).expect("write the regenerated snapshot");
+            return;
+        }
         let committed = fs::read_to_string(&snapshot_path)
             .unwrap_or_else(|_| panic!("missing committed snapshot: {}", snapshot_path.display()));
 
-        // Normalise surrounding whitespace: build.rs writes the snapshot via
-        // `append_to_file`, which wraps content in `\n{}\n`, so leading/trailing
-        // blank lines are a write artifact, not content drift.
+        // `append_to_file` wraps content in `\n{}\n`, so leading and trailing blank lines are not drift
         let norm = |s: &str| s.trim().to_string();
         let (generated, committed) = (norm(&generated), norm(&committed));
         if generated != committed {
@@ -423,8 +473,8 @@ mod tests {
             panic!(
                 "docs-rs snapshot drift in {}: generated aeron.rs differs from committed \
                  {} (first divergence near line {}). GENERATED first 3 lines:\n{}\n\
-                 COMMITTED first 3 lines:\n{}\nRebuild with `COPY_BINDINGS=true` \
-                 (e.g. `just build`) and commit the regenerated snapshot.",
+                 COMMITTED first 3 lines:\n{}\nRun `UPDATE_SNAPSHOTS=1 cargo test -p \
+                 rusteron-code-gen snapshot` and commit the regenerated snapshot.",
                 bindings_file,
                 snapshot_path.display(),
                 line_no,
@@ -448,14 +498,12 @@ mod tests {
     #[test]
     #[cfg(not(target_os = "windows"))]
     fn archive_aeron_rs_matches_committed_snapshot() {
-        // Archive's build.rs merges CUSTOM_ARCHIVE_CODE into the generator skip-list
-        // (so hand-written archive methods like ReplayMerge::poll_fn/poll_once suppress
-        // the generated variant). The snapshot regeneration must mirror that, or the
-        // committed snapshot (built with the merge) drifts from the regeneration.
+        // Archive's build.rs merges CUSTOM_ARCHIVE_CODE into the generator skip-list, so
+        // hand-written methods like `ReplayMerge::poll_fn` suppress the generated variant.
+        // The regeneration must do the same to match the snapshot.
         //
-        // Not macOS-gated: the test parses the COMMITTED bindings file
-        // (rusteron-code-gen/bindings/archive.rs), so regeneration is deterministic
-        // regardless of host platform.
+        // Not macOS-gated: the test parses the committed `bindings/archive.rs`, so the
+        // output does not depend on the host platform
         assert_aeron_rs_snapshot_matches(
             "archive.rs",
             "../rusteron-archive/docs-rs/aeron.rs",
@@ -595,39 +643,11 @@ mod tests {
         }
     }
 
-    /// Constructors take a separate code path from methods: assembler delegates must be
-    /// caught (the poll raises them), not logged
-    #[test]
-    #[cfg(not(target_os = "windows"))]
-    fn assembler_constructors_catch_delegate_panics() {
-        let generated = generate_aeron_rs("client.rs", |t| t.starts_with("aeron_"), &[]);
-        for (class, shim) in [
-            ("AeronFragmentAssembler", "aeron_fragment_handler_t_callback_catch"),
-            (
-                "AeronControlledFragmentAssembler",
-                "aeron_controlled_fragment_handler_t_callback_catch",
-            ),
-            ("AeronImageFragmentAssembler", "aeron_fragment_handler_t_callback_catch"),
-            (
-                "AeronImageControlledFragmentAssembler",
-                "aeron_controlled_fragment_handler_t_callback_catch",
-            ),
-        ] {
-            let start = generated
-                .find(&format!("\nimpl {class}<"))
-                .unwrap_or_else(|| panic!("missing impl {class}"));
-            let block = &generated[start + 1..];
-            let block = &block[..block.find("\nimpl ").unwrap_or(block.len())];
-            assert!(block.contains(&format!("{shim}::<")), "{class}::new must use {shim}");
-        }
-    }
-
-    /// `aeron_custom.rs` is a verbatim copy (not generated) into each crate's
-    /// `docs-rs/`. Assert the committed copies stay byte-identical to the source
-    /// of truth (`rusteron-code-gen/src/aeron_custom.rs`).
+    /// Each crate's `docs-rs/aeron_custom.rs` is a verbatim copy and must match
+    /// `rusteron-code-gen/src/aeron_custom.rs`
     #[test]
     fn aeron_custom_rs_snapshots_match_source() {
-        // each crate's committed aeron_custom.rs = the common custom code plus any
+        // each crate's committed aeron_custom.rs is the common custom code plus any
         // per-crate custom code appended by its build config (archive only, today)
         let no_extra: &[&str] = &[];
         for (crate_name, extra) in [
@@ -642,13 +662,17 @@ mod tests {
             }
             let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join(format!("../rusteron-{crate_name}/docs-rs/aeron_custom.rs"));
+            if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
+                fs::write(&path, &source).unwrap_or_else(|e| panic!("write {}: {e}", path.display()));
+                continue;
+            }
             let committed = fs::read_to_string(&path)
                 .unwrap_or_else(|_| panic!("missing committed aeron_custom.rs: {}", path.display()));
             assert_eq!(
                 committed.trim(),
                 source.trim(),
                 "rusteron-{crate_name}/docs-rs/aeron_custom.rs drifted from \
-                 rusteron-code-gen/src/aeron_custom*.rs. Rebuild with `COPY_BINDINGS=true`.",
+                 rusteron-code-gen/src/aeron_custom*.rs. Run `UPDATE_SNAPSHOTS=1 cargo test -p rusteron-code-gen snapshot`.",
             );
         }
     }
@@ -1244,8 +1268,4 @@ mod test {
         unsafe { *stack.get() = 40 };
         assert_eq!(30, unsafe { *copy.get() });
     }
-
-    // NOTE: test_drop_does_not_call_cleanup_if_check_for_is_closed_* removed
-    // because check_for_is_closed was deleted. The cleanup closure + Rc graph
-    // are now the sole teardown mechanism (see rusteron-code-gen/src/common.rs).
 }

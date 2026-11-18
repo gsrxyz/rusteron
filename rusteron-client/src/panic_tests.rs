@@ -458,95 +458,6 @@ fn direct_image_poll_accepts_an_owned_fragment_assembler() {
 
 #[test]
 #[serial]
-fn local_handler_poll_rejects_live_borrows_from_an_alias() {
-    let ipc = ipc(5033);
-    let handler = Handler::new(Recorder {
-        seen: vec![],
-        panic_on: None,
-        _drops: DropCount(Rc::new(Cell::new(0))),
-    });
-    let alias = handler.clone();
-    offer(&ipc.publication, [1]);
-
-    let state = handler.borrow();
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        ipc.subscription.poll_with_handler(Some(&alias), 10)
-    }));
-    assert!(panic_message(&*result.unwrap_err()).contains("already borrowed"));
-    assert!(state.seen.is_empty(), "a rejected poll must not call the handler");
-    drop(state);
-
-    let mut state = handler.lock();
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        ipc.subscription.poll_with_handler(Some(&alias), 10)
-    }));
-    assert!(panic_message(&*result.unwrap_err()).contains("already borrowed"));
-    state.seen.push(0);
-
-    // Keep one checked borrow across several polls. The closure borrows the
-    // callback directly, without another RefCell check on each poll.
-    offer(&ipc.publication, [2]);
-    wait(|| {
-        ipc.subscription
-            .poll_fn(|bytes, header| state.handle_aeron_fragment_handler(bytes, header), 1)
-            .unwrap();
-        state.seen.len() == 3
-    });
-    assert_eq!(state.seen, [0, 1, 2]);
-    drop(state);
-    assert_eq!(alias.borrow().seen, [0, 1, 2]);
-}
-
-#[test]
-#[serial]
-fn local_handler_poll_rejects_reentrant_polling_and_recovers() {
-    struct Reentrant {
-        alias: std::rc::Weak<std::cell::RefCell<Option<Handler<Reentrant>>>>,
-        subscription: AeronSubscription,
-        seen: Vec<u32>,
-        reenter: bool,
-    }
-    impl AeronFragmentHandlerCallback for Reentrant {
-        fn handle_aeron_fragment_handler(&mut self, bytes: &[u8], _: &AeronHeader) {
-            self.seen.push(value(bytes));
-            if self.reenter {
-                self.reenter = false;
-                let slot = self.alias.upgrade().unwrap();
-                let alias = slot.borrow();
-                self.subscription.poll_with_handler(alias.as_ref(), 1).unwrap();
-            }
-        }
-    }
-
-    let ipc = ipc(5034);
-    let slot = Rc::new(std::cell::RefCell::new(None));
-    let handler = Handler::new(Reentrant {
-        alias: Rc::downgrade(&slot),
-        subscription: ipc.subscription.clone(),
-        seen: vec![],
-        reenter: true,
-    });
-    *slot.borrow_mut() = Some(handler.clone());
-    offer(&ipc.publication, [1]);
-
-    let payload = poll_until_panic(|| {
-        ipc.subscription.poll_with_handler(Some(&handler), 1).unwrap();
-    });
-    assert!(panic_message(&*payload).contains("already borrowed"));
-    assert_eq!(handler.borrow().seen, [1]);
-    wait(|| {
-        ipc.subscription.poll_with_handler(Some(&handler), 1).unwrap();
-        handler.borrow().seen.len() == 2
-    });
-    assert_eq!(
-        handler.borrow().seen,
-        [1, 1],
-        "the interrupted poll must redeliver its fragment"
-    );
-}
-
-#[test]
-#[serial]
 fn retained_handler_survives_panic_and_drops_once() {
     let ipc = ipc(5008);
     offer(&ipc.publication, 1..=3);
@@ -558,14 +469,14 @@ fn retained_handler_survives_panic_and_drops_once() {
     });
 
     poll_until_panic(|| {
-        ipc.subscription.poll_with_handler(Some(&handler), 10).unwrap();
+        ipc.subscription.poll(&mut *handler.lock(), 10).unwrap();
     });
     assert_eq!(handler.lock().seen, [1, 2]);
 
     // SAFETY: no poll is running, so nothing else borrows the handler
     unsafe { handler.get_mut() }.panic_on = None;
     wait(|| {
-        ipc.subscription.poll_with_handler(Some(&handler), 10).unwrap();
+        ipc.subscription.poll(&mut *handler.lock(), 10).unwrap();
         handler.lock().seen.len() >= 5
     });
     assert_eq!(handler.lock().seen, [1, 2, 1, 2, 3]);
@@ -674,48 +585,24 @@ fn fragment_assembler_delegate_panic_resumes_from_poll() {
     let ipc = ipc(5020);
     let (seen, panic_on) = (Rc::default(), Rc::new(Cell::new(Some(2))));
     let mut delegate = recording_delegate(&seen, &panic_on);
-    let (assembler, _delegate) =
-        Handler::with_fragment_assembler(move |buffer: &[u8], _: &AeronHeader| delegate(buffer)).unwrap();
+    let mut assembler = FragmentAssembler::new(move |buffer: &[u8], _: &AeronHeader| delegate(buffer)).unwrap();
     offer(&ipc.publication, 1..=3);
 
     let payload = poll_until_panic(|| {
-        ipc.subscription.poll_with_handler(Some(&assembler), 10).unwrap();
+        assembler.poll(&ipc.subscription, 10).unwrap();
     });
     assert_eq!(panic_message(&*payload), "boom");
     wait(|| {
-        ipc.subscription.poll_with_handler(Some(&assembler), 10).unwrap();
+        assembler.poll(&ipc.subscription, 10).unwrap();
         seen.borrow().len() >= 3
     });
 
     offer(&ipc.publication, [4]);
     wait(|| {
-        ipc.subscription.poll_with_handler(Some(&assembler), 10).unwrap();
+        assembler.poll(&ipc.subscription, 10).unwrap();
         seen.borrow().len() >= 4
     });
     assert_eq!(*seen.borrow(), [1, 2, 3, 4]);
-}
-
-#[test]
-#[serial]
-fn native_assembler_poll_keeps_the_handler_borrowed_during_callbacks() {
-    let ipc = ipc(5030);
-    let slot: Rc<std::cell::RefCell<Option<Handler<AeronFragmentAssembler>>>> = Rc::default();
-    let weak_slot = Rc::downgrade(&slot);
-    let (assembler, _delegate) = Handler::with_fragment_assembler(move |_: &[u8], _: &AeronHeader| {
-        let slot = weak_slot.upgrade().unwrap();
-        let slot = slot.borrow();
-        // The native fast path must keep the outer mutable borrow until C returns.
-        let _overlapping_borrow = slot.as_ref().unwrap().lock();
-    })
-    .unwrap();
-    *slot.borrow_mut() = Some(assembler.clone());
-    offer(&ipc.publication, [1]);
-    let payload = poll_until_panic(|| {
-        ipc.subscription.poll_with_handler(Some(&assembler), 10).unwrap();
-    });
-    assert!(panic_message(&*payload).contains("already borrowed"));
-    // Unwinding must release the outer borrow too.
-    drop(assembler.lock());
 }
 
 /// The caught panic returns ABORT to C, so the panicking message is delivered again
@@ -725,7 +612,7 @@ fn controlled_fragment_assembler_delegate_panic_redelivers() {
     let ipc = ipc(5024);
     let (seen, panic_on) = (Rc::default(), Rc::new(Cell::new(Some(2))));
     let mut delegate = recording_delegate(&seen, &panic_on);
-    let (assembler, _delegate) = Handler::with_controlled_fragment_assembler(move |buffer: &[u8], _: &AeronHeader| {
+    let mut assembler = ControlledFragmentAssembler::new(move |buffer: &[u8], _: &AeronHeader| {
         delegate(buffer);
         aeron_controlled_fragment_handler_action_t::AERON_ACTION_CONTINUE
     })
@@ -733,18 +620,14 @@ fn controlled_fragment_assembler_delegate_panic_redelivers() {
     offer(&ipc.publication, 1..=3);
 
     let payload = poll_until_panic(|| {
-        ipc.subscription
-            .controlled_poll_with_handler(Some(&assembler), 10)
-            .unwrap();
+        assembler.poll(&ipc.subscription, 10).unwrap();
     });
     assert_eq!(panic_message(&*payload), "boom");
     assert_eq!(*seen.borrow(), [1, 2]);
 
     panic_on.set(None);
     wait(|| {
-        ipc.subscription
-            .controlled_poll_with_handler(Some(&assembler), 10)
-            .unwrap();
+        assembler.poll(&ipc.subscription, 10).unwrap();
         seen.borrow().len() >= 4
     });
     assert_eq!(*seen.borrow(), [1, 2, 2, 3]);
@@ -769,18 +652,18 @@ fn fragmented_delegate_panic(controlled: bool) {
     };
     let subscription = &ipc.subscription;
     let mut poll: Box<dyn FnMut()> = if controlled {
-        let (assembler, _) = Handler::with_controlled_fragment_assembler(move |buffer: &[u8], header: &AeronHeader| {
+        let mut assembler = ControlledFragmentAssembler::new(move |buffer: &[u8], header: &AeronHeader| {
             delegate(buffer, header);
             aeron_controlled_fragment_handler_action_t::AERON_ACTION_CONTINUE
         })
         .unwrap();
         Box::new(move || {
-            subscription.controlled_poll_with_handler(Some(&assembler), 1).unwrap();
+            assembler.poll(subscription, 1).unwrap();
         })
     } else {
-        let (assembler, _) = Handler::with_fragment_assembler(delegate).unwrap();
+        let mut assembler = FragmentAssembler::new(delegate).unwrap();
         Box::new(move || {
-            subscription.poll_with_handler(Some(&assembler), 1).unwrap();
+            assembler.poll(subscription, 1).unwrap();
         })
     };
 
@@ -922,4 +805,126 @@ fn child_conductor_callback_panics() {
 
     offer(&ipc.publication, [1]);
     assert_eq!(drain(&subscription, 1), [1]);
+}
+
+/// One closure assembler serves different closures per poll, and keeps partial
+/// messages between polls so a fragmented message still arrives whole
+#[test]
+#[serial]
+fn closure_assembler_reassembles_across_polls_and_closures() {
+    let ipc = ipc(5040);
+    let length = ipc.publication.max_payload_length().unwrap() + 17;
+    let mut assembler = AeronFragmentClosureAssembler::new().unwrap();
+    let image = ipc.subscription.image_at_index(0).unwrap();
+    wait(|| ipc.publication.offer(&vec![0xA5; length]).is_ok());
+
+    let mut whole = Vec::new();
+    let mut first_polls = 0;
+    // a fragment limit of 1 splits the message across polls
+    wait(|| {
+        first_polls += 1;
+        image
+            .poll(&mut assembler.with(|msg, _| whole.push(msg.len())), 1)
+            .unwrap();
+        !whole.is_empty()
+    });
+    assert!(first_polls >= 2, "the message must span more than one poll");
+    assert_eq!(whole, [length]);
+
+    offer(&ipc.publication, [7]);
+    let mut values = Vec::new();
+    wait(|| {
+        assembler
+            .poll(&ipc.subscription, |msg, _| values.push(value(msg)), 10)
+            .unwrap();
+        !values.is_empty()
+    });
+    assert_eq!(values, [7]);
+}
+
+/// The poll raises the caught closure panic and the assembler stays usable
+#[test]
+#[serial]
+fn closure_assembler_panic_resumes_from_poll() {
+    let ipc = ipc(5041);
+    let mut assembler = AeronFragmentClosureAssembler::new().unwrap();
+    offer(&ipc.publication, 1..=3);
+    let mut seen = Vec::new();
+    let payload = poll_until_panic(|| {
+        assembler
+            .poll(
+                &ipc.subscription,
+                |msg, _| {
+                    seen.push(value(msg));
+                    if value(msg) == 2 {
+                        boom();
+                    }
+                },
+                10,
+            )
+            .unwrap();
+    });
+    assert_eq!(panic_message(&*payload), "boom");
+    wait(|| {
+        assembler
+            .poll(&ipc.subscription, |msg, _| seen.push(value(msg)), 10)
+            .unwrap();
+        seen.len() >= 3
+    });
+    assert_eq!(seen, [1, 2, 3]);
+}
+
+/// ABORT from the closure leaves the message for the next poll, and a panic does the same
+#[test]
+#[serial]
+fn controlled_closure_assembler_abort_and_panic_redeliver() {
+    use aeron_controlled_fragment_handler_action_t::{AERON_ACTION_ABORT, AERON_ACTION_CONTINUE};
+    let ipc = ipc(5042);
+    let mut assembler = AeronControlledFragmentClosureAssembler::new().unwrap();
+    offer(&ipc.publication, 1..=3);
+    let mut seen = Vec::new();
+    wait(|| {
+        assembler
+            .poll(
+                &ipc.subscription,
+                |msg, _| {
+                    seen.push(value(msg));
+                    if value(msg) == 2 {
+                        AERON_ACTION_ABORT
+                    } else {
+                        AERON_ACTION_CONTINUE
+                    }
+                },
+                10,
+            )
+            .unwrap();
+        seen.len() >= 2
+    });
+    assert_eq!(seen, [1, 2]);
+
+    let payload = poll_until_panic(|| {
+        assembler
+            .poll(
+                &ipc.subscription,
+                |msg, _| {
+                    seen.push(value(msg));
+                    boom()
+                },
+                10,
+            )
+            .unwrap();
+    });
+    assert_eq!(panic_message(&*payload), "boom");
+
+    // the panicking message 2 comes back, this time through an image poll
+    let image = ipc.subscription.image_at_index(0).unwrap();
+    wait(|| {
+        let handler = &mut assembler.with(|msg, _| {
+            seen.push(value(msg));
+            AERON_ACTION_CONTINUE
+        });
+        image.controlled_poll(handler, 10).unwrap();
+        seen.len() >= 5
+    });
+    assert_eq!(seen, [1, 2, 2, 2, 3]);
 }

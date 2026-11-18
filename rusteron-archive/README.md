@@ -4,8 +4,11 @@ Fast, idiomatic Rust for the Aeron transport client and Aeron Archive, using the
 API directly. Publish and subscribe over IPC or UDP, record streams, replay
 history, replicate recordings, and join live traffic with persistent subscriptions.
 
-[GSR](https://www.gsr.io) sponsors and maintains Rusteron. It has run in GSR's
-low-latency trading system since early 2025.
+## Sponsored by GSR
+
+Rusteron is sponsored and maintained by [GSR](https://www.gsr.io), a global leader in algorithmic trading and market making in digital assets.
+Rusteron has been running in production in GSR's low-latency trading system since the beginning of 2025. It is mature and battle tested.
+It is developed under the GSR GitHub organisation. We welcome contributions, feedback and discussion. To integrate or contribute, open an issue or reach out directly.
 
 [Getting started](#getting-started) · [Examples](#examples) ·
 [Persistent subscriptions](#persistent-subscriptions) ·
@@ -13,7 +16,7 @@ low-latency trading system since early 2025.
 
 ## Installation
 
-This branch documents the 0.3 API. The Archive crate includes the transport APIs;
+The Archive crate includes the transport APIs;
 you do not need a separate `rusteron-client` dependency.
 
 ```toml
@@ -107,7 +110,7 @@ For simple updates, keep the setter's returned `SharedHandler` and use
 `handler.lock()`. This acquires a mutex shared with callback invocations; keep
 updates short. Transport `poll_fn` and owned assemblers use direct Rust borrowing
 without a callback mutex. See
-[synchronization costs](https://github.com/gsrxyz/rusteron/blob/main/docs/thread-safety.md#hot-path-behaviour).
+[synchronisation costs](https://github.com/gsrxyz/rusteron/blob/main/docs/thread-safety.md#hot-path-behaviour).
 Use `AeronErrorHandlerSlot` when replacement must not wait for an active callback:
 
 ```rust
@@ -122,7 +125,7 @@ slot.clear();
 # Ok(()) }
 ```
 
-Slots synchronize callback access. For their costs and replacement rules, see the
+Slots synchronise callback access. For their costs and replacement rules, see the
 [callback guide](https://github.com/gsrxyz/rusteron/blob/main/docs/archive-guide.md#changing-a-callback-without-registering-another-handler).
 The [direct-handler alternative](https://github.com/gsrxyz/rusteron/blob/main/docs/archive-guide.md#replacing-callback-state-through-its-handler)
 uses fewer locks when waiting for an active callback is acceptable.
@@ -145,8 +148,11 @@ A persistent subscription replays recorded history, then joins the live stream.
 Create one with `PersistentSubscriptionBuilder::new_with_aeron(&context, &client)`.
 Poll it until it is live, and check `has_failed()` for terminal failures.
 
-Its `poll_fn()` already reassembles fragments. No extra fragment assembler is
-needed. See the [complete guide](https://github.com/gsrxyz/rusteron/blob/main/docs/archive-guide.md#persistent-subscriptions)
+It reassembles fragments itself, so poll it with `ps.poll_fn(closure, limit)` or
+`ps.controlled_poll_fn(closure, limit)` and the closure gets whole messages. Do not
+wrap it in a fragment assembler. That still works, for example
+`ps.poll(&mut assembler.with(closure), limit)`, but it only adds a call per message.
+See the [complete guide](https://github.com/gsrxyz/rusteron/blob/main/docs/archive-guide.md#persistent-subscriptions)
 for the builder, listener and failure handling.
 
 ## Examples

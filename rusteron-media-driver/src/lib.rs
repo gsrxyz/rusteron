@@ -60,8 +60,7 @@ impl EmbeddedMediaDriver {
     pub fn join(mut self) -> Result<(), AeronCError> {
         self.stop();
         if let Some(h) = self.handle.take() {
-            // Flatten JoinHandle<Result<..>>: a panic becomes an AeronCError,
-            // the inner AeronCError is propagated.
+            // A panic becomes an AeronCError; the inner AeronCError passes through
             return h.join().map_err(|_| AeronCError::from_code(-1)).and_then(|r| r);
         }
         Ok(())
@@ -192,7 +191,7 @@ impl AeronDriver {
             aeron_driver.start(true)?;
 
             let context = aeron_driver.context();
-            // SAFETY: driver initialization froze the context configuration.
+            // SAFETY: driver initialization froze the context configuration
             info!("Aeron driver started [dir={}]", unsafe { context.get_dir() });
 
             started2.store(true, Ordering::SeqCst);
@@ -237,8 +236,8 @@ impl AeronDriver {
     /// This waits in that case and otherwise proceeds
     pub fn wait_for_previous_media_driver_to_timeout(aeron_context: &AeronDriverContext) {
         if !aeron_context.get_dir_delete_on_start() {
-            // SAFETY: join copies the path before this local borrow ends.
-            let cnc_file = Path::new(unsafe { aeron_context.get_dir() }).join("cnc.dat");
+            // SAFETY: the text is used at once, before any setter can change it
+            let cnc_file = Path::new(&unsafe { aeron_context.get_dir() }).join("cnc.dat");
 
             if cnc_file.exists() {
                 let timeout = Duration::from_millis(aeron_context.get_driver_timeout_ms() * 2).as_nanos() as i64;
@@ -367,7 +366,7 @@ mod tests {
             (AeronIdleStrategyKind::Backoff, "backoff"),
         ] {
             ctx.set_conductor_idle_strategy_kind(kind).unwrap();
-            // SAFETY: this context is local and no call changes it during the comparison.
+            // SAFETY: this context is local and no call changes it during the comparison
             assert_eq!(name, unsafe { ctx.get_conductor_idle_strategy() }, "conductor {kind:?}");
             ctx.set_sender_idle_strategy_kind(kind).unwrap();
             ctx.set_receiver_idle_strategy_kind(kind).unwrap();
@@ -428,11 +427,6 @@ mod tests {
 
         let (stop, _driver_handle) = AeronDriver::launch_embedded(aeron_context.clone(), false);
 
-        // aeron_driver
-        //     .conductor()
-        //     .context()
-        //     .print_configuration();
-        // aeron_driver.main_do_work()?;
         info!("aeron dir: {:?}", aeron_context.get_dir_owned());
 
         let dir = aeron_context.get_dir_owned();
@@ -638,7 +632,7 @@ mod tests {
         }
 
         let context = AeronDriverContext::new()?;
-        // SAFETY: the text is copied before set_dir changes this local context.
+        // SAFETY: the text is copied before set_dir changes this local context
         context.set_dir(&format!("{}{}", unsafe { context.get_dir() }, Aeron::nano_clock()).into_c_string())?;
         context.set_dir_delete_on_start(true)?;
         context.set_dir_delete_on_shutdown(true)?;

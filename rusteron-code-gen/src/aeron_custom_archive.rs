@@ -53,7 +53,12 @@ impl<S: ResourceStorage<aeron_archive_persistent_subscription_context_t>> AeronA
     /// Retain the client for as long as native code can use this context.
     pub fn set_aeron(&self, aeron: &Aeron) -> Result<i32, AeronCError> {
         self.inner.check_configurable()?;
-        let owner = self.inner.as_owned().unwrap();
+        let Some(owner) = self.inner.as_owned() else {
+            return Err(AeronCError::with_message(
+                -1,
+                "persistent subscription context requires owning storage",
+            ));
+        };
         let client_owner = aeron
             .inner
             .as_owned()
@@ -71,7 +76,12 @@ impl<S: ResourceStorage<aeron_archive_persistent_subscription_context_t>> AeronA
     /// Retain the archive context until the persistent subscription has closed.
     pub fn set_archive_context(&self, context: &AeronArchiveContext) -> Result<i32, AeronCError> {
         self.inner.check_configurable()?;
-        let owner = self.inner.as_owned().unwrap();
+        let Some(owner) = self.inner.as_owned() else {
+            return Err(AeronCError::with_message(
+                -1,
+                "persistent subscription context requires owning storage",
+            ));
+        };
         let context_owner = context
             .inner
             .as_owned()
@@ -197,18 +207,8 @@ impl AeronArchivePersistentSubscription {
         unsafe { aeron_archive_persistent_subscription_get_persistent_subscription_context(self.get_inner()) }
     }
 
-    /// Transfers responsibility for closing the C context to the caller.
-    ///
-    /// # Safety
-    ///
-    /// The subscription must be open, and ownership may only be taken once. Close the
-    /// subscription before closing this context, keeping its client, archive context,
-    /// counters and listener alive until both have closed.
-    pub unsafe fn get_and_own_persistent_subscription_context(
-        &self,
-    ) -> *mut aeron_archive_persistent_subscription_context_t {
-        unsafe { aeron_archive_persistent_subscription_get_and_own_persistent_subscription_context(self.get_inner()) }
-    }
+    // `get_and_own_persistent_subscription_context` is intentionally omitted: `build`
+    // already moves the context into Rust ownership, so a second transfer would double free
 }
 
 /// Fluent builder for [`AeronArchiveReplayParams`], starting from aeron's defaults
@@ -562,34 +562,5 @@ impl<S: ResourceStorage<aeron_archive_recording_signal_t>> AeronArchiveRecording
             aeron_archive_client_recording_signal_en::AERON_ARCHIVE_CLIENT_RECORDING_SIGNAL_NULL_VALUE => None,
             signal => Some(signal),
         }
-    }
-}
-
-/// Route a persistent subscription through [`AeronFragmentClosureAssembler`] for
-/// API consistency with [`AeronSubscription`]. The C
-/// `aeron_archive_persistent_subscription_poll` already reassembles fragments
-/// internally (via `aeron_image_fragment_assembler_handler`), so the delegate
-/// receives whole messages either way. The Rust assembler here is a pass-through.
-/// Prefer `ps.poll_fn(handler, limit)` directly unless you want the shared API.
-impl FragmentAssemblable for AeronArchivePersistentSubscription {
-    #[inline]
-    fn poll_with_assembler(
-        &self,
-        assembler: Option<&Handler<AeronFragmentAssembler>>,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        self.poll_with_handler(assembler, fragment_limit)
-    }
-}
-
-/// Controlled-poll counterpart for [`AeronControlledFragmentClosureAssembler`].
-impl ControlledFragmentAssemblable for AeronArchivePersistentSubscription {
-    #[inline]
-    fn controlled_poll_with_assembler(
-        &self,
-        assembler: Option<&Handler<AeronControlledFragmentAssembler>>,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        self.controlled_poll_with_handler(assembler, fragment_limit)
     }
 }

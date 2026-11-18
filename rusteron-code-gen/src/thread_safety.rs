@@ -39,18 +39,6 @@ pub fn handle_is_shared(name: &str) -> bool {
     SHARED_HANDLES.contains(&name)
 }
 
-/// Stateful native assemblers require one mutable owner. `Handler` can still
-/// share that owner through a checked borrow.
-pub fn handle_is_unique(name: &str) -> bool {
-    matches!(
-        name,
-        "aeron_fragment_assembler_t"
-            | "aeron_controlled_fragment_assembler_t"
-            | "aeron_image_fragment_assembler_t"
-            | "aeron_image_controlled_fragment_assembler_t"
-    )
-}
-
 /// A terminal native poll lets the conductor reclaim this allocation.
 pub fn handle_is_consumed_by_poll(name: &str) -> bool {
     name.starts_with("aeron_async_")
@@ -68,13 +56,9 @@ pub fn handle_is_archive_context(name: &str) -> bool {
 /// C must not replace or free their pointer while an owner remains alive.
 pub fn handle_has_stable_pointer(name: &str) -> bool {
     handle_is_shared(name)
-        || handle_is_unique(name)
         || matches!(
             name,
-            "aeron_subscription_t"
-                | "aeron_exclusive_publication_t"
-                | "aeron_fragment_assembler_t"
-                | "aeron_controlled_fragment_assembler_t"
+            "aeron_subscription_t" | "aeron_exclusive_publication_t" | "aeron_image_t"
         )
 }
 
@@ -92,8 +76,6 @@ mod tests {
             "aeron_subscription_t",
             "aeron_exclusive_publication_t",
             "aeron_image_t",
-            "aeron_fragment_assembler_t",
-            "aeron_controlled_fragment_assembler_t",
             "aeron_archive_t",
             "aeron_driver_t",
             "future_unreviewed_type_t",
@@ -121,12 +103,7 @@ mod tests {
 
     #[test]
     fn stable_pointers_do_not_grant_concurrent_access() {
-        for name in [
-            "aeron_subscription_t",
-            "aeron_exclusive_publication_t",
-            "aeron_fragment_assembler_t",
-            "aeron_controlled_fragment_assembler_t",
-        ] {
+        for name in ["aeron_subscription_t", "aeron_exclusive_publication_t"] {
             assert!(handle_has_stable_pointer(name));
             assert!(!handle_is_shared(name));
         }

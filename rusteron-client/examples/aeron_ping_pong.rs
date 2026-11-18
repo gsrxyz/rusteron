@@ -78,27 +78,6 @@ fn image(subscription: &AeronSubscription, running: &AtomicBool) -> Result<Aeron
     }
 }
 
-// Use the same single-image C assembler as cping/cpong. The delegate panic
-// must resume only after the assembler has finished updating its state
-struct ImageAssembler(AeronImageFragmentAssembler);
-
-impl AeronFragmentHandlerCallback for ImageAssembler {
-    const RESUMES_CAUGHT_PANIC: bool = true;
-
-    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader) {
-        // SAFETY: poll lends a valid buffer/header for this call; this assembler
-        // and its retained delegate outlive the poll and stay on this thread
-        unsafe {
-            bindings::aeron_image_fragment_assembler_handler(
-                self.0.get_inner().cast(),
-                buffer.as_ptr(),
-                buffer.len(),
-                header.get_inner(),
-            );
-        }
-    }
-}
-
 fn run_pong(running: &Arc<AtomicBool>, dir: &str) -> Result<(), Box<dyn Error>> {
     let client = client(dir)?;
     let subscription = client
@@ -108,14 +87,13 @@ fn run_pong(running: &Arc<AtomicBool>, dir: &str) -> Result<(), Box<dyn Error>> 
         .async_add_exclusive_publication(PONG_CHANNEL, PONG_STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
     let image = image(&subscription, running)?;
-    let handler = Handler::new(Echo {
+    let mut assembler = AeronImageFragmentAssembler::new(Echo {
         publication,
         running: running.clone(),
-    });
-    let assembler = Handler::new(ImageAssembler(AeronImageFragmentAssembler::new(Some(&handler))?));
+    })?;
     let mut idle = BusySpinIdleStrategy::new();
     while running.load(Ordering::Acquire) {
-        idle.idle(image.poll_with_handler(Some(&assembler), FRAGMENT_COUNT_LIMIT)?);
+        idle.idle(assembler.poll(&image, FRAGMENT_COUNT_LIMIT)?);
     }
     Ok(())
 }
@@ -168,21 +146,16 @@ fn run_ping(running: &AtomicBool, dir: &str, counts: &MessageCounts) -> Result<H
         .async_add_exclusive_publication(PING_CHANNEL, PING_STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
     let image = image(&subscription, running)?;
-    let handler = Handler::new(Measure {
+    let mut assembler = AeronImageFragmentAssembler::new(Measure {
         histogram: Histogram::new_with_bounds(1, 10_000_000_000, 3)?,
         received: 0,
-    });
-    let assembler = Handler::new(ImageAssembler(AeronImageFragmentAssembler::new(Some(&handler))?));
+    })?;
     let mut buffer = [0u8; MESSAGE_LENGTH];
     let mut idle = BusySpinIdleStrategy::new();
     for count in [counts.warmup, counts.measured] {
-        // SAFETY: the callbacks run synchronously on this thread, only inside
-        // image.poll below. There are no outstanding references to the state
-        unsafe {
-            let state = handler.get_mut();
-            state.histogram.reset();
-            state.received = 0;
-        }
+        let state = assembler.handler_mut();
+        state.histogram.reset();
+        state.received = 0;
         for expected in 1..=count {
             loop {
                 // cping refreshes the timestamp on every offer attempt
@@ -199,15 +172,15 @@ fn run_ping(running: &AtomicBool, dir: &str, counts: &MessageCounts) -> Result<H
             }
             loop {
                 // The synchronous poll callback updates this count
-                if handler.borrow().received >= expected {
+                if assembler.handler().received >= expected {
                     break;
                 }
                 if !running.load(Ordering::Acquire) {
                     return Err("pong stopped".into());
                 }
-                idle.idle(image.poll_with_handler(Some(&assembler), FRAGMENT_COUNT_LIMIT)?);
+                idle.idle(assembler.poll(&image, FRAGMENT_COUNT_LIMIT)?);
             }
         }
     }
-    Ok(handler.borrow().histogram.clone())
+    Ok(assembler.handler().histogram.clone())
 }

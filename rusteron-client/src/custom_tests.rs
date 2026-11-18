@@ -127,6 +127,28 @@ fn owned_error_messages_keep_their_original_allocation() {
 }
 
 #[test]
+fn last_error_message_prefers_the_captured_text_over_the_native_buffer() {
+    let mut uri = aeron_uri_t::default();
+    // SAFETY: the input is a live C string and uri is writable native storage.
+    assert!(unsafe { aeron_uri_parse(c"invalid-uri".to_bytes().len(), c"invalid-uri".as_ptr(), &mut uri) } < 0);
+    // SAFETY: close releases any storage created by the failed parse.
+    unsafe { aeron_uri_close(&mut uri) };
+    let native = Aeron::errmsg_owned();
+    assert!(!native.is_empty());
+
+    let captured = AeronCError::with_message(-1, "captured");
+    assert_eq!(captured.get_last_err_message_owned(), "captured");
+    // SAFETY: no native call runs while the borrowed text is in use.
+    assert_eq!(unsafe { captured.get_last_err_message() }, "captured");
+
+    let uncaptured = AeronCError::from_code(-1);
+    assert_eq!(uncaptured.get_last_err_message_owned(), native);
+    // SAFETY: as above.
+    assert_eq!(unsafe { uncaptured.get_last_err_message() }, native);
+    uncaptured.with_last_err_message(|text| assert_eq!(text, native));
+}
+
+#[test]
 fn native_enum_conversions_reject_invalid_values_without_changing_the_integer() {
     use aeron_controlled_fragment_handler_action_en::*;
     for (code, expected) in [
@@ -421,99 +443,6 @@ fn uri_builder_reinitialization_removal_and_output_reuse() -> Result<(), AeronCE
         assert_eq!(unsafe { builder.get(c"control") }, "127.0.0.1:40124");
         // SAFETY: the comparison ends before the next builder mutation.
         assert_eq!(unsafe { builder.get(c"control-mode") }, expected);
-    }
-    Ok(())
-}
-
-#[test]
-fn erased_message_handlers_release_the_context_when_cleared() {
-    let mut native_header = NativeHeader::new(std::ptr::null_mut());
-    // SAFETY: the header has the native layout and stays live throughout the calls.
-    let header = unsafe { AeronHeader::from_ptr(std::ptr::from_mut(&mut native_header).cast()) };
-    let mut count = 0;
-    let mut handler = FnMutMessageHandler::new();
-    handler.call(b"before", &header);
-    // SAFETY: count stays in place, and only the handler uses it before clear.
-    unsafe { handler.set(&mut count, |count, bytes, _| *count += bytes.len()) };
-    handler.call(b"bytes", &header);
-    handler.clear();
-    handler.call(b"after", &header);
-    assert_eq!(count, 5);
-
-    use aeron_controlled_fragment_handler_action_en::{AERON_ACTION_ABORT, AERON_ACTION_CONTINUE};
-    let mut handler = FnMutControlledMessageHandler::new();
-    assert_eq!(handler.call(b"before", &header), AERON_ACTION_CONTINUE);
-    // SAFETY: count stays in place, and only the handler uses it before clear.
-    unsafe {
-        handler.set(&mut count, |count, bytes, _| {
-            *count += bytes.len();
-            AERON_ACTION_ABORT
-        })
-    };
-    assert_eq!(handler.call(b"data", &header), AERON_ACTION_ABORT);
-    handler.clear();
-    assert_eq!(handler.call(b"after", &header), AERON_ACTION_CONTINUE);
-    assert_eq!(count, 9);
-}
-
-#[test]
-fn closure_assemblers_clear_context_after_return_error_and_panic() -> Result<(), AeronCError> {
-    struct PollTarget(u8);
-    impl PollTarget {
-        fn result(&self) -> Result<i32, AeronCError> {
-            match self.0 {
-                0 => Ok(0),
-                1 => Err(AeronCError::from_code(-1)),
-                _ => panic!("poll failed"),
-            }
-        }
-    }
-    impl FragmentAssemblable for PollTarget {
-        fn poll_with_assembler(
-            &self,
-            _: Option<&Handler<AeronFragmentAssembler>>,
-            _: usize,
-        ) -> Result<i32, AeronCError> {
-            self.result()
-        }
-    }
-    impl ControlledFragmentAssemblable for PollTarget {
-        fn controlled_poll_with_assembler(
-            &self,
-            _: Option<&Handler<AeronControlledFragmentAssembler>>,
-            _: usize,
-        ) -> Result<i32, AeronCError> {
-            self.result()
-        }
-    }
-    for mode in 0..3 {
-        let mut assembler = AeronFragmentClosureAssembler::new()?;
-        let mut controlled = AeronControlledFragmentClosureAssembler::new()?;
-        let mut context = 0;
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            assembler.poll(&PollTarget(mode), &mut context, |context, _, _| *context += 1, 1)
-        }));
-        assert_eq!(result.is_err(), mode == 2);
-        if let Ok(result) = result {
-            assert_eq!(result.is_err(), mode == 1);
-        }
-        assert!(assembler.handler.borrow().ctx.is_null());
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            controlled.poll(
-                &PollTarget(mode),
-                &mut context,
-                |context, _, _| {
-                    *context += 1;
-                    aeron_controlled_fragment_handler_action_en::AERON_ACTION_CONTINUE
-                },
-                1,
-            )
-        }));
-        assert_eq!(result.is_err(), mode == 2);
-        if let Ok(result) = result {
-            assert_eq!(result.is_err(), mode == 1);
-        }
-        assert!(controlled.handler.borrow().ctx.is_null());
     }
     Ok(())
 }

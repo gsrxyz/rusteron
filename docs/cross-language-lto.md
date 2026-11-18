@@ -7,8 +7,7 @@ with `-march=native`. Set `RUSTERON_C_MARCH` to a shared target, such as `x86-64
 when binaries run on other machines. The `precompile` libraries target the
 architecture's baseline, `x86-64` or `armv8-a`. On the
 x86-64 VMs in [Tuning on x86-64 Linux](https://github.com/gsrxyz/rusteron/blob/main/docs/tuning_x86_64_linux.md), `-march=native` for the
-client's C code showed no consistent gain over `x86-64` or `x86-64-v3` on IPC; the driver's
-build and UDP were not varied.
+client's C code gave no consistent gain over `x86-64` or `x86-64-v3` on IPC.
 
 <a id="cross-language-lto-linux"></a>
 
@@ -22,8 +21,8 @@ settings do not apply to crates that depend on it.
 1. Install clang, lld and llvm-ar with the same LLVM major version as rustc.
    `rustc -vV` prints the LLVM version. For LLVM 22, [apt.llvm.org](https://apt.llvm.org) provides these commands:
    `wget https://apt.llvm.org/llvm.sh && sudo bash llvm.sh 22 && sudo apt install lld-22`.
-   Upgrade them together with Rust, because rustc's LLVM cannot read bitcode from another major, and
-   the build reports a version mismatch when they differ.
+   Upgrade them together with Rust. rustc cannot read bitcode from another LLVM major,
+   and the build reports a version mismatch.
 2. Link Aeron statically and use fat LTO in the final binary's `Cargo.toml`:
 
    ```toml
@@ -47,29 +46,24 @@ settings do not apply to crates that depend on it.
    CC = "clang-22"
    ```
 
-   `-Clinker-plugin-lto` tells Rusteron's build script to compile Aeron C
-   to LLVM bitcode with `$CC` or `RUSTERON_CLANG` for the CPU named by `-Ctarget-cpu`.
-   C and Rust must target the same CPU, or LLVM refuses to inline across them. `CC` also
-   covers other C dependencies, which the `cc` crate compiles to bitcode under the same flag.
-   C uses `-flto` to match Rust's `lto = "fat"`. With Rust `lto = "thin"`, set
+   `-Clinker-plugin-lto` makes Rusteron's build script compile Aeron C to LLVM bitcode
+   with `$CC` or `RUSTERON_CLANG`, for the CPU named by `-Ctarget-cpu`.
+   C and Rust must target the same CPU, or LLVM refuses to inline across them.
+   `CC` also applies to other C dependencies built by the `cc` crate.
+   C uses `-flto` to match `lto = "fat"`. With Rust `lto = "thin"`, set
    `RUSTERON_C_LTO=thin`. Mixing fat Rust LTO with thin C LTO prevents cross-language inlining.
 
-4. Check it worked. The build prints
+4. Check the build. It prints
    `cross-language LTO: Aeron C compiled to bitcode by clang-22 (LLVM 22) with -flto` for each
    Rusteron crate. Cargo shows build-script warnings only for path dependencies.
-   Inspect the final binary's disassembly to check the call sites you care about.
-   Larger functions such as `offer`, `offerv` and `try_claim` may remain calls if
-   LLVM decides that inlining costs too much. The Rust claim guard already
-   commits with a release store, so absence of a native commit symbol alone does
-   not establish that cross-language LTO worked.
+   To confirm inlining, inspect the final binary's disassembly at the call sites you care about.
+   Larger functions such as `offer`, `offerv` and `try_claim` may stay as calls if
+   LLVM judges inlining too costly.
 
-   To see linker inlining decisions, enable LLVM remarks with
+   To see linker inlining decisions, add
    `-Clink-arg=-Wl,--opt-remarks-filename,remarks.yaml` and
    `-Clink-arg=-Wl,--opt-remarks-passes,inline`.
 
 The `precompile` libraries contain native code rather than LLVM bitcode.
 They cannot use cross-language LTO, and the build reports a warning.
-Rusteron does not support cross-language LTO on macOS. Rust-lld cannot read the
-macOS SDK. Apple's linker needs a matching `libLTO.dylib` and rejects rustc's LTO
-flags. Clang and rustc also emit different CPU features on Apple silicon, which
-prevents inlining.
+Rusteron does not support cross-language LTO on macOS.

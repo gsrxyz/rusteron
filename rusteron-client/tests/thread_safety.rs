@@ -28,8 +28,6 @@ local!(
     AeronSubscription,
     AeronExclusivePublication,
     AeronImage,
-    AeronFragmentAssembler,
-    AeronControlledFragmentAssembler,
     FragmentAssembler<fn(&[u8], &AeronHeader)>,
     ControlledFragmentAssembler<fn(&[u8], &AeronHeader) -> bindings::aeron_controlled_fragment_handler_action_t>,
     AeronAsyncAddPublication,
@@ -44,8 +42,6 @@ assert_not_impl!(
     ControlledFragmentAssembler<fn(&[u8], &AeronHeader) -> bindings::aeron_controlled_fragment_handler_action_t>,
     Clone
 );
-assert_not_impl!(AeronFragmentAssembler, Clone);
-assert_not_impl!(AeronControlledFragmentAssembler, Clone);
 
 assert_not_impl!(AeronPublicationRef, Clone);
 assert_not_impl!(AeronSubscriptionRef, Clone);
@@ -71,9 +67,12 @@ fn concurrent_handles_and_shared_callbacks_have_the_required_traits() {
 }
 
 fn driver() -> EmbeddedDriver {
+    // Tests run in parallel, so a clock reading alone can repeat and two drivers would share a directory
+    static NEXT_DRIVER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let directory = std::env::temp_dir().join(format!(
-        "rusteron-threads-{}-{}",
+        "rusteron-threads-{}-{}-{}",
         std::process::id(),
+        NEXT_DRIVER.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         Aeron::nano_clock()
     ));
     EmbeddedDriver::launch_with(|context| {
@@ -93,7 +92,8 @@ fn counter_reader_rejects_a_missing_callback_before_entering_c() {
     let driver = driver();
     let client = connect(&driver);
     let reader = client.counters_reader();
-    let callback: Option<&Handler<fn(i64, i32, i32, &[u8], &str)>> = None;
+    type Visitor = fn(i64, i32, i32, &[u8], &str);
+    let callback: Option<&Handler<Visitor>> = None;
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         reader.foreach_counter(callback);
     }));
@@ -215,7 +215,7 @@ fn native_assembler_delivers_fragmented_messages_after_a_delegate_panic() {
     let payload = vec![7u8; length];
     let calls = Rc::new(Cell::new(0));
     let callback_calls = calls.clone();
-    let (assembler, _delegate) = Handler::with_fragment_assembler(move |bytes: &[u8], _: &AeronHeader| {
+    let mut assembler = FragmentAssembler::new(move |bytes: &[u8], _: &AeronHeader| {
         assert_eq!(bytes.len(), length);
         assert_eq!(bytes.first(), Some(&7));
         assert_eq!(bytes.last(), Some(&7));
@@ -231,14 +231,10 @@ fn native_assembler_delivers_fragmented_messages_after_a_delegate_panic() {
             std::thread::yield_now();
         }
         while calls.get() < message {
-            let result = catch_unwind(AssertUnwindSafe(|| {
-                subscription.poll_with_handler(Some(&assembler), 64).unwrap()
-            }));
+            let result = catch_unwind(AssertUnwindSafe(|| assembler.poll(&subscription, 64).unwrap()));
             assert_eq!(result.is_err(), message == 1 && calls.get() == 1);
             assert!(Instant::now() < deadline);
         }
-        // A panic must release the assembler's checked borrow.
-        drop(assembler.lock());
     }
     assert_eq!(calls.get(), 2);
 }
@@ -259,6 +255,8 @@ fn counter_output_getters_handle_success_and_unwritten_error_outputs() {
     assert_eq!(reader.counter_owner_id(id).unwrap(), client.client_id());
     assert_eq!(reader.counter_reference_id(id).unwrap(), 0);
     assert_eq!(reader.counter_type_id(id).unwrap(), 86);
+    assert_eq!(reader.counter_type(id).unwrap(), AeronCounterTypeId::from_code(86));
+    assert_eq!(reader.counter_record_state(id).unwrap(), AeronCounterState::Allocated);
     assert_eq!(
         reader.counter_state(id).unwrap(),
         bindings::AERON_COUNTER_RECORD_ALLOCATED as i32
@@ -275,8 +273,71 @@ fn counter_output_getters_handle_success_and_unwritten_error_outputs() {
         assert!(reader.counter_reference_id(invalid).is_err());
         assert!(reader.counter_type_id(invalid).is_err());
         assert!(reader.counter_state(invalid).is_err());
+        assert!(reader.counter_type(invalid).is_err());
+        assert!(reader.counter_record_state(invalid).is_err());
         assert!(reader.free_for_reuse_deadline_ms(invalid).is_err());
     }
+}
+
+#[test]
+fn typed_counter_reader_methods_match_the_raw_ones() {
+    let driver = driver();
+    let client = connect(&driver);
+    let reader = client.counters_reader();
+
+    // The driver allocates system counter ids from the enum values
+    let version = reader
+        .system_counter_value(AeronSystemCounterType::ControlProtocolVersion)
+        .unwrap();
+    assert_eq!(
+        version,
+        reader
+            .get_counter_value(AeronSystemCounterType::ControlProtocolVersion as i32)
+            .unwrap()
+    );
+    assert!(version > 0);
+    assert_eq!(
+        reader.counter_type(AeronSystemCounterType::BytesSent as i32).unwrap(),
+        AeronCounterTypeId::SystemCounter
+    );
+
+    // The driver adds the client heartbeat counter, keyed by the client id, on the first
+    // client command, so it exists once `add_counter` returns
+    let counter = client
+        .add_counter(1_000_001, &[], "application type", Duration::from_secs(5))
+        .unwrap();
+    let id = counter.get_constants().unwrap().counter_id();
+    let heartbeat = reader
+        .find_by_counter_type_and_registration_id(AeronCounterTypeId::ClientHeartbeatTimestamp, client.client_id());
+    assert!(heartbeat.is_some());
+    assert_eq!(
+        heartbeat,
+        reader
+            .find_by_type_and_registration_id(AeronCounterTypeId::ClientHeartbeatTimestamp.code(), client.client_id())
+    );
+    assert_eq!(
+        reader.find_by_counter_type(AeronCounterTypeId::ClientHeartbeatTimestamp, |_| false),
+        None
+    );
+
+    let mut raw = Vec::new();
+    reader.foreach_counter_fn(|value, id, type_id, _, label| raw.push((value, id, type_id, label.to_owned())));
+    let mut typed = Vec::new();
+    reader.foreach_typed_counter_fn(|value, id, counter_type, _, label| {
+        typed.push((value, id, counter_type.code(), label.to_owned()))
+    });
+    assert_eq!(raw, typed);
+    let mut application = None;
+    reader.foreach_typed_counter_fn(|_, counter_id, counter_type, _, _| {
+        if counter_id == id {
+            application = Some(counter_type);
+        }
+    });
+    assert_eq!(application, Some(AeronCounterTypeId::Unknown(1_000_001)));
+    assert_eq!(
+        reader.find_by_counter_type(AeronCounterTypeId::Unknown(1_000_001), |_| true),
+        Some(id)
+    );
 }
 
 #[test]
@@ -464,7 +525,7 @@ fn vectored_offers_handle_empty_parts_capacity_and_fragmentation() {
             let expected = parts.concat();
             let received = std::rc::Rc::new(Cell::new(false));
             let callback_received = received.clone();
-            let (assembler, _delegate) = Handler::with_fragment_assembler(move |bytes: &[u8], _: &AeronHeader| {
+            let mut assembler = FragmentAssembler::new(move |bytes: &[u8], _: &AeronHeader| {
                 assert_eq!(bytes, expected);
                 assert!(!callback_received.replace(true), "duplicate message");
             })
@@ -483,7 +544,7 @@ fn vectored_offers_handle_empty_parts_capacity_and_fragmentation() {
                 std::thread::yield_now();
             }
             while !received.get() {
-                subscription.poll_with_handler(Some(&assembler), 64).unwrap();
+                assembler.poll(&subscription, 64).unwrap();
                 assert!(Instant::now() < deadline);
             }
         }
@@ -718,39 +779,85 @@ fn cached_subscription_survives_closing_a_clone() {
     subscription.clone().close().unwrap();
     let received = std::rc::Rc::new(Cell::new(false));
     let callback_received = received.clone();
-    let handler = Handler::new(move |bytes: &[u8], _: &AeronHeader| {
+    let mut assembler = FragmentAssembler::new(move |bytes: &[u8], _: &AeronHeader| {
         assert_eq!(bytes, b"still alive");
         callback_received.set(true);
-    });
-    let assembler = AeronFragmentAssembler::new(Some(&handler)).unwrap();
-    let assembler = Handler::new(assembler);
+    })
+    .unwrap();
     let deadline = Instant::now() + Duration::from_secs(15);
     while publication.offer(b"still alive").is_err() {
         assert!(Instant::now() < deadline);
         std::thread::yield_now();
     }
     while !received.get() {
-        subscription.poll_with_handler(Some(&assembler), 64).unwrap();
+        assembler.poll(&subscription, 64).unwrap();
         assert!(Instant::now() < deadline);
     }
 }
 
+/// The typed `try_claim` wrappers map native sentinels to errors and expose the claimed
+/// term buffer, and the fragment header of a polled message points back to its image
 #[test]
-fn explicit_assembler_delete_releases_callback_once() {
-    struct Counted(Arc<AtomicUsize>);
-    impl AeronFragmentHandlerCallback for Counted {
-        fn handle_aeron_fragment_handler(&mut self, _: &[u8], _: &AeronHeader) {}
+fn typed_claims_map_errors_and_write_through_the_claimed_buffer() {
+    let driver = driver();
+    let client = connect(&driver);
+    let lonely = client
+        .add_exclusive_publication(AERON_IPC_STREAM, 8701, Duration::from_secs(5))
+        .unwrap();
+    let claim = AeronBufferClaim::default();
+    assert_eq!(lonely.try_claim(8, &claim), Err(AeronOfferError::NotConnected));
+    assert_eq!(lonely.try_claim_raw(8, &claim), -1);
+
+    let (publication, subscription) = pair(&client, 8702);
+    let mut claim = AeronBufferClaim::default();
+    assert!(publication.try_claim(4, &claim).unwrap() > 0);
+    // SAFETY: the claim succeeded and nothing else touches it before the commit
+    unsafe {
+        assert_eq!(claim.data_mut().len(), 4);
+        claim.data_mut().copy_from_slice(b"ping");
+        claim.frame_header_mut().expect("claimed frame header").reserved_value = 77;
+        claim.commit().unwrap();
     }
-    impl Drop for Counted {
-        fn drop(&mut self) {
-            self.0.fetch_add(1, Ordering::Relaxed);
-        }
+
+    let mut received = None;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while received.is_none() {
+        assert!(Instant::now() < deadline, "claimed message did not arrive");
+        subscription
+            .poll_fn(
+                |buffer, header| {
+                    assert!(header.image().is_some());
+                    received = Some((buffer.to_vec(), header.reserved_value()));
+                },
+                10,
+            )
+            .unwrap();
     }
-    let drops = Arc::new(AtomicUsize::new(0));
-    let handler = Handler::new(Counted(drops.clone()));
-    let assembler = AeronFragmentAssembler::new(Some(&handler)).unwrap();
-    drop(handler);
-    assert_eq!(drops.load(Ordering::Relaxed), 0);
-    assembler.delete().unwrap();
-    assert_eq!(drops.load(Ordering::Relaxed), 1);
+    assert_eq!(received, Some((b"ping".to_vec(), Some(77))));
+}
+
+#[test]
+fn new_blocking_times_out_without_a_driver() {
+    let directory = std::env::temp_dir().join(format!("rusteron-no-driver-{}", Aeron::nano_clock()));
+    let context = AeronContext::new().unwrap();
+    context.set_dir(&directory.to_string_lossy().into_c_string()).unwrap();
+    context.set_driver_timeout_ms(50).unwrap();
+    let start = Instant::now();
+    let error = Aeron::new_blocking(&context, Duration::from_millis(100)).unwrap_err();
+    assert_eq!(error.kind(), AeronErrorType::TimedOut);
+    assert!(start.elapsed() < Duration::from_secs(5));
+}
+
+#[test]
+fn addr_atomic_rejects_ids_outside_the_counters_buffer() {
+    let driver = driver();
+    let client = connect(&driver);
+    let reader = client.counters_reader();
+    for id in [-1, reader.max_counter_id() + 1] {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            reader.addr_atomic(id);
+        }));
+        assert!(result.is_err(), "counter id {id}");
+    }
+    reader.addr_atomic(reader.max_counter_id());
 }

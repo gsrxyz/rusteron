@@ -1,13 +1,13 @@
 # Callback panics
 
-Aeron calls Rust callbacks from C. The generated bindings select panic handling
+Aeron calls Rust callbacks from C. The generated bindings choose panic handling
 for each C function:
 
 | Callback | Runs on | What happens to the panic | What happens to the message |
 |---|---|---|---|
 | Fragment, controlled or block handler passed to a subscription, image or replay-merge `poll`, including `_fn` variants | Your thread, inside `poll` | Unwinds through C to the caller of `poll` with its original payload | The next poll redelivers fragments from the start of the failed poll or its last `COMMIT`. Handlers must tolerate redelivery. Aeron preserves order within each image. A subscription with several images can start the next poll at a different image. |
-| Fragment assembler delegate in `Handler::with_fragment_assembler` or `AeronFragmentClosureAssembler` | Your thread, inside `poll` | The wrapper catches the panic and raises it after the assembler updates its state | Aeron does not redeliver the panicking message. It still delivers the rest of that poll. |
-| Controlled fragment assembler delegate | Your thread, inside `poll` | The wrapper catches the panic and raises it from `poll` | The delegate returns `ABORT`, so the next poll delivers the panicking message again. |
+| `FragmentAssembler` or `AeronFragmentClosureAssembler` delegate | Your thread, inside `poll` | The wrapper catches the panic and raises it after the assembler updates its state | Aeron does not redeliver the panicking message. It still delivers the rest of that poll. |
+| `ControlledFragmentAssembler` or `AeronControlledFragmentClosureAssembler` delegate | Your thread, inside `poll` | The wrapper catches the panic and raises it from `poll` | The delegate returns `ABORT`, so the next poll delivers the panicking message again. |
 | Persistent subscription handler and its `on_live_joined`, `on_live_left` and `on_error` listeners | Your thread, inside the persistent `poll` | The wrapper catches the panic and raises it from `poll` | Aeron does not redeliver the panicking fragment. |
 | Recording descriptor consumer stored by `reset` on an owned poller | Your thread, inside the poller's `poll` | The wrapper catches the panic and raises it from the poller's `poll` | The poller advances past that descriptor and does not deliver it again. Borrowed pollers returned by `AeronArchive` reject `reset`. |
 | `for_each_image` visitor | Your thread | The wrapper catches the panic and raises it from `for_each_image` after C releases the image list | C still visits the remaining images. |
@@ -15,12 +15,11 @@ for each C function:
 | Other synchronous callbacks, such as `aeron_cnc_error_log_read`, counter `foreach`, loss-report readers and URI parsers | Your thread | The wrapper catches the panic, returns a default value to C and raises it after C returns | The C function receives `0`, null or `()` according to the callback's return type. |
 | Retained image, error, registration, client-close, Archive and driver callbacks | Usually the conductor thread | The wrapper logs the panic with `log::error!` and `eprintln!` and lets the client continue | The wrapper drops that event. Later events still arrive. |
 
-Why it works this way:
+Notes:
 
-- Aeron C has no exception cleanup. Unwinding through C must not skip required state updates or cleanup. The nine poll functions in `UNWIND_POLL_FNS` in `rusteron-code-gen/src/generator.rs` commit the read position after the handler returns. An unwind skips that commit, so the next poll redelivers the fragments. These functions and their handler types use `extern "C-unwind"`. Aeron C builds with `-fexceptions` so the unwinder can pass through its call frames. This path adds no `catch_unwind` or check to the poll loop.
-- Other C calls keep state across the callback. Examples include an assembler's reassembly buffer, the image list reference count in `for_each_image`, the claimed term space in `offer` and persistent-subscription state. Unwinding would skip required updates or cleanup. The callback wrapper catches the panic and returns `()`, `0`, null or `ABORT`, as required by the callback type. The Rust wrapper raises the panic after C returns.
-- A retained callback has no waiting Rust caller to receive the panic. The wrapper logs the panic, drops that event and lets the client continue.
-- Earlier versions aborted on a panic in any callback except a poll handler. Since Rust 1.81, a panic cannot cross an `extern "C"` function.
+- Aeron C has no exception cleanup, so most callbacks cannot unwind through it. The poll functions in `UNWIND_POLL_FNS` (`rusteron-code-gen/src/generator.rs`) and their handler types use `extern "C-unwind"`. A panic skips the read-position commit, so the next poll redelivers the fragments. These poll functions add no `catch_unwind` or check to the poll loop.
+- For other callbacks the wrapper catches the panic, returns the value the callback type needs (`()`, `0`, null or `ABORT`) and raises the panic after C returns.
+- A retained callback has no waiting Rust caller. The wrapper logs the panic and drops that event.
 
 Edge cases:
 
@@ -28,4 +27,4 @@ Edge cases:
 - A caught panic is raised at the next resume point on the same thread. If you drive the image fragment assemblers through the raw bindings, or wrap an assembler in your own handler type, the panic waits until the next call that raises a caught panic. The same applies to a persistent subscription listener when the persistent `poll` is given no fragment handler.
 - With `use_conductor_agent_invoker`, conductor callbacks run inside your `invoke` call, but are still logged rather than raised.
 - For raw bindings, declare poll handlers as `unsafe extern "C-unwind" fn`. The compiler rejects `extern "C"` handlers for these poll functions. Other raw callbacks must not panic because Rust aborts at the `extern "C"` boundary.
-- To get the old behaviour, where any panic stops the process, set `panic = "abort"` in your Cargo profile. Every panic then aborts immediately, before any of the above runs.
+- To make any panic stop the process, set `panic = "abort"` in your Cargo profile. Every panic then aborts immediately, before any of the above runs.

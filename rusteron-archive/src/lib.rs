@@ -32,6 +32,72 @@ pub mod bindings {
 #[cfg(doctest)]
 mod ownership_contracts;
 
+// The migration guide covers client and archive code, and this crate exposes both APIs
+#[cfg(doctest)]
+#[doc = include_str!("../../docs/migrating_0.2_to_0.3.md")]
+mod migration_guide_doctests {}
+
+#[cfg(doctest)]
+#[doc = include_str!("../../docs/archive-guide.md")]
+mod archive_guide_doctests {}
+
+/// Compile-time and doctest contracts for the public API.
+///
+/// The data header flags are exported:
+/// ```
+/// use rusteron_archive::bindings::*;
+/// assert_eq!(AERON_DATA_HEADER_BEGIN_FLAG, 0x80);
+/// assert_eq!(AERON_DATA_HEADER_END_FLAG, 0x40);
+/// assert_eq!(AERON_DATA_HEADER_EOS_FLAG, 0x20);
+/// assert_eq!(AERON_DATA_HEADER_REVOKED_FLAG, 0x10);
+/// assert_eq!(AERON_DATA_HEADER_UNFRAGMENTED, 0xC0);
+/// ```
+///
+/// A recording descriptor borrows the callback's stack frame, so it cannot leave the closure
+/// ```compile_fail,E0521
+/// use rusteron_archive::*;
+/// fn escape(archive: &AeronArchive) {
+///     let mut count = 0;
+///     let mut kept = None;
+///     let _ = archive.list_recordings_fn(&mut count, 0, 1, |d| kept = Some(d));
+///     drop(kept);
+/// }
+/// ```
+///
+/// C keeps a retained handler after this call, so it must not borrow locals
+/// ```compile_fail,E0373
+/// use rusteron_archive::*;
+/// let label = String::from("my archive");
+/// let ctx = AeronArchiveContext::new().unwrap();
+/// let _ = ctx.set_error_handler(Some(|code: i32, message: &str| {
+///     eprintln!("{label}: {code}: {message}");
+/// }));
+/// ```
+///
+/// The archive owns its context, so the borrowed context cannot be cloned out of it
+/// ```compile_fail,E0599
+/// use rusteron_archive::*;
+/// fn escape(archive: AeronArchive) -> Result<(), AeronCError> {
+///     let context = (*archive.get_archive_context()).clone();
+///     drop(archive);
+///     context.set_control_request_channel(c"aeron:ipc")?;
+///     Ok(())
+/// }
+/// ```
+///
+/// Nor can the borrow outlive the archive
+/// ```compile_fail,E0505
+/// use rusteron_archive::*;
+/// fn escape(archive: AeronArchive) -> Result<(), AeronCError> {
+///     let context = archive.get_archive_context();
+///     drop(archive);
+///     context.set_control_request_channel(c"aeron:ipc")?;
+///     Ok(())
+/// }
+/// ```
+#[cfg(doctest)]
+mod issue_regressions {}
+
 #[cfg(test)]
 mod custom_tests;
 
@@ -270,7 +336,7 @@ impl AeronArchive {
     /// }
     /// ```
     ///
-    /// Like every getter returning a [`Ref`], the result cannot outlive the archive (issue #81):
+    /// Like every getter returning a [`Ref`], the result cannot outlive the archive:
     ///
     /// ```compile_fail,E0505
     /// fn use_after_drop(archive: rusteron_archive::AeronArchive) {
@@ -627,7 +693,11 @@ impl AeronArchivePersistentSubscription {
 
         // Native reconnects copy this archive context again. Prevent replacement
         // of callback storage until the subscription has finished closing.
-        let archive_owner = archive.inner.as_owned().unwrap().clone();
+        let archive_owner = archive
+            .inner
+            .as_owned()
+            .ok_or_else(|| AeronCError::with_message(-1, "persistent subscription requires an owning archive context"))?
+            .clone();
         let archive_reservation = archive_owner.reserve_context()?;
         if let Some(listener) = listener {
             let mut holder = Box::new(ListenerHolder { listener });
@@ -1004,6 +1074,33 @@ mod tests {
         Ok(())
     }
 
+    // Aeron 1.54.2 keeps `owns_idle_strategy` set when the idle strategy is replaced after
+    // conclude, so close frees the Handler's state with `aeron_free`
+    // TODO: un-ignore once a vendored Aeron release fixes https://github.com/aeron-io/aeron/issues/2250
+    #[test]
+    #[serial_test::serial]
+    #[ignore = "Aeron 1.54.2 frees the caller's idle state, https://github.com/aeron-io/aeron/issues/2250"]
+    fn replacing_the_idle_strategy_after_connect_keeps_the_handler() -> Result<(), Box<dyn std::error::Error>> {
+        let (driver, root) = start_archive_driver()?;
+        let (ready_archive, aeron) = driver.archive_connect()?;
+        drop(ready_archive);
+        let context = driver.archive_context(&aeron)?;
+        let archive = AeronArchiveAsyncConnect::new_with_aeron(&context, &aeron)?.poll_blocking(valgrind_timeout(5))?;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let lifetime = Arc::downgrade(&calls);
+        let capture = calls.clone();
+        drop(calls);
+        context.set_idle_strategy(Some(move |_: i32| {
+            capture.fetch_add(1, Ordering::SeqCst);
+        }))?;
+        drop(archive);
+        drop(context);
+        assert!(lifetime.upgrade().is_none());
+        drop(driver);
+        drop(root);
+        Ok(())
+    }
+
     #[test]
     fn uninitialised_archive_has_no_context_to_retain() {
         // SAFETY: this test only checks the empty owner; it makes no native calls.
@@ -1049,8 +1146,6 @@ mod tests {
             }))?;
 
             assert!(unused_lifetime.upgrade().is_none());
-            // Connections borrow this native state, so replacing it must fail.
-            assert!(context.set_idle_strategy(Some(|_: i32| {})).is_err());
             let archive = connecting.poll_blocking(valgrind_timeout(5))?;
             let borrowed = archive.get_archive_context();
             let same_borrow = borrowed.as_ref();
@@ -1354,7 +1449,7 @@ mod tests {
         context.set_recording_events_stream_id(1540)?;
         context.set_control_term_buffer_length(128 * 1024)?;
         context.set_control_mtu_length(4096)?;
-        // SAFETY: this expression consumes the text before any context mutation.
+        // SAFETY: this expression consumes the text before any context mutation
         assert_eq!(unsafe { context.get_client_name() }, "archive-review");
         assert_eq!(context.get_recording_events_stream_id(), 1540);
         assert_eq!(context.get_control_term_buffer_length(), 128 * 1024);
@@ -1372,7 +1467,7 @@ mod tests {
         let limit = AERON_COUNTER_MAX_CLIENT_NAME_LENGTH as usize;
         for name in [String::new(), "a".repeat(limit), "é".repeat(limit / 2)] {
             context.set_client_name(&name.as_str().into_c_string())?;
-            // SAFETY: this expression consumes the text before any context mutation.
+            // SAFETY: this expression consumes the text before any context mutation
             assert_eq!(unsafe { context.get_client_name() }, name);
         }
         let previous = context.get_client_name_owned();
@@ -1380,7 +1475,7 @@ mod tests {
             let error = context.set_client_name(&name.into_c_string()).unwrap_err();
             assert_eq!(error.code, -1);
             Aeron::with_errmsg(|message| assert!(message.contains("client_name length")));
-            // SAFETY: this expression consumes the text before any context mutation.
+            // SAFETY: this expression consumes the text before any context mutation
             assert_eq!(unsafe { context.get_client_name() }, previous);
         }
         Ok(())
@@ -1389,36 +1484,37 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn archive_propagates_its_client_name_and_control_session_info() -> Result<(), Box<dyn std::error::Error>> {
-        let (_client, original_context, driver, _publication_errors, _errors) = start_aeron_archive()?;
+        let (client, original_context, _driver, _publication_errors, _errors) = start_aeron_archive()?;
+        // SAFETY: the text is used at once, before any setter can change it
+        let request = unsafe { original_context.get_control_request_channel() }.into_c_string();
+        // SAFETY: the text is used at once, before any setter can change it
+        let response = unsafe { original_context.get_control_response_channel() }.into_c_string();
+
+        // Without a Rust-owned client the connect fails at once instead of timing out
+        let context = AeronArchiveContext::new()?;
+        context.set_control_request_channel(&request)?;
+        context.set_control_response_channel(&response)?;
+        let start = std::time::Instant::now();
+        let error = context
+            .aeron_archive_connect(valgrind_timeout(30))
+            .err()
+            .ok_or("connect needs a client")?;
+        assert!(error.to_string().contains("Rust-owned Aeron client"), "{error}");
+        assert!(start.elapsed() < Duration::from_secs(5));
+
         for name in [None, Some(c"upstream-port")] {
             let context = AeronArchiveContext::new()?;
-            context.set_aeron_directory_name(&driver.aeron_dir)?;
-            // SAFETY: this expression consumes the text before any context mutation.
-            context.set_control_request_channel(
-                &unsafe { original_context.get_control_request_channel() }.into_c_string(),
-            )?;
-            // SAFETY: this expression consumes the text before any context mutation.
-            context.set_control_response_channel(
-                &unsafe { original_context.get_control_response_channel() }.into_c_string(),
-            )?;
+            context.set_aeron(&client)?;
+            context.set_control_request_channel(&request)?;
+            context.set_control_response_channel(&response)?;
             if let Some(name) = name {
                 context.set_client_name(name)?;
             }
             let archive = context.aeron_archive_connect(valgrind_timeout(30))?;
-            // These borrowed views stay within the lifetime of their Archive owner.
-            let client = archive.get_archive_context().get_aeron();
-            let client_context = client.context();
-            if let Some(name) = name {
-                // SAFETY: this expression consumes the text before any context mutation.
-                assert_eq!(unsafe { client_context.get_client_name() }, name.to_str()?);
-            } else {
-                // SAFETY: this expression consumes the text before any context mutation.
-                assert!(unsafe { client_context.get_client_name() }.contains("archive-client"));
-            }
             let reader = client.counters_reader();
             let mut label = None;
-            reader.foreach_counter_fn(|_, _, type_id, key, text| {
-                if type_id == AERON_COUNTER_ARCHIVE_CONTROL_SESSION_TYPE_ID as i32
+            reader.foreach_typed_counter_fn(|_, _, counter_type, key, text| {
+                if counter_type == AeronCounterTypeId::ArchiveControlSession
                     && key[..8] == archive.get_archive_id().to_ne_bytes()
                     && key[8..16] == archive.control_session_id().to_ne_bytes()
                 {
@@ -1427,7 +1523,7 @@ mod tests {
             });
             let label = label.ok_or("Archive control session counter is missing")?;
             assert!(
-                // SAFETY: this expression consumes the text before any context mutation.
+                // SAFETY: this expression consumes the text before any context mutation
                 label.contains(&format!("name={} version=", unsafe { context.get_client_name() })),
                 "{label}"
             );
@@ -1441,10 +1537,13 @@ mod tests {
 
     #[test]
     #[serial_test::serial]
-    fn persistent_subscription_context_borrow_and_transfer_close_in_order() -> Result<(), Box<dyn std::error::Error>> {
+    fn persistent_subscription_context_closes_and_the_archive_context_builds_again()
+    -> Result<(), Box<dyn std::error::Error>> {
         let (aeron, archive_context, media_driver, publication_errors, errors) = start_aeron_archive()?;
         let result = (|| -> Result<(), Box<dyn std::error::Error>> {
-            for transfer in [false, true] {
+            // Rust owns the context after `build`, so closing the first subscription must leave
+            // the archive context free for a second build
+            for _ in 0..2 {
                 let subscription = PersistentSubscriptionBuilder::new_with_aeron(&archive_context, &aeron)?
                     .recording_id(42)?
                     .live_channel("aeron:ipc")?
@@ -1455,15 +1554,7 @@ mod tests {
                 // The subscription is open; borrowed pointers are only compared, never closed.
                 let borrowed = unsafe { subscription.get_persistent_subscription_context() };
                 assert!(!borrowed.is_null());
-                if transfer {
-                    let owned = unsafe { subscription.get_and_own_persistent_subscription_context() };
-                    assert_eq!(borrowed, owned);
-                    subscription.close()?;
-                    // The client and archive context remain alive until after this close.
-                    assert_eq!(unsafe { aeron_archive_persistent_subscription_context_close(owned) }, 0);
-                } else {
-                    subscription.close()?;
-                }
+                subscription.close()?;
             }
             Ok(())
         })();
@@ -1490,13 +1581,13 @@ mod tests {
                 key
             };
             let first = aeron.add_counter(
-                AERON_COUNTER_ARCHIVE_RECORDING_POSITION_TYPE_ID as i32,
+                AeronCounterTypeId::ArchiveRecordingPosition.code(),
                 &make_key(10),
                 "first archive",
                 Duration::from_secs(5),
             )?;
             let second = aeron.add_counter(
-                AERON_COUNTER_ARCHIVE_RECORDING_POSITION_TYPE_ID as i32,
+                AeronCounterTypeId::ArchiveRecordingPosition.code(),
                 &make_key(20),
                 "second archive",
                 Duration::from_secs(5),
@@ -1540,7 +1631,7 @@ mod tests {
                 key[8..12].copy_from_slice(&8_i32.to_ne_bytes());
                 key[12..16].copy_from_slice(&length.to_ne_bytes());
                 let counter = aeron.add_counter(
-                    AERON_COUNTER_ARCHIVE_RECORDING_POSITION_TYPE_ID as i32,
+                    AeronCounterTypeId::ArchiveRecordingPosition.code(),
                     &key,
                     "malformed source identity",
                     Duration::from_secs(5),
@@ -1686,7 +1777,6 @@ mod tests {
     pub const RECORDING_ENDPOINT: &str = "localhost:23266";
     pub const LIVE_ENDPOINT: &str = "localhost:23267";
     pub const REPLAY_ENDPOINT: &str = "localhost:0";
-    // pub const REPLAY_ENDPOINT: &str = "localhost:23268";
 
     #[test]
     #[serial]
@@ -1745,16 +1835,19 @@ mod tests {
                 let aeron_archive_context = AeronArchiveContext::new()?;
                 aeron_archive_context.set_aeron(&aeron)?;
                 aeron_archive_context.set_control_request_channel(
-                    // SAFETY: this expression consumes the text before any context mutation.
-                    &unsafe { source_archive_context.get_control_request_channel() }.into_c_string(),
+                    &source_archive_context
+                        .get_control_request_channel_owned()
+                        .into_c_string(),
                 )?;
                 aeron_archive_context.set_control_response_channel(
-                    // SAFETY: this expression consumes the text before any context mutation.
-                    &unsafe { source_archive_context.get_control_response_channel() }.into_c_string(),
+                    &source_archive_context
+                        .get_control_response_channel_owned()
+                        .into_c_string(),
                 )?;
                 aeron_archive_context.set_recording_events_channel(
-                    // SAFETY: this expression consumes the text before any context mutation.
-                    &unsafe { source_archive_context.get_recording_events_channel() }.into_c_string(),
+                    &source_archive_context
+                        .get_recording_events_channel_owned()
+                        .into_c_string(),
                 )?;
                 aeron_archive_context.set_message_timeout_ns(60_000_000_000)?;
                 aeron_archive_context.set_error_handler(Some(error_handler.clone()))?;
@@ -1833,9 +1926,8 @@ mod tests {
                         publication.position()
                     );
                 }
-                // slow down publishing so can catch up
+                // throttle publishing so the archiver can keep up
                 if message_count > 10_000 {
-                    // Wait for the archiver to catch up.
                     while counters_reader.get_counter_value(counter_id).unwrap() < publication.position() {
                         assert!(
                             RecordingPos::is_active(&counters_reader, counter_id, recording_id).unwrap_or(false),
@@ -1869,7 +1961,6 @@ mod tests {
     }
 
     fn replay_merge_subscription(archive: &AeronArchive, aeron: Aeron, session_id: i32) -> Result<(), AeronCError> {
-        // let replay_channel = format!("aeron:udp?control-mode=manual|session-id={session_id}");
         let replay_channel = format!("aeron:udp?session-id={session_id}").into_c_string();
         info!("replay channel {:?}", replay_channel);
 
@@ -1896,27 +1987,6 @@ mod tests {
             counters_reader.get_counter_value(counter_id)?
         );
 
-        // let recording_id = Cell::new(-1);
-        // let start_position = Cell::new(-1);
-
-        // let mut count = 0;
-        // assert!(
-        //     archive.list_recordings_fn(&mut count, 0, 1000, |descriptor| {
-        //         info!("Recording descriptor: {:?}", descriptor);
-        //         recording_id.set(descriptor.recording_id);
-        //         start_position.set(descriptor.start_position);
-        //         assert_eq!(descriptor.session_id, session_id);
-        //         assert_eq!(descriptor.stream_id, STREAM_ID);
-        //     })? >= 0
-        // );
-        // assert!(count > 0);
-        // assert!(recording_id.get() >= 0);
-
-        // let record_id = RecordingPos::get_recording_id(&aeron.counters_reader(), counter_id)?;
-        // assert_eq!(recording_id.get(), record_id);
-        //
-        // let recording_id = recording_id.get();
-        // let start_position = start_position.get();
         let start_position = 0;
         let recording_id =
             RecordingPos::get_recording_id_block(&aeron.counters_reader(), counter_id, Duration::from_secs(5))?;
@@ -1952,16 +2022,6 @@ mod tests {
             "ReplayMerge initialization: recordingId={}, startPosition={}, subscriptionChannel={:?}, replayChannel={:?}, replayDestination={:?}, liveDestination={:?}",
             recording_id, start_position, subscribe_channel, &replay_channel, &replay_destination, &live_destination
         );
-
-        // media_driver
-        //     .run_aeron_stats()
-        //     .expect("Failed to run aeron stats");
-
-        // info!("Waiting for subscription to connect...");
-        // while !subscription.is_connected() {
-        //     thread::sleep(Duration::from_millis(100));
-        // }
-        // info!("Subscription connected");
 
         let mut reply_count = 0;
         while !replay_merge.is_merged() {
@@ -2158,14 +2218,16 @@ mod tests {
             let counted = Arc::clone(&signals);
             let context = AeronArchiveContext::new()?;
             context.set_aeron(&client)?;
-            // SAFETY: this expression consumes the text before any context mutation.
-            context.set_control_request_channel(
-                &unsafe { archive_context.get_control_request_channel() }.into_c_string(),
-            )?;
-            // SAFETY: this expression consumes the text before any context mutation.
-            context.set_control_response_channel(
-                &unsafe { archive_context.get_control_response_channel() }.into_c_string(),
-            )?;
+            context
+                // SAFETY: the text is used at once, before any setter can change it
+                .set_control_request_channel(
+                    &unsafe { archive_context.get_control_request_channel() }.into_c_string(),
+                )?;
+            context
+                // SAFETY: the text is used at once, before any setter can change it
+                .set_control_response_channel(
+                    &unsafe { archive_context.get_control_response_channel() }.into_c_string(),
+                )?;
             context.set_recording_signal_consumer(Some(move |_signal: &AeronArchiveRecordingSignal| {
                 counted.fetch_add(1, Ordering::SeqCst);
             }))?;
@@ -2224,14 +2286,16 @@ mod tests {
             client.start()?;
             let context = AeronArchiveContext::new()?;
             context.set_aeron(&client)?;
-            // SAFETY: this expression consumes the text before any context mutation.
-            context.set_control_request_channel(
-                &unsafe { archive_context.get_control_request_channel() }.into_c_string(),
-            )?;
-            // SAFETY: this expression consumes the text before any context mutation.
-            context.set_control_response_channel(
-                &unsafe { archive_context.get_control_response_channel() }.into_c_string(),
-            )?;
+            context
+                // SAFETY: the text is used at once, before any setter can change it
+                .set_control_request_channel(
+                    &unsafe { archive_context.get_control_request_channel() }.into_c_string(),
+                )?;
+            context
+                // SAFETY: the text is used at once, before any setter can change it
+                .set_control_response_channel(
+                    &unsafe { archive_context.get_control_response_channel() }.into_c_string(),
+                )?;
 
             let connected = context.aeron_archive_connect(Duration::from_secs(10))?;
             let polled = AeronArchiveAsyncConnect::new(&context)?.poll_blocking(Duration::from_secs(10))?;
@@ -2485,8 +2549,8 @@ mod tests {
             archive.start_replay(recording_id, c"aeron:ipc?term-length=64k", 1553, &params)?;
             // With no replay subscriber, the replay stays active until the truncation.
             let mut replay_count = None;
-            reader.foreach_counter_fn(|_, id, type_id, key, _| {
-                if type_id == AERON_COUNTER_ARCHIVE_REPLAY_SESSION_COUNT_TYPE_ID as i32
+            reader.foreach_typed_counter_fn(|_, id, counter_type, key, _| {
+                if counter_type == AeronCounterTypeId::ArchiveReplaySessionCount
                     && key[..8] == archive.get_archive_id().to_ne_bytes()
                 {
                     replay_count = Some(id);
@@ -2554,8 +2618,7 @@ mod tests {
         let idle_deadline = replay_deadline.clone();
         let idle_stalled = stalled.clone();
         let idle_client = client.clone();
-        // Rescue a stalled C wait after the deadline, then fail below. This makes
-        // an invoker regression fail instead of hanging the entire test suite.
+        // Rescues a stalled C wait after the deadline so the test fails below instead of hanging
         context.set_idle_strategy(Some(move |_work_count: i32| {
             sleep(Duration::from_millis(1));
             if Aeron::nano_clock() > idle_deadline.load(Ordering::SeqCst) {
@@ -2662,7 +2725,8 @@ mod tests {
                 return Err("a borrowed context must refuse set_aeron".into());
             };
             assert!(
-                err.message().is_some_and(|m| m.contains("owning heap storage")),
+                err.message()
+                    .is_some_and(|m| m.contains("borrowed context cannot be changed")),
                 "{err:?}"
             );
             // C was not changed: the owner still has its own client
@@ -2890,7 +2954,6 @@ mod tests {
             assert_eq!(replaced.client_id(), first_id);
             assert!(!replaced.is_closed());
 
-            // without the fix these would use a freed client
             let view = context.get_aeron();
             assert_eq!(view.client_id(), second_id);
             let client = context
@@ -3035,7 +3098,7 @@ mod tests {
             archive.idle();
             let session_id = publication.get_constants()?.session_id();
             info!("publication session id {}", session_id);
-            // since this is single threaded need to make sure it did write to archiver, usually not required in multi-proccess app
+            // single thread: wait for the archiver before reading the position
             let stop_position = publication.position();
             info!(
                 "publication stop position {} [publication={:?}]",
@@ -3098,7 +3161,6 @@ mod tests {
                             end_pos.set(d.stop_position());
                         }
 
-                        // verify clone_struct works
                         // SAFETY: `copy` is dropped within the callback and its strings are not read
                         let copy = unsafe { d.clone_struct() };
                         assert_eq!(unsafe { copy.get_inner_ref() }, unsafe { d.get_inner_ref() });
@@ -3150,7 +3212,6 @@ mod tests {
                     fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _header: &AeronHeader) {
                         assert_eq!(buffer, "123456".as_bytes());
 
-                        // Update count (using Cell for interior mutability)
                         self.count.set(self.count.get() + 1);
                     }
                 }
@@ -3159,7 +3220,7 @@ mod tests {
                 let poll_result: Result<(), Box<dyn error::Error>> = (|| {
                     let wait_timeout = Duration::from_secs(30);
                     let start = Instant::now();
-                    while start.elapsed() < wait_timeout && subscription.poll_with_handler(Some(&poll), 100)? <= 0 {
+                    while start.elapsed() < wait_timeout && subscription.poll(&mut *poll.lock(), 100)? <= 0 {
                         let err = archive.poll_for_error_response_as_string(4096)?;
                         if !err.is_empty() {
                             return Err(std::io::Error::other(err).into());
