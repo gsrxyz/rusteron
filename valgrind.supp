@@ -869,3 +869,24 @@
    fun:start_thread
    fun:clone
 }
+
+# Upstream Aeron C 1.54.2 bug: get_required_error_state mallocs the per-thread error state
+# without zeroing it, and aeron_err_append uses its offset without resetting it, so the first
+# append on a fresh thread reads an uninitialised offset (for example a recording id lookup
+# on an invalid counter id). Remove once the vendored Aeron initialises the state
+{
+   aeron_err_append_uninitialised_offset_cond
+   Memcheck:Cond
+   ...
+   fun:aeron_err_vprintf
+   ...
+   fun:aeron_err_append
+}
+{
+   aeron_err_append_uninitialised_offset_value8
+   Memcheck:Value8
+   ...
+   fun:aeron_err_vprintf
+   ...
+   fun:aeron_err_append
+}
