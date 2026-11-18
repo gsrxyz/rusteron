@@ -1,6 +1,40 @@
+use crate::ResourceStorageExt;
 use crate::{AeronArchiveContext, AeronCError, AeronErrorHandlerSlot};
 use std::sync::{Arc, Mutex, Weak, mpsc};
 use std::time::Duration;
+
+#[test]
+fn returned_handler_replaces_callback_without_registering_again() -> Result<(), AeronCError> {
+    type ErrorCallback = Box<dyn FnMut(i32, &str) + Send>;
+    let context = AeronArchiveContext::new()?;
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let observed = calls.clone();
+    let capture = Arc::new(());
+    let lifetime = Arc::downgrade(&capture);
+    let callback: ErrorCallback = Box::new(move |_, _| {
+        std::hint::black_box(&capture);
+        observed.lock().unwrap().push(1);
+    });
+    let handler = context.set_error_handler(Some(callback))?.unwrap();
+    let alias = handler.clone();
+    let pointer = handler.as_raw();
+    let dependencies = context.inner.dependency_len();
+    context.invoke_error_handler(1, 0, c"before replacement");
+
+    let observed = calls.clone();
+    let replacement: ErrorCallback = Box::new(move |_, _| observed.lock().unwrap().push(2));
+    let previous = std::mem::replace(&mut *alias.lock(), replacement);
+    // Captured values are dropped after the callback mutex is released.
+    assert!(handler.inner.try_lock().is_ok());
+    drop(previous);
+    assert!(lifetime.upgrade().is_none());
+    assert_eq!(pointer, handler.as_raw());
+    assert_eq!(context.inner.dependency_len(), dependencies);
+
+    context.invoke_error_handler(2, 0, c"after replacement");
+    assert_eq!(*calls.lock().unwrap(), vec![1, 2]);
+    Ok(())
+}
 
 #[test]
 fn error_handler_slot_frees_captures_without_more_registrations() -> Result<(), AeronCError> {
@@ -105,19 +139,19 @@ fn returning_callback_slot_uses_the_chosen_empty_result() {
     use crate::{AeronControlledFragmentHandlerCallback, AeronControlledFragmentHandlerSlot};
     let mut handler = AeronControlledFragmentHandlerSlot::new(|| AERON_ACTION_ABORT);
     // These callbacks do not read the header.
-    let header = crate::AeronHeader::new_zeroed_on_heap();
+    let header = unsafe { crate::AeronHeader::new_zeroed_on_heap() };
     assert_eq!(
-        handler.handle_aeron_controlled_fragment_handler(&[], &header),
+        handler.handle_aeron_controlled_fragment_handler(&[], &header.as_ref()),
         AERON_ACTION_ABORT
     );
     handler.set(|_, _| AERON_ACTION_COMMIT);
     assert_eq!(
-        handler.handle_aeron_controlled_fragment_handler(&[], &header),
+        handler.handle_aeron_controlled_fragment_handler(&[], &header.as_ref()),
         AERON_ACTION_COMMIT
     );
     handler.clear();
     assert_eq!(
-        handler.handle_aeron_controlled_fragment_handler(&[], &header),
+        handler.handle_aeron_controlled_fragment_handler(&[], &header.as_ref()),
         AERON_ACTION_ABORT
     );
 }

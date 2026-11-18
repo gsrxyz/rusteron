@@ -11,232 +11,516 @@
 use crate::AeronErrorType::Unknown;
 #[cfg(feature = "backtrace")]
 use std::backtrace::Backtrace;
-use std::cell::UnsafeCell;
 use std::fmt::Formatter;
 // unused here, but the generated code that includes this file uses it
 #[allow(unused_imports)]
 use std::mem::MaybeUninit;
-use std::ops::Deref;
 #[allow(unused_imports)]
 use std::ops::DerefMut;
 use std::time::Duration;
 
-/// Reference-counting smart pointer: `Rc` by default, `Arc` under the
-/// `multi-threaded` feature. Swapping is transparent. `RcOrArc::new`, `.clone()` and
-/// `strong_count` all work on both.
-#[cfg(not(feature = "multi-threaded"))]
-pub type RcOrArc<T> = std::rc::Rc<T>;
-#[cfg(feature = "multi-threaded")]
-pub type RcOrArc<T> = std::sync::Arc<T>;
+/// Shared ownership of a native resource. Cloning a handle never copies the C object.
+pub type ResourceRef<T> = std::sync::Arc<T>;
 
-#[cfg(not(feature = "multi-threaded"))]
-pub type RefCellOrMutex<T> = std::cell::RefCell<T>;
-#[cfg(feature = "multi-threaded")]
-pub type RefCellOrMutex<T> = std::sync::Mutex<T>;
-
-#[cfg(not(feature = "multi-threaded"))]
-pub type CleanupBox<T> = Box<dyn FnMut(*mut *mut T) -> i32>;
-#[cfg(feature = "multi-threaded")]
-pub type CleanupBox<T> = Box<dyn FnMut(*mut *mut T) -> i32 + Send>;
-
-pub enum CResource<T> {
-    OwnedOnHeap(RcOrArc<ManagedCResource<T>>),
-    /// Always initialised by construction (zeroed or `new(v)`). Never store
-    /// `uninit()`. `Clone` and `get()` assume it's valid. `UnsafeCell` because
-    /// C writes through the pointer `get()` hands out from `&self`.
-    OwnedOnStack(std::cell::UnsafeCell<std::mem::MaybeUninit<T>>),
-    Borrowed(*mut T),
+/// Storage rules for cleanup and retained dependencies.
+pub trait ResourcePolicy: 'static {
+    type Erased: ?Sized + std::any::Any;
+    type Cleanup<T>: FnMut(*mut *mut T) -> i32;
+    fn as_any(value: &Self::Erased) -> &dyn std::any::Any;
 }
 
-// `CResource<T>` deliberately does NOT implement `Send`/`Sync` here, not even
-// bounded on `T: Send`/`Sync`
+/// Local resources may retain local callbacks and other local resources.
+pub enum LocalResource {}
+/// Shared owners retain only values that can be accessed and dropped on any thread.
+pub enum SharedResource {}
 
-// No `T: Clone` bound: bindgen does not derive `Clone` for opaque (forward-declared) C structs
-// such as `aeron_t`, yet their handles must stay cloneable. Every `T` is a bindgen C struct,
-// and the non-opaque ones derive `Copy`, so a bitwise copy is what `clone` did before
-impl<T> Clone for CResource<T> {
-    fn clone(&self) -> Self {
-        match self {
-            CResource::OwnedOnHeap(r) => CResource::OwnedOnHeap(r.clone()),
-            // SAFETY: reading a `MaybeUninit<T>` is always valid, and it never drops `T`, so the
-            // copy cannot cause a double drop
-            CResource::OwnedOnStack(r) => CResource::OwnedOnStack(unsafe { r.get().read() }.into()),
-            CResource::Borrowed(r) => CResource::Borrowed(*r),
-        }
+impl ResourcePolicy for LocalResource {
+    type Erased = dyn std::any::Any;
+    type Cleanup<T> = Box<dyn FnMut(*mut *mut T) -> i32>;
+    fn as_any(value: &Self::Erased) -> &dyn std::any::Any {
+        value
+    }
+}
+impl ResourcePolicy for SharedResource {
+    type Erased = dyn std::any::Any + Send + Sync;
+    type Cleanup<T> = Box<dyn FnMut(*mut *mut T) -> i32 + Send>;
+    fn as_any(value: &Self::Erased) -> &dyn std::any::Any {
+        value
     }
 }
 
-impl<T> CResource<T> {
-    #[inline]
-    pub fn get(&self) -> *mut T {
-        match self {
-            CResource::OwnedOnHeap(r) => r.get(),
-            CResource::OwnedOnStack(r) => r.get().cast(),
-            CResource::Borrowed(r) => *r,
-        }
+pub trait AcceptDependency<D>: ResourcePolicy {
+    fn retain(value: D) -> ResourceRef<Self::Erased>;
+}
+impl<D: std::any::Any> AcceptDependency<D> for LocalResource {
+    fn retain(value: D) -> ResourceRef<Self::Erased> {
+        ResourceRef::new(value)
     }
-
-    #[inline]
-    // to prevent the dependencies from being dropped as you have a copy here
-    pub fn add_dependency<D: std::any::Any>(&self, dep: D) {
-        match self {
-            CResource::OwnedOnHeap(r) => r.add_dependency(dep),
-            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => {
-                unreachable!("only owned on heap")
-            }
-        }
+}
+impl<D: std::any::Any + Send + Sync> AcceptDependency<D> for SharedResource {
+    fn retain(value: D) -> ResourceRef<Self::Erased> {
+        ResourceRef::new(value)
     }
+}
 
-    /// Test-only: see [`ManagedCResource::dependency_len`].
+pub trait CopyDependencies<From: ResourcePolicy>: ResourcePolicy {
+    fn copy(value: ResourceRef<From::Erased>) -> ResourceRef<Self::Erased>;
+}
+impl<P: ResourcePolicy> CopyDependencies<P> for P {
+    fn copy(value: ResourceRef<P::Erased>) -> ResourceRef<Self::Erased> {
+        value
+    }
+}
+impl CopyDependencies<SharedResource> for LocalResource {
+    fn copy(value: ResourceRef<<SharedResource as ResourcePolicy>::Erased>) -> ResourceRef<Self::Erased> {
+        value
+    }
+}
+
+/// Native storage and cleanup policy selected by the generator.
+///
+/// # Safety
+/// A shared policy requires that the native allocation can be retained and closed
+/// from any thread. All safe constructors must use this policy's checked dependency
+/// and cleanup storage. This does not make concurrent native method calls safe.
+pub unsafe trait NativeResource: 'static {
+    type Policy: ResourcePolicy;
+}
+
+#[cfg(test)]
+unsafe impl NativeResource for i32 {
+    type Policy = LocalResource;
+}
+#[cfg(test)]
+unsafe impl NativeResource for u8 {
+    type Policy = LocalResource;
+}
+
+pub type CleanupBox<T> = <<T as NativeResource>::Policy as ResourcePolicy>::Cleanup<T>;
+
+/// Access used by generated handles. Implementations are sealed to this crate.
+#[doc(hidden)]
+pub trait ResourceHandle: resource_sealed::Handle + Sized {
+    type Native: NativeResource;
+    type Storage: ResourceStorage<Self::Native>;
+    type Borrowed: ResourceHandle<Native = Self::Native>;
+}
+#[allow(dead_code)]
+pub(crate) trait ResourceHandleExt: ResourceHandle {
+    fn resource(&self) -> &Self::Storage;
+    fn from_resource(inner: Self::Storage) -> Self;
+    fn from_borrowed(inner: Borrowed<Self::Native>) -> Self::Borrowed;
+}
+#[doc(hidden)]
+pub(crate) trait OwnedResourceHandle: ResourceHandleExt {
+    fn from_owned(inner: CResource<Self::Native>) -> Self;
+}
+
+mod resource_sealed {
+    pub trait Storage {}
+    pub trait Handle {}
+}
+
+/// Concrete storage for a generated native handle. Calls are statically dispatched.
+#[doc(hidden)]
+pub trait ResourceStorage<T: NativeResource>: resource_sealed::Storage + std::fmt::Debug {
+    fn get(&self) -> *mut T;
+    #[inline]
+    fn as_owned(&self) -> Option<&ResourceRef<ManagedCResource<T>>> {
+        None
+    }
+}
+// Cleanup and dependency mutation are internal. Exposing these methods would let
+// safe callers close a native allocation while another handle still uses it.
+#[allow(dead_code)]
+pub(crate) trait ResourceStorageExt<T: NativeResource>: ResourceStorage<T> {
+    #[inline]
+    fn add_dependency<D: std::any::Any>(&self, dep: D)
+    where
+        T::Policy: AcceptDependency<D>,
+    {
+        self.as_owned()
+            .expect("dependencies require a heap owner")
+            .add_dependency(dep);
+    }
     #[cfg(test)]
-    #[allow(dead_code)]
-    pub(crate) fn dependency_len(&self) -> usize {
-        match self {
-            CResource::OwnedOnHeap(r) => r.dependency_len(),
-            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => 0,
+    fn dependency_len(&self) -> usize {
+        self.as_owned().map_or(0, |owner| owner.dependency_len())
+    }
+    #[inline]
+    fn get_dependency<V: Clone + 'static>(&self) -> Option<V> {
+        self.as_owned().and_then(|owner| owner.get_dependency())
+    }
+
+    fn add_handle_dependency<H: ResourceHandleExt>(&self, handle: &H)
+    where
+        T::Policy: AcceptDependency<ResourceRef<ManagedCResource<H::Native>>>,
+    {
+        if let Some(owner) = self.as_owned() {
+            owner.add_handle_dependency(handle);
         }
     }
 
-    #[inline]
-    pub fn get_dependency<V: Clone + 'static>(&self) -> Option<V> {
-        match self {
-            CResource::OwnedOnHeap(r) => r.get_dependency(),
-            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => None,
+    fn get_handle_dependency<H: OwnedResourceHandle>(&self) -> Option<H> {
+        self.as_owned().and_then(|owner| owner.get_handle_dependency())
+    }
+
+    fn get_handle_dependency_matching<H: OwnedResourceHandle>(&self, pointer: *mut H::Native) -> Option<H> {
+        let owner = self.as_owned()?;
+        let dependencies = owner.dependencies.lock().unwrap_or_else(|e| e.into_inner());
+        dependencies.iter().find_map(|dependency| {
+            let resource = T::Policy::as_any(dependency.value.as_ref())
+                .downcast_ref::<ResourceRef<ManagedCResource<H::Native>>>()?;
+            (resource.get() == pointer).then(|| H::from_owned(CResource::new(resource.clone())))
+        })
+    }
+
+    fn copy_dependencies_from<U: NativeResource>(&self, source: &impl ResourceStorage<U>)
+    where
+        T::Policy: CopyDependencies<U::Policy>,
+    {
+        if let (Some(target), Some(source)) = (self.as_owned(), source.as_owned()) {
+            target.copy_dependencies_from(source);
         }
     }
 
-    #[inline]
-    pub fn as_owned(&self) -> Option<&RcOrArc<ManagedCResource<T>>> {
-        match self {
-            CResource::OwnedOnHeap(r) => Some(r),
-            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => None,
+    /// Transfer dependencies after C has consumed a successful async operation.
+    fn take_dependencies_from<U: NativeResource>(&self, source: &impl ResourceStorage<U>)
+    where
+        T::Policy: CopyDependencies<U::Policy>,
+    {
+        if let (Some(target), Some(source)) = (self.as_owned(), source.as_owned()) {
+            let dependencies = std::mem::take(&mut *source.dependencies.lock().unwrap_or_else(|e| e.into_inner()));
+            target
+                .dependencies
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .extend(dependencies.into_iter().map(|dep| ResourceDependency {
+                    callback: dep.callback,
+                    in_use: dep.in_use,
+                    value: <T::Policy as CopyDependencies<U::Policy>>::copy(dep.value),
+                }));
         }
     }
 
-    /// Run the clean-up / close on the resource via its shared state.
-    ///
-    /// For `OwnedOnHeap` resources this calls `close_shared` on the
-    /// `ManagedCResource`. The FFI close fires exactly once across all
-    /// clones.  Stack and borrowed resources are no-ops (they don't own a
-    /// cleanup closure).
-    #[allow(dead_code)]
-    #[inline]
-    pub(crate) fn close_resource(&self) -> Result<(), AeronCError> {
-        match self {
-            CResource::OwnedOnHeap(r) => r.close_shared(),
-            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => Ok(()),
+    /// Archive contexts are local. Their native setters do not call callbacks,
+    /// so this check also prevents a callback from freeing itself during a call.
+    fn check_callback_replacement(&self, key: &'static str) -> Result<(), AeronCError> {
+        let owner = self
+            .as_owned()
+            .ok_or_else(|| AeronCError::with_message(-1, "a borrowed wrapper cannot retain a callback"))?;
+        let dependencies = owner.dependencies.lock().unwrap_or_else(|e| e.into_inner());
+        let active = dependencies.iter().any(|dep| {
+            dep.callback == Some(key)
+                && dep
+                    .in_use
+                    .is_some_and(|check| check(T::Policy::as_any(dep.value.as_ref())))
+        });
+        if active {
+            return Err(AeronCError::with_message(
+                -1,
+                "a running or borrowed callback cannot be replaced",
+            ));
         }
+        Ok(())
     }
 
-    /// Run a custom close function through the same shared close gate.
-    ///
-    /// This is used for close methods that take extra parameters, such as
-    /// Aeron's close-complete notification callback.  The custom close still
-    /// consumes the wrapper handle and still closes exactly once across clones.
-    #[allow(dead_code)]
-    #[inline]
-    pub(crate) fn close_resource_with(&self, cleanup: impl FnMut(*mut *mut T) -> i32) -> Result<(), AeronCError> {
-        match self {
-            CResource::OwnedOnHeap(r) => r.close_shared_with(cleanup),
-            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => Ok(()),
-        }
+    fn check_configurable(&self) -> Result<(), AeronCError> {
+        self.as_owned()
+            .ok_or_else(|| AeronCError::with_message(-1, "a borrowed context cannot be changed"))?
+            .check_not_frozen()
     }
 
-    /// Close an owner resource only when this is the last shared reference.
-    ///
-    /// This is for owner/client handles (e.g. Aeron/AeronArchive) whose C close
-    /// frees child resources.  If child handles still hold dependency clones, we
-    /// must defer to natural Rc teardown to preserve child-before-parent order.
-    #[allow(dead_code)]
     #[inline]
-    pub(crate) fn close_resource_deferred_if_shared(&self) -> Result<(), AeronCError> {
-        match self {
-            CResource::OwnedOnHeap(r) => {
-                let refs = RcOrArc::strong_count(r);
-                if refs > 1 {
-                    log::info!(
-                        "close deferred for {} because {} references are still alive",
-                        std::any::type_name::<T>(),
-                        refs
-                    );
-                    Ok(())
-                } else {
-                    r.close_shared()
-                }
-            }
-            CResource::OwnedOnStack(_) | CResource::Borrowed(_) => Ok(()),
+    fn close_resource(&self) -> Result<(), AeronCError> {
+        self.as_owned().map_or(Ok(()), |owner| owner.close_shared())
+    }
+    #[inline]
+    fn close_resource_with(&self, cleanup: impl FnMut(*mut *mut T) -> i32) -> Result<(), AeronCError> {
+        self.as_owned().map_or(Ok(()), |owner| owner.close_shared_with(cleanup))
+    }
+    #[inline]
+    fn close_resource_deferred_if_shared(&self) -> Result<(), AeronCError> {
+        match self.as_owned() {
+            Some(owner) if ResourceRef::strong_count(owner) == 1 => owner.close_shared(),
+            _ => Ok(()),
         }
     }
 }
 
-impl<T> std::fmt::Debug for CResource<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let name = std::any::type_name::<T>();
+impl<T: NativeResource, S: ResourceStorage<T>> ResourceStorageExt<T> for S {}
 
-        match self {
-            CResource::OwnedOnHeap(r) => {
-                write!(f, "{name} heap({:?})", r)
-            }
-            CResource::OwnedOnStack(r) => {
-                write!(f, "{name} stack({:?})", r.get())
-            }
-            CResource::Borrowed(r) => {
-                write!(f, "{name} borrowed ({:?})", r)
-            }
-        }
+/// Shared ownership of a native allocation. Clone retains the allocation; it
+/// never copies the native object. This is one pointer wide.
+pub struct CResource<T: NativeResource>(ResourceRef<ManagedCResource<T>>, std::marker::PhantomData<*mut ()>);
+impl<T: NativeResource> CResource<T> {
+    #[inline]
+    pub(crate) fn new(owner: ResourceRef<ManagedCResource<T>>) -> Self {
+        Self(owner, std::marker::PhantomData)
+    }
+    #[inline]
+    #[allow(dead_code)]
+    pub(crate) fn owned_value(value: T) -> Self {
+        let resource = ManagedCResource::new(
+            move |ptr| {
+                // SAFETY: initialise supplies a writable output pointer.
+                unsafe { *ptr = Box::into_raw(Box::new(value)) };
+                0
+            },
+            None,
+            true,
+        )
+        .unwrap_or_else(|_| unreachable!("Box allocation returned null"));
+        Self(ResourceRef::new(resource), std::marker::PhantomData)
     }
 }
-
-/// A wrapper around a C object that belongs to the value it came from, such as the
-/// context returned by `archive.get_archive_context()`
-///
-/// The lifetime ties it to that owner, so dropping or closing the owner while a `Ref`
-/// is alive does not compile. Use it through `Deref` like the wrapper itself
-///
-/// The owner is tracked with `PhantomData` rather than an `Rc`/`Arc` clone for
-/// performance: getters such as `archive.aeron()` are called on the hot path (for
-/// example in `do_work`), and a reference count would add an increment and decrement
-/// (atomic under `multi-threaded`) on every call. `Ref` holds only the C pointer, so
-/// the borrow checker enforces the lifetime at zero runtime cost
-///
-/// `ref.clone()` keeps the lifetime. Cloning the inner wrapper (`T::clone(&*r)`) does
-/// not, and that copy must not outlive the owner
-pub struct Ref<'a, T> {
-    value: T,
-    owner: std::marker::PhantomData<&'a ()>,
+impl<T: NativeResource> Clone for CResource<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), std::marker::PhantomData)
+    }
 }
-
-impl<T> Ref<'_, T> {
-    /// The caller picks the lifetime, which must not outlive the C object's owner
+impl<T: NativeResource> resource_sealed::Storage for CResource<T> {}
+impl<T: NativeResource> ResourceStorage<T> for CResource<T> {
     #[inline(always)]
-    pub(crate) fn new(value: T) -> Self {
+    fn get(&self) -> *mut T {
+        self.0.get()
+    }
+    #[inline(always)]
+    fn as_owned(&self) -> Option<&ResourceRef<ManagedCResource<T>>> {
+        Some(&self.0)
+    }
+}
+impl<T: NativeResource> std::fmt::Debug for CResource<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Owned").field(&self.0).finish()
+    }
+}
+
+/// A cached pointer for native handles whose cleanup waits for the last owner.
+/// Async operations use `CResource` instead because C can release them early.
+pub struct LiveCResource<T: NativeResource> {
+    ptr: std::ptr::NonNull<T>,
+    owner: CResource<T>,
+}
+impl<T: NativeResource> From<CResource<T>> for LiveCResource<T> {
+    #[inline]
+    fn from(owner: CResource<T>) -> Self {
+        Self {
+            ptr: std::ptr::NonNull::new(owner.get()).expect("live handle requires a native allocation"),
+            owner,
+        }
+    }
+}
+impl<T: NativeResource> Clone for LiveCResource<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self {
+            ptr: self.ptr,
+            owner: self.owner.clone(),
+        }
+    }
+}
+impl<T: NativeResource> resource_sealed::Storage for LiveCResource<T> {}
+impl<T: NativeResource> ResourceStorage<T> for LiveCResource<T> {
+    #[inline(always)]
+    fn get(&self) -> *mut T {
+        self.ptr.as_ptr()
+    }
+    #[inline(always)]
+    fn as_owned(&self) -> Option<&ResourceRef<ManagedCResource<T>>> {
+        self.owner.as_owned()
+    }
+}
+impl<T: NativeResource> std::fmt::Debug for LiveCResource<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.owner.fmt(f)
+    }
+}
+
+/// An initialised native value stored inline. It cannot be cloned implicitly.
+/// Borrow the wrapper while passing its address to C. Use `PinnedInline` when C
+/// must retain the address beyond a call.
+pub struct Inline<T: NativeResource>(std::cell::UnsafeCell<T>, std::marker::PhantomData<*mut ()>);
+impl<T: NativeResource> Inline<T> {
+    #[inline]
+    pub fn new(value: T) -> Self {
+        Self(std::cell::UnsafeCell::new(value), std::marker::PhantomData)
+    }
+}
+impl<T: NativeResource> resource_sealed::Storage for Inline<T> {}
+impl<T: NativeResource> ResourceStorage<T> for Inline<T> {
+    #[inline(always)]
+    fn get(&self) -> *mut T {
+        self.0.get()
+    }
+}
+impl<T: NativeResource> std::fmt::Debug for Inline<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Inline").field(&self.0.get()).finish()
+    }
+}
+
+/// An inline native result whose pointer fields borrow the queried handle.
+pub struct ScopedInline<'a, T: NativeResource> {
+    value: Inline<T>,
+    _owner: std::marker::PhantomData<&'a ()>,
+}
+impl<T: NativeResource> resource_sealed::Storage for ScopedInline<'_, T> {}
+impl<T: NativeResource> ResourceStorage<T> for ScopedInline<'_, T> {
+    #[inline(always)]
+    fn get(&self) -> *mut T {
+        self.value.get()
+    }
+}
+impl<T: NativeResource> std::fmt::Debug for ScopedInline<'_, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.value.fmt(f)
+    }
+}
+
+/// Inline storage whose address stays fixed once pinned.
+/// It does not implement `ResourceStorage`. Getting its pointer requires `Pin`.
+pub struct PinnedInline<T: NativeResource> {
+    value: std::cell::UnsafeCell<T>,
+    _pin: std::marker::PhantomPinned,
+}
+impl<T: NativeResource> PinnedInline<T> {
+    pub fn new(value: T) -> Self {
+        Self {
+            value: std::cell::UnsafeCell::new(value),
+            _pin: std::marker::PhantomPinned,
+        }
+    }
+    #[inline(always)]
+    pub fn get(self: std::pin::Pin<&Self>) -> *mut T {
+        self.value.get()
+    }
+}
+
+/// Non-owning pointer storage. Only unsafe constructors or lifetime-bound
+/// generated getters can create it. It has no `Clone` implementation.
+pub struct Borrowed<T: NativeResource>(std::ptr::NonNull<T>);
+impl<T: NativeResource> Borrowed<T> {
+    /// # Safety
+    /// `ptr` is non-null and points to a live native object.
+    #[allow(dead_code)]
+    #[inline(always)]
+    pub(crate) unsafe fn new_unchecked(ptr: *mut T) -> Self {
+        Self(unsafe { std::ptr::NonNull::new_unchecked(ptr) })
+    }
+
+    #[inline]
+    pub(crate) unsafe fn new(ptr: *mut T) -> Self {
+        Self(std::ptr::NonNull::new(ptr).expect("native getter returned null"))
+    }
+}
+impl<T: NativeResource> resource_sealed::Storage for Borrowed<T> {}
+impl<T: NativeResource> ResourceStorage<T> for Borrowed<T> {
+    #[inline(always)]
+    fn get(&self) -> *mut T {
+        self.0.as_ptr()
+    }
+}
+impl<T: NativeResource> std::fmt::Debug for Borrowed<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Borrowed").field(&self.0).finish()
+    }
+}
+
+/// Storage allowed for audited shared wrappers. Retained dependencies and cleanup
+/// must also be safe to use and drop across threads.
+#[doc(hidden)]
+pub trait SharedStorage<T: NativeResource>: ResourceStorage<T> {}
+impl<T: NativeResource> SharedStorage<T> for CResource<T> where ResourceRef<ManagedCResource<T>>: Send + Sync {}
+impl<T: NativeResource> SharedStorage<T> for LiveCResource<T> where ResourceRef<ManagedCResource<T>>: Send + Sync {}
+impl<T: NativeResource> SharedStorage<T> for Borrowed<T> {}
+
+/// A pointer borrowed from an owner. It cannot escape that borrow or clone the
+/// owning handle. No allocation or reference-count operation is needed.
+pub struct Ref<'a, T: ResourceHandle> {
+    value: T::Borrowed,
+    owner: std::marker::PhantomData<&'a T>,
+}
+impl<T: ResourceHandle> Ref<'_, T> {
+    #[inline(always)]
+    pub(crate) fn new(value: T::Borrowed) -> Self {
         Self {
             value,
             owner: std::marker::PhantomData,
         }
     }
 }
-
-impl<T> std::ops::Deref for Ref<'_, T> {
-    type Target = T;
-
+impl<T: ResourceHandle> std::ops::Deref for Ref<'_, T> {
+    type Target = T::Borrowed;
     #[inline(always)]
-    fn deref(&self) -> &T {
+    fn deref(&self) -> &Self::Target {
         &self.value
     }
 }
-
-// Without this, `r.clone()` would auto-deref to `T::clone` and silently drop the lifetime
-impl<T: Clone> Clone for Ref<'_, T> {
-    #[inline(always)]
-    fn clone(&self) -> Self {
-        Self::new(self.value.clone())
+impl<T: ResourceHandle> std::fmt::Debug for Ref<'_, T>
+where
+    T::Borrowed: std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.value.fmt(f)
     }
 }
 
-impl<T: std::fmt::Debug> std::fmt::Debug for Ref<'_, T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.value.fmt(f)
+/// A child pointer with an owner that keeps its allocation alive.
+/// Cloning it retains that owner. `as_ref()` borrows the child without a clone.
+pub struct OwnedWithReference<Owner, T> {
+    ptr: std::ptr::NonNull<()>,
+    _owner: Owner,
+    _child: std::marker::PhantomData<T>,
+}
+impl<Owner, T> OwnedWithReference<Owner, T> {
+    /// # Safety
+    /// The child must stay at `ptr` until the final owner drops. Explicit close
+    /// must also wait for these retained owners.
+    #[allow(dead_code)]
+    #[inline]
+    pub(crate) unsafe fn new(owner: Owner, ptr: *mut T::Native) -> Self
+    where
+        T: ResourceHandle,
+    {
+        Self {
+            ptr: std::ptr::NonNull::new(ptr.cast()).expect("retained reference requires a live pointer"),
+            _owner: owner,
+            _child: std::marker::PhantomData,
+        }
+    }
+    /// Borrow the child while this retained owner is alive.
+    #[allow(private_bounds)]
+    #[inline(always)]
+    pub fn as_ref(&self) -> Ref<'_, T>
+    where
+        T: ResourceHandleExt,
+    {
+        self.borrow()
+    }
+    #[inline(always)]
+    pub(crate) fn borrow(&self) -> Ref<'_, T>
+    where
+        T: ResourceHandleExt,
+    {
+        // SAFETY: the retained owner keeps this pointer live through the borrow.
+        Ref::new(T::from_borrowed(unsafe { Borrowed::new(self.ptr.as_ptr().cast()) }))
+    }
+}
+// SAFETY: the child wrapper's audited thread traits cover native access. The
+// owner bound also covers retaining and dropping its dependencies on that thread.
+unsafe impl<Owner: Send, T: ResourceHandle + Send> Send for OwnedWithReference<Owner, T> where T::Borrowed: Send {}
+unsafe impl<Owner: Sync, T: ResourceHandle + Sync> Sync for OwnedWithReference<Owner, T> where T::Borrowed: Sync {}
+
+impl<Owner: Clone, T> Clone for OwnedWithReference<Owner, T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self {
+            ptr: self.ptr,
+            _owner: self._owner.clone(),
+            _child: std::marker::PhantomData,
+        }
     }
 }
 
@@ -245,103 +529,72 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Ref<'_, T> {
 /// The closure calls the C close function, such as `aeron_close`. Reference-counted
 /// dependencies keep parent resources open until their children drop.
 #[allow(dead_code)]
-#[allow(dead_code)]
-pub struct ManagedCResource<T> {
-    #[cfg(not(feature = "multi-threaded"))]
-    resource: std::cell::Cell<*mut T>,
-    #[cfg(feature = "multi-threaded")]
+pub struct ManagedCResource<T: NativeResource> {
     resource: std::sync::atomic::AtomicPtr<T>,
-
-    #[cfg(not(feature = "multi-threaded"))]
-    cleanup: UnsafeCell<Option<CleanupBox<T>>>,
-    #[cfg(feature = "multi-threaded")]
     cleanup: std::sync::Mutex<Option<CleanupBox<T>>>,
-
     cleanup_struct: bool,
-
     manual_close_required: bool,
-
-    #[cfg(not(feature = "multi-threaded"))]
-    close_already_called: std::cell::Cell<bool>,
-    #[cfg(feature = "multi-threaded")]
     close_already_called: std::sync::atomic::AtomicBool,
-
-    #[cfg(not(feature = "multi-threaded"))]
-    resource_released: std::cell::Cell<bool>,
-    #[cfg(feature = "multi-threaded")]
     resource_released: std::sync::atomic::AtomicBool,
-
-    #[cfg(not(feature = "multi-threaded"))]
-    dependencies: UnsafeCell<Vec<RcOrArc<dyn std::any::Any>>>,
-    #[cfg(feature = "multi-threaded")]
-    dependencies: std::sync::Mutex<Vec<RcOrArc<dyn std::any::Any>>>,
+    dependencies: std::sync::Mutex<Vec<ResourceDependency<<T::Policy as ResourcePolicy>::Erased>>>,
+    frozen: std::sync::atomic::AtomicBool,
+    operation: std::sync::atomic::AtomicBool,
+    manual_conductor: bool,
+    conductor_thread: std::sync::OnceLock<std::thread::ThreadId>,
+    started: std::sync::atomic::AtomicBool,
 }
 
-impl<T> std::fmt::Debug for ManagedCResource<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut debug = f.debug_struct("ManagedCResource");
-        if self.get_close_already_called() {
-            debug.field("resource", &"<closed>");
-        } else {
-            debug.field("resource", &self.get());
+struct ResourceDependency<E: ?Sized> {
+    callback: Option<&'static str>,
+    in_use: Option<fn(&dyn std::any::Any) -> bool>,
+    value: ResourceRef<E>,
+}
+impl<E: ?Sized> Clone for ResourceDependency<E> {
+    fn clone(&self) -> Self {
+        Self {
+            callback: self.callback,
+            in_use: self.in_use,
+            value: self.value.clone(),
         }
-        debug.field("type", &std::any::type_name::<T>()).finish()
     }
 }
 
-impl<T> ManagedCResource<T> {
-    /// Creates a new ManagedCResource with a given initializer and cleanup function.
-    ///
-    /// The initializer is a closure that attempts to initialize the resource.
-    /// If initialization fails, the initializer should return an error code.
-    /// The cleanup function is used to release the resource when it's no longer needed.
-    /// `cleanup_struct` where it should clean up the struct in rust
-    pub fn new(
+impl<T: NativeResource> std::fmt::Debug for ManagedCResource<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ManagedCResource")
+            .field("resource", &self.get())
+            .field("type", &std::any::type_name::<T>())
+            .finish()
+    }
+}
+
+#[allow(dead_code)]
+impl<T: NativeResource> ManagedCResource<T> {
+    pub(crate) fn new(
         init: impl FnOnce(*mut *mut T) -> i32,
         cleanup: Option<CleanupBox<T>>,
         cleanup_struct: bool,
     ) -> Result<Self, AeronCError> {
         let resource = Self::initialise(init)?;
-        // Compute before `cleanup` is moved into the struct literal below.
-        // `is_none()` borrows `cleanup` immutably; the move happens later.
         let manual_close_required = cleanup.is_none() && !cleanup_struct;
-
-        let result = Self {
-            #[cfg(not(feature = "multi-threaded"))]
-            resource: std::cell::Cell::new(resource),
-            #[cfg(feature = "multi-threaded")]
+        Ok(Self {
             resource: std::sync::atomic::AtomicPtr::new(resource),
-
-            #[cfg(not(feature = "multi-threaded"))]
-            cleanup: UnsafeCell::new(cleanup),
-            #[cfg(feature = "multi-threaded")]
             cleanup: std::sync::Mutex::new(cleanup),
-
             cleanup_struct,
             manual_close_required,
-
-            #[cfg(not(feature = "multi-threaded"))]
-            close_already_called: std::cell::Cell::new(false),
-            #[cfg(feature = "multi-threaded")]
             close_already_called: std::sync::atomic::AtomicBool::new(false),
-
-            #[cfg(not(feature = "multi-threaded"))]
-            resource_released: std::cell::Cell::new(false),
-            #[cfg(feature = "multi-threaded")]
             resource_released: std::sync::atomic::AtomicBool::new(false),
-
-            #[cfg(not(feature = "multi-threaded"))]
-            dependencies: UnsafeCell::new(vec![]),
-            #[cfg(feature = "multi-threaded")]
-            dependencies: std::sync::Mutex::new(vec![]),
-        };
-        #[cfg(feature = "extra-logging")]
-        log::info!("created c resource: {:?}", result);
-        Ok(result)
+            dependencies: std::sync::Mutex::new(Vec::new()),
+            frozen: std::sync::atomic::AtomicBool::new(false),
+            operation: std::sync::atomic::AtomicBool::new(false),
+            manual_conductor: false,
+            conductor_thread: std::sync::OnceLock::new(),
+            started: std::sync::atomic::AtomicBool::new(false),
+        })
     }
 
-    pub fn initialise(init: impl FnOnce(*mut *mut T) -> i32 + Sized) -> Result<*mut T, AeronCError> {
-        let mut resource: *mut T = std::ptr::null_mut();
+    pub(crate) fn initialise(init: impl FnOnce(*mut *mut T) -> i32) -> Result<*mut T, AeronCError> {
+        let mut resource = std::ptr::null_mut();
         let result = init(&mut resource);
         if result < 0 || resource.is_null() {
             return Err(AeronCError::from_code(result));
@@ -349,317 +602,356 @@ impl<T> ManagedCResource<T> {
         Ok(resource)
     }
 
-    /// Gets a raw pointer to the resource.
     #[inline(always)]
     pub fn get(&self) -> *mut T {
-        #[cfg(not(feature = "multi-threaded"))]
-        {
-            self.resource.get()
-        }
-        #[cfg(feature = "multi-threaded")]
-        {
-            self.resource.load(std::sync::atomic::Ordering::Acquire)
-        }
+        self.resource.load(std::sync::atomic::Ordering::Acquire)
     }
 
     #[inline(always)]
-    fn set_resource(&self, val: *mut T) {
-        #[cfg(not(feature = "multi-threaded"))]
-        {
-            self.resource.set(val);
-        }
-        #[cfg(feature = "multi-threaded")]
-        {
-            self.resource.store(val, std::sync::atomic::Ordering::Release);
-        }
+    fn set_resource(&self, value: *mut T) {
+        self.resource.store(value, std::sync::atomic::Ordering::Release);
     }
 
     #[inline(always)]
     fn get_close_already_called(&self) -> bool {
-        #[cfg(not(feature = "multi-threaded"))]
-        {
-            self.close_already_called.get()
-        }
-        #[cfg(feature = "multi-threaded")]
-        {
-            self.close_already_called.load(std::sync::atomic::Ordering::Acquire)
-        }
+        self.close_already_called.load(std::sync::atomic::Ordering::Acquire)
     }
 
     #[inline(always)]
-    fn set_close_already_called(&self, val: bool) {
-        #[cfg(not(feature = "multi-threaded"))]
-        {
-            self.close_already_called.set(val);
-        }
-        #[cfg(feature = "multi-threaded")]
-        {
-            self.close_already_called
-                .store(val, std::sync::atomic::Ordering::Release);
-        }
+    fn set_close_already_called(&self, value: bool) {
+        self.close_already_called
+            .store(value, std::sync::atomic::Ordering::Release);
     }
 
     #[inline(always)]
     fn get_resource_released(&self) -> bool {
-        #[cfg(not(feature = "multi-threaded"))]
-        {
-            self.resource_released.get()
-        }
-        #[cfg(feature = "multi-threaded")]
-        {
-            self.resource_released.load(std::sync::atomic::Ordering::Acquire)
-        }
+        self.resource_released.load(std::sync::atomic::Ordering::Acquire)
     }
 
     #[inline(always)]
-    fn set_resource_released(&self, val: bool) {
-        #[cfg(not(feature = "multi-threaded"))]
-        {
-            self.resource_released.set(val);
-        }
-        #[cfg(feature = "multi-threaded")]
-        {
-            self.resource_released.store(val, std::sync::atomic::Ordering::Release);
-        }
+    fn set_resource_released(&self, value: bool) {
+        self.resource_released
+            .store(value, std::sync::atomic::Ordering::Release);
     }
 
-    /// Mutable access to the underlying C struct, minted from `&self`.
-    ///
     /// # Safety
-    /// No other reference (`&` or `&mut`) to the underlying struct may be
-    /// alive while the returned `&mut` is in use.
+    /// No other reference or native operation may access the object while this
+    /// mutable reference is in use.
     #[inline(always)]
     pub unsafe fn get_mut(&self) -> &mut T {
         unsafe { &mut *self.get() }
     }
 
     #[inline]
-    // to prevent the dependencies from being dropped as you have a copy here
-    pub fn add_dependency<D: std::any::Any>(&self, dep: D) {
-        if let Some(dep) = (&dep as &dyn std::any::Any).downcast_ref::<RcOrArc<dyn std::any::Any>>() {
-            #[cfg(not(feature = "multi-threaded"))]
-            unsafe {
-                (*self.dependencies.get()).push(dep.clone());
-            }
-            #[cfg(feature = "multi-threaded")]
-            {
-                self.dependencies.lock().unwrap().push(dep.clone());
-            }
-        } else {
-            #[cfg(not(feature = "multi-threaded"))]
-            unsafe {
-                (*self.dependencies.get()).push(RcOrArc::new(dep));
-            }
-            #[cfg(feature = "multi-threaded")]
-            {
-                self.dependencies.lock().unwrap().push(RcOrArc::new(dep));
-            }
+    pub fn add_dependency<D: std::any::Any>(&self, dep: D)
+    where
+        T::Policy: AcceptDependency<D>,
+    {
+        self.dependencies
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(ResourceDependency {
+                callback: None,
+                in_use: None,
+                value: <T::Policy as AcceptDependency<D>>::retain(dep),
+            });
+    }
+
+    /// Replace one native callback registration. Existing connection snapshots
+    /// keep their own reference to the previous handler.
+    pub(crate) fn replace_callback_dependency<D: std::any::Any>(&self, key: &'static str, callback: Option<D>)
+    where
+        T::Policy: AcceptDependency<D>,
+    {
+        self.replace_callback_dependency_checked(key, callback, None);
+    }
+
+    pub(crate) fn replace_handler_dependency<D: 'static, P: CallbackPolicy>(
+        &self,
+        key: &'static str,
+        callback: Option<Handler<D, P>>,
+    ) where
+        T::Policy: AcceptDependency<Handler<D, P>>,
+    {
+        fn in_use<D: 'static, P: CallbackPolicy>(value: &dyn std::any::Any) -> bool {
+            let handler = value.downcast_ref::<Handler<D, P>>().unwrap();
+            P::is_in_use(&handler.inner)
         }
+        self.replace_callback_dependency_checked(key, callback, Some(in_use::<D, P>));
+    }
+
+    fn replace_callback_dependency_checked<D: std::any::Any>(
+        &self,
+        key: &'static str,
+        callback: Option<D>,
+        in_use: Option<fn(&dyn std::any::Any) -> bool>,
+    ) where
+        T::Policy: AcceptDependency<D>,
+    {
+        let replacement = callback.map(|callback| ResourceDependency {
+            callback: Some(key),
+            in_use,
+            value: <T::Policy as AcceptDependency<D>>::retain(callback),
+        });
+        let previous = {
+            let mut dependencies = self.dependencies.lock().unwrap_or_else(|e| e.into_inner());
+            match (
+                dependencies.iter().position(|dep| dep.callback == Some(key)),
+                replacement,
+            ) {
+                (Some(index), Some(replacement)) => Some(std::mem::replace(&mut dependencies[index], replacement)),
+                (Some(index), None) => Some(dependencies.swap_remove(index)),
+                (None, Some(replacement)) => {
+                    dependencies.push(replacement);
+                    None
+                }
+                (None, None) => None,
+            }
+        };
+        // Captured values may run user code when dropped. Do that after unlocking.
+        drop(previous);
     }
 
     #[inline]
     pub fn get_dependency<V: Clone + 'static>(&self) -> Option<V> {
-        #[cfg(not(feature = "multi-threaded"))]
-        unsafe {
-            (*self.dependencies.get())
-                .iter()
-                .filter_map(|x| x.as_ref().downcast_ref::<V>().cloned())
-                .next()
-        }
-        #[cfg(feature = "multi-threaded")]
-        {
-            self.dependencies
-                .lock()
-                .unwrap()
-                .iter()
-                .filter_map(|x| x.as_ref().downcast_ref::<V>().cloned())
-                .next()
+        self.dependencies
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find_map(|dep| T::Policy::as_any(dep.value.as_ref()).downcast_ref::<V>().cloned())
+    }
+
+    /// Retain the owner's storage, not its public wrapper. A local context can
+    /// back a shared client without making its configuration API concurrent.
+    pub(crate) fn add_handle_dependency<H: ResourceHandleExt>(&self, handle: &H)
+    where
+        T::Policy: AcceptDependency<ResourceRef<ManagedCResource<H::Native>>>,
+    {
+        if let Some(owner) = handle.resource().as_owned() {
+            self.add_dependency(owner.clone());
         }
     }
 
-    #[inline]
+    pub(crate) fn get_handle_dependency<H: OwnedResourceHandle>(&self) -> Option<H> {
+        self.get_dependency::<ResourceRef<ManagedCResource<H::Native>>>()
+            .map(|owner| H::from_owned(CResource::new(owner)))
+    }
+
+    pub(crate) fn copy_dependencies_from<U: NativeResource>(&self, other: &ManagedCResource<U>)
+    where
+        T::Policy: CopyDependencies<U::Policy>,
+    {
+        // Release the source lock before taking the destination lock.
+        let copies = other.dependencies.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        self.dependencies
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .extend(copies.into_iter().map(|dep| ResourceDependency {
+                callback: dep.callback,
+                in_use: dep.in_use,
+                value: <T::Policy as CopyDependencies<U::Policy>>::copy(dep.value),
+            }));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn dependency_len(&self) -> usize {
+        self.dependencies.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+
     pub fn is_resource_released(&self) -> bool {
         self.get_resource_released()
     }
 
-    /// Test-only: number of dependencies currently anchored on this resource (e.g. via
-    /// [`Self::add_dependency`]). Used to document/measure dependency-list growth. See
-    /// `handler_dependencies_on_client_grow_with_subscriptions_and_reset_on_client_drop`.
-    #[cfg(test)]
-    #[allow(dead_code)]
-    pub(crate) fn dependency_len(&self) -> usize {
-        #[cfg(not(feature = "multi-threaded"))]
-        unsafe {
-            (*self.dependencies.get()).len()
-        }
-        #[cfg(feature = "multi-threaded")]
-        {
-            self.dependencies.lock().unwrap().len()
-        }
-    }
-
-    #[inline]
-    pub fn mark_resource_released(&self) {
+    pub(crate) fn mark_resource_released(&self) {
         self.set_resource_released(true);
-        // The C client frees async resources when their poll completes (created,
-        // errored, or cancelled). Null the stale pointer so any later use faults
-        // deterministically on null instead of reading freed memory.
         self.set_resource(std::ptr::null_mut());
     }
 
-    /// Closes the resource through a shared reference.
-    ///
-    /// Like `close(&mut self)`, but accepts `&self` for handles that share the
-    /// resource through `Rc`. It takes the cleanup closure through `UnsafeCell`.
-    /// The `close_already_called` flag prevents clones from taking it twice.
-    ///
-    /// This is the method called by the generated `close(self)` method on
-    /// wrapper types.
+    /// Stop configuration changes before native code starts using a context.
+    pub(crate) fn freeze(&self) -> Result<(), AeronCError> {
+        if self.frozen.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            return Err(AeronCError::with_message(-1, "context is already in use"));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn reserve_context(&self) -> Result<ContextReservation<'_, T>, AeronCError> {
+        self.freeze()?;
+        Ok(ContextReservation {
+            owner: self,
+            committed: false,
+        })
+    }
+
+    pub(crate) fn check_not_frozen(&self) -> Result<(), AeronCError> {
+        if self.frozen.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(AeronCError::with_message(-1, "context cannot be changed after use"));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn with_manual_conductor(mut self, enabled: bool) -> Self {
+        self.manual_conductor = enabled;
+        self
+    }
+
+    /// Native archive calls can invoke the conductor without going through Rust.
+    /// Keep every safe native archive using this manual client on one thread.
+    pub(crate) fn bind_conductor_thread(&self) -> Result<(), AeronCError> {
+        if self.manual_conductor {
+            let current = std::thread::current().id();
+            if *self.conductor_thread.get_or_init(|| current) != current {
+                return Err(AeronCError::with_message(
+                    -1,
+                    "an agent-invoker client must be started and used by archives on the same thread",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Reject overlapping client start calls without spinning or waiting.
+    /// Publication, subscription and manual conductor operations do not use this guard.
+    pub(crate) fn operation_guard(&self) -> Result<NativeOperation<'_>, AeronCError> {
+        self.operation
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::Acquire,
+                std::sync::atomic::Ordering::Relaxed,
+            )
+            .map(|_| NativeOperation(&self.operation))
+            .map_err(|_| {
+                AeronCError::with_message(
+                    -1,
+                    "client operation is already running; callbacks must not re-enter the conductor",
+                )
+            })
+    }
+
     pub(crate) fn close_shared(&self) -> Result<(), AeronCError> {
+        let mut stored = self.cleanup.lock().unwrap_or_else(|e| e.into_inner());
+        self.close_with_cleanup(&mut stored)
+    }
+
+    fn close_with_cleanup(&self, stored: &mut Option<CleanupBox<T>>) -> Result<(), AeronCError> {
         if self.get_close_already_called() {
             return Ok(());
         }
-
-        // SAFETY: this library deliberately uses Rc/Cell/UnsafeCell for
-        // single-threaded low-latency handles. close_shared() is not Sync; the
-        // first caller takes the cleanup closure and either completes close or
-        // restores the closure on failure so a later call/drop can retry.
-        #[cfg(not(feature = "multi-threaded"))]
-        let cleanup = unsafe { (*self.cleanup.get()).take() };
-        #[cfg(feature = "multi-threaded")]
-        let cleanup = self.cleanup.lock().unwrap().take();
-
-        if let Some(mut cleanup) = cleanup {
+        if let Some(cleanup) = stored.as_mut() {
             let mut resource = self.get();
             if !resource.is_null() {
                 let result = cleanup(&mut resource);
                 if result < 0 {
-                    #[cfg(not(feature = "multi-threaded"))]
-                    unsafe {
-                        *self.cleanup.get() = Some(cleanup);
-                    }
-                    #[cfg(feature = "multi-threaded")]
-                    {
-                        *self.cleanup.lock().unwrap() = Some(cleanup);
-                    }
                     return Err(AeronCError::from_code(result));
                 }
             }
-
-            self.set_close_already_called(true);
+            stored.take();
             if !self.cleanup_struct {
-                // C-owned resources have been freed by the close function.
-                // Null the shared pointer so clones cannot keep using a
-                // dangling pointer after explicit close.
                 self.set_resource(std::ptr::null_mut());
             }
-        } else {
-            self.set_close_already_called(true);
         }
-
+        self.set_close_already_called(true);
         Ok(())
     }
 
-    /// Closes the resource with a caller-supplied C close function.
-    ///
-    /// The stored default cleanup is taken first so Drop cannot later run it a
-    /// second time.  If the custom close fails, the default cleanup is restored
-    /// and the resource remains retryable.
-    #[allow(dead_code)]
-    pub(crate) fn close_shared_with(
-        &self,
-        mut custom_cleanup: impl FnMut(*mut *mut T) -> i32,
-    ) -> Result<(), AeronCError> {
+    pub(crate) fn close_shared_with(&self, mut cleanup: impl FnMut(*mut *mut T) -> i32) -> Result<(), AeronCError> {
+        let mut stored = self.cleanup.lock().unwrap_or_else(|e| e.into_inner());
         if self.get_close_already_called() {
             return Ok(());
         }
-
-        #[cfg(not(feature = "multi-threaded"))]
-        let stored_cleanup = unsafe { (*self.cleanup.get()).take() };
-        #[cfg(feature = "multi-threaded")]
-        let stored_cleanup = self.cleanup.lock().unwrap().take();
-
         let mut resource = self.get();
         if !resource.is_null() {
-            let result = custom_cleanup(&mut resource);
+            let result = cleanup(&mut resource);
             if result < 0 {
-                #[cfg(not(feature = "multi-threaded"))]
-                unsafe {
-                    *self.cleanup.get() = stored_cleanup;
-                }
-                #[cfg(feature = "multi-threaded")]
-                {
-                    *self.cleanup.lock().unwrap() = stored_cleanup;
-                }
                 return Err(AeronCError::from_code(result));
             }
         }
-
+        stored.take();
         self.set_close_already_called(true);
         if !self.cleanup_struct {
             self.set_resource(std::ptr::null_mut());
         }
-
         Ok(())
     }
 }
 
-impl<T> Drop for ManagedCResource<T> {
+pub(crate) struct NativeOperation<'a>(&'a std::sync::atomic::AtomicBool);
+impl Drop for NativeOperation<'_> {
     fn drop(&mut self) {
-        // Capture whether close ran BEFORE Drop. close_shared() below would set
-        // the flag even when the cleanup closure is None, hiding the leak signal.
+        self.0.store(false, std::sync::atomic::Ordering::Release);
+    }
+}
+
+/// Returns a context to configuration state if native initialization fails.
+#[allow(dead_code)]
+pub(crate) struct ContextReservation<'a, T: NativeResource> {
+    owner: &'a ManagedCResource<T>,
+    committed: bool,
+}
+#[allow(dead_code)]
+impl<T: NativeResource> ContextReservation<'_, T> {
+    pub(crate) fn commit(mut self) {
+        self.committed = true;
+    }
+}
+impl<T: NativeResource> Drop for ContextReservation<'_, T> {
+    fn drop(&mut self) {
+        if !self.committed {
+            self.owner.frozen.store(false, std::sync::atomic::Ordering::Release);
+        }
+    }
+}
+
+impl<T: NativeResource> Drop for ManagedCResource<T> {
+    fn drop(&mut self) {
         let close_ran_before_drop = self.get_close_already_called();
-        // Delegate to close_shared() which handles single-execution, error
-        // logging, and pointer-nulling.  close_already_called prevents
-        // double-execution if the resource was already closed through
-        // another clone.
         if !close_ran_before_drop {
-            if let Err(e) = self.close_shared() {
+            // Drop has exclusive access; no mutex acquisition is needed.
+            let mut cleanup = self.cleanup.get_mut().unwrap_or_else(|e| e.into_inner()).take();
+            if let Err(e) = self.close_with_cleanup(&mut cleanup) {
+                // C may still use these pointers after a failed close. Keep both
+                // the cleanup captures and the dependencies alive in that case.
+                let dependencies = std::mem::take(self.dependencies.get_mut().unwrap_or_else(|e| e.into_inner()));
+                std::mem::forget(dependencies);
+                std::mem::forget(cleanup);
                 log::warn!(
-                    "cleanup failed for {} during Drop with code {}",
+                    "cleanup failed for {} during Drop with code {}; retaining its dependencies",
                     std::any::type_name::<T>(),
-                    e.code,
+                    e.code
                 );
+                return;
             }
         }
+        if self.manual_close_required
+            && !close_ran_before_drop
+            && self.dependency_len_for_drop() == 0
+            && !self.get().is_null()
+        {
+            #[cfg(feature = "strict-lifecycle")]
+            panic!(
+                "ManagedCResource<{}> dropped without explicit close and no cleanup closure — resource leaked. Call close()/close_now() before drop, or supply a cleanup closure at construction.",
+                std::any::type_name::<T>()
+            );
+            #[cfg(not(feature = "strict-lifecycle"))]
+            log::warn!(
+                "ManagedCResource<{}> dropped without explicit close and no cleanup closure — resource likely leaked. Call close()/close_now() before drop, or supply a cleanup closure at construction.",
+                std::any::type_name::<T>()
+            );
+        }
+        if self.cleanup_struct && !self.get().is_null() {
+            // SAFETY: this allocation belongs to Rust and is released once, on the last owner.
+            unsafe {
+                drop(Box::from_raw(self.get()));
+            }
+            self.set_resource(std::ptr::null_mut());
+        }
+    }
+}
 
-        if self.manual_close_required && !close_ran_before_drop {
-            #[cfg(not(feature = "multi-threaded"))]
-            let has_dependency = !unsafe { (*self.dependencies.get()).is_empty() };
-            #[cfg(feature = "multi-threaded")]
-            let has_dependency = !self.dependencies.lock().unwrap().is_empty();
-            if !has_dependency {
-                let resource = self.get();
-                if !resource.is_null() {
-                    #[cfg(feature = "strict-lifecycle")]
-                    panic!(
-                        "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
-                         — resource leaked. Call close()/close_now() before drop, or supply a \
-                         cleanup closure at construction.",
-                        std::any::type_name::<T>()
-                    );
-                    #[cfg(not(feature = "strict-lifecycle"))]
-                    log::warn!(
-                        "ManagedCResource<{}> dropped without explicit close and no cleanup closure \
-                         — resource likely leaked. Call close()/close_now() before drop, or supply a \
-                         cleanup closure at construction.",
-                        std::any::type_name::<T>()
-                    );
-                }
-            }
-        }
-
-        if self.cleanup_struct {
-            let resource = self.get();
-            if !resource.is_null() {
-                #[cfg(feature = "extra-logging")]
-                log::info!("closing rust struct resource: {:?}", resource);
-                unsafe {
-                    let _ = Box::from_raw(resource);
-                }
-                self.set_resource(std::ptr::null_mut());
-            }
-        }
+impl<T: NativeResource> ManagedCResource<T> {
+    fn dependency_len_for_drop(&mut self) -> usize {
+        self.dependencies.get_mut().unwrap_or_else(|e| e.into_inner()).len()
     }
 }
 
@@ -773,7 +1065,7 @@ impl AeronErrorType {
 pub struct AeronCError {
     pub code: i32,
     /// Attached via `capture_errmsg()` / `with_message()`; `None` otherwise.
-    msg: Option<String>,
+    msg: Option<std::borrow::Cow<'static, str>>,
 }
 
 /// Equality is on `code` only. The attached message is advisory.
@@ -827,9 +1119,10 @@ impl AeronCError {
         AeronCError { code, msg: None }
     }
 
-    /// [`Self::from_code`] with an attached message.
+    /// Attach a message. String literals are borrowed without allocating.
+    /// An owned `String` is moved into the error without another copy.
     #[cold]
-    pub fn with_message(code: i32, msg: impl Into<String>) -> Self {
+    pub fn with_message(code: i32, msg: impl Into<std::borrow::Cow<'static, str>>) -> Self {
         let mut err = Self::from_code(code);
         err.msg = Some(msg.into());
         err
@@ -1003,9 +1296,83 @@ impl<T: ?Sized> Clone for CallbackSlot<T> {
     }
 }
 
+/// Callback storage is selected at compile time. There is no trait-object call.
+///
+/// # Safety
+/// Cloning an `Owner<T>` must keep the same `Cell<T>` allocation alive. Its address
+/// is passed to C, which may keep it until the last registered handler is removed.
+/// `lock` must prevent overlapping mutable access to that cell.
+pub unsafe trait CallbackPolicy: 'static {
+    type Cell<T>;
+    /// Clones keep the same callback allocation alive while C holds its raw pointer.
+    type Owner<T>: std::ops::Deref<Target = Self::Cell<T>> + Clone;
+    type Guard<'a, T: 'a>: std::ops::DerefMut<Target = T>;
+    fn new<T>(value: T) -> Self::Cell<T>;
+    fn new_owned<T>(value: T) -> Self::Owner<T>;
+    fn lock<T>(cell: &Self::Cell<T>) -> Self::Guard<'_, T>;
+    fn is_in_use<T>(cell: &Self::Cell<T>) -> bool;
+}
+/// Serialized state for callbacks that can run on another thread.
+pub enum SharedCallback {}
+/// Local state for a callback used only on the current thread.
+pub enum LocalCallback {}
+// SAFETY: Arc clones keep the Mutex allocation stable and Mutex serializes access.
+unsafe impl CallbackPolicy for SharedCallback {
+    fn is_in_use<T>(cell: &Self::Cell<T>) -> bool {
+        matches!(cell.try_lock(), Err(std::sync::TryLockError::WouldBlock))
+    }
+    type Cell<T> = std::sync::Mutex<T>;
+    type Owner<T> = std::sync::Arc<std::sync::Mutex<T>>;
+    type Guard<'a, T: 'a> = std::sync::MutexGuard<'a, T>;
+    fn new<T>(value: T) -> Self::Cell<T> {
+        std::sync::Mutex::new(value)
+    }
+    fn new_owned<T>(value: T) -> Self::Owner<T> {
+        std::sync::Arc::new(Self::new(value))
+    }
+    #[inline]
+    fn lock<T>(cell: &Self::Cell<T>) -> Self::Guard<'_, T> {
+        cell.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+// SAFETY: Rc clones keep the RefCell allocation stable and RefCell checks borrows.
+unsafe impl CallbackPolicy for LocalCallback {
+    fn is_in_use<T>(cell: &Self::Cell<T>) -> bool {
+        cell.try_borrow_mut().is_err()
+    }
+    type Cell<T> = std::cell::RefCell<T>;
+    type Owner<T> = std::rc::Rc<std::cell::RefCell<T>>;
+    type Guard<'a, T: 'a> = std::cell::RefMut<'a, T>;
+    fn new<T>(value: T) -> Self::Cell<T> {
+        std::cell::RefCell::new(value)
+    }
+    fn new_owned<T>(value: T) -> Self::Owner<T> {
+        std::rc::Rc::new(Self::new(value))
+    }
+    #[inline(always)]
+    fn lock<T>(cell: &Self::Cell<T>) -> Self::Guard<'_, T> {
+        cell.borrow_mut()
+    }
+}
+/// A callback for local polling or an assembler. It uses a borrow check, not a mutex.
+pub type LocalHandler<T> = Handler<T>;
+/// A callback that may be retained and called by another thread.
+pub type SharedHandler<T> = Handler<T, SharedCallback>;
+
+/// A native callback borrowed for one synchronous poll. Only this crate can
+/// construct it; the callback and context pointer must describe the same object.
+#[doc(hidden)]
+#[allow(dead_code)] // Also compiled in the code generator, where no native poll runs.
+pub struct NativePollCallback<'a, F> {
+    pub(crate) callback: F,
+    pub(crate) clientd: *mut std::os::raw::c_void,
+    pub(crate) borrow: std::marker::PhantomData<&'a mut ()>,
+}
+
 /// A reference-counted callback that C stores and calls later.
 ///
-/// Clones share one heap allocation. C uses the pointer from [`Handler::as_raw`],
+/// Clones share one heap allocation. Local handlers use `Rc`; shared handlers
+/// use `Arc`. C uses the pointer from [`Handler::as_raw`],
 /// so the callback must stay alive until C stops using it. Dropping a `Handler`
 /// does not unregister it, and the callback is freed when its last clone drops.
 ///
@@ -1022,38 +1389,29 @@ impl<T: ?Sized> Clone for CallbackSlot<T> {
 /// Earlier release needs to track every C user through connection setup and cleanup.
 /// An `Arc` alone cannot track C's raw pointer copies.
 ///
-/// To replace callbacks often, register an `AeronErrorHandlerSlot` once.
-/// Use `set` or `clear` to free old callbacks after their last call.
+/// For retained callbacks, keep the `SharedHandler` returned by the setter and change
+/// its state with [`Self::lock`]. This waits for an active callback and must not be done
+/// from that callback itself.
+/// Use an `AeronErrorHandlerSlot` when replacement must not wait for an active call.
+/// Its `set` and `clear` methods free old callbacks after their last call.
 ///
 /// Use `*_fn` or `*_once` for callbacks that run during the call. Their closures
 /// stay on the stack, can borrow local variables and need no heap allocation.
 ///
-/// `Handler<T>` is `Send` when `T` is `Send`. It is also `Sync` when `T` is `Send`
-/// and the `multi-threaded` feature is enabled.
-///
-/// ```no_compile
-/// use rusteron_code_gen::Handler;
-/// let handler = Handler::new(your_value);
-/// // The callback is freed when its last Handler clone drops.
-/// ```
-pub struct Handler<T> {
-    inner: std::sync::Arc<UnsafeCell<T>>,
+/// `Handler<T>` stays on its thread and uses `RefCell` to check mutable borrows.
+/// Local state access needs no mutex or atomic operation. Explicit
+/// `poll_with_handler` calls acquire one borrow guard for the whole call.
+/// [`SharedHandler<T>`] uses a mutex and is `Send + Sync` when `T: Send`.
+/// Shared callbacks acquire that mutex when invoked and can wait for another
+/// thread holding it. Use [`Self::lock`] to inspect or change callback state.
+/// Normal `poll` takes `&mut callback` and needs no runtime borrow check.
+/// For a receive loop with one callback owner, `poll_fn` or an owned
+/// `FragmentAssembler` uses direct Rust borrowing without callback guards.
+pub struct Handler<T, P: CallbackPolicy = LocalCallback> {
+    inner: P::Owner<T>,
 }
 
-// Arc's refcount is atomic, so moving a Handler (or a clone) to another thread is fine
-// as long as T itself is Send. No Sync: the C conductor thread may call into T via the
-// raw clientd pointer, so shared &Handler across threads would race on T.
-unsafe impl<T: Send> Send for Handler<T> {}
-
-/// Under the `multi-threaded` feature, `Handler` is also `Sync` so callbacks can
-/// be registered from one thread and the handle shared across threads. The
-/// underlying `Arc<UnsafeCell<T>>` is `!Sync` by construction; this impl follows
-/// the same "accepted unsoundness" policy as the handle-type impls. Callbacks
-/// fire from the conductor thread only, never concurrently.
-#[cfg(feature = "multi-threaded")]
-unsafe impl<T: Send> Sync for Handler<T> {}
-
-impl<T> Clone for Handler<T> {
+impl<T, P: CallbackPolicy> Clone for Handler<T, P> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -1061,58 +1419,84 @@ impl<T> Clone for Handler<T> {
     }
 }
 
-/// Utility method for setting empty handlers
+/// Constants for optional callbacks.
 pub struct Handlers;
 
-/// Type-level "no callback" sentinel.
+/// A type that represents an unset callback.
 ///
-/// Pass [`Handlers::NONE`] (which is `None::<&Handler<NoHandler>>`) to any
-/// callback-accepting method to leave that callback unset. `NoHandler` implements
-/// every generated callback trait, so the method's callback generic is inferred as
-/// `NoHandler` without a per-callback helper or turbofish, including methods with
-/// several callback parameters (e.g. `async_add_subscription`'s image handlers).
-/// Its callback methods are unreachable: the C side is handed a null callback +
-/// null clientd, so they can never fire.
+/// Pass [`Handlers::NONE`] to leave an optional callback unset.
+/// The constant is `None::<&SharedHandler<NoHandler>>`.
+/// `NoHandler` implements every generated callback trait, so the compiler infers
+/// the callback type without a helper or explicit type arguments. This also works
+/// for methods with several callbacks, such as `async_add_subscription`.
+/// C receives null callback and client-data pointers, so it never calls these methods.
 pub struct NoHandler;
 
 impl Handlers {
-    /// `None` for any callback parameter. Pins the callback generic to
-    /// [`NoHandler`] so type inference works without a per-callback helper or
-    /// turbofish. Replaces `Handlers::no_available_image_handler()` /
-    /// `no_unavailable_image_handler()` / `no_reserved_value_supplier_handler()`
-    /// / … with one constant. Parallels `Option::None`.
-    pub const NONE: Option<&'static Handler<NoHandler>> = None;
+    /// Leaves an optional callback unset.
+    /// The callback type is [`NoHandler`], so no explicit type arguments are needed.
+    pub const NONE: Option<&'static SharedHandler<NoHandler>> = None;
 }
 
 impl<T> Handler<T> {
-    pub fn new(handler: T) -> Self {
-        let inner = std::sync::Arc::new(UnsafeCell::new(handler));
-        #[cfg(feature = "extra-logging")]
-        log::info!("creating handler {:?}", inner.get());
-        Self { inner }
-    }
-
-    #[inline(always)]
-    pub fn as_raw(&self) -> *mut std::os::raw::c_void {
-        self.inner.get() as *mut std::os::raw::c_void
-    }
-
-    /// Get a mutable reference to the inner value.
+    /// Read local callback state. The borrow must end before invoking the callback.
     ///
-    /// # Safety
-    /// Caller must ensure that no other references to the inner value are active.
-    #[inline(always)]
-    pub unsafe fn get_mut(&self) -> &mut T {
-        unsafe { &mut *self.inner.get() }
+    /// Acquiring and dropping this guard checks local borrows, with no mutex or
+    /// atomic operation. It does not clone the handler or allocate memory.
+    pub fn borrow(&self) -> std::cell::Ref<'_, T> {
+        self.inner.borrow()
+    }
+
+    pub fn new(handler: T) -> Self {
+        Self {
+            inner: LocalCallback::new_owned(handler),
+        }
     }
 }
-
-impl<T> Deref for Handler<T> {
-    type Target = T;
-
+impl<T> SharedHandler<T> {
+    pub fn new_shared(handler: T) -> Self {
+        Self {
+            inner: SharedCallback::new_owned(handler),
+        }
+    }
+}
+impl<T, P: CallbackPolicy> Handler<T, P> {
     #[inline(always)]
-    fn deref(&self) -> &Self::Target {
-        unsafe { &*self.inner.get() }
+    pub fn as_raw(&self) -> *mut std::os::raw::c_void {
+        (&*self.inner as *const P::Cell<T>).cast_mut().cast()
+    }
+
+    /// Mutably access callback state. Release the guard before invoking this handler.
+    ///
+    /// For a local `Handler`, this performs a `RefCell` borrow check on the current
+    /// thread, with no mutex or atomic operation. For a `SharedHandler`, this
+    /// acquires a mutex and may wait for a callback or another state guard.
+    /// Neither form clones the handler or allocates memory to acquire the guard.
+    ///
+    /// Explicit `poll_with_handler` calls hold one guard for the whole poll. `poll`, `poll_fn`
+    /// and an owned `FragmentAssembler` use direct Rust borrowing without these
+    /// guards; prefer them when one polling thread owns the callback.
+    #[inline]
+    pub fn lock(&self) -> P::Guard<'_, T> {
+        P::lock(&self.inner)
+    }
+
+    /// # Safety
+    /// `raw` must come from a live `Handler<T, P>` and remain valid for the call.
+    #[inline]
+    pub unsafe fn lock_raw<'a>(raw: *mut std::os::raw::c_void) -> P::Guard<'a, T> {
+        P::lock(unsafe { &*raw.cast::<P::Cell<T>>() })
+    }
+
+    /// # Safety
+    /// No callback or other reference may access the value while this reference
+    /// is in use. Prefer [`Self::lock`].
+    #[inline]
+    pub unsafe fn get_mut(&self) -> &mut T {
+        let mut guard = self.lock();
+        let ptr: *mut T = &mut *guard;
+        drop(guard);
+        unsafe { &mut *ptr }
     }
 }
 
@@ -1303,11 +1687,51 @@ impl ControlMode {
 #[allow(dead_code)]
 pub(crate) mod test_alloc {
     use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
     use std::env;
     use std::fs::OpenOptions;
     #[allow(unused_imports)]
     use std::os::unix::fs::OpenOptionsExt;
     use std::sync::atomic::{AtomicIsize, Ordering};
+
+    thread_local! {
+        static TRACK_EVENTS: Cell<bool> = const { Cell::new(false) };
+        static ALLOCATION_EVENTS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    fn record_event() {
+        let _ = TRACK_EVENTS.try_with(|enabled| {
+            if enabled.get() {
+                let _ = ALLOCATION_EVENTS.try_with(|events| events.set(events.get() + 1));
+            }
+        });
+    }
+
+    /// Count allocations and reallocations on this thread, including temporary
+    /// allocations freed before the callback returns. Other test threads do not count.
+    pub fn assert_no_heap_allocation(callback: impl FnOnce()) {
+        struct Restore(bool);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                TRACK_EVENTS.with(|enabled| enabled.set(self.0));
+            }
+        }
+        let before = ALLOCATION_EVENTS.with(Cell::get);
+        let restore = Restore(TRACK_EVENTS.with(|enabled| enabled.replace(true)));
+        callback();
+        drop(restore);
+        assert_eq!(
+            ALLOCATION_EVENTS.with(Cell::get) - before,
+            0,
+            "unexpected heap allocation"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "unexpected heap allocation")]
+    fn event_counter_detects_an_allocation_freed_inside_the_callback() {
+        assert_no_heap_allocation(|| drop(std::hint::black_box(Box::new(42_u64))));
+    }
 
     /// A global allocator that tracks the net allocation count.
     /// Used mainly for testing memory leaks or unintended allocations.
@@ -1328,6 +1752,7 @@ pub(crate) mod test_alloc {
 
     unsafe impl GlobalAlloc for TrackingAllocator {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            record_event();
             self.allocs.fetch_add(1, Ordering::SeqCst);
             unsafe { System.alloc(layout) }
         }
@@ -1336,10 +1761,12 @@ pub(crate) mod test_alloc {
             unsafe { System.dealloc(ptr, layout) }
         }
         unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            record_event();
             self.allocs.fetch_add(1, Ordering::SeqCst);
             unsafe { System.alloc_zeroed(layout) }
         }
         unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            record_event();
             unsafe { System.realloc(ptr, layout, new_size) }
         }
     }
@@ -1752,7 +2179,7 @@ mod handler_tests {
         // C receives the same clientd pointer regardless of which clone
         // registered it, so callbacks always see the same value.
         assert_eq!(handler.as_raw(), clone.as_raw());
-        assert_eq!(*handler, 42);
+        assert_eq!(*handler.lock(), 42);
     }
 
     #[test]
@@ -1789,7 +2216,7 @@ mod managed_c_resource_lifecycle_tests {
     #[cfg(not(feature = "strict-lifecycle"))] // would panic on drop under strict-lifecycle
     fn manual_close_required_true_for_none_cleanup_no_struct() {
         // The bug shape: owned, no cleanup closure, no Rust struct ownership.
-        let r: ManagedCResource<u8> = ManagedCResource::new(
+        let r: ManagedCResource<u8> = ManagedCResource::<u8>::new(
             |ctx| {
                 unsafe { *ctx = 0x1 as *mut u8 };
                 1
@@ -1806,7 +2233,7 @@ mod managed_c_resource_lifecycle_tests {
 
     #[test]
     fn manual_close_required_false_when_cleanup_closure_present() {
-        let r: ManagedCResource<u8> = ManagedCResource::new(
+        let r: ManagedCResource<u8> = ManagedCResource::<u8>::new(
             |ctx| {
                 unsafe { *ctx = 0x1 as *mut u8 };
                 1
@@ -1825,7 +2252,7 @@ mod managed_c_resource_lifecycle_tests {
     fn manual_close_required_false_when_struct_owned() {
         // Generated `new(_, None, true)` resources: Rust frees the Box itself
         // via Box::from_raw in the cleanup_struct branch of Drop.
-        let r: ManagedCResource<u8> = ManagedCResource::new(
+        let r: ManagedCResource<u8> = ManagedCResource::<u8>::new(
             |ctx| {
                 unsafe { *ctx = Box::into_raw(Box::new(0u8)) };
                 1
@@ -1838,5 +2265,306 @@ mod managed_c_resource_lifecycle_tests {
             !r.manual_close_required,
             "cleanup_struct=true means Rust owns and frees the struct — no warning needed"
         );
+    }
+}
+
+#[cfg(test)]
+mod threading_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier, Mutex};
+
+    struct Native;
+    // These tests check owner storage and cleanup without calling C methods.
+    unsafe impl NativeResource for Native {
+        type Policy = SharedResource;
+    }
+
+    fn owner(cleanup: impl FnMut(*mut *mut Native) -> i32 + Send + 'static) -> Arc<ManagedCResource<Native>> {
+        Arc::new(
+            ManagedCResource::<Native>::new(
+                |ptr| {
+                    unsafe {
+                        *ptr = Box::into_raw(Box::new(Native));
+                    }
+                    0
+                },
+                Some(Box::new(cleanup)),
+                false,
+            )
+            .unwrap_or_else(|e| panic!("init failed: {}", e.code)),
+        )
+    }
+
+    #[test]
+    fn concurrent_close_runs_native_cleanup_once() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let count = calls.clone();
+        let resource = owner(move |ptr| {
+            count.fetch_add(1, Ordering::Relaxed);
+            std::thread::yield_now();
+            unsafe {
+                drop(Box::from_raw(*ptr));
+            }
+            0
+        });
+        let start = Arc::new(Barrier::new(8));
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                let resource = &resource;
+                let start = &start;
+                scope.spawn(move || {
+                    start.wait();
+                    assert!(resource.close_shared().is_ok());
+                });
+            }
+        });
+        drop(resource);
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn final_drop_retries_cleanup_after_a_panicking_close() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let count = calls.clone();
+        let dependency = Arc::new(());
+        let dependency_weak = Arc::downgrade(&dependency);
+        let resource = owner(move |ptr| {
+            assert!(dependency_weak.upgrade().is_some());
+            if count.fetch_add(1, Ordering::Relaxed) == 0 {
+                panic!("cleanup failed before freeing the native allocation");
+            }
+            unsafe {
+                drop(Box::from_raw(*ptr));
+            }
+            0
+        });
+        resource.add_dependency(dependency);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| resource.close_shared())).is_err());
+        drop(resource);
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn conductor_calls_reject_overlap_and_release_the_guard_after_a_panic() {
+        let resource = owner(|ptr| {
+            unsafe {
+                drop(Box::from_raw(*ptr));
+            }
+            0
+        });
+        let operation = resource
+            .operation_guard()
+            .unwrap_or_else(|_| panic!("first operation rejected"));
+        std::thread::scope(|scope| {
+            let resource = &resource;
+            scope
+                .spawn(move || assert!(resource.operation_guard().is_err()))
+                .join()
+                .unwrap();
+        });
+        drop(operation);
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _operation = resource
+                    .operation_guard()
+                    .unwrap_or_else(|_| panic!("operation rejected"));
+                panic!("test");
+            }))
+            .is_err()
+        );
+        assert!(resource.operation_guard().is_ok());
+    }
+
+    #[test]
+    fn a_shared_dependency_is_closed_after_its_child_on_another_thread() {
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let events = order.clone();
+        let parent = owner(move |ptr| {
+            events.lock().unwrap().push("parent");
+            unsafe {
+                drop(Box::from_raw(*ptr));
+            }
+            0
+        });
+        let events = order.clone();
+        let child = owner(move |ptr| {
+            events.lock().unwrap().push("child");
+            unsafe {
+                drop(Box::from_raw(*ptr));
+            }
+            0
+        });
+        child.add_dependency(parent.clone());
+        drop(parent);
+        std::thread::spawn(move || drop(child)).join().unwrap();
+        assert_eq!(*order.lock().unwrap(), ["child", "parent"]);
+    }
+
+    #[test]
+    fn shared_callback_state_is_serialized_and_survives_poisoning() {
+        let state = SharedHandler::new_shared(0usize);
+        let state_for_panic = state.clone();
+        assert!(
+            std::thread::spawn(move || {
+                let _guard = state_for_panic.lock();
+                panic!("test");
+            })
+            .join()
+            .is_err()
+        );
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                let state = &state;
+                scope.spawn(move || {
+                    for _ in 0..1000 {
+                        *state.lock() += 1;
+                    }
+                });
+            }
+        });
+        assert_eq!(*state.lock(), 4000);
+    }
+
+    #[test]
+    fn local_callbacks_reject_overlapping_mutable_access() {
+        let handler = Handler::new(0usize);
+        let alias = handler.clone();
+        let guard = handler.lock();
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| alias.lock())).is_err());
+        drop(guard);
+        *alias.lock() += 1;
+        assert_eq!(*handler.lock(), 1);
+    }
+}
+
+#[cfg(test)]
+mod typed_storage_tests {
+    use super::*;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    struct Byte<S: ResourceStorage<u8>>(S);
+    impl<S: ResourceStorage<u8>> resource_sealed::Handle for Byte<S> {}
+    impl<S: ResourceStorage<u8>> ResourceHandle for Byte<S> {
+        type Native = u8;
+        type Storage = S;
+        type Borrowed = Byte<Borrowed<u8>>;
+    }
+    impl<S: ResourceStorage<u8>> ResourceHandleExt for Byte<S> {
+        fn resource(&self) -> &S {
+            &self.0
+        }
+        fn from_resource(inner: S) -> Self {
+            Self(inner)
+        }
+        fn from_borrowed(inner: Borrowed<u8>) -> Self::Borrowed {
+            Byte(inner)
+        }
+    }
+    impl<S: ResourceStorage<u8>> Drop for Byte<S> {
+        fn drop(&mut self) {
+            assert_eq!(unsafe { *self.0.get() }, 31);
+        }
+    }
+
+    #[test]
+    fn storage_has_no_discriminant() {
+        assert_eq!(std::mem::size_of::<CResource<u8>>(), std::mem::size_of::<usize>());
+        assert_eq!(
+            std::mem::size_of::<LiveCResource<u8>>(),
+            2 * std::mem::size_of::<usize>()
+        );
+        assert_eq!(std::mem::size_of::<Borrowed<u8>>(), std::mem::size_of::<usize>());
+        assert_eq!(std::mem::size_of::<Inline<u8>>(), 1);
+        assert_eq!(
+            std::mem::size_of::<Ref<'_, Byte<CResource<u8>>>>(),
+            std::mem::size_of::<usize>()
+        );
+    }
+
+    #[test]
+    fn retained_child_survives_owner_and_other_clone() {
+        let owner = Arc::new(31_u8);
+        let weak = Arc::downgrade(&owner);
+        let ptr = Arc::as_ptr(&owner).cast_mut();
+        // SAFETY: the retained Arc keeps this immutable byte at a stable address.
+        let child: OwnedWithReference<_, Byte<CResource<u8>>> = unsafe { OwnedWithReference::new(owner.clone(), ptr) };
+        let second = child.clone();
+        drop(owner);
+        assert_eq!(child.borrow().resource().get(), second.borrow().resource().get());
+        assert_eq!(std::mem::size_of_val(&child), 2 * std::mem::size_of::<usize>());
+        drop(child);
+        assert!(weak.upgrade().is_some());
+        drop(second.borrow()); // Borrowed wrapper's Drop can still read its native value.
+        drop(second);
+        assert!(weak.upgrade().is_none());
+    }
+
+    #[test]
+    fn heap_clone_shares_one_allocation_and_cleans_up_once() {
+        let drops = Arc::new(AtomicUsize::new(0));
+        let capture = drops.clone();
+        let resource = ManagedCResource::<u8>::new(
+            |out| {
+                unsafe { *out = Box::into_raw(Box::new(17_u8)) };
+                0
+            },
+            Some(Box::new(move |ptr: *mut *mut u8| {
+                capture.fetch_add(1, Ordering::Relaxed);
+                unsafe {
+                    drop(Box::from_raw(*ptr));
+                    *ptr = std::ptr::null_mut();
+                }
+                0
+            })),
+            false,
+        )
+        .unwrap_or_else(|_| panic!("allocation failed"));
+        let first = CResource::new(Arc::new(resource));
+        let second = first.clone();
+        assert_eq!(first.get(), second.get());
+        drop(first);
+        assert_eq!(unsafe { *second.get() }, 17);
+        assert_eq!(drops.load(Ordering::Relaxed), 0);
+        drop(second);
+        assert_eq!(drops.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn live_handle_keeps_its_pointer_after_moving_and_cloning() {
+        let first = LiveCResource::from(CResource::owned_value(31_u8));
+        let ptr = first.get();
+        let second = first.clone();
+        drop(first);
+        let moved = Box::new(second);
+        assert_eq!(moved.get(), ptr);
+        assert_eq!(unsafe { *moved.get() }, 31);
+    }
+
+    #[test]
+    fn checked_owner_observes_native_async_release() {
+        let first = CResource::owned_value(31_u8);
+        let second = first.clone();
+        let ptr = first.get();
+        // Simulate native code consuming an async registration allocation.
+        unsafe { drop(Box::from_raw(ptr)) };
+        first.as_owned().unwrap().mark_resource_released();
+        assert!(first.get().is_null());
+        assert!(second.get().is_null());
+        drop(first);
+        drop(second); // Neither clone may free the native allocation again.
+    }
+
+    #[test]
+    fn pinned_inline_keeps_its_address_when_pin_handle_moves() {
+        let pinned = Box::pin(PinnedInline::new(31_u8));
+        let ptr = pinned.as_ref().get();
+        let moved = pinned;
+        assert_eq!(moved.as_ref().get(), ptr);
+        unsafe { *ptr = 32 };
+        assert_eq!(unsafe { *moved.as_ref().get() }, 32);
     }
 }

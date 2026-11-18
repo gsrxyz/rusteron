@@ -34,11 +34,6 @@ use std::thread::{JoinHandle, sleep};
 include!(concat!(env!("OUT_DIR"), "/aeron.rs"));
 include!(concat!(env!("OUT_DIR"), "/aeron_custom.rs"));
 
-unsafe impl Sync for AeronDriverContext {}
-unsafe impl Send for AeronDriverContext {}
-unsafe impl Sync for AeronDriver {}
-unsafe impl Send for AeronDriver {}
-
 /// RAII guard for an embedded media driver launched via
 /// [`AeronDriver::launch_embedded_guard`]. Signals stop on drop so the driver
 /// thread always joins even on panic / early return.
@@ -123,6 +118,7 @@ impl AeronDriverContext {
     /// On Linux, affinity validation failed or the cpuset could not be read.
     /// On other platforms this is a no-op, matching Aeron's standalone driver.
     pub fn apply_cgroup_cpuset_affinity(&self) -> Result<(), AeronCError> {
+        self.inner.check_configurable()?;
         // SAFETY: the context is live, and the driver has not started reading it.
         let result = unsafe { aeron_driver_validate_and_apply_affinity_configuration(self.get_inner()) };
         if result < 0 {
@@ -137,6 +133,9 @@ impl AeronDriverContext {
     /// after it, so set any other one first. Call before [`AeronDriver::new`] or
     /// [`AeronDriver::launch_embedded`], which hand the on-start function to the agents.
     pub fn set_thread_affinity_on_start(&self) {
+        self.inner
+            .check_configurable()
+            .expect("context cannot be changed after use");
         let context = self.get_inner();
         // SAFETY: the context is live and its agents have not started, so nothing else reads
         // these fields; Aeron's affinity function takes the driver context as its state.
@@ -179,14 +178,22 @@ impl AeronDriver {
         let started = Arc::new(AtomicBool::new(false));
         let started2 = started.clone();
 
-        let dir = aeron_context.get_dir().to_string();
+        let dir = aeron_context.get_dir_owned();
         info!("Starting media driver [dir={}]", dir);
+        let driver = Self::new(&aeron_context)
+            .map_err(|error| error.capture_errmsg())
+            .expect("failed to initialize embedded media driver");
+        let driver_owner = driver.inner.as_owned().expect("driver requires owned storage").clone();
+        drop(driver);
         let handle = std::thread::spawn(move || {
-            let aeron_context = aeron_context.clone();
-            let aeron_driver = AeronDriver::new(&aeron_context)?;
+            // The native driver is initialized but not started. Move only its
+            // checked owner; the public driver handle remains local to this worker.
+            let aeron_driver = AeronDriver::from_resource(CResource::new(driver_owner));
             aeron_driver.start(true)?;
 
-            info!("Aeron driver started [dir={}]", aeron_driver.context().get_dir());
+            let context = aeron_driver.context();
+            // SAFETY: driver initialization froze the context configuration.
+            info!("Aeron driver started [dir={}]", unsafe { context.get_dir() });
 
             started2.store(true, Ordering::SeqCst);
 
@@ -230,7 +237,8 @@ impl AeronDriver {
     /// This waits in that case and otherwise proceeds
     pub fn wait_for_previous_media_driver_to_timeout(aeron_context: &AeronDriverContext) {
         if !aeron_context.get_dir_delete_on_start() {
-            let cnc_file = Path::new(aeron_context.get_dir()).join("cnc.dat");
+            // SAFETY: join copies the path before this local borrow ends.
+            let cnc_file = Path::new(unsafe { aeron_context.get_dir() }).join("cnc.dat");
 
             if cnc_file.exists() {
                 let timeout = Duration::from_millis(aeron_context.get_driver_timeout_ms() * 2).as_nanos() as i64;
@@ -268,6 +276,87 @@ mod tests {
     use std::time::Duration;
 
     #[test]
+    fn rust_threading_mode_names_work_with_native_context_methods() {
+        let context = AeronDriverContext::new().unwrap();
+        for mode in [
+            AeronThreadingMode::Dedicated,
+            AeronThreadingMode::SharedNetwork,
+            AeronThreadingMode::Shared,
+            AeronThreadingMode::Invoker,
+        ] {
+            context.set_threading_mode(mode).unwrap();
+            assert_eq!(context.get_threading_mode(), mode);
+        }
+        assert_eq!(AeronThreadingMode::try_from(u32::MAX), Err(u32::MAX));
+    }
+
+    #[test]
+    fn ipv4_prefix_comparison_uses_both_addresses() {
+        // SAFETY: in_addr contains one initialized integer and owns no external storage.
+        let first = unsafe { InAddr::new(u32::from_ne_bytes([192, 168, 1, 10])).unwrap() };
+        let same_subnet = unsafe { InAddr::new(u32::from_ne_bytes([192, 168, 1, 11])).unwrap() };
+        let other_subnet = unsafe { InAddr::new(u32::from_ne_bytes([192, 168, 2, 10])).unwrap() };
+        assert!(first.aeron_ipv4_does_prefix_match(&same_subnet, 24));
+        assert!(!first.aeron_ipv4_does_prefix_match(&same_subnet, 32));
+        assert!(!first.aeron_ipv4_does_prefix_match(&other_subnet, 24));
+        assert!(first.aeron_ipv4_does_prefix_match(&other_subnet, 16));
+        assert!(first.aeron_ipv4_does_prefix_match(&other_subnet, 0));
+        assert_eq!(Aeron::ipv4_netmask_from_prefixlen(0), 0);
+        assert_eq!(Aeron::ipv4_netmask_from_prefixlen(32), u32::MAX);
+    }
+
+    #[test]
+    fn invalid_ip_prefixes_are_rejected_before_calling_native_code() {
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+        // SAFETY: these initialized address values have no pointers or external storage.
+        let ipv4 = unsafe { InAddr::new(0).unwrap() };
+        let ipv6 = unsafe { In6Addr::new_zeroed_on_heap() };
+        for prefix in [33, usize::MAX] {
+            assert!(catch_unwind(AssertUnwindSafe(|| ipv4.aeron_ipv4_does_prefix_match(&ipv4, prefix))).is_err());
+            assert!(catch_unwind(|| Aeron::ipv4_netmask_from_prefixlen(prefix)).is_err());
+        }
+        assert!(ipv6.aeron_ipv6_does_prefix_match(&ipv6, 0));
+        assert!(ipv6.aeron_ipv6_does_prefix_match(&ipv6, 128));
+        for prefix in [129, usize::MAX] {
+            assert!(catch_unwind(AssertUnwindSafe(|| ipv6.aeron_ipv6_does_prefix_match(&ipv6, prefix))).is_err());
+        }
+    }
+    #[test]
+    fn native_enum_conversions_keep_signed_values_and_reject_unknown_commands() {
+        use aeron_driver_conductor_command_state_en::*;
+        for (code, expected) in [
+            (-1, AERON_DRIVER_CONDUCTOR_COMMAND_STATE_ERROR),
+            (0, AERON_DRIVER_CONDUCTOR_COMMAND_STATE_RUNNING),
+            (1, AERON_DRIVER_CONDUCTOR_COMMAND_STATE_DONE),
+        ] {
+            assert_eq!(aeron_driver_conductor_command_state_t::try_from(code), Ok(expected));
+            assert_eq!(i32::from(expected), code);
+        }
+        for code in [i32::MIN, -2, 2, i32::MAX] {
+            assert_eq!(aeron_driver_conductor_command_state_t::try_from(code), Err(code));
+        }
+        use aeron_driver_native_resource_agent_command_type_enum::*;
+        for (code, expected) in [
+            (1, AERON_DRIVER_NATIVE_RESOURCE_AGENT_COMMAND_TYPE_RESOLVE_ADDRESS),
+            (2, AERON_DRIVER_NATIVE_RESOURCE_AGENT_COMMAND_TYPE_PARSE_CHANNEL),
+            (3, AERON_DRIVER_NATIVE_RESOURCE_AGENT_COMMAND_TYPE_FREE_LOG_BUFFER),
+            (4, AERON_DRIVER_NATIVE_RESOURCE_AGENT_COMMAND_TYPE_MAP_LOG_BUFFER),
+        ] {
+            assert_eq!(
+                aeron_driver_native_resource_agent_command_type_t::try_from(code),
+                Ok(expected)
+            );
+            assert_eq!(u32::from(expected), code);
+        }
+        for code in [0, 5, u32::MAX] {
+            assert_eq!(
+                aeron_driver_native_resource_agent_command_type_t::try_from(code),
+                Err(code)
+            );
+        }
+    }
+
+    #[test]
     fn driver_idle_strategy_kinds_round_trip() {
         let ctx = AeronDriverContext::new().unwrap();
         for (kind, name) in [
@@ -278,7 +367,8 @@ mod tests {
             (AeronIdleStrategyKind::Backoff, "backoff"),
         ] {
             ctx.set_conductor_idle_strategy_kind(kind).unwrap();
-            assert_eq!(name, ctx.get_conductor_idle_strategy(), "conductor {kind:?}");
+            // SAFETY: this context is local and no call changes it during the comparison.
+            assert_eq!(name, unsafe { ctx.get_conductor_idle_strategy() }, "conductor {kind:?}");
             ctx.set_sender_idle_strategy_kind(kind).unwrap();
             ctx.set_receiver_idle_strategy_kind(kind).unwrap();
             ctx.set_sharednetwork_idle_strategy_kind(kind).unwrap();
@@ -318,7 +408,8 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn socket_bindings_match_the_native_library() {
-        let address = SockaddrStorage::new_zeroed_on_heap();
+        // SAFETY: the next native call fills this output before it is read.
+        let address = unsafe { SockaddrStorage::new_zeroed_on_heap() };
         address.aeron_set_ipv4_wildcard_host_and_port();
         // Linux writes a 16-bit AF_INET at offset zero. Darwin bindings read
         // an 8-bit family at offset one and return zero.
@@ -342,13 +433,11 @@ mod tests {
         //     .context()
         //     .print_configuration();
         // aeron_driver.main_do_work()?;
-        info!("aeron dir: {:?}", aeron_context.get_dir());
+        info!("aeron dir: {:?}", aeron_context.get_dir_owned());
 
-        let dir = aeron_context.get_dir().to_string();
+        let dir = aeron_context.get_dir_owned();
         let ctx = AeronContext::new()?;
         ctx.set_dir(&dir.into_c_string())?;
-
-        let client = Aeron::new(&ctx)?;
 
         #[derive(Default, Debug)]
         struct ErrorCount {
@@ -362,14 +451,14 @@ mod tests {
             }
         }
 
-        let error_handler = Handler::new(ErrorCount::default());
+        let error_handler = SharedHandler::new_shared(ErrorCount::default());
         ctx.set_error_handler(Some(error_handler.clone()))?;
 
         struct Test {}
         impl AeronAvailableCounterCallback for Test {
             fn handle_aeron_on_available_counter(
                 &mut self,
-                counters_reader: &AeronCountersReader,
+                counters_reader: &AeronCountersReaderRef,
                 registration_id: i64,
                 counter_id: i32,
             ) -> () {
@@ -390,10 +479,11 @@ mod tests {
                 info!("on new publication {channel} {stream_id} {session_id} {correlation_id}")
             }
         }
-        let handler = Handler::new(Test {});
+        let handler = SharedHandler::new_shared(Test {});
         ctx.set_on_available_counter(Some(handler.clone()))?;
         ctx.set_on_new_publication(Some(handler.clone()))?;
 
+        let client = Aeron::new(&ctx)?;
         client.start()?;
         info!("aeron driver started");
         assert!(Aeron::epoch_clock() > 0);
@@ -403,7 +493,7 @@ mod tests {
 
         let counter = counter_async.poll_blocking(Duration::from_secs(15))?;
         unsafe {
-            *counter.addr() += 1;
+            counter.addr_atomic().fetch_add(1, Ordering::Relaxed);
         }
 
         let result = AeronAsyncAddPublication::new(&client, topic, stream_id)?;
@@ -452,7 +542,7 @@ mod tests {
             }
         }
 
-        let agent_handler = Handler::new(AgentStartHandler {
+        let agent_handler = SharedHandler::new_shared(AgentStartHandler {
             ctx_ptr: ctx.get_inner(),
         });
         ctx.set_agent_on_start_function(Some(agent_handler.clone()))?;
@@ -492,23 +582,25 @@ mod tests {
         Ok(())
     }
 
-    /// The default validators take an `int32_t` length, so this exercises the generated
-    /// `slice.len() as _` cast for a non-`usize` C length
+    /// The native validators accept an i32 length. Check nonempty and empty slices.
     #[test]
     fn termination_validator_defaults_take_i32_length_slices() {
         let mut token = *b"token";
-        assert!(AeronDriver::termination_validator_default_allow(
-            std::ptr::null_mut(),
-            &mut token
-        ));
-        assert!(!AeronDriver::termination_validator_default_deny(
-            std::ptr::null_mut(),
-            &mut token
-        ));
-        assert!(AeronDriver::termination_validator_default_allow(
-            std::ptr::null_mut(),
-            &mut []
-        ));
+        // SAFETY: Both native defaults ignore the state and token arguments.
+        unsafe {
+            assert!(AeronDriver::termination_validator_default_allow(
+                std::ptr::null_mut(),
+                &mut token
+            ));
+            assert!(!AeronDriver::termination_validator_default_deny(
+                std::ptr::null_mut(),
+                &mut token
+            ));
+            assert!(AeronDriver::termination_validator_default_allow(
+                std::ptr::null_mut(),
+                &mut []
+            ));
+        }
     }
 
     /// Affinity configuration is a no-op off Linux, including cpuset offsets.
@@ -546,7 +638,8 @@ mod tests {
         }
 
         let context = AeronDriverContext::new()?;
-        context.set_dir(&format!("{}{}", context.get_dir(), Aeron::nano_clock()).into_c_string())?;
+        // SAFETY: the text is copied before set_dir changes this local context.
+        context.set_dir(&format!("{}{}", unsafe { context.get_dir() }, Aeron::nano_clock()).into_c_string())?;
         context.set_dir_delete_on_start(true)?;
         context.set_dir_delete_on_shutdown(true)?;
         context.set_threading_mode(aeron_threading_mode_enum::AERON_THREADING_MODE_DEDICATED)?;

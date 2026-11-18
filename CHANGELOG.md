@@ -4,6 +4,71 @@ Main changes, newest first, grouped by published crate version. Release-only
 commits, build logs, and changes later reverted or superseded are omitted.
 Early history predating the available release tags is grouped separately.
 
+## 0.3.0, unreleased
+
+This release breaks compatibility with the 0.2 API.
+
+- Added generated Rust names for native enums, such as
+  `AeronControlledFragmentHandlerAction::Continue` and
+  `AeronThreadingMode::Shared`. They use the native enum type without conversion.
+- Added native replay-parameter copying, bounded-replay checks and Archive
+  protocol-version queries. Fixed generation of methods with multiple pointers
+  to the same native type so source and destination remain separate arguments.
+  IP prefix utilities now reject lengths outside the address width before C
+  can perform an invalid shift.
+- Added generated, checked integer conversions for native enums. Unknown values
+  return the original integer as an error. The recording-signal helper now uses
+  the native enum values instead of a separate numeric mapping.
+- Added generated `AeronCounterTypeId`, `AeronCounterState` and
+  `AeronDriverErrorCode` enums. They preserve unknown integer values. Archive
+  error variants and native-code conversions now come from the bindings too.
+- Moved repeated Duration, URI, destination and Archive descriptor-poller wrappers
+  into generator templates. Added native unit tests for their behavior.
+- URI setters now come from native key constants. Removed
+  `timestamp_offset_reserved()`. Use `"reserved"` as the value of a timestamp
+  offset setter.
+- Replication params now retain their strings and credentials across clones.
+  Erased message handlers require `unsafe` to store a borrowed context pointer.
+- System counter IDs now come from native constants. Replaced the stale
+  `DummyLast` variant with the counters Aeron defines at IDs 40 through 45.
+
+- Archive errors now use native numeric codes instead of parsing messages.
+  `poll_for_error()` returns the typed code and full response message.
+  Converting an Archive error to `AeronCError` preserves its code and message.
+
+- Generated wrappers now select ownership storage through a sealed type
+  parameter instead of the `CResource` enum. Common methods accept owning and
+  borrowed storage; borrowed views cannot be cloned into owners.
+- Removed `multi-threaded`. `Send` and `Sync` depend on native thread-safety rules,
+  ownership and callbacks. Local handles remain local. Rusteron checks context
+  configuration before native initialization.
+- Local callbacks now use `Handler`. Retained conductor callbacks use
+  `SharedHandler`. State access requires a checked guard. Added owned
+  `FragmentAssembler` and `ControlledFragmentAssembler` helpers for local polling.
+- Close and delete now consume an owning handle and defer cleanup while
+  other owners need it. Archive contexts and native assemblers are not cloneable.
+  Added retained Archive child views for use beyond a short borrow.
+- Recording descriptor pollers are no longer cloneable and require mutable
+  access to poll. Borrowed Archive pollers cannot drive expired listing callbacks.
+  Removed generated getters that transfer native ownership while returning a borrow.
+- Fixed unsafe ownership transfers, dangling raw-pointer conversions, native
+  buffer aliasing and replaceable string borrows. Affected raw APIs now require
+  `unsafe`. Replaceable string getters borrow without allocating and require
+  `unsafe`; explicit `_owned` getters return safe snapshots. Error formatting
+  uses a stack snapshot, and literal error messages do not allocate.
+- Native shallow-copy checks now cover unions, arrays and unknown embedded types.
+  `Debug` keeps safe fields and immutable queries without allocating. It avoids
+  expired async storage and unsafe text getters. Text callbacks
+  validate UTF-8, required callbacks reject `None`, and URI parsing checks input bounds.
+- Fixed archive proxy cleanup closing separately owned publications, async
+  registration reuse, and persistent-subscription context and callback lifetimes.
+  Failed native cleanup now keeps dependencies alive instead of freeing them
+  while C may still use them.
+- Improved claim, polling and counter lookup paths, and added native regression
+  tests, compile-time ownership checks and guide example checks in CI.
+- Added the [0.2-to-0.3 migration guide](docs/migrating_0.2_to_0.3.md) and shorter
+  READMEs with links to detailed client and Archive guides.
+
 ## 0.2.22
 
 - Added `Duration` setters and getters for client context timeouts and intervals and for the archive message timeout, plus `Duration` helpers for URIs. The existing integer methods still work.

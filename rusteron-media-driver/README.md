@@ -7,56 +7,24 @@ it as a standalone process or embed it in a Rust application.
 > For production deployments, we recommend the Aeron Java or C media driver.
 > The embedded version here is best suited to integration tests and lightweight environments.
 
----
+[GSR](https://www.gsr.io) sponsors and maintains Rusteron. It has run in GSR's
+low-latency trading system since early 2025.
 
-## Sponsored by GSR
-
-Rusteron is sponsored and maintained by [GSR](https://www.gsr.io), a global leader in algorithmic trading and market making in digital assets.
-
-Rusteron has been running in production in GSR's low-latency trading system since the beginning of 2025. It is mature and battle tested.
-
-It is developed under the GSR GitHub organisation. We welcome contributions, feedback and discussion. To integrate or contribute, open an issue or reach out directly.
-
----
+[Installation](#installation) · [Examples](#usage-examples) ·
+[UDP tuning](#udp-polling-and-send-batches) ·
+[Migration to 0.3](https://github.com/gsrxyz/rusteron/blob/main/docs/migrating_0.2_to_0.3.md)
 
 ## Installation
 
-To use `rusteron-media-driver`, add the appropriate dependency to your `Cargo.toml`:
-
-<details>
-<summary>Dynamic</summary>
+This branch documents the 0.3 API. For a static build:
 
 ```toml
 [dependencies]
-rusteron-media-driver = "0.2"
+rusteron-media-driver = { version = "0.3", features = ["static"] }
 ```
 
-</details>
-
-<details>
-<summary>Static</summary>
-
-```toml
-[dependencies]
-rusteron-media-driver = { version = "0.2", features = ["static"] }
-```
-
-</details>
-
-<details>
-<summary>Static with precompiled C libs (macOS / Linux)</summary>
-
-```toml
-[dependencies]
-rusteron-media-driver = { version = "0.2", features = ["static", "precompile"] }
-```
-
-```toml
-[dependencies]
-rusteron-media-driver = { version = "0.2", features = ["static", "precompile-rustls"] }
-```
-
-</details>
+Use default features for dynamic linking. Add `precompile` or `precompile-rustls`
+alongside `static` to use prebuilt C libraries on macOS and Linux.
 
 The default source build compiles the Aeron C libraries. Dynamic builds also need
 those shared libraries available at runtime; `static` embeds them in the binary.
@@ -66,12 +34,16 @@ See [BUILD.md](https://github.com/gsrxyz/rusteron/blob/main/BUILD.md) for prereq
 
 ## Usage examples
 
-Use `AeronErrorHandlerSlot` to replace callbacks without registering again.
+For simple state updates, keep the setter's returned `SharedHandler` and use
+`handler.lock()`. This acquires a mutex shared with callback invocations; keep
+updates short. It does not add a lock to transport `offer` or `poll_fn`. See
+[synchronization costs](https://github.com/gsrxyz/rusteron/blob/main/docs/thread-safety.md#hot-path-behaviour).
+Use `AeronErrorHandlerSlot` when replacement must not wait for an active callback.
 Old callbacks are freed after their last call. See the
 [example](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/examples/replaceable_error_handler.rs).
 
 <details>
-<summary>Standard Media Driver</summary>
+<summary>Standalone media driver</summary>
 
 ```rust,no_run
 // A standalone media driver; `cargo run -p rusteron-media-driver --bin media_driver` ships the same.
@@ -82,7 +54,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     context.set_dir(c"target/aeron")?;
     let driver = AeronDriver::new(&context)?;
     driver.start(true)?; // run the conductor duty cycle on this thread
-    println!("media driver running in {}", context.get_dir());
+    // SAFETY: driver initialization froze this context configuration.
+    println!("media driver running in {}", unsafe { context.get_dir() });
     loop {
         driver.main_idle_strategy(driver.main_do_work()?);
     }
@@ -92,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 </details>
 
 <details>
-<summary>Embedded Media Driver</summary>
+<summary>Embedded media driver</summary>
 
 ```rust
 // Embeds the media driver in this process: unique directory, stopped and joined on drop.
@@ -109,7 +82,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-For a caller-built `AeronDriverContext`, `AeronDriver::launch_embedded_guard(ctx, false)` is the RAII form (stops and joins on drop).
+For a caller-built `AeronDriverContext`, use
+`AeronDriver::launch_embedded_guard(ctx, false)` to stop and join the driver on drop.
 
 </details>
 

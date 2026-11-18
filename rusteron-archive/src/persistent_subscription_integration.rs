@@ -97,7 +97,7 @@ mod tests {
             Aeron,
             AeronArchiveContext,
             EmbeddedArchiveMediaDriverProcess,
-            Handler<ErrorCount>,
+            SharedHandler<ErrorCount>,
         ),
         Box<dyn Error>,
     > {
@@ -126,7 +126,7 @@ mod tests {
         aeron_context.set_dir(&aeron_dir.into_c_string())?;
         aeron_context.set_client_name(&format!("test-{}", aeron_dir_suffix).into_c_string())?;
 
-        let error_handler = Handler::new(ErrorCount::default());
+        let error_handler = SharedHandler::new_shared(ErrorCount::default());
         aeron_context.set_error_handler(Some(error_handler.clone()))?;
 
         let aeron = Aeron::new(&aeron_context)?;
@@ -202,7 +202,7 @@ mod tests {
         info!("Published {} historical messages", historical_count);
 
         // Resolve the recording and wait for it to flush everything we published.
-        let session_id = publication.get_constants()?.session_id;
+        let session_id = publication.get_constants()?.session_id();
         let counters_reader = aeron_archive.counters_reader();
         let counter_id =
             crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
@@ -245,16 +245,17 @@ mod tests {
         let handler = Handler::new(Tracker::default());
 
         let start = Instant::now();
-        while handler.historical < historical_count && start.elapsed() < Duration::from_secs(20) {
-            replay_sub.poll(Some(&handler), 100)?;
+        while handler.borrow().historical < historical_count && start.elapsed() < Duration::from_secs(20) {
+            replay_sub.poll_with_handler(Some(&handler), 100)?;
             sleep(Duration::from_millis(10));
         }
         assert_eq!(
-            handler.historical, historical_count,
+            handler.borrow().historical,
+            historical_count,
             "replay should deliver all historical messages"
         );
         replay_sub.close()?;
-        info!("Replayed {} historical messages", handler.historical);
+        info!("Replayed {} historical messages", handler.borrow().historical);
 
         // Phase 3: live consumption. Subscribe first and wait for an image so the
         // live subscription sees the messages that follow.
@@ -263,7 +264,7 @@ mod tests {
             .poll_blocking(Duration::from_secs(5))?;
         let start = Instant::now();
         while live_sub.image_count()? == 0 && start.elapsed() < Duration::from_secs(5) {
-            live_sub.poll(Some(&handler), 10)?;
+            live_sub.poll_with_handler(Some(&handler), 10)?;
             sleep(Duration::from_millis(10));
         }
 
@@ -279,13 +280,17 @@ mod tests {
             }
         }
         let start = Instant::now();
-        while handler.live < live_count && start.elapsed() < Duration::from_secs(20) {
-            live_sub.poll(Some(&handler), 100)?;
+        while handler.borrow().live < live_count && start.elapsed() < Duration::from_secs(20) {
+            live_sub.poll_with_handler(Some(&handler), 100)?;
             sleep(Duration::from_millis(10));
         }
-        assert_eq!(handler.live, live_count, "should receive all live messages");
+        assert_eq!(handler.borrow().live, live_count, "should receive all live messages");
 
-        info!("End-to-end OK: {} replayed + {} live", handler.historical, handler.live);
+        info!(
+            "End-to-end OK: {} replayed + {} live",
+            handler.borrow().historical,
+            handler.borrow().live
+        );
 
         Ok(())
     }
@@ -363,7 +368,7 @@ mod tests {
         info!("Published {} messages after restart", batch2_count);
 
         // Get recording ID
-        let session_id = publication.get_constants()?.session_id;
+        let session_id = publication.get_constants()?.session_id();
         let counters_reader = aeron_archive.counters_reader();
         let counter_id =
             crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
@@ -405,27 +410,29 @@ mod tests {
 
         // Poll for all messages
         let start = Instant::now();
-        while (handler.before_restart + handler.after_restart) < (batch1_count + batch2_count)
+        while (handler.borrow().before_restart + handler.borrow().after_restart) < (batch1_count + batch2_count)
             && start.elapsed() < Duration::from_secs(20)
         {
-            subscription.poll(Some(&handler), 100)?;
+            subscription.poll_with_handler(Some(&handler), 100)?;
             sleep(Duration::from_millis(10));
         }
 
         assert_eq!(
-            handler.before_restart, batch1_count,
+            handler.borrow().before_restart,
+            batch1_count,
             "Should receive all messages before restart"
         );
         assert_eq!(
-            handler.after_restart, batch2_count,
+            handler.borrow().after_restart,
+            batch2_count,
             "Should receive all messages after restart"
         );
 
         info!(
             "Verified restart: {} before + {} after = {} total",
-            handler.before_restart,
-            handler.after_restart,
-            handler.before_restart + handler.after_restart
+            handler.borrow().before_restart,
+            handler.borrow().after_restart,
+            handler.borrow().before_restart + handler.borrow().after_restart
         );
 
         Ok(())
@@ -491,7 +498,7 @@ mod tests {
         );
 
         // Get recording ID
-        let session_id = publication.get_constants()?.session_id;
+        let session_id = publication.get_constants()?.session_id();
         let counters_reader = aeron_archive.counters_reader();
         let counter_id =
             crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
@@ -527,19 +534,19 @@ mod tests {
         // Measure replay throughput
         let start_replay = Instant::now();
 
-        while handler.count < message_count && start_replay.elapsed() < Duration::from_secs(20) {
-            subscription.poll(Some(&handler), 1000)?;
+        while handler.borrow().count < message_count && start_replay.elapsed() < Duration::from_secs(20) {
+            subscription.poll_with_handler(Some(&handler), 1000)?;
         }
 
         let replay_duration = start_replay.elapsed();
 
-        assert_eq!(handler.count, message_count, "Should receive all messages");
+        assert_eq!(handler.borrow().count, message_count, "Should receive all messages");
 
         info!(
             "Replayed {} messages in {:?} ({:.2} msg/sec)",
-            handler.count,
+            handler.borrow().count,
             replay_duration,
-            handler.count as f64 / replay_duration.as_secs_f64()
+            handler.borrow().count as f64 / replay_duration.as_secs_f64()
         );
 
         Ok(())
@@ -607,7 +614,7 @@ mod tests {
         }
 
         // Get recording ID
-        let session_id = publication.get_constants()?.session_id;
+        let session_id = publication.get_constants()?.session_id();
         let counters_reader = aeron_archive.counters_reader();
         let counter_id =
             crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
@@ -643,8 +650,8 @@ mod tests {
         // Poll for all messages with a timeout
         let start = Instant::now();
         let timeout = Duration::from_secs(30); // Increased from 20s to 30s for slower CI runners
-        while handler.received_sizes.len() < total_messages && start.elapsed() < timeout {
-            subscription.poll(Some(&handler), 100)?;
+        while handler.borrow().received_sizes.len() < total_messages && start.elapsed() < timeout {
+            subscription.poll_with_handler(Some(&handler), 100)?;
             sleep(Duration::from_millis(20)); // Increased from 10ms to 20ms
         }
 
@@ -652,21 +659,25 @@ mod tests {
         info!(
             "Polling completed in {:?}, received {}/{} messages",
             elapsed,
-            handler.received_sizes.len(),
+            handler.borrow().received_sizes.len(),
             total_messages
         );
 
         assert_eq!(
-            handler.received_sizes.len(),
+            handler.borrow().received_sizes.len(),
             total_messages,
             "Should receive all messages within {} seconds (received: {}, expected: {})",
             timeout.as_secs(),
-            handler.received_sizes.len(),
+            handler.borrow().received_sizes.len(),
             total_messages
         );
 
         // Verify sizes match (within fragmentation tolerance)
-        for (i, (original, received)) in message_sizes.iter().zip(handler.received_sizes.iter()).enumerate() {
+        for (i, (original, received)) in message_sizes
+            .iter()
+            .zip(handler.borrow().received_sizes.iter())
+            .enumerate()
+        {
             info!(
                 "Message {}: original {} bytes, received {} bytes",
                 i, original, received
@@ -820,7 +831,7 @@ mod tests {
             }
 
             // Get recording ID
-            let session_id = publication.get_constants()?.session_id;
+            let session_id = publication.get_constants()?.session_id();
             let counters_reader = aeron_archive.counters_reader();
             let counter_id = crate::testing::find_counter_id_by_session_blocking(
                 &counters_reader,
@@ -978,7 +989,7 @@ mod tests {
         info!("Published {msg_count} messages successfully");
 
         // Resolve the recording id and wait for the recorder to flush what we published.
-        let session_id = publication.get_constants()?.session_id;
+        let session_id = publication.get_constants()?.session_id();
         info!("Resolved session_id={session_id}");
         let counters = aeron_archive.counters_reader();
         let counter_id =
@@ -1164,7 +1175,7 @@ mod tests {
         }
 
         // Wait for the recording to flush the offer.
-        let session_id = publication.get_constants()?.session_id;
+        let session_id = publication.get_constants()?.session_id();
         let counters = aeron_archive.counters_reader();
         let counter_id =
             crate::testing::find_counter_id_by_session_blocking(&counters, session_id, Duration::from_secs(5))?;
@@ -1259,7 +1270,7 @@ mod tests {
             sleep(Duration::from_millis(1));
         }
 
-        let session_id = publication.get_constants()?.session_id;
+        let session_id = publication.get_constants()?.session_id();
         let counters = aeron_archive.counters_reader();
         let counter_id =
             crate::testing::find_counter_id_by_session_blocking(&counters, session_id, Duration::from_secs(5))?;

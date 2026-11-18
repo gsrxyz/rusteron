@@ -2,84 +2,112 @@
 // generated `aeron_custom.rs` of rusteron-archive ONLY. Unlike the common custom file,
 // this one may reference archive-only types (AeronArchive, AeronArchiveContext, ...).
 
-impl AeronArchiveContext {
-    /// Set the archive response timeout from a duration. Returns an error if its
-    /// nanosecond value exceeds Aeron's signed 64-bit clock range.
-    pub fn set_message_timeout(&self, value: std::time::Duration) -> Result<i32, AeronCError> {
-        self.set_message_timeout_ns(duration_to_nanos(value)? as u64)
+impl<S: ResourceStorage<aeron_archive_context_t>> AeronArchiveContext<S> {
+    /// Attach a client that Rust continues to own. Aeron Archive must not close it.
+    pub fn set_aeron(&self, aeron: &Aeron) -> Result<i32, AeronCError> {
+        self.inner.check_configurable()?;
+        if self.get_owns_aeron_client() {
+            return Err(AeronCError::with_message(
+                -1,
+                "archive context already owns a native client",
+            ));
+        }
+        let Some(owner) = self.inner.as_owned() else {
+            return Err(AeronCError::with_message(
+                -1,
+                "archive context requires owning heap storage",
+            ));
+        };
+        let Some(client_owner) = aeron.inner.as_owned() else {
+            return Err(AeronCError::with_message(-1, "client requires owning heap storage"));
+        };
+        client_owner.bind_conductor_thread()?;
+        let result = unsafe { aeron_archive_context_set_aeron(self.get_inner(), aeron.get_inner()) };
+        if result < 0 {
+            return Err(AeronCError::from_code(result));
+        }
+        owner.add_handle_dependency(aeron);
+        Ok(result)
     }
 
-    /// The archive response timeout as a [`std::time::Duration`].
-    pub fn get_message_timeout(&self) -> std::time::Duration {
-        std::time::Duration::from_nanos(self.get_message_timeout_ns())
+    /// Rust owns clients passed to `set_aeron`; transferring their ownership to C
+    /// would leave every Rust handle pointing at freed memory.
+    pub fn set_owns_aeron_client(&self, owns_aeron_client: bool) -> Result<i32, AeronCError> {
+        self.inner.check_configurable()?;
+        if owns_aeron_client || self.get_owns_aeron_client() {
+            return Err(AeronCError::with_message(
+                -1,
+                "native ownership of the client cannot be changed",
+            ));
+        }
+        let result = unsafe { aeron_archive_context_set_owns_aeron_client(self.get_inner(), false) };
+        if result < 0 {
+            Err(AeronCError::from_code(result))
+        } else {
+            Ok(result)
+        }
     }
 }
 
-/// Archive control-response error codes (`io.aeron.archive.client.ArchiveException`).
-///
-/// Server errors are embedded as `errorCode=N` in the C error text.
-/// Local client failures use the separate 2000-2002 error domain.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum AeronArchiveErrorCode {
-    Generic,
-    ActiveListing,
-    ActiveRecording,
-    ActiveSubscription,
-    UnknownSubscription,
-    UnknownRecording,
-    UnknownReplay,
-    MaxReplays,
-    MaxRecordings,
-    InvalidExtension,
-    AuthenticationRejected,
-    StorageSpace,
-    UnknownReplication,
-    UnauthorisedAction,
-    ReplicationConnectionFailure,
-    EmptyRecording,
-    InvalidPosition,
-    ReentrantCall,
-    NotConnected,
-    IllegalState,
-    Unknown(i32),
+impl<S: ResourceStorage<aeron_archive_persistent_subscription_context_t>> AeronArchivePersistentSubscriptionContext<S> {
+    /// Retain the client for as long as native code can use this context.
+    pub fn set_aeron(&self, aeron: &Aeron) -> Result<i32, AeronCError> {
+        self.inner.check_configurable()?;
+        let owner = self.inner.as_owned().unwrap();
+        let client_owner = aeron
+            .inner
+            .as_owned()
+            .ok_or_else(|| AeronCError::with_message(-1, "client requires owning storage"))?;
+        client_owner.bind_conductor_thread()?;
+        let result =
+            unsafe { aeron_archive_persistent_subscription_context_set_aeron(self.get_inner(), aeron.get_inner()) };
+        if result < 0 {
+            return Err(AeronCError::from_code(result));
+        }
+        owner.replace_callback_dependency("persistent_subscription_client", Some(client_owner.clone()));
+        Ok(result)
+    }
+
+    /// Retain the archive context until the persistent subscription has closed.
+    pub fn set_archive_context(&self, context: &AeronArchiveContext) -> Result<i32, AeronCError> {
+        self.inner.check_configurable()?;
+        let owner = self.inner.as_owned().unwrap();
+        let context_owner = context
+            .inner
+            .as_owned()
+            .ok_or_else(|| AeronCError::with_message(-1, "archive context requires owning storage"))?;
+        let result = unsafe {
+            aeron_archive_persistent_subscription_context_set_archive_context(self.get_inner(), context.get_inner())
+        };
+        if result < 0 {
+            return Err(AeronCError::from_code(result));
+        }
+        owner.replace_callback_dependency("persistent_subscription_archive_context", Some(context_owner.clone()));
+        Ok(result)
+    }
+}
+
+impl AeronArchiveProxy {
+    /// Release this proxy. Other owning clones keep its native allocation alive.
+    pub fn delete(self) -> Result<(), AeronCError> {
+        let result = self.inner.close_resource_deferred_if_shared();
+        drop(self);
+        result
+    }
 }
 
 impl AeronArchiveErrorCode {
-    /// Maps an archive error code (`io.aeron.archive.client.ArchiveException`) to its
-    /// variant. The `ARCHIVE_ERROR_CODE_*` defines are private to `aeron_archive_client.c`
-    /// since Aeron 1.53, so the numbers are mirrored here and pinned by the
-    /// `archive_error_codes_match_the_c_source` test.
+    /// Maps a wire error code or a native Archive error code to its variant.
     ///
-    /// Accepts both the wire codes (0-16) and the client codes (200-216,
-    /// `AERON_ARCHIVE_ERROR_CODE_*` = wire + 200) used in C archive errors.
-    /// On the current master revision, callbacks also report these mapped codes.
-    /// Local client errors accept either the positive callback code or the negative
-    /// thread-local code returned by `aeron_errcode()`.
+    /// Wire codes 0 through 16 map to native codes 200 through 216. Other values
+    /// use [`Self::from_native_code`]. For `aeron_errcode()` and error handlers,
+    /// use `from_native_code` to avoid confusing system errors with wire codes.
     pub const fn from_code(code: i32) -> Self {
-        match code {
-            0 => Self::Generic,
-            1 => Self::ActiveListing,
-            2 => Self::ActiveRecording,
-            3 => Self::ActiveSubscription,
-            4 => Self::UnknownSubscription,
-            5 => Self::UnknownRecording,
-            6 => Self::UnknownReplay,
-            7 => Self::MaxReplays,
-            8 => Self::MaxRecordings,
-            9 => Self::InvalidExtension,
-            10 => Self::AuthenticationRejected,
-            11 => Self::StorageSpace,
-            12 => Self::UnknownReplication,
-            13 => Self::UnauthorisedAction,
-            14 => Self::ReplicationConnectionFailure,
-            15 => Self::EmptyRecording,
-            16 => Self::InvalidPosition,
-            200..=216 => Self::from_code(code - 200),
-            2000 | -2000 => Self::ReentrantCall,
-            2001 | -2001 => Self::NotConnected,
-            2002 | -2002 => Self::IllegalState,
-            other => Self::Unknown(other),
+        let last_wire_code = (AERON_ARCHIVE_ERROR_CODE_INVALID_POSITION - AERON_ARCHIVE_ERROR_CODE_GENERIC) as i32;
+        if code >= 0 && code <= last_wire_code {
+            Self::from_native_code(code + AERON_ARCHIVE_ERROR_CODE_GENERIC as i32)
+        } else {
+            Self::from_native_code(code)
         }
     }
 
@@ -100,70 +128,28 @@ pub struct AeronArchiveError {
 }
 
 impl AeronArchiveError {
-    /// Parses the `errorCode=N` the C archive client embeds in the `aeron_errmsg` text of a
-    /// failed request (and so in `AeronCError` `lastError` messages), not in
-    /// `poll_for_error_response` payloads.
-    /// Falls back to [`AeronArchiveErrorCode::Generic`] when no code is present.
-    #[cold]
-    pub fn parse(message: &str) -> Self {
-        let code = message
-            .split("errorCode=")
-            .nth(1)
-            .and_then(|rest| {
-                let digits: String = rest.chars().take_while(|c| c.is_ascii_digit() || *c == '-').collect();
-                digits.parse::<i32>().ok()
-            })
-            .map(AeronArchiveErrorCode::from_code)
-            .unwrap_or(AeronArchiveErrorCode::Generic);
-        Self {
-            code,
-            message: message.to_string(),
-        }
-    }
-
-    /// Builds the typed error at an `aeron_archive_*` FFI error site: reads the current
-    /// thread-local error. Server responses embed `errorCode=N` in `aeron_errmsg()`;
-    /// local client failures store their negative code in `aeron_errcode()`.
+    /// Captures the current thread's native Archive error after a failed C call.
     ///
-    /// Unlike [`AeronCError::from_code`], this *does* read and copy the error text,
-    /// preserving the archive's response details. Archive control operations are
-    /// request/response calls, not hot-path loops, so the copy is acceptable there.
+    /// Reads the error code before copying its message. `code` is the failed call's
+    /// return value, used only when Aeron has not set a thread-local error code.
+    /// Message contents never determine the error code.
     #[cold]
     pub fn from_code(code: i32) -> Self {
-        let message = Aeron::errmsg();
-        if message.contains("errorCode=") {
-            Self::parse(message)
-        } else {
-            let client_code = unsafe { aeron_errcode() };
-            if matches!(client_code, -2002..=-2000) {
-                return Self {
-                    code: AeronArchiveErrorCode::from_code(client_code),
-                    message: message.to_string(),
-                };
-            }
-            // No structured code in the buffer (e.g. generic C-level failure); preserve
-            // the message verbatim and let the code fall through to the parsed form, or
-            // Generic if nothing is recoverable.
-            let parsed = Self::parse(message);
-            if matches!(parsed.code, AeronArchiveErrorCode::Generic) && code < 0 {
-                Self {
-                    code: AeronArchiveErrorCode::Generic,
-                    message: format!("{} (code {})", message, code),
-                }
-            } else {
-                parsed
-            }
+        // SAFETY: Aeron returns the calling thread's integer error code.
+        let native_code = unsafe { aeron_errcode() };
+        Self {
+            code: AeronArchiveErrorCode::from_native_code(if native_code == 0 { code } else { native_code }),
+            message: Aeron::errmsg_owned(),
         }
     }
 }
 
-/// Lossy interop: archive control errors flatten into [`AeronCError`] so `?` works in
-/// mixed client/archive code paths. The original typed code is not preserved (the C
-/// client error domain has no equivalent slot for it); use [`AeronArchiveError`]
-/// directly at archive control sites to retain the typed code.
+/// Preserves the native code and captured message when using `?` in code that
+/// returns [`AeronCError`]. Use [`AeronArchiveErrorCode::from_native_code`] to
+/// recover the Archive variant from its code.
 impl From<AeronArchiveError> for AeronCError {
     fn from(err: AeronArchiveError) -> Self {
-        AeronCError::with_message(-1, err.message)
+        AeronCError::with_message(err.code.as_native_code(), err.message)
     }
 }
 
@@ -175,7 +161,7 @@ impl std::fmt::Display for AeronArchiveError {
 
 impl std::error::Error for AeronArchiveError {}
 
-impl AeronCountersReader {
+impl<S: ResourceStorage<aeron_counters_reader_t>> AeronCountersReader<S> {
     /// Copies the source identity into `destination`, including a trailing NUL if nonempty.
     /// Returns the number of bytes copied, excluding that terminator.
     pub fn aeron_archive_recording_pos_get_source_identity(
@@ -207,9 +193,7 @@ impl AeronArchivePersistentSubscription {
     ///
     /// The subscription must be open. The returned pointer must not be closed or used
     /// after the subscription closes; it does not retain the subscription's dependencies.
-    pub unsafe fn get_persistent_subscription_context(
-        &self,
-    ) -> *mut aeron_archive_persistent_subscription_context_t {
+    pub unsafe fn get_persistent_subscription_context(&self) -> *mut aeron_archive_persistent_subscription_context_t {
         unsafe { aeron_archive_persistent_subscription_get_persistent_subscription_context(self.get_inner()) }
     }
 
@@ -308,14 +292,10 @@ impl AeronArchiveReplayParamsBuilder {
     }
 }
 
-/// [`AeronArchiveReplicationParams`] plus the string storage its C struct points into.
-///
-/// The C params struct stores raw `char *` pointers, so the strings must outlive it,
-/// so this wrapper owns them. Deref gives the params for `archive.replicate(...)`.
+/// Replication params with owned strings and credentials.
+/// Clones of the params retain those allocations too.
 pub struct AeronArchiveReplicationParamsOwned {
     params: AeronArchiveReplicationParams,
-    _credentials: AeronArchiveEncodedCredentials,
-    _strings: [std::ffi::CString; 4],
 }
 
 impl std::ops::Deref for AeronArchiveReplicationParamsOwned {
@@ -411,38 +391,111 @@ impl AeronArchiveReplicationParamsBuilder {
     }
 
     pub fn build(self) -> Result<AeronArchiveReplicationParamsOwned, AeronCError> {
-        let live_destination = self.live_destination.unwrap_or_default().into_c_string();
-        let replication_channel = self.replication_channel.unwrap_or_default().into_c_string();
-        let src_response_channel = self.src_response_channel.unwrap_or_default().into_c_string();
-        let credentials_str = self.encoded_credentials.clone().unwrap_or_default().into_c_string();
-        let credentials_len = self.encoded_credentials.map(|c| c.len()).unwrap_or(0) as u32;
-        let credentials = AeronArchiveEncodedCredentials::new(&credentials_str, credentials_len)?;
-        let params = AeronArchiveReplicationParams::new(
-            self.stop_position.unwrap_or(AERON_NULL_VALUE as i64),
-            self.dst_recording_id.unwrap_or(AERON_NULL_VALUE as i64),
-            &live_destination,
-            &replication_channel,
-            &src_response_channel,
-            self.channel_tag_id.unwrap_or(AERON_NULL_VALUE as i64),
-            self.subscription_tag_id.unwrap_or(AERON_NULL_VALUE as i64),
-            self.file_io_max_length.unwrap_or(AERON_NULL_VALUE),
-            self.replication_session_id.unwrap_or(AERON_NULL_VALUE),
-            &credentials,
-        )?;
-        Ok(AeronArchiveReplicationParamsOwned {
-            params,
-            _credentials: credentials,
-            _strings: [
+        let c_string = |value: Option<String>| {
+            std::ffi::CString::new(value.unwrap_or_default())
+                .map_err(|_| AeronCError::from_code(PARSE_CSTR_ERROR_CODE))
+        };
+        let live_destination = c_string(self.live_destination)?;
+        let replication_channel = c_string(self.replication_channel)?;
+        let src_response_channel = c_string(self.src_response_channel)?;
+        let credentials_str = c_string(self.encoded_credentials)?;
+        let credentials_len = u32::try_from(credentials_str.as_bytes().len())
+            .map_err(|_| AeronCError::with_message(-1, "credentials exceed the native u32 length limit"))?;
+        // Params and their clones must keep all native pointers valid.
+        let credentials = unsafe { AeronArchiveEncodedCredentials::new(&credentials_str, credentials_len)? };
+        let params = unsafe {
+            AeronArchiveReplicationParams::new(
+                self.stop_position.unwrap_or(AERON_NULL_VALUE as i64),
+                self.dst_recording_id.unwrap_or(AERON_NULL_VALUE as i64),
+                &live_destination,
+                &replication_channel,
+                &src_response_channel,
+                self.channel_tag_id.unwrap_or(AERON_NULL_VALUE as i64),
+                self.subscription_tag_id.unwrap_or(AERON_NULL_VALUE as i64),
+                self.file_io_max_length.unwrap_or(AERON_NULL_VALUE),
+                self.replication_session_id.unwrap_or(AERON_NULL_VALUE),
+                &credentials,
+            )?
+        };
+        params.inner.add_dependency((
+            credentials,
+            [
                 live_destination,
                 replication_channel,
                 src_response_channel,
                 credentials_str,
             ],
-        })
+        ));
+        Ok(AeronArchiveReplicationParamsOwned { params })
     }
 }
 
+/// Borrow the context for as long as this retained handle is alive.
+///
+/// ```compile_fail,E0505
+/// # use rusteron_archive::RetainedArchiveContext;
+/// fn use_after_drop(handle: RetainedArchiveContext) {
+///     let context = handle.as_ref();
+///     drop(handle);
+///     context.get_control_request_stream_id();
+/// }
+/// ```
+///
+/// ```compile_fail,E0505
+/// # use rusteron_archive::RetainedArchiveContext;
+/// fn nested_ref_after_drop(handle: RetainedArchiveContext) {
+///     let client = handle.as_ref().get_aeron();
+///     drop(handle);
+///     client.is_closed();
+/// }
+/// ```
+/// A connected archive context kept alive by its native archive owner.
+pub type RetainedArchiveContext =
+    OwnedWithReference<ResourceRef<ManagedCResource<aeron_archive_t>>, AeronArchiveContext>;
+
 impl AeronArchive {
+    /// Keep the archive's context alive after the original archive handle is
+    /// dropped or closed. Cloning this handle also keeps the archive alive.
+    /// Ordinary `get_archive_context()` borrows the archive without cloning it.
+    ///
+    /// This fails for an uninitialised archive or after native context ownership
+    /// has been transferred away from the archive.
+    ///
+    /// ```no_run
+    /// # use rusteron_archive::*;
+    /// # fn example(archive: AeronArchive) -> Result<(), AeronCError> {
+    /// let context = archive.retain_archive_context()?;
+    /// archive.close()?;
+    /// let _stream_id = context.as_ref().get_control_request_stream_id();
+    /// # Ok(()) }
+    /// ```
+    pub fn retain_archive_context(&self) -> Result<RetainedArchiveContext, AeronCError> {
+        let Some(archive_owner) = self.inner.as_owned() else {
+            return Err(AeronCError::with_message(
+                -1,
+                "archive requires owning, live heap storage",
+            ));
+        };
+        let archive = archive_owner.get();
+        if archive.is_null() {
+            return Err(AeronCError::with_message(
+                -1,
+                "archive requires owning, live heap storage",
+            ));
+        }
+        // The checked heap owner keeps the native struct at this address.
+        let (owns_context, context) = unsafe { ((*archive).owns_ctx, (*archive).ctx) };
+        if !owns_context {
+            return Err(AeronCError::with_message(-1, "archive does not own its context"));
+        }
+        if context.is_null() {
+            return Err(AeronCError::with_message(-1, "archive context is null"));
+        }
+        // SAFETY: the native archive owns this context. Its shared Rust owner
+        // defers close until this handle and all its clones have dropped.
+        Ok(unsafe { OwnedWithReference::new(archive_owner.clone(), context) })
+    }
+
     /// Connect to an Aeron Archive in one call: context wiring, async connect, and a
     /// bounded blocking poll.
     ///
@@ -473,41 +526,42 @@ impl AeronArchive {
     /// response stream once and returns the archive error it carries, or `Ok(None)` when
     /// the stream is clean.
     ///
-    /// The C call copies only the archive's message text, which has no `errorCode=N`, so the
-    /// returned `code` is always [`AeronArchiveErrorCode::Generic`]. Blocking calls return the
-    /// typed code in their own `Err`.
+    /// Reads the numeric error code and full message from the native response poller.
+    /// Returns an error response even when its message is empty.
     ///
     /// Do not call it, or any other request on this archive, while an `AeronArchiveReplayMerge`
     /// on it is in progress: the merge reads the same responses, and one taken here stalls it
     /// until its progress timeout. The merge reports archive errors itself, as `Err` from its
     /// poll.
     pub fn poll_for_error(&self) -> Result<Option<AeronArchiveError>, AeronCError> {
-        let message = self.poll_for_error_response_as_string(4096)?;
-        if message.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(AeronArchiveError::parse(&message)))
+        // Aeron still fills the response poller when no text buffer is requested.
+        // Reading that result avoids a temporary buffer and message truncation.
+        self.poll_for_error_response(&mut [])?;
+        let poller = self.control_response_poller();
+        if !poller.is_poll_complete()
+            || !poller.is_control_response()
+            || !poller.is_code_error()
+            || poller.control_session_id() != self.control_session_id()
+        {
+            return Ok(None);
         }
+        let code = i32::try_from(poller.relevant_id())
+            .map_err(|_| AeronCError::with_message(-1, "Archive error code exceeds the i32 range"))?;
+        Ok(Some(AeronArchiveError {
+            code: AeronArchiveErrorCode::from_code(code),
+            message: poller.error_message_owned(),
+        }))
     }
 }
 
-impl AeronArchiveRecordingSignal {
-    /// Typed variant of [`Self::recording_signal_code`]: the wire signal as the
-    /// `aeron_archive_client_recording_signal_t` enum (START/STOP/EXTEND/REPLICATE/…),
-    /// or `None` for codes this client version does not know.
+impl<S: ResourceStorage<aeron_archive_recording_signal_t>> AeronArchiveRecordingSignal<S> {
+    /// Return the typed recording signal, or `None` for a null or unknown code.
+    #[inline]
     pub fn signal(&self) -> Option<aeron_archive_client_recording_signal_t> {
-        use aeron_archive_client_recording_signal_en::*;
-        Some(match self.recording_signal_code() {
-            0 => AERON_ARCHIVE_CLIENT_RECORDING_SIGNAL_START,
-            1 => AERON_ARCHIVE_CLIENT_RECORDING_SIGNAL_STOP,
-            2 => AERON_ARCHIVE_CLIENT_RECORDING_SIGNAL_EXTEND,
-            3 => AERON_ARCHIVE_CLIENT_RECORDING_SIGNAL_REPLICATE,
-            4 => AERON_ARCHIVE_CLIENT_RECORDING_SIGNAL_MERGE,
-            5 => AERON_ARCHIVE_CLIENT_RECORDING_SIGNAL_SYNC,
-            6 => AERON_ARCHIVE_CLIENT_RECORDING_SIGNAL_DELETE,
-            7 => AERON_ARCHIVE_CLIENT_RECORDING_SIGNAL_REPLICATE_END,
-            _ => return None,
-        })
+        match aeron_archive_client_recording_signal_t::try_from(self.recording_signal_code()).ok()? {
+            aeron_archive_client_recording_signal_en::AERON_ARCHIVE_CLIENT_RECORDING_SIGNAL_NULL_VALUE => None,
+            signal => Some(signal),
+        }
     }
 }
 
@@ -524,7 +578,7 @@ impl FragmentAssemblable for AeronArchivePersistentSubscription {
         assembler: Option<&Handler<AeronFragmentAssembler>>,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
-        self.poll(assembler, fragment_limit)
+        self.poll_with_handler(assembler, fragment_limit)
     }
 }
 
@@ -536,201 +590,6 @@ impl ControlledFragmentAssemblable for AeronArchivePersistentSubscription {
         assembler: Option<&Handler<AeronControlledFragmentAssembler>>,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
-        self.controlled_poll(assembler, fragment_limit)
-    }
-}
-
-// Recording descriptor pollers: written by hand, not generated
-//
-// `reset` stores the consumer and a later `poll` calls it. The generator only looks at the
-// callback type, and everywhere else this type is called during the call itself. So it would
-// generate a `reset_fn` whose closure is gone by the time `poll` runs, and a panic check that
-// runs too early. The generator skips methods defined in this file, so we write them here:
-// - `reset` takes a `Handler`, which the poller keeps alive, and uses the `_catch` trampoline so
-//   a panic never crosses C. A borrowed poller cannot keep it, so `reset` returns an error
-// - `poll` raises the caught panic after C returns
-
-// Owned descriptor pollers
-//
-// The archive's own pollers are borrowed, so `reset` refuses them. `new` makes a poller that we
-// own, so `reset` works. It keeps the archive alive and closes the C poller on drop.
-impl AeronArchiveRecordingDescriptorPoller {
-    /// A poller you own, for listing recordings without blocking. Send the request with
-    /// [`AeronArchive::archive_proxy`], call [`Self::reset`] with the same correlation id, then
-    /// call [`Self::poll`] until [`Self::is_dispatch_complete`].
-    ///
-    /// It reads the archive's control responses, so don't poll it while a blocking archive call
-    /// is running.
-    pub fn new(archive: &AeronArchive, fragment_limit: i32) -> Result<Self, AeronCError> {
-        let ctx = archive.get_archive_context().get_inner();
-        let subscription = archive.get_control_response_subscription().get_inner();
-        let control_session_id = archive.control_session_id();
-        let resource = ManagedCResource::new(
-            move |poller| unsafe {
-                aeron_archive_recording_descriptor_poller_create(
-                    poller,
-                    ctx,
-                    subscription,
-                    control_session_id,
-                    fragment_limit,
-                )
-            },
-            Some(Box::new(move |poller| unsafe {
-                aeron_archive_recording_descriptor_poller_close(*poller)
-            })),
-            false,
-        )?;
-        let poller = Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
-        };
-        poller.inner.add_dependency(archive.clone());
-        Ok(poller)
-    }
-}
-
-impl AeronArchiveRecordingSubscriptionDescriptorPoller {
-    /// A poller you own, for listing recording subscriptions without blocking. Used the same way
-    /// as [`AeronArchiveRecordingDescriptorPoller::new`].
-    ///
-    /// It reads the archive's control responses, so don't poll it while a blocking archive call
-    /// is running.
-    pub fn new(archive: &AeronArchive, fragment_limit: i32) -> Result<Self, AeronCError> {
-        let ctx = archive.get_archive_context().get_inner();
-        let subscription = archive.get_control_response_subscription().get_inner();
-        let control_session_id = archive.control_session_id();
-        let resource = ManagedCResource::new(
-            move |poller| unsafe {
-                aeron_archive_recording_subscription_descriptor_poller_create(
-                    poller,
-                    ctx,
-                    subscription,
-                    control_session_id,
-                    fragment_limit,
-                )
-            },
-            Some(Box::new(move |poller| unsafe {
-                aeron_archive_recording_subscription_descriptor_poller_close(*poller)
-            })),
-            false,
-        )?;
-        let poller = Self {
-            inner: CResource::OwnedOnHeap(RcOrArc::new(resource)),
-        };
-        poller.inner.add_dependency(archive.clone());
-        Ok(poller)
-    }
-}
-
-impl AeronArchiveRecordingDescriptorPoller {
-    /// Sets up the poller for the next `poll`, which calls `recording_descriptor_consumer` for
-    /// each descriptor received. The poller keeps the handler alive, so a borrowed poller (as
-    /// returned by `AeronArchive`) returns an error and C is not changed
-    #[inline]
-    pub fn reset<H: AeronArchiveRecordingDescriptorConsumerFuncCallback + 'static>(
-        &self,
-        correlation_id: i64,
-        record_count: i32,
-        recording_descriptor_consumer: Option<&Handler<H>>,
-    ) -> Result<(), AeronCError> {
-        // C keeps a pointer to the handler, so the poller must keep it alive. Pollers from
-        // `AeronArchive` are borrowed and cannot, so refuse before C is changed
-        let Some(inner) = self.inner.as_owned() else {
-            return Err(AeronCError::with_message(
-                -1,
-                "aeron_archive_recording_descriptor_poller_reset: this poller is borrowed, so it cannot keep the consumer alive",
-            ));
-        };
-        #[cfg(feature = "log-c-bindings")]
-        log::info!("aeron_archive_recording_descriptor_poller_reset({correlation_id}, {record_count})");
-        let callback: aeron_archive_recording_descriptor_consumer_func_t = recording_descriptor_consumer
-            .map(|_| aeron_archive_recording_descriptor_consumer_func_t_callback_catch::<H> as _);
-        let clientd = recording_descriptor_consumer.map_or(std::ptr::null_mut(), |h| h.as_raw());
-        unsafe {
-            aeron_archive_recording_descriptor_poller_reset(
-                self.get_inner(),
-                correlation_id,
-                record_count,
-                callback,
-                clientd,
-            )
-        };
-        if let Some(handler) = recording_descriptor_consumer {
-            inner.add_dependency(handler.clone());
-        }
-        Ok(())
-    }
-
-    /// Polls for descriptors, calling the consumer given to `reset`. A panic in the consumer is
-    /// raised here once C returns
-    #[inline]
-    pub fn poll(&self) -> Result<i32, AeronCError> {
-        let result = unsafe { aeron_archive_recording_descriptor_poller_poll(self.get_inner()) };
-        #[cfg(feature = "log-c-bindings")]
-        log::info!("aeron_archive_recording_descriptor_poller_poll() -> {result}");
-        resume_caught_panic();
-        if result < 0 {
-            Err(AeronCError::from_code(result))
-        } else {
-            Ok(result)
-        }
-    }
-}
-
-impl AeronArchiveRecordingSubscriptionDescriptorPoller {
-    /// Sets up the poller for the next `poll`, which calls
-    /// `recording_subscription_descriptor_consumer` for each descriptor received. The poller
-    /// keeps the handler alive, so a borrowed poller (as returned by `AeronArchive`) returns
-    /// an error and C is not changed
-    #[inline]
-    pub fn reset<H: AeronArchiveRecordingSubscriptionDescriptorConsumerFuncCallback + 'static>(
-        &self,
-        correlation_id: i64,
-        subscription_count: i32,
-        recording_subscription_descriptor_consumer: Option<&Handler<H>>,
-    ) -> Result<(), AeronCError> {
-        // C keeps a pointer to the handler, so the poller must keep it alive. Pollers from
-        // `AeronArchive` are borrowed and cannot, so refuse before C is changed
-        let Some(inner) = self.inner.as_owned() else {
-            return Err(AeronCError::with_message(
-                -1,
-                "aeron_archive_recording_subscription_descriptor_poller_reset: this poller is borrowed, so it cannot keep the consumer alive",
-            ));
-        };
-        #[cfg(feature = "log-c-bindings")]
-        log::info!(
-            "aeron_archive_recording_subscription_descriptor_poller_reset({correlation_id}, {subscription_count})"
-        );
-        let callback: aeron_archive_recording_subscription_descriptor_consumer_func_t =
-            recording_subscription_descriptor_consumer
-                .map(|_| aeron_archive_recording_subscription_descriptor_consumer_func_t_callback_catch::<H> as _);
-        let clientd = recording_subscription_descriptor_consumer.map_or(std::ptr::null_mut(), |h| h.as_raw());
-        unsafe {
-            aeron_archive_recording_subscription_descriptor_poller_reset(
-                self.get_inner(),
-                correlation_id,
-                subscription_count,
-                callback,
-                clientd,
-            )
-        };
-        if let Some(handler) = recording_subscription_descriptor_consumer {
-            inner.add_dependency(handler.clone());
-        }
-        Ok(())
-    }
-
-    /// Polls for descriptors, calling the consumer given to `reset`. A panic in the consumer is
-    /// raised here once C returns
-    #[inline]
-    pub fn poll(&self) -> Result<i32, AeronCError> {
-        let result = unsafe { aeron_archive_recording_subscription_descriptor_poller_poll(self.get_inner()) };
-        #[cfg(feature = "log-c-bindings")]
-        log::info!("aeron_archive_recording_subscription_descriptor_poller_poll() -> {result}");
-        resume_caught_panic();
-        if result < 0 {
-            Err(AeronCError::from_code(result))
-        } else {
-            Ok(result)
-        }
+        self.controlled_poll_with_handler(assembler, fragment_limit)
     }
 }

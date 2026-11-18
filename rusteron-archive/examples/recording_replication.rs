@@ -96,7 +96,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    let session_id = publication.get_constants()?.session_id;
+    let session_id = publication.get_constants()?.session_id();
     let counters = src.aeron.counters_reader();
     let counter_id = find_counter_id_by_session_in_archive_blocking(
         &counters,
@@ -128,7 +128,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 3. Wait for the destination copy to reach the source stop position
     let deadline = Instant::now() + Duration::from_secs(30);
-    let mut replicated: Option<AeronArchiveRecordingDescriptor> = None;
+    let mut replicated = None;
     while Instant::now() < deadline {
         // One duty-cycle step: dispatches a recording signal, or returns the archive error
         // (this context has no archive error handler).
@@ -138,9 +138,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut count = 0i32;
         let mut found = None;
         dst.archive.list_recordings_fn(&mut count, 0, 100, |descriptor| {
-            if descriptor.stop_position == stop_position {
-                // SAFETY: only scalar fields of the copy are read after the callback returns
-                found = Some(unsafe { descriptor.clone_struct() });
+            if descriptor.stop_position() == stop_position {
+                found = Some((
+                    descriptor.recording_id(),
+                    descriptor.start_position(),
+                    descriptor.stop_position(),
+                    descriptor.session_id(),
+                ));
             }
         })?;
         if let Some(descriptor) = found {
@@ -149,18 +153,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         sleep(Duration::from_millis(50));
     }
-    let replicated = replicated.ok_or("replication did not complete in time")?;
+    let (recording_id, start_position, replicated_stop, replicated_session) =
+        replicated.ok_or("replication did not complete in time")?;
     println!(
         "[dst] recording {} replicated: [{} .. {}] ({} bytes), source session {}",
-        replicated.recording_id,
-        replicated.start_position,
-        replicated.stop_position,
-        replicated.stop_position - replicated.start_position,
-        replicated.session_id,
+        recording_id,
+        start_position,
+        replicated_stop,
+        replicated_stop - start_position,
+        replicated_session,
     );
-    assert_eq!(replicated.stop_position, stop_position);
+    assert_eq!(replicated_stop, stop_position);
     assert_eq!(
-        replicated.session_id, session_id,
+        replicated_session, session_id,
         "replication keeps the source session id"
     );
     println!("replication complete and verified");

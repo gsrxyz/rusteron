@@ -80,8 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     let recording_id = RecordingPos::get_recording_id_block(&counters, counter_id, Duration::from_secs(5))?;
 
-    // Publish the history as fast as flow control allows. Everything runs on this thread:
-    // without `multi-threaded` a publication stays on the thread whose client created it.
+    // Publish the history on this thread as fast as flow control allows.
     let mut published = 0u64;
     while published < HISTORY_MESSAGES {
         let message = format!("message-{published}");
@@ -156,7 +155,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// so it stays caught up; does nothing until then.
 fn publish_live(
     publication: &AeronPublication,
-    counters: &AeronCountersReader,
+    counters: &AeronCountersReader<impl ResourceStorage<bindings::aeron_counters_reader_t>>,
     (counter_id, recording_id): (i32, i64),
     published: &mut u64,
 ) -> Result<(), Box<dyn std::error::Error>> {

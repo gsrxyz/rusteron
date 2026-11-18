@@ -1,5 +1,8 @@
 # Migrating from 0.1.168 to 0.2
 
+This page describes the 0.2 release. For changes in the current branch, see
+[the 0.2-to-0.3 migration guide](migrating_0.2_to_0.3.md).
+
 The table maps every renamed or changed API from old to new. See also [What's new in 0.2](https://github.com/gsrxyz/rusteron/blob/main/docs/whats_new_0.2.md).
 
 | 0.1.168 | 0.2 | Notes |
@@ -19,7 +22,7 @@ The table maps every renamed or changed API from old to new. See also [What's ne
 | `Handlers::no_available_image_handler()`, `no_unavailable_image_handler()`, … | `Handlers::NONE` | Use this constant for any callback parameter. Rust infers its type. The old helpers are removed. |
 | `pub.add_destination(&aeron, dest, timeout)` (`&mut self`) | `pub.add_destination(dest, timeout)` (`&self`) | Owning `Aeron` comes from the handle's dependency graph. Same for subscriptions / exclusive publications. |
 | `AeronCnc::new(dir)` | `AeronCnc::open(&CStr)` or `AeronCnc::read(&CStr, \|cnc\| { … })` | `new_on_heap`/`read_on_partial_stack` renamed; now accept `&CStr` (not `&str`/`&CString`). `read` borrows the CnC data for one call without allocating. `open` returns an owned handle for repeated polling. |
-| `&"aeron:ipc".into_c_string()` (allocates at runtime) | `c"aeron:ipc"` | See [C strings without hidden allocations](https://github.com/gsrxyz/rusteron/blob/main/README.md#c-strings-without-hidden-allocations); `cformat!` for dynamic URIs. |
+| `&"aeron:ipc".into_c_string()` (allocates at runtime) | `c"aeron:ipc"` | See [C strings without hidden allocations](https://github.com/gsrxyz/rusteron/blob/main/docs/client-guide.md#c-strings-without-hidden-allocations); `cformat!` for dynamic URIs. |
 | `wrapper.get_inner_mut()` / `ManagedCResource::get_mut()` (safe) | `unsafe …()` | `&mut` from `&self`; the caller must now promise exclusive access. |
 | `poll_fn(\|msg, header: AeronHeader\| …)`, `fn handle_aeron_fragment_handler(&mut self, msg: &[u8], header: AeronHeader)`, `list_recordings_fn(…, \|d: AeronArchiveRecordingDescriptor\| …)` | `header: &AeronHeader`, `d: &AeronArchiveRecordingDescriptor`, `image: &AeronImage`, … | Callbacks borrow every wrapper argument for the call, because C frees or reuses the struct when the callback returns. Untyped closures that only read the argument need no change. Closures that keep it no longer compile. Functions you pass the header on to take `&AeronHeader` too. |
 | `header.clone()`, `AeronHeader::from(ptr)`, `descriptor.clone()` | copy the fields out (`d.recording_id`, `d.original_channel().to_owned()`), or `unsafe { d.clone_reference() }` / `unsafe { AeronHeader::from_ptr(ptr) }` inside the callback | `AeronHeader`, `AeronArchiveRecordingDescriptor`, `AeronArchiveRecordingSubscriptionDescriptor`, `AeronArchiveRecordingSignal` and `AeronPublicationErrorValues` only exist inside callbacks. They lose `Clone` and the safe `From` impls, because each one let safe code keep the struct after the callback. |

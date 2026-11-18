@@ -23,6 +23,16 @@ const PAYLOAD_LEN: usize = 32;
 const FRAME_LEN: i64 = 64;
 const BATCH: u64 = 1024;
 
+#[derive(Default)]
+struct ByteCounter(u64);
+
+impl AeronFragmentHandlerCallback for ByteCounter {
+    #[inline]
+    fn handle_aeron_fragment_handler(&mut self, message: &[u8], _: &AeronHeader) {
+        self.0 += message.len() as u64;
+    }
+}
+
 struct Harness {
     publisher: AeronPublication,
     subscription: AeronSubscription,
@@ -78,11 +88,13 @@ fn harness() -> Harness {
 fn warm_up(h: &Harness) {
     let _ = h.publisher.offer(&h.payload);
     if h.publisher.try_claim_raw(PAYLOAD_LEN, &h.claim) >= 0 {
-        let _ = h.claim.commit();
+        // SAFETY: try_claim_raw succeeded, and this thread holds the claim.
+        let _ = unsafe { h.claim.commit() };
     }
     let _ = h.exclusive.offer(&h.payload);
     if h.exclusive.try_claim_raw(PAYLOAD_LEN, &h.claim) >= 0 {
-        let _ = h.claim.commit();
+        // SAFETY: try_claim_raw succeeded, and this thread holds the claim.
+        let _ = unsafe { h.claim.commit() };
     }
     offerv(h.exclusive.get_inner(), &h.payload);
     while h.subscription.poll_fn(|_, _| {}, 1024).expect("drain") > 0 {}
@@ -223,7 +235,8 @@ fn hot_path(c: &mut Criterion) {
         b.iter_custom(|iters| {
             concurrent.time_publish(iters, || {
                 if h.publisher.try_claim_raw(PAYLOAD_LEN, &h.claim) >= 0 {
-                    let _ = black_box(h.claim.commit());
+                    // SAFETY: try_claim_raw succeeded, and this thread holds the claim.
+                    let _ = black_box(unsafe { h.claim.commit() });
                 }
             })
         })
@@ -239,7 +252,8 @@ fn hot_path(c: &mut Criterion) {
         b.iter_custom(|iters| {
             exclusive.time_publish(iters, || {
                 if h.exclusive.try_claim_raw(PAYLOAD_LEN, &h.claim) >= 0 {
-                    let _ = black_box(h.claim.commit());
+                    // SAFETY: try_claim_raw succeeded, and this thread holds the claim.
+                    let _ = black_box(unsafe { h.claim.commit() });
                 }
             })
         })
@@ -260,6 +274,31 @@ fn hot_path(c: &mut Criterion) {
         b.iter(|| black_box(h.subscription.get_constants()))
     });
     let mut received = 0u64;
+    // The callback work and fragment limits match. Only callback ownership differs.
+    let mut direct = ByteCounter::default();
+    g.bench_function("poll_callback_per_fragment", |b| {
+        b.iter_custom(|iters| {
+            h.time_poll(iters, |limit| {
+                h.subscription.poll(&mut direct, limit).expect("poll") as usize
+            })
+        })
+    });
+    black_box(direct.0);
+    let shared = Handler::new(ByteCounter::default());
+    g.bench_function("poll_with_handler_per_fragment", |b| {
+        b.iter_custom(|iters| {
+            h.time_poll(iters, |limit| {
+                h.subscription.poll_with_handler(Some(&shared), limit).expect("poll") as usize
+            })
+        })
+    });
+    black_box(shared.borrow().0);
+    g.bench_function("poll_callback_empty", |b| {
+        b.iter(|| black_box(h.subscription.poll(&mut direct, 32).expect("poll")))
+    });
+    g.bench_function("poll_with_handler_empty", |b| {
+        b.iter(|| black_box(h.subscription.poll_with_handler(Some(&shared), 32).expect("poll")))
+    });
     let c_subscription = h.subscription.get_inner();
     g.bench_function("c_poll_per_fragment", |b| {
         b.iter_custom(|iters| {

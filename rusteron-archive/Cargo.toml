@@ -49,13 +49,13 @@ walkdir           = { workspace = true }
 [dev-dependencies]
 fd-lock     = { workspace = true }
 rusteron-code-gen = { workspace = true }
+rusteron-media-driver = { path = "../rusteron-media-driver" }
 serial_test = { workspace = true }
 
 [features]
-multi-threaded = [] # Rc -> Arc + unsafe impl Sync for cross-thread sharing
 # using static as different modules have different versions of aeron which don't seem to play nicely
 default        = ["build-from-source"]
-static         = ["build-from-source"]   # Statically links the Aeron C code
+static         = ["build-from-source", "rusteron-media-driver/static"]   # Statically links the Aeron C code
 backtrace      = []   # Logs the backtrace on each AeronCError
 strict-lifecycle = ["rusteron-code-gen/strict-lifecycle"]   # Panic on Drop-time lifecycle leaks in tests
 extra-logging  = []   # Logs when resources are created and destroyed

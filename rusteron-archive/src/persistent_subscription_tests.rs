@@ -84,7 +84,7 @@ mod tests {
             Aeron,
             AeronArchiveContext,
             EmbeddedArchiveMediaDriverProcess,
-            Handler<ErrorCount>,
+            SharedHandler<ErrorCount>,
         ),
         Box<dyn Error>,
     > {
@@ -113,7 +113,7 @@ mod tests {
         aeron_context.set_dir(&aeron_dir.into_c_string())?;
         aeron_context.set_client_name(&format!("test-{}", aeron_dir_suffix).into_c_string())?;
 
-        let error_handler = Handler::new(ErrorCount::default());
+        let error_handler = SharedHandler::new_shared(ErrorCount::default());
         aeron_context.set_error_handler(Some(error_handler.clone()))?;
 
         // Create aeron and archive context
@@ -197,7 +197,7 @@ mod tests {
         // Drain the subscription's image into existence before publishing.
         let start = Instant::now();
         while subscription.image_count()? == 0 && start.elapsed() < Duration::from_secs(5) {
-            subscription.poll(Some(&handler), 10)?;
+            subscription.poll_with_handler(Some(&handler), 10)?;
             sleep(Duration::from_millis(10));
         }
         assert!(
@@ -215,13 +215,13 @@ mod tests {
 
         // Poll for messages
         let start = Instant::now();
-        while handler.count.get() < message_count && start.elapsed() < Duration::from_secs(10) {
-            subscription.poll(Some(&handler), 10)?;
+        while handler.borrow().count.get() < message_count && start.elapsed() < Duration::from_secs(10) {
+            subscription.poll_with_handler(Some(&handler), 10)?;
             sleep(Duration::from_millis(10));
         }
 
         assert_eq!(
-            handler.count.get(),
+            handler.borrow().count.get(),
             message_count,
             "Should receive all messages from live stream"
         );
@@ -282,7 +282,7 @@ mod tests {
         info!("Published {} initial messages for replay", initial_message_count);
 
         // Resolve the recording and wait for it to flush.
-        let session_id = publication.get_constants()?.session_id;
+        let session_id = publication.get_constants()?.session_id();
         let counters_reader = aeron_archive.counters_reader();
         let counter_id =
             crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
@@ -327,17 +327,17 @@ mod tests {
         let handler = Handler::new(PhaseHandler::default());
 
         let start = Instant::now();
-        while handler.replay_count < initial_message_count && start.elapsed() < Duration::from_secs(20) {
-            replay_sub.poll(Some(&handler), 100)?;
+        while handler.borrow().replay_count < initial_message_count && start.elapsed() < Duration::from_secs(20) {
+            replay_sub.poll_with_handler(Some(&handler), 100)?;
             sleep(Duration::from_millis(10));
         }
         assert!(
-            handler.replay_count >= initial_message_count,
+            handler.borrow().replay_count >= initial_message_count,
             "Should have received all replay messages (got {})",
-            handler.replay_count
+            handler.borrow().replay_count
         );
         replay_sub.close()?;
-        info!("Replayed {} messages", handler.replay_count);
+        info!("Replayed {} messages", handler.borrow().replay_count);
 
         // Phase 3: live consumption. Subscribe first and wait for an image.
         let subscription = aeron_archive
@@ -345,7 +345,7 @@ mod tests {
             .poll_blocking(Duration::from_secs(5))?;
         let start = Instant::now();
         while subscription.image_count()? == 0 && start.elapsed() < Duration::from_secs(5) {
-            subscription.poll(Some(&handler), 10)?;
+            subscription.poll_with_handler(Some(&handler), 10)?;
             sleep(Duration::from_millis(10));
         }
 
@@ -362,14 +362,14 @@ mod tests {
         }
 
         let start = Instant::now();
-        while handler.live_count < live_message_count && start.elapsed() < Duration::from_secs(20) {
-            subscription.poll(Some(&handler), 100)?;
+        while handler.borrow().live_count < live_message_count && start.elapsed() < Duration::from_secs(20) {
+            subscription.poll_with_handler(Some(&handler), 100)?;
             sleep(Duration::from_millis(10));
         }
         assert!(
-            handler.live_count >= live_message_count,
+            handler.borrow().live_count >= live_message_count,
             "Should have received live messages (got {})",
-            handler.live_count
+            handler.borrow().live_count
         );
 
         Ok(())
@@ -419,7 +419,7 @@ mod tests {
         }
 
         // Get recording ID
-        let session_id = publication.get_constants()?.session_id;
+        let session_id = publication.get_constants()?.session_id();
         let counters_reader = aeron_archive.counters_reader();
         let counter_id =
             crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
@@ -456,11 +456,14 @@ mod tests {
 
         archive_context_reconnect.set_aeron(&aeron_archive)?;
         archive_context_reconnect
-            .set_control_request_channel(&archive_context.get_control_request_channel().into_c_string())?;
+            // SAFETY: this expression consumes the text before any context mutation.
+            .set_control_request_channel(&unsafe { archive_context.get_control_request_channel() }.into_c_string())?;
         archive_context_reconnect
-            .set_control_response_channel(&archive_context.get_control_response_channel().into_c_string())?;
+            // SAFETY: this expression consumes the text before any context mutation.
+            .set_control_response_channel(&unsafe { archive_context.get_control_response_channel() }.into_c_string())?;
         archive_context_reconnect
-            .set_recording_events_channel(&archive_context.get_recording_events_channel().into_c_string())?;
+            // SAFETY: this expression consumes the text before any context mutation.
+            .set_recording_events_channel(&unsafe { archive_context.get_recording_events_channel() }.into_c_string())?;
 
         // Retry reconnection with exponential backoff to handle the CLOSING
         // state race: close() is async and the channel endpoint may still be
@@ -562,7 +565,7 @@ mod tests {
         }
 
         // Verify recording exists
-        let session_id = publication.get_constants()?.session_id;
+        let session_id = publication.get_constants()?.session_id();
         let counters_reader = aeron_archive.counters_reader();
         let counter_id =
             crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
@@ -717,7 +720,7 @@ mod tests {
         info!("Published {} test messages", test_messages.len());
 
         // Get recording ID
-        let session_id = publication.get_constants()?.session_id;
+        let session_id = publication.get_constants()?.session_id();
         let counters_reader = aeron_archive.counters_reader();
         let counter_id =
             crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
@@ -770,19 +773,19 @@ mod tests {
 
         // Poll for all messages
         let start = Instant::now();
-        while handler.received.len() < test_messages.len() && start.elapsed() < Duration::from_secs(20) {
-            subscription.poll(Some(&handler), 100)?;
+        while handler.borrow().received.len() < test_messages.len() && start.elapsed() < Duration::from_secs(20) {
+            subscription.poll_with_handler(Some(&handler), 100)?;
             sleep(Duration::from_millis(10));
         }
 
         // Verify data integrity
         assert_eq!(
-            handler.received.len(),
+            handler.borrow().received.len(),
             test_messages.len(),
             "Should receive all test messages"
         );
 
-        for (i, (seq, data)) in handler.received.iter().enumerate() {
+        for (i, (seq, data)) in handler.borrow().received.iter().enumerate() {
             assert_eq!(*seq, i as u64, "Sequence number should match");
             assert_eq!(*data, format!("Test Data Message {}", i), "Data content should match");
         }
@@ -933,7 +936,7 @@ mod tests {
         }
 
         // Get recording position (wait for the recording to capture the messages)
-        let session_id = publication.get_constants()?.session_id;
+        let session_id = publication.get_constants()?.session_id();
         let counters_reader = aeron_archive.counters_reader();
         let counter_id =
             crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
@@ -1033,7 +1036,7 @@ mod tests {
         while start.elapsed() < Duration::from_secs(5) {
             let mut all_ready = true;
             for (i, sub) in subscriptions.iter().enumerate() {
-                sub.poll(Some(&handlers[i]), 10)?;
+                sub.poll_with_handler(Some(&handlers[i]), 10)?;
                 if sub.image_count()? == 0 {
                     all_ready = false;
                 }
@@ -1061,12 +1064,12 @@ mod tests {
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(10) {
             for (i, sub) in subscriptions.iter().enumerate() {
-                sub.poll(Some(&handlers[i]), 10)?;
+                sub.poll_with_handler(Some(&handlers[i]), 10)?;
             }
             sleep(Duration::from_millis(10));
 
             // Check if all received expected messages
-            let all_complete = handlers.iter().all(|h| h.count.get() >= message_count);
+            let all_complete = handlers.iter().all(|h| h.borrow().count.get() >= message_count);
             if all_complete {
                 break;
             }
@@ -1075,11 +1078,11 @@ mod tests {
         // Verify all subscriptions received the messages
         for (i, handler) in handlers.iter().enumerate() {
             assert!(
-                handler.count.get() >= message_count,
+                handler.borrow().count.get() >= message_count,
                 "Subscription {} should have received all messages",
                 i
             );
-            info!("Subscription {} received {} messages", i, handler.count.get());
+            info!("Subscription {} received {} messages", i, handler.borrow().count.get());
         }
 
         // Cleanup
@@ -1143,7 +1146,7 @@ mod tests {
             }
         }
 
-        let session_id = publication.get_constants()?.session_id;
+        let session_id = publication.get_constants()?.session_id();
         let counters_reader = aeron_archive.counters_reader();
         let counter_id =
             crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;
@@ -1248,7 +1251,8 @@ mod tests {
         let (aeron, archive_context, _media_driver_archive, _archive_error_handler) =
             start_aeron_archive_with_config("ps_new_with_aeron", 9796)?;
         let other_context = AeronContext::new()?;
-        other_context.set_dir(&aeron.context().get_dir().into_c_string())?;
+        // SAFETY: client initialization froze the source context configuration.
+        other_context.set_dir(&unsafe { aeron.context().get_dir().into_c_string() })?;
         let other = Aeron::new(&other_context)?;
         other.start()?;
 
@@ -1279,7 +1283,8 @@ mod tests {
         let (aeron, archive_context, _media_driver_archive, _archive_error_handler) =
             start_aeron_archive_with_config("ps_context_client", 9795)?;
         let other_context = AeronContext::new()?;
-        other_context.set_dir(&aeron.context().get_dir().into_c_string())?;
+        // SAFETY: client initialization froze the source context configuration.
+        other_context.set_dir(&unsafe { aeron.context().get_dir().into_c_string() })?;
         let other = Aeron::new(&other_context)?;
         other.start()?;
         assert_eq!(archive_context.get_aeron().get_inner(), aeron.get_inner());
@@ -1313,9 +1318,12 @@ mod tests {
         let replaced =
             AeronAsyncAddCounter::new(&aeron, state_type, &[], "replaced")?.poll_blocking(Duration::from_secs(5))?;
         let kept = AeronAsyncAddCounter::new(&aeron, state_type, &[], "kept")?.poll_blocking(Duration::from_secs(5))?;
-        let builder = persistent_subscription_builder()?
-            .state_counter(&replaced)?
-            .state_counter(&kept)?;
+        // SAFETY: neither counter is used again. The client outlives the builder.
+        let builder = unsafe {
+            persistent_subscription_builder()?
+                .state_counter(&replaced)?
+                .state_counter(&kept)?
+        };
         drop((replaced, kept, builder));
 
         let counters_reader = aeron.counters_reader();
@@ -1354,8 +1362,14 @@ mod tests {
         let ps = {
             let context = AeronArchiveContext::new()?;
             context.set_aeron(&aeron)?;
-            context.set_control_request_channel(&archive_context.get_control_request_channel().into_c_string())?;
-            context.set_control_response_channel(&archive_context.get_control_response_channel().into_c_string())?;
+            // SAFETY: this expression consumes the text before any context mutation.
+            context.set_control_request_channel(
+                &unsafe { archive_context.get_control_request_channel() }.into_c_string(),
+            )?;
+            // SAFETY: this expression consumes the text before any context mutation.
+            context.set_control_response_channel(
+                &unsafe { archive_context.get_control_response_channel() }.into_c_string(),
+            )?;
             persistent_subscription_builder()?
                 .aeron(&aeron)?
                 .archive_context(&context)?
@@ -1444,7 +1458,7 @@ mod tests {
                 sleep(Duration::from_millis(1));
             }
         }
-        let session_id = publication.get_constants()?.session_id;
+        let session_id = publication.get_constants()?.session_id();
         let counters_reader = aeron_archive.counters_reader();
         let counter_id =
             crate::testing::find_counter_id_by_session_blocking(&counters_reader, session_id, Duration::from_secs(5))?;

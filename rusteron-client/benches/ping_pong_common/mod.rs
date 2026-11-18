@@ -5,7 +5,7 @@ use criterion::Criterion;
 use rusteron_client::*;
 use std::error::Error;
 use std::ffi::CStr;
-use std::hint::{black_box, spin_loop};
+use std::hint::black_box;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -53,6 +53,7 @@ pub fn run_pong(
 
     // the poll callback cannot return an error, so it parks the first one here
     let mut failure = None;
+    let mut idle = BusySpinIdleStrategy::new();
     while running() {
         let fragments = subscription.poll_fn(
             |buffer, _header| {
@@ -65,9 +66,7 @@ pub fn run_pong(
         if let Some(e) = failure.take() {
             return Err(e);
         }
-        if fragments == 0 {
-            spin_loop();
-        }
+        idle.idle(fragments);
     }
     Ok(())
 }
@@ -114,6 +113,7 @@ fn wait_for_pong(
 
 #[inline]
 fn echo(publication: &AeronExclusivePublication, buffer: &[u8]) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut idle = BusySpinIdleStrategy::new();
     loop {
         match publication.try_claim_owned(buffer.len()) {
             // pings never fragment, so the claim's own BEGIN|END flags are the right ones
@@ -122,7 +122,7 @@ fn echo(publication: &AeronExclusivePublication, buffer: &[u8]) -> Result<(), Bo
                 claim.commit()?;
                 return Ok(());
             }
-            Err(e) if e.is_retryable() => spin_loop(),
+            Err(e) if e.is_retryable() => idle.idle(0),
             Err(e) => return Err(e.into()),
         }
     }
@@ -134,12 +134,13 @@ fn record_rtt(
     image: &AeronImage,
     buffer: &mut [u8],
 ) -> Result<(), Box<dyn Error>> {
+    let mut idle = BusySpinIdleStrategy::new();
     let position = loop {
         // stamp each attempt, so time spent back-pressured is not counted as RTT
         buffer[0..8].copy_from_slice(&Aeron::nano_clock().to_le_bytes());
         match publication.offer(buffer) {
             Ok(position) => break position,
-            Err(e) if e.is_retryable() => spin_loop(),
+            Err(e) if e.is_retryable() => idle.idle(0),
             Err(e) => return Err(e.into()),
         }
     };
@@ -156,8 +157,8 @@ fn record_rtt(
             if image.is_closed() {
                 return Err("pong went away".into());
             }
-            spin_loop();
         }
+        idle.idle(fragments);
     }
     Ok(())
 }

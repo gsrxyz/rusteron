@@ -77,7 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    let session_id = publication.get_constants()?.session_id;
+    let session_id = publication.get_constants()?.session_id();
     let counters_reader = aeron.counters_reader();
     let counter_id = find_counter_id_by_session_in_archive_blocking(
         &counters_reader,
@@ -146,7 +146,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Phase 2: the live stream dies
     println!("phase 2: dropping the live publication (upstream service dies)...");
     // where the stream stopped, so the restarted publisher can resume it there
-    let constants = publication.get_constants()?;
+    let (initial_term_id, term_buffer_length) = {
+        let constants = publication.get_constants()?;
+        (constants.initial_term_id(), constants.term_buffer_length())
+    };
     let stopped_at = publication.position();
     drop(publication);
     let deadline = Instant::now() + Duration::from_secs(30);
@@ -169,12 +172,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // restarted publisher resumes the same session where it stopped.
     println!("phase 3: resuming the live publication where it stopped...");
     let resumed = live_channel.parse::<AeronUriStringBuilder>()?;
-    resumed.session_id(&constants.session_id().to_string())?;
-    resumed.set_initial_position(
-        stopped_at,
-        constants.initial_term_id(),
-        constants.term_buffer_length() as i32,
-    )?;
+    resumed.session_id(&session_id.to_string())?;
+    resumed.set_initial_position(stopped_at, initial_term_id, term_buffer_length as i32)?;
     let resumed = resumed.build(bindings::AERON_URI_MAX_LENGTH as usize)?;
     publication = aeron
         .async_add_exclusive_publication(&cformat!("{resumed}"), stream_id)?

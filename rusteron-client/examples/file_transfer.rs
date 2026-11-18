@@ -99,10 +99,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // `offer_parts` copies the parts straight into the term buffer: no per-message Vec to concatenate them.
     let offer = |publication: &AeronPublication, parts: &[&[u8]]| -> Result<(), AeronOfferError> {
         let deadline = Instant::now() + Duration::from_secs(10);
+        let mut idle = BackoffIdleStrategy::new();
         loop {
             match publication.offer_parts(parts) {
                 Ok(_) => return Ok(()),
-                Err(e) if e.is_retryable() && Instant::now() < deadline => std::hint::spin_loop(),
+                Err(e) if e.is_retryable() && Instant::now() < deadline => idle.idle(0),
                 Err(e) => return Err(e),
             }
         }

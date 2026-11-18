@@ -6800,3 +6800,22 @@ unsafe extern "C" {
     pub fn aeron_archive_client_version_patch() -> ::std::os::raw::c_int;
 }
 pub type __builtin_va_list = *mut ::std::os::raw::c_char;
+
+pub const AERON_ARCHIVE_MAJOR_VERSION: u32 = 1;
+pub const AERON_ARCHIVE_MINOR_VERSION: u32 = 11;
+pub const AERON_ARCHIVE_PATCH_VERSION: u32 = 0;
+unsafe extern "C" {
+    pub fn aeron_archive_replay_params_copy(
+        dst: *mut aeron_archive_replay_params_t,
+        src: *mut aeron_archive_replay_params_t,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn aeron_archive_replay_params_is_bounded(params: *mut aeron_archive_replay_params_t) -> bool;
+}
+unsafe extern "C" {
+    pub fn aeron_archive_semantic_version() -> i32;
+}
+unsafe extern "C" {
+    pub fn aeron_archive_protocol_version_with_archive_id() -> i32;
+}

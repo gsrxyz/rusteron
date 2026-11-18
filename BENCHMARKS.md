@@ -4,16 +4,25 @@ Reliable performance comparisons require equivalent workloads and a controlled s
 
 Writing a fair benchmark takes several iterations. Review both the code and the results, repeat the measurements, and resolve unexplained differences before publishing conclusions.
 
+To isolate callback storage overhead, run
+`cargo bench -p rusteron-client --features static --bench callback_overhead`.
+It compares the same callback work with owned, local, shared and replaceable
+storage, without a media driver or transport. Shared callbacks are uncontended
+in this benchmark; their timings do not describe delays under contention.
+
 ## Rules
 
 - **Compare equivalent work.** Both implementations must perform the same operations. Extra allocation, copying or processing on one side prevents the difference from being attributed to the library alone.
 - **Measure one thing at a time.** Choose one question per benchmark. When investigating costs, measure publishing, polling, copying, serialisation, fragment assembly and header processing separately. A combined workload measures their total cost; profile and isolate the cause before attributing that cost to Aeron or Rusteron. Change one factor at a time.
 - **Match versions and build settings.** Use the same Aeron version for the native clients and media driver, and the same Rust and native compiler versions. Match optimisation flags, enabled features and build profiles. Record these details with the results.
+- **Use the same idle strategy.** Use the idle-strategy API in retry and poll loops, including benchmarks that call C directly. Match the strategy and its parameters in every implementation being compared. A no-op strategy and a busy-spin strategy perform different work when idle.
 - **Verify release builds.** Use `--release`, or check the optimised benchmark profile used by `cargo bench`. Build the native C/C++ libraries with matching release optimisations as well.
 - **Warm up before measuring.** Allow connections, memory mappings, caches and the workload to settle. Use the same warmup policy for both implementations. Exclude warmup samples and reset histograms, counters and timers before measurement. Record the warmup count or duration and verify that performance has stabilised.
 - **Match message sizes and measurement scope.** Use identical payload sizes and measured sample counts for tests with a fixed count. For tests with a fixed duration, use the same duration. Report the actual sample count and elapsed measurement time so readers can assess exposure to rare events.
 - **Review the comparison critically.** Look for differences that could explain the results, including when they favour Rusteron. Read both implementations and check the setup. Apply the same scrutiny to results that support or challenge your expectations.
 - **Keep benchmarks simple.** Use the smallest workload that answers the question. Keep measured loops short and easy to compare, with as little supporting code as possible. This makes extra work and measurement errors easier to identify.
+- **Run an identical-binary control.** Compare the same executable under both labels with the same warmup, message count and CPU placement. Alternate the run order. If the variation is comparable to the claimed improvement or regression, the setup cannot resolve that difference.
+- **Name the metric correctly.** For batched operation costs, report the average time per operation and the variation across runs. The median of those averages is not p50 message latency.
 - **Inspect the latency distribution.** For latency tests, report the minimum, p50, p99, p99.9, p99.99 and maximum. Investigate unusual values, including tail latency, before drawing conclusions. Check units, clock resolution, timestamp placement, missing samples and scheduling pauses.
 - **Check that results are plausible.** Consider the hardware, transport and amount of work measured. Verify that messages are sent, received and counted correctly. Investigate unexpectedly good results as carefully as unexpectedly poor ones, and reproduce them before publishing conclusions.
 

@@ -51,7 +51,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .poll_blocking(Duration::from_secs(5))?;
     x86lab::wait_until("the recording", 10, || publication.is_connected());
     let counters = aeron.counters_reader();
-    let session_id = publication.get_constants()?.session_id;
+    let session_id = publication.get_constants()?.session_id();
     let mut counter_id = -1;
     x86lab::wait_until("the recording counter", 10, || {
         counter_id = RecordingPos::find_counter_id_by_session(&counters, session_id);
@@ -63,10 +63,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let message = vec![7u8; length];
     let start = Instant::now();
     let mut sent = 0;
+    let mut idle = BusySpinIdleStrategy::new();
     while sent < messages {
         match publication.offer(&message) {
             Ok(_) => sent += 1,
-            Err(e) if e.is_retryable() => std::hint::spin_loop(),
+            Err(e) if e.is_retryable() => idle.idle(0),
             Err(e) => return Err(format!("offer failed after {sent} messages: {e}").into()),
         }
     }
@@ -81,7 +82,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             start.elapsed() < Duration::from_secs(120),
             "the recording did not catch up"
         );
-        std::hint::spin_loop();
+        idle.idle(0);
     }
     let recorded = start.elapsed();
     let rate = |d: Duration| messages as f64 / d.as_secs_f64();

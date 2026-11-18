@@ -143,8 +143,7 @@ fn bench_offer(c: &mut Criterion) {
 
     // Touch the complete three-term ring before Criterion's own per-arm warmup.
     // This is setup work: its returned duration is intentionally discarded
-    let constants = AeronPublicationConstants::new_zeroed_on_stack();
-    h.publisher.constants(&constants).unwrap();
+    let constants = h.publisher.get_constants().unwrap();
     let ring_messages = 3 * constants.term_buffer_length() as u64 / frame_length(warmup_payload.len()) as u64 + 1;
     let _ = timed(&h, ring_messages, &warmup_payload, true, || {
         h.publisher.offer(&warmup_payload).is_ok()
@@ -213,7 +212,8 @@ fn bench_offer(c: &mut Criterion) {
                 b.iter_custom(|iters| {
                     timed(&h, iters, &payload, false, || {
                         if h.publisher.try_claim_raw(payload_len, &claim_buf) >= 0 {
-                            claim_buf.commit().unwrap();
+                            // SAFETY: this thread holds the successful raw claim.
+                            unsafe { claim_buf.commit().unwrap() };
                             true
                         } else {
                             false
@@ -260,8 +260,12 @@ fn bench_offer(c: &mut Criterion) {
                 b.iter_custom(|iters| {
                     timed(&h, iters, &payload, true, || {
                         if h.publisher.try_claim_raw(payload_len, &claim_buf) >= 0 {
-                            claim_buf.data().copy_from_slice(black_box(&payload));
-                            claim_buf.commit().unwrap();
+                            // SAFETY: this thread has exclusive access to the successful
+                            // claim's payload until commit.
+                            unsafe {
+                                claim_buf.data().copy_from_slice(black_box(&payload));
+                                claim_buf.commit().unwrap();
+                            }
                             true
                         } else {
                             false

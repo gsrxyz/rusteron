@@ -47,7 +47,7 @@ mod tests {
             Aeron,
             AeronArchiveContext,
             EmbeddedArchiveMediaDriverProcess,
-            Handler<ErrorCount>,
+            SharedHandler<ErrorCount>,
         ),
         Box<dyn Error>,
     > {
@@ -76,7 +76,7 @@ mod tests {
         aeron_context.set_dir(&aeron_dir.into_c_string())?;
         aeron_context.set_client_name(&format!("test-{}", aeron_dir_suffix).into_c_string())?;
 
-        let error_handler = Handler::new(ErrorCount::default());
+        let error_handler = SharedHandler::new_shared(ErrorCount::default());
         aeron_context.set_error_handler(Some(error_handler.clone()))?;
 
         // Use inner closure so we can call release() on any error path after handler is created
@@ -150,9 +150,8 @@ mod tests {
             archive.start_recording(&channel.clone().into_c_string(), stream_id, source_location, true)?;
         info!("Started recording subscription_id={}", subscription_id);
 
-        // Publisher thread, flooding the archive driver with its own client (without
-        // `multi-threaded` a publication stays on the thread whose client created it); it
-        // sends its session id once the recording has connected
+        // The publisher uses its own client and sends its session id once the
+        // recording has connected.
         let running = Arc::new(AtomicBool::new(true));
         let running_clone = running.clone();
         let (session_tx, session_rx) = std::sync::mpsc::channel();
@@ -169,7 +168,7 @@ mod tests {
             }
             assert!(publication.is_connected());
             session_tx
-                .send(publication.get_constants().expect("constants").session_id)
+                .send(publication.get_constants().expect("constants").session_id())
                 .expect("session id");
 
             let mut seq = 0u64;
@@ -215,8 +214,8 @@ mod tests {
 
         // 3. Create Subscription on Subscriber Driver with localhost:0
         let subscription_channel_template = "aeron:udp?endpoint=localhost:0";
-        let avail_image_handler = Handler::new(AeronAvailableImageLogger);
-        let unavail_image_handler = Handler::new(AeronUnavailableImageLogger);
+        let avail_image_handler = SharedHandler::new_shared(AeronAvailableImageLogger);
+        let unavail_image_handler = SharedHandler::new_shared(AeronUnavailableImageLogger);
         let subscription = aeron_subscriber
             .async_add_subscription(
                 &subscription_channel_template.into_c_string(),
@@ -275,9 +274,9 @@ mod tests {
 
         info!("Starting slow consumer loop");
         while start_check.elapsed() < test_duration {
-            let _fragments = subscription.poll(Some(&handler_box), 1)?;
+            let _fragments = subscription.poll_with_handler(Some(&handler_box), 1)?;
 
-            if handler_box.gaps > 0 {
+            if handler_box.borrow().gaps > 0 {
                 break;
             }
         }
@@ -285,7 +284,7 @@ mod tests {
         running.store(false, Ordering::Release);
         let published_count = publisher_thread.join().unwrap();
 
-        if handler_box.gaps > 0 {
+        if handler_box.borrow().gaps > 0 {
             panic!("Test failed: Sequence gaps detected!");
         }
 
@@ -294,11 +293,12 @@ mod tests {
             "Published count {} is not > 1,000,000",
             published_count
         );
-        assert!(handler_box.expected_seq > 0, "No messages received");
+        assert!(handler_box.borrow().expected_seq > 0, "No messages received");
 
         info!(
             "Test passed: No sequence gaps detected. Published: {}, Received: {}",
-            published_count, handler_box.expected_seq
+            published_count,
+            handler_box.borrow().expected_seq
         );
         drop(archive);
         drop(aeron_archive);

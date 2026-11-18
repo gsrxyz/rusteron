@@ -9,7 +9,6 @@ use hdrhistogram::Histogram;
 use rusteron_client::*;
 use rusteron_media_driver::testing::EmbeddedDriver;
 use std::error::Error;
-use std::hint::spin_loop;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -114,10 +113,9 @@ fn run_pong(running: &Arc<AtomicBool>, dir: &str) -> Result<(), Box<dyn Error>> 
         running: running.clone(),
     });
     let assembler = Handler::new(ImageAssembler(AeronImageFragmentAssembler::new(Some(&handler))?));
+    let mut idle = BusySpinIdleStrategy::new();
     while running.load(Ordering::Acquire) {
-        if image.poll(Some(&assembler), FRAGMENT_COUNT_LIMIT)? == 0 {
-            spin_loop();
-        }
+        idle.idle(image.poll_with_handler(Some(&assembler), FRAGMENT_COUNT_LIMIT)?);
     }
     Ok(())
 }
@@ -129,6 +127,7 @@ struct Echo {
 
 impl AeronFragmentHandlerCallback for Echo {
     fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _: &AeronHeader) {
+        let mut idle = BusySpinIdleStrategy::new();
         loop {
             match self.publication.offer(buffer) {
                 Ok(_) => break,
@@ -136,7 +135,7 @@ impl AeronFragmentHandlerCallback for Echo {
                     if !self.running.load(Ordering::Acquire) {
                         break;
                     }
-                    spin_loop();
+                    idle.idle(0);
                 }
                 Err(e) => panic!("echo failed: {e}"),
             }
@@ -175,6 +174,7 @@ fn run_ping(running: &AtomicBool, dir: &str, counts: &MessageCounts) -> Result<H
     });
     let assembler = Handler::new(ImageAssembler(AeronImageFragmentAssembler::new(Some(&handler))?));
     let mut buffer = [0u8; MESSAGE_LENGTH];
+    let mut idle = BusySpinIdleStrategy::new();
     for count in [counts.warmup, counts.measured] {
         // SAFETY: the callbacks run synchronously on this thread, only inside
         // image.poll below. There are no outstanding references to the state
@@ -199,17 +199,15 @@ fn run_ping(running: &AtomicBool, dir: &str, counts: &MessageCounts) -> Result<H
             }
             loop {
                 // The synchronous poll callback updates this count
-                if handler.received >= expected {
+                if handler.borrow().received >= expected {
                     break;
                 }
                 if !running.load(Ordering::Acquire) {
                     return Err("pong stopped".into());
                 }
-                if image.poll(Some(&assembler), FRAGMENT_COUNT_LIMIT)? == 0 {
-                    spin_loop();
-                }
+                idle.idle(image.poll_with_handler(Some(&assembler), FRAGMENT_COUNT_LIMIT)?);
             }
         }
     }
-    Ok(handler.histogram.clone())
+    Ok(handler.borrow().histogram.clone())
 }

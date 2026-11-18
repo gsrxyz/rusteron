@@ -37,9 +37,10 @@ impl EmbeddedDriver {
         let context = AeronDriverContext::new()?;
         context.set_dir_delete_on_shutdown(true)?;
         context.set_dir_delete_on_start(true)?;
-        context.set_dir(&format!("{}{}", context.get_dir(), Aeron::nano_clock()).into_c_string())?;
+        // SAFETY: the text is copied before set_dir changes this local context.
+        context.set_dir(&format!("{}{}", unsafe { context.get_dir() }, Aeron::nano_clock()).into_c_string())?;
         configure(&context)?;
-        let dir = context.get_dir().to_string();
+        let dir = context.get_dir_owned();
         let (stop, handle) = AeronDriver::launch_embedded(context.clone(), false);
         Ok(Self {
             dir,

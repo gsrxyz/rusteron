@@ -46,6 +46,22 @@ Use [GitHub Issues](https://github.com/gsrxyz/rusteron/issues) to report bugs, r
 ## Documentation
 
 To fix typos, clarify text or fill in missing details, open a PR. Documentation-only changes do not need new tests.
+CI compiles the client, Archive and migration guide examples against the
+generated libraries. Examples retain this check when moved out of a README.
+
+## Ownership and lifetime checks
+
+CI checks examples that must compile and examples that must fail to compile.
+These doctests cover borrowed lifetimes, clone restrictions, thread traits and
+native access that requires `unsafe`. Run them with:
+
+```bash
+cargo test -p rusteron-client -p rusteron-archive --features static --doc ownership_contracts
+```
+
+Add a doctest to the affected crate's `src/ownership_contracts.rs` when an API
+change should reject code that could cause undefined behaviour. Use `compile_fail`
+for rejected code and `no_run` for examples that need to compile without running.
 
 ## Code style and commit tips
 

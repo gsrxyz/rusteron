@@ -11,9 +11,14 @@ mod arg_classifier;
 pub mod artifacts;
 pub mod c_build;
 mod common;
+mod constant_enums;
+mod convenience;
 mod generator;
+mod native_enums;
 mod parser;
+mod string_views;
 pub mod test_logger;
+mod thread_safety;
 
 pub use arg_classifier::*;
 pub use common::*;
@@ -53,8 +58,12 @@ pub fn generate_wrappers(bindings: &mut CBinding, wrapper_type_filter: fn(&str) 
             false,
             true,
             &bindings.handlers,
+            &bindings.constants,
         ));
     }
+    stream.extend(convenience::system_counter_enum(&bindings.constants));
+    stream.extend(constant_enums::generate(&bindings.constants));
+    stream.extend(native_enums::generate(&bindings.enums));
     let bindings_copy = bindings.clone();
     for handler in bindings.handlers.iter_mut() {
         stream.extend(generate_handlers(handler, &bindings_copy));
@@ -63,7 +72,7 @@ pub fn generate_wrappers(bindings: &mut CBinding, wrapper_type_filter: fn(&str) 
 }
 
 /// Minimal `AeronArchiveError` stub for the `archive` trybuild test only. The real
-/// type (with typed codes, parsing, Display) lives in `aeron_custom_archive.rs` and is
+/// type with native error codes and Display lives in `aeron_custom_archive.rs` and is
 /// pulled into rusteron-archive via its build.rs. The trybuild test compiles generated
 /// code in isolation, so the real CUSTOM_ARCHIVE_CODE can't be used (it references
 /// hand-written rusteron-archive/src/lib.rs types). Generated aeron_archive_t methods
@@ -148,6 +157,7 @@ mod tests {
         format_token_stream, format_with_rustfmt,
     };
     use proc_macro2::TokenStream;
+    use quote::ToTokens;
     use std::fs;
 
     // valgrind can give false positives, so we don't want to run on tests which are 100% rust
@@ -189,9 +199,27 @@ mod tests {
             let _ = crate::generate_handlers(handler, &bindings_copy);
         }
         for (p, w) in bindings.wrappers.values().enumerate() {
-            let code = crate::generate_rust_code(w, &bindings.wrappers, p == 0, true, true, &bindings.handlers);
+            let code = crate::generate_rust_code(
+                w,
+                &bindings.wrappers,
+                p == 0,
+                true,
+                true,
+                &bindings.handlers,
+                &bindings.constants,
+            );
             write_to_file(code, false, "client.rs");
         }
+        append_to_file(
+            &file,
+            &format_with_rustfmt(&crate::constant_enums::generate(&bindings.constants).to_string()).unwrap(),
+        )
+        .unwrap();
+        append_to_file(
+            &file,
+            &format_with_rustfmt(&crate::native_enums::generate(&bindings.enums).to_string()).unwrap(),
+        )
+        .unwrap();
         let bindings_copy = bindings.clone();
         for handler in bindings.handlers.iter_mut() {
             let code = crate::generate_handlers(handler, &bindings_copy);
@@ -240,9 +268,27 @@ mod tests {
             .filter(|w| !w.type_name.contains("pthread") && !w.type_name.contains("_t_"))
             .enumerate()
         {
-            let code = crate::generate_rust_code(w, &bindings.wrappers, p == 0, true, true, &bindings.handlers);
+            let code = crate::generate_rust_code(
+                w,
+                &bindings.wrappers,
+                p == 0,
+                true,
+                true,
+                &bindings.handlers,
+                &bindings.constants,
+            );
             write_to_file(code, false, "md.rs");
         }
+        append_to_file(
+            &file,
+            &format_with_rustfmt(&crate::constant_enums::generate(&bindings.constants).to_string()).unwrap(),
+        )
+        .unwrap();
+        append_to_file(
+            &file,
+            &format_with_rustfmt(&crate::native_enums::generate(&bindings.enums).to_string()).unwrap(),
+        )
+        .unwrap();
         let bindings_copy = bindings.clone();
         for handler in bindings.handlers.iter_mut() {
             let code = crate::generate_handlers(handler, &bindings_copy);
@@ -284,9 +330,27 @@ mod tests {
             let _ = crate::generate_handlers(handler, &bindings_copy);
         }
         for (p, w) in bindings.wrappers.values().enumerate() {
-            let code = crate::generate_rust_code(w, &bindings.wrappers, p == 0, true, true, &bindings.handlers);
+            let code = crate::generate_rust_code(
+                w,
+                &bindings.wrappers,
+                p == 0,
+                true,
+                true,
+                &bindings.handlers,
+                &bindings.constants,
+            );
             write_to_file(code, false, "archive.rs");
         }
+        append_to_file(
+            &file,
+            &format_with_rustfmt(&crate::constant_enums::generate(&bindings.constants).to_string()).unwrap(),
+        )
+        .unwrap();
+        append_to_file(
+            &file,
+            &format_with_rustfmt(&crate::native_enums::generate(&bindings.enums).to_string()).unwrap(),
+        )
+        .unwrap();
         let bindings_copy = bindings.clone();
         for handler in bindings.handlers.iter_mut() {
             let code = crate::generate_handlers(handler, &bindings_copy);
@@ -480,11 +544,11 @@ mod tests {
         }
     }
 
-    /// The descriptor pollers' `reset`/`poll` are hand-written in `aeron_custom_archive.rs`,
-    /// so the generator must skip them, `reset_fn` included
+    /// Descriptor callbacks outlive reset. Both pollers must use the retained-callback
+    /// template, with no stack closure variant or unrestricted native constructor.
     #[test]
     #[cfg(not(target_os = "windows"))]
-    fn descriptor_poller_reset_and_poll_are_hand_written() {
+    fn descriptor_pollers_use_retained_callback_generation() {
         let generated = generate_aeron_rs("archive.rs", |t| t.starts_with("aeron_"), &[crate::CUSTOM_ARCHIVE_CODE]);
         let custom = crate::CUSTOM_ARCHIVE_CODE;
         for poller in [
@@ -497,9 +561,37 @@ mod tests {
             );
             for op in ["reset", "poll"] {
                 let call = format!("aeron_archive_{poller}_{op}(");
-                assert!(!generated.contains(&call), "generated {call}");
-                assert!(custom.contains(&call), "missing hand-written {call}");
+                assert!(generated.contains(&call), "missing generated {call}");
+                assert!(!custom.contains(&call), "duplicate custom {call}");
             }
+        }
+        for class in [
+            "AeronArchiveRecordingDescriptorPoller",
+            "AeronArchiveRecordingSubscriptionDescriptorPoller",
+        ] {
+            let syntax = syn::parse_file(&generated).unwrap();
+            let methods: Vec<_> = syntax
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    syn::Item::Impl(i) if i.self_ty.to_token_stream().to_string().starts_with(class) => Some(&i.items),
+                    _ => None,
+                })
+                .flatten()
+                .filter_map(|item| match item {
+                    syn::ImplItem::Fn(method) => Some(method),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(methods.iter().filter(|m| m.sig.ident == "new").count(), 1);
+            assert!(!methods.iter().any(|m| m.sig.ident == "reset_fn"));
+            let new = methods.iter().find(|m| m.sig.ident == "new").unwrap();
+            assert!(
+                new.sig
+                    .to_token_stream()
+                    .to_string()
+                    .contains("archive : & AeronArchive")
+            );
         }
     }
 
@@ -522,7 +614,7 @@ mod tests {
             ),
         ] {
             let start = generated
-                .find(&format!("\nimpl {class} {{"))
+                .find(&format!("\nimpl {class}<"))
                 .unwrap_or_else(|| panic!("missing impl {class}"));
             let block = &generated[start + 1..];
             let block = &block[..block.find("\nimpl ").unwrap_or(block.len())];
@@ -575,11 +667,12 @@ mod tests {
 
 #[cfg(test)]
 mod test {
-    use crate::{CResource, CleanupBox, ManagedCResource};
+    use crate::common::ResourceStorageExt;
+    use crate::{Borrowed, CResource, CleanupBox, Inline, ManagedCResource, ResourceStorage};
 
-    use crate::common::RcOrArc;
+    use crate::common::ResourceRef;
     #[allow(unused_imports)]
-    use RcOrArc as Rc;
+    use ResourceRef as Rc;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -591,6 +684,87 @@ mod test {
         if !ptr.is_null() {
             let _ = unsafe { Box::from_raw(ptr) };
         }
+    }
+
+    fn callback_owner() -> ManagedCResource<i32> {
+        ManagedCResource::<i32>::new(
+            |ptr: *mut *mut i32| {
+                unsafe { *ptr = make_resource(1) };
+                0
+            },
+            Some(Box::new(|ptr: *mut *mut i32| {
+                unsafe { reclaim_resource(*ptr) };
+                0
+            })),
+            false,
+        )
+        .unwrap_or_else(|err| panic!("callback owner init failed: {}", err.code))
+    }
+
+    #[test]
+    fn callback_snapshots_keep_only_the_registration_they_copied() {
+        let context = callback_owner();
+        let first = Arc::new(());
+        let probe = Arc::downgrade(&first);
+        context.replace_callback_dependency("error", Some(first));
+        let connection = callback_owner();
+        connection.copy_dependencies_from(&context);
+        context.replace_callback_dependency("error", Some(42u32));
+        assert!(probe.upgrade().is_some());
+        assert_eq!(context.dependency_len(), 1);
+        drop(connection);
+        assert!(probe.upgrade().is_none());
+        assert_eq!(context.get_dependency::<u32>(), Some(42));
+        context.replace_callback_dependency::<u32>("error", None);
+        assert_eq!(context.dependency_len(), 0);
+    }
+
+    #[test]
+    fn a_completed_operation_transfers_its_callback_dependencies() {
+        let source = CResource::new(Arc::new(callback_owner()));
+        let target = CResource::new(Arc::new(callback_owner()));
+        let capture = Arc::new(());
+        let probe = Arc::downgrade(&capture);
+        source
+            .as_owned()
+            .unwrap()
+            .replace_callback_dependency("error", Some(capture));
+        target.take_dependencies_from(&source);
+        assert_eq!(source.dependency_len(), 0);
+        assert_eq!(target.dependency_len(), 1);
+        drop(target);
+        assert!(probe.upgrade().is_none());
+    }
+
+    #[test]
+    fn replacing_a_callback_does_not_remove_other_dependencies() {
+        let context = callback_owner();
+        context.add_dependency(123i32);
+        context.replace_callback_dependency("error", Some(42u32));
+        context.replace_callback_dependency("signal", Some(7u32));
+        for value in 0..100 {
+            context.replace_callback_dependency("error", Some(value as u64));
+        }
+        assert_eq!(context.dependency_len(), 3);
+        assert_eq!(context.get_dependency::<i32>(), Some(123));
+        assert_eq!(context.get_dependency::<u32>(), Some(7));
+        context.replace_callback_dependency::<u64>("error", None);
+        assert_eq!(context.dependency_len(), 2);
+    }
+
+    #[test]
+    fn replaced_captures_drop_after_the_dependency_lock_is_released() {
+        struct Capture(std::sync::Weak<ManagedCResource<i32>>);
+        impl Drop for Capture {
+            fn drop(&mut self) {
+                // This would deadlock if replacement held the dependency lock.
+                self.0.upgrade().unwrap().add_dependency(123i32);
+            }
+        }
+        let context = Arc::new(callback_owner());
+        context.replace_callback_dependency("error", Some(Capture(Arc::downgrade(&context))));
+        context.replace_callback_dependency::<Capture>("error", None);
+        assert_eq!(context.get_dependency::<i32>(), Some(123));
     }
 
     #[test]
@@ -610,7 +784,7 @@ mod test {
         }) as CleanupBox<i32>);
 
         {
-            let _resource = ManagedCResource::new(
+            let _resource = ManagedCResource::<i32>::new(
                 |res: *mut *mut i32| {
                     unsafe {
                         *res = resource_ptr;
@@ -640,7 +814,7 @@ mod test {
         }) as CleanupBox<i32>);
 
         {
-            let _resource = ManagedCResource::new(
+            let _resource = ManagedCResource::<i32>::new(
                 |res: *mut *mut i32| {
                     unsafe {
                         *res = resource_ptr;
@@ -670,7 +844,7 @@ mod test {
             0
         }) as CleanupBox<i32>);
 
-        let resource = ManagedCResource::new(
+        let resource = ManagedCResource::<i32>::new(
             |res: *mut *mut i32| {
                 unsafe {
                     *res = resource_ptr;
@@ -694,7 +868,7 @@ mod test {
 
     #[test]
     fn close_resource_closes_shared_resource_once_across_clones() {
-        let close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
+        let close_count = ResourceRef::new(std::sync::atomic::AtomicI32::new(0));
         let close_count_for_cleanup = close_count.clone();
         let resource_ptr = make_resource(40);
 
@@ -707,7 +881,7 @@ mod test {
             0
         }) as CleanupBox<i32>);
 
-        let resource = ManagedCResource::new(
+        let resource = ManagedCResource::<i32>::new(
             |res: *mut *mut i32| {
                 unsafe {
                     *res = resource_ptr;
@@ -720,8 +894,8 @@ mod test {
         assert!(resource.is_ok());
         let resource = resource.ok().unwrap();
         let inner = Rc::new(resource);
-        let handle_one = CResource::OwnedOnHeap(inner.clone());
-        let handle_two = CResource::OwnedOnHeap(inner);
+        let handle_one = CResource::new(inner.clone());
+        let handle_two = CResource::new(inner);
 
         assert!(!handle_one.get().is_null());
         assert!(!handle_two.get().is_null());
@@ -737,7 +911,7 @@ mod test {
 
     #[test]
     fn close_resource_defers_owner_close_while_dependent_is_alive() {
-        let close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
+        let close_count = ResourceRef::new(std::sync::atomic::AtomicI32::new(0));
         let close_count_for_cleanup = close_count.clone();
         let owner_ptr = make_resource(60);
         let child_ptr = make_resource(61);
@@ -751,7 +925,7 @@ mod test {
             0
         }) as CleanupBox<i32>);
 
-        let owner = ManagedCResource::new(
+        let owner = ManagedCResource::<i32>::new(
             |res: *mut *mut i32| {
                 unsafe {
                     *res = owner_ptr;
@@ -762,9 +936,9 @@ mod test {
             false,
         );
         assert!(owner.is_ok());
-        let owner = CResource::OwnedOnHeap(Rc::new(owner.ok().unwrap()));
+        let owner = CResource::new(Rc::new(owner.ok().unwrap()));
 
-        let child = ManagedCResource::new(
+        let child = ManagedCResource::<i32>::new(
             |res: *mut *mut i32| {
                 unsafe {
                     *res = child_ptr;
@@ -781,7 +955,7 @@ mod test {
             false,
         );
         assert!(child.is_ok());
-        let child = CResource::OwnedOnHeap(Rc::new(child.ok().unwrap()));
+        let child = CResource::new(Rc::new(child.ok().unwrap()));
         child.add_dependency(owner.clone());
 
         assert!(owner.close_resource_deferred_if_shared().is_ok());
@@ -795,7 +969,7 @@ mod test {
 
     #[test]
     fn close_resource_deferral_is_retryable_if_owner_close_fails_after_dependent_drops() {
-        let close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
+        let close_count = ResourceRef::new(std::sync::atomic::AtomicI32::new(0));
         let close_count_for_cleanup = close_count.clone();
         let owner_ptr = make_resource(70);
         let child_ptr = make_resource(71);
@@ -812,7 +986,7 @@ mod test {
             0
         }) as CleanupBox<i32>);
 
-        let owner = ManagedCResource::new(
+        let owner = ManagedCResource::<i32>::new(
             |res: *mut *mut i32| {
                 unsafe {
                     *res = owner_ptr;
@@ -823,10 +997,10 @@ mod test {
             false,
         );
         assert!(owner.is_ok());
-        let owner = CResource::OwnedOnHeap(Rc::new(owner.ok().unwrap()));
+        let owner = CResource::new(Rc::new(owner.ok().unwrap()));
         let owner_retry_handle = owner.clone();
 
-        let child = ManagedCResource::new(
+        let child = ManagedCResource::<i32>::new(
             |res: *mut *mut i32| {
                 unsafe {
                     *res = child_ptr;
@@ -843,7 +1017,7 @@ mod test {
             false,
         );
         assert!(child.is_ok());
-        let child = CResource::OwnedOnHeap(Rc::new(child.ok().unwrap()));
+        let child = CResource::new(Rc::new(child.ok().unwrap()));
         child.add_dependency(owner.clone());
 
         assert!(owner.close_resource_deferred_if_shared().is_ok());
@@ -862,8 +1036,47 @@ mod test {
     }
 
     #[test]
+    fn failed_drop_keeps_native_dependencies_and_cleanup_captures_alive() {
+        // This error path leaks because C has not released its pointers.
+        // Exercise it in the normal suite, outside Valgrind's no-leaks job.
+        if std::env::var_os("RUSTERON_VALGRIND").is_some() {
+            return;
+        }
+        let dependency = Rc::new(());
+        let capture = Rc::new(());
+        let dependency_weak = Rc::downgrade(&dependency);
+        let capture_weak = Rc::downgrade(&capture);
+        let pointer = make_resource(51);
+        let capture_for_cleanup = capture.clone();
+        let resource = ManagedCResource::<i32>::new(
+            |output| {
+                unsafe { *output = pointer };
+                0
+            },
+            Some(Box::new(move |_| {
+                std::hint::black_box(&capture_for_cleanup);
+                -1
+            })),
+            false,
+        )
+        .ok()
+        .unwrap();
+        resource.add_dependency(dependency.clone());
+        drop(dependency);
+        drop(capture);
+        drop(resource);
+        assert!(dependency_weak.upgrade().is_some());
+        assert!(capture_weak.upgrade().is_some());
+        // The fake native resource has stopped using these values. Production
+        // cleanup failures retain them because C may still use them.
+        unsafe {
+            reclaim_resource(pointer);
+        }
+    }
+
+    #[test]
     fn close_resource_propagates_failure_and_allows_retry() {
-        let close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
+        let close_count = ResourceRef::new(std::sync::atomic::AtomicI32::new(0));
         let close_count_for_cleanup = close_count.clone();
         let resource_ptr = make_resource(50);
 
@@ -879,7 +1092,7 @@ mod test {
             0
         }) as CleanupBox<i32>);
 
-        let resource = ManagedCResource::new(
+        let resource = ManagedCResource::<i32>::new(
             |res: *mut *mut i32| {
                 unsafe {
                     *res = resource_ptr;
@@ -891,7 +1104,7 @@ mod test {
         );
         assert!(resource.is_ok());
         let resource = resource.ok().unwrap();
-        let handle = CResource::OwnedOnHeap(Rc::new(resource));
+        let handle = CResource::new(Rc::new(resource));
 
         assert!(handle.close_resource().is_err());
         assert_eq!(1, close_count.load(Ordering::SeqCst));
@@ -904,8 +1117,8 @@ mod test {
 
     #[test]
     fn close_resource_with_uses_custom_cleanup_once_across_clones() {
-        let default_close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
-        let custom_close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
+        let default_close_count = ResourceRef::new(std::sync::atomic::AtomicI32::new(0));
+        let custom_close_count = ResourceRef::new(std::sync::atomic::AtomicI32::new(0));
         let default_close_count_for_cleanup = default_close_count.clone();
         let resource_ptr = make_resource(80);
 
@@ -918,7 +1131,7 @@ mod test {
             0
         }) as CleanupBox<i32>);
 
-        let resource = ManagedCResource::new(
+        let resource = ManagedCResource::<i32>::new(
             |res: *mut *mut i32| {
                 unsafe {
                     *res = resource_ptr;
@@ -930,8 +1143,8 @@ mod test {
         );
         assert!(resource.is_ok());
         let inner = Rc::new(resource.ok().unwrap());
-        let handle_one = CResource::OwnedOnHeap(inner.clone());
-        let handle_two = CResource::OwnedOnHeap(inner);
+        let handle_one = CResource::new(inner.clone());
+        let handle_two = CResource::new(inner);
 
         let custom_close_count_for_cleanup = custom_close_count.clone();
         assert!(
@@ -959,8 +1172,8 @@ mod test {
 
     #[test]
     fn close_resource_with_failure_restores_default_cleanup_for_retry() {
-        let default_close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
-        let custom_close_count = RcOrArc::new(std::sync::atomic::AtomicI32::new(0));
+        let default_close_count = ResourceRef::new(std::sync::atomic::AtomicI32::new(0));
+        let custom_close_count = ResourceRef::new(std::sync::atomic::AtomicI32::new(0));
         let default_close_count_for_cleanup = default_close_count.clone();
         let resource_ptr = make_resource(90);
 
@@ -973,7 +1186,7 @@ mod test {
             0
         }) as CleanupBox<i32>);
 
-        let resource = ManagedCResource::new(
+        let resource = ManagedCResource::<i32>::new(
             |res: *mut *mut i32| {
                 unsafe {
                     *res = resource_ptr;
@@ -984,7 +1197,7 @@ mod test {
             false,
         );
         assert!(resource.is_ok());
-        let handle = CResource::OwnedOnHeap(Rc::new(resource.ok().unwrap()));
+        let handle = CResource::new(Rc::new(resource.ok().unwrap()));
 
         let custom_close_count_for_cleanup = custom_close_count.clone();
         assert!(
@@ -1009,11 +1222,11 @@ mod test {
     #[test]
     fn close_resource_is_noop_for_stack_and_borrowed_resources() {
         let mut borrowed_value = 10;
-        let borrowed = CResource::Borrowed(&mut borrowed_value as *mut i32);
+        let borrowed = unsafe { Borrowed::new(&mut borrowed_value as *mut i32) };
         assert!(borrowed.close_resource().is_ok());
         assert_eq!(10, borrowed_value);
 
-        let stack = CResource::OwnedOnStack(std::mem::MaybeUninit::new(20).into());
+        let stack = Inline::new(20);
         assert!(stack.close_resource().is_ok());
         assert_eq!(20, unsafe { *stack.get() });
     }
@@ -1022,12 +1235,14 @@ mod test {
     // on `&self`; run under Miri to catch a write through a read-only borrow.
     #[test]
     fn stack_resource_is_writable_through_shared_get() {
-        let stack = CResource::OwnedOnStack(std::mem::MaybeUninit::new(20).into());
+        let stack = Inline::new(20);
         let shared = &stack;
         unsafe { *shared.get() = 30 };
         assert_eq!(30, unsafe { *stack.get() });
-        let cloned = stack.clone();
-        assert_eq!(30, unsafe { *cloned.get() });
+        // A separate explicit copy is independent; inline ownership has no Clone.
+        let copy = Inline::new(unsafe { *stack.get() });
+        unsafe { *stack.get() = 40 };
+        assert_eq!(30, unsafe { *copy.get() });
     }
 
     // NOTE: test_drop_does_not_call_cleanup_if_check_for_is_closed_* removed
