@@ -9412,10 +9412,10 @@ impl<S: ResourceStorage<aeron_cnc_t>> AeronCnc<S> {
         AeronErrorLogReaderFuncHandlerImplPolicy: CallbackPolicy,
     >(
         &self,
-        callback: Option<&Handler<AeronErrorLogReaderFuncHandlerImpl, AeronErrorLogReaderFuncHandlerImplPolicy>>,
+        callback: &Handler<AeronErrorLogReaderFuncHandlerImpl, AeronErrorLogReaderFuncHandlerImplPolicy>,
         since_timestamp: i64,
     ) -> usize {
-        assert!(callback.is_some(), "this native reader requires a callback");
+        let callback = Some(callback);
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -14486,14 +14486,12 @@ impl AeronCountersReader {
         AeronCountersReaderForeachMetadataFuncHandlerImplPolicy: CallbackPolicy,
     >(
         metadata_buffer: &mut [u8],
-        func: Option<
-            &Handler<
-                AeronCountersReaderForeachMetadataFuncHandlerImpl,
-                AeronCountersReaderForeachMetadataFuncHandlerImplPolicy,
-            >,
+        func: &Handler<
+            AeronCountersReaderForeachMetadataFuncHandlerImpl,
+            AeronCountersReaderForeachMetadataFuncHandlerImplPolicy,
         >,
     ) -> () {
-        assert!(func.is_some(), "this native reader requires a callback");
+        let func = Some(func);
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -14671,14 +14669,12 @@ impl<S: ResourceStorage<aeron_counters_reader_t>> AeronCountersReader<S> {
         AeronCountersReaderForeachCounterFuncHandlerImplPolicy: CallbackPolicy,
     >(
         &self,
-        func: Option<
-            &Handler<
-                AeronCountersReaderForeachCounterFuncHandlerImpl,
-                AeronCountersReaderForeachCounterFuncHandlerImplPolicy,
-            >,
+        func: &Handler<
+            AeronCountersReaderForeachCounterFuncHandlerImpl,
+            AeronCountersReaderForeachCounterFuncHandlerImplPolicy,
         >,
     ) -> () {
-        assert!(func.is_some(), "this native reader requires a callback");
+        let func = Some(func);
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -50856,11 +50852,12 @@ impl AeronLossReporter {
         AeronLossReporterReadEntryFuncHandlerImplPolicy: CallbackPolicy,
     >(
         buffer: &[u8],
-        entry_func: Option<
-            &Handler<AeronLossReporterReadEntryFuncHandlerImpl, AeronLossReporterReadEntryFuncHandlerImplPolicy>,
+        entry_func: &Handler<
+            AeronLossReporterReadEntryFuncHandlerImpl,
+            AeronLossReporterReadEntryFuncHandlerImplPolicy,
         >,
     ) -> usize {
-        assert!(entry_func.is_some(), "this native reader requires a callback");
+        let entry_func = Some(entry_func);
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -52360,10 +52357,10 @@ impl<S: ResourceStorage<aeron_mpsc_rb_t>> AeronMpscRb<S> {
     #[inline]
     pub fn read<AeronRbHandlerHandlerImpl: AeronRbHandlerCallback, AeronRbHandlerHandlerImplPolicy: CallbackPolicy>(
         &self,
-        handler: Option<&Handler<AeronRbHandlerHandlerImpl, AeronRbHandlerHandlerImplPolicy>>,
+        handler: &Handler<AeronRbHandlerHandlerImpl, AeronRbHandlerHandlerImplPolicy>,
         message_count_limit: usize,
     ) -> usize {
-        assert!(handler.is_some(), "this native reader requires a callback");
+        let handler = Some(handler);
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -52447,10 +52444,10 @@ impl<S: ResourceStorage<aeron_mpsc_rb_t>> AeronMpscRb<S> {
         AeronRbControlledHandlerHandlerImplPolicy: CallbackPolicy,
     >(
         &self,
-        handler: Option<&Handler<AeronRbControlledHandlerHandlerImpl, AeronRbControlledHandlerHandlerImplPolicy>>,
+        handler: &Handler<AeronRbControlledHandlerHandlerImpl, AeronRbControlledHandlerHandlerImplPolicy>,
         message_count_limit: usize,
     ) -> usize {
-        assert!(handler.is_some(), "this native reader requires a callback");
+        let handler = Some(handler);
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -68584,10 +68581,10 @@ impl<S: ResourceStorage<aeron_spsc_rb_t>> AeronSpscRb<S> {
     #[inline]
     pub fn read<AeronRbHandlerHandlerImpl: AeronRbHandlerCallback, AeronRbHandlerHandlerImplPolicy: CallbackPolicy>(
         &self,
-        handler: Option<&Handler<AeronRbHandlerHandlerImpl, AeronRbHandlerHandlerImplPolicy>>,
+        handler: &Handler<AeronRbHandlerHandlerImpl, AeronRbHandlerHandlerImplPolicy>,
         message_count_limit: usize,
     ) -> usize {
-        assert!(handler.is_some(), "this native reader requires a callback");
+        let handler = Some(handler);
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -68671,10 +68668,10 @@ impl<S: ResourceStorage<aeron_spsc_rb_t>> AeronSpscRb<S> {
         AeronRbControlledHandlerHandlerImplPolicy: CallbackPolicy,
     >(
         &self,
-        handler: Option<&Handler<AeronRbControlledHandlerHandlerImpl, AeronRbControlledHandlerHandlerImplPolicy>>,
+        handler: &Handler<AeronRbControlledHandlerHandlerImpl, AeronRbControlledHandlerHandlerImplPolicy>,
         message_count_limit: usize,
     ) -> usize {
-        assert!(handler.is_some(), "this native reader requires a callback");
+        let handler = Some(handler);
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -74774,10 +74771,10 @@ impl Aeron {
         AeronErrorLogReaderFuncHandlerImplPolicy: CallbackPolicy,
     >(
         buffer: &[u8],
-        reader: Option<&Handler<AeronErrorLogReaderFuncHandlerImpl, AeronErrorLogReaderFuncHandlerImplPolicy>>,
+        reader: &Handler<AeronErrorLogReaderFuncHandlerImpl, AeronErrorLogReaderFuncHandlerImplPolicy>,
         since_timestamp: i64,
     ) -> usize {
-        assert!(reader.is_some(), "this native reader requires a callback");
+        let reader = Some(reader);
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -76163,8 +76160,10 @@ impl Aeron {
         }
     }
     #[inline]
-    pub fn ipv4_netmask_from_prefixlen(prefixlen: usize) -> u32 {
-        assert!(prefixlen <= 32usize, "prefix length exceeds the address width");
+    pub fn ipv4_netmask_from_prefixlen(prefixlen: usize) -> Result<u32, AeronCError> {
+        if prefixlen > 32usize {
+            return Err(AeronCError::with_message(-1, "prefix length exceeds the address width"));
+        }
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -76175,7 +76174,7 @@ impl Aeron {
             let result = aeron_ipv4_netmask_from_prefixlen(prefixlen.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ok(result.into())
         }
     }
     #[inline]
@@ -84179,8 +84178,10 @@ impl In6Addr<CResource<in6_addr>> {
 impl In6Addr {}
 impl<S: ResourceStorage<in6_addr>> In6Addr<S> {
     #[inline]
-    pub fn aeron_ipv6_does_prefix_match(&self, in6_addr2: &In6Addr, prefixlen: usize) -> bool {
-        assert!(prefixlen <= 128usize, "prefix length exceeds the address width");
+    pub fn aeron_ipv6_does_prefix_match(&self, in6_addr2: &In6Addr, prefixlen: usize) -> Result<bool, AeronCError> {
+        if prefixlen > 128usize {
+            return Err(AeronCError::with_message(-1, "prefix length exceeds the address width"));
+        }
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -84196,7 +84197,7 @@ impl<S: ResourceStorage<in6_addr>> In6Addr<S> {
             let result = aeron_ipv6_does_prefix_match(self.get_inner(), in6_addr2.get_inner(), prefixlen.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ok(result.into())
         }
     }
     #[inline]
@@ -84404,8 +84405,10 @@ impl<S: ResourceStorage<in_addr>> InAddr<S> {
         unsafe { self.get_inner_ref() }.s_addr.into()
     }
     #[inline]
-    pub fn aeron_ipv4_does_prefix_match(&self, in_addr2: &InAddr, prefixlen: usize) -> bool {
-        assert!(prefixlen <= 32usize, "prefix length exceeds the address width");
+    pub fn aeron_ipv4_does_prefix_match(&self, in_addr2: &InAddr, prefixlen: usize) -> Result<bool, AeronCError> {
+        if prefixlen > 32usize {
+            return Err(AeronCError::with_message(-1, "prefix length exceeds the address width"));
+        }
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -84421,7 +84424,7 @@ impl<S: ResourceStorage<in_addr>> InAddr<S> {
             let result = aeron_ipv4_does_prefix_match(self.get_inner(), in_addr2.get_inner(), prefixlen.into());
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
-            result.into()
+            Ok(result.into())
         }
     }
     #[inline]

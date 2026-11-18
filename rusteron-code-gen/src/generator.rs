@@ -1034,6 +1034,11 @@ impl CWrapper {
                 let resumes: Vec<TokenStream> = classified.resumes();
 
                 let mut converter = return_type_helper.handle_c_to_rs_return(quote! { result }, true, false);
+                // The prefix-length check returns an error, so the plain C value is wrapped
+                if method.arguments.iter().any(|a| crate::arg_classifier::prefix_limit(&method.fn_name, &a.name).is_some()) {
+                    return_type = quote! { Result<#return_type, AeronCError> };
+                    converter = quote! { Ok(#converter) };
+                }
 
                 // Heap-allocate the owned callback and capture its raw clientd before the
                 // FFI call, so the Handler itself stays available for registration/return.

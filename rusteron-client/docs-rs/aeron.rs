@@ -7050,10 +7050,10 @@ impl<S: ResourceStorage<aeron_cnc_t>> AeronCnc<S> {
         AeronErrorLogReaderFuncHandlerImplPolicy: CallbackPolicy,
     >(
         &self,
-        callback: Option<&Handler<AeronErrorLogReaderFuncHandlerImpl, AeronErrorLogReaderFuncHandlerImplPolicy>>,
+        callback: &Handler<AeronErrorLogReaderFuncHandlerImpl, AeronErrorLogReaderFuncHandlerImplPolicy>,
         since_timestamp: i64,
     ) -> usize {
-        assert!(callback.is_some(), "this native reader requires a callback");
+        let callback = Some(callback);
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -10324,14 +10324,12 @@ impl<S: ResourceStorage<aeron_counters_reader_t>> AeronCountersReader<S> {
         AeronCountersReaderForeachCounterFuncHandlerImplPolicy: CallbackPolicy,
     >(
         &self,
-        func: Option<
-            &Handler<
-                AeronCountersReaderForeachCounterFuncHandlerImpl,
-                AeronCountersReaderForeachCounterFuncHandlerImplPolicy,
-            >,
+        func: &Handler<
+            AeronCountersReaderForeachCounterFuncHandlerImpl,
+            AeronCountersReaderForeachCounterFuncHandlerImplPolicy,
         >,
     ) -> () {
-        assert!(func.is_some(), "this native reader requires a callback");
+        let func = Some(func);
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -16545,11 +16543,12 @@ impl AeronLossReporter {
         AeronLossReporterReadEntryFuncHandlerImplPolicy: CallbackPolicy,
     >(
         buffer: &[u8],
-        entry_func: Option<
-            &Handler<AeronLossReporterReadEntryFuncHandlerImpl, AeronLossReporterReadEntryFuncHandlerImplPolicy>,
+        entry_func: &Handler<
+            AeronLossReporterReadEntryFuncHandlerImpl,
+            AeronLossReporterReadEntryFuncHandlerImplPolicy,
         >,
     ) -> usize {
-        assert!(entry_func.is_some(), "this native reader requires a callback");
+        let entry_func = Some(entry_func);
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(

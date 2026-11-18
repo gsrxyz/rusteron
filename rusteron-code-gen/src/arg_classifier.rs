@@ -408,13 +408,7 @@ fn classify_arg(
     let rt = ReturnType::new(arg.clone(), wrappers.clone());
     let arg_type = rt.get_new_return_type(false, true);
     let call = rt.handle_rs_to_c_return(quote! { #name }, false);
-    // Native netmask construction shifts by address_width - prefixlen.
-    // Reject invalid widths before C can execute an out-of-range shift.
-    let prefix_limit = match (fn_name, arg.name.as_str()) {
-        ("aeron_ipv4_does_prefix_match" | "aeron_ipv4_netmask_from_prefixlen", "prefixlen") => Some(32usize),
-        ("aeron_ipv6_does_prefix_match" | "aeron_ipv6_netmask_from_prefixlen", "prefixlen") => Some(128usize),
-        _ => None,
-    };
+    let prefix_limit = prefix_limit(fn_name, &arg.name);
     ClassifiedArg {
         kind: ArgRole::Plain,
         signature: if arg_type.is_empty() {
@@ -426,10 +420,22 @@ fn classify_arg(
         generic: rt.method_generics_for_where(false, false),
         prelude: prefix_limit.map(|limit| {
             quote! {
-                assert!(#name <= #limit, "prefix length exceeds the address width");
+                if #name > #limit {
+                    return Err(AeronCError::with_message(-1, "prefix length exceeds the address width"));
+                }
             }
         }),
         ..none
+    }
+}
+
+/// Native netmask construction shifts by the address width minus the prefix length, so a
+/// wider prefix is rejected before C can shift out of range. These methods return `Result`
+pub(crate) fn prefix_limit(fn_name: &str, arg_name: &str) -> Option<usize> {
+    match (fn_name, arg_name) {
+        ("aeron_ipv4_does_prefix_match" | "aeron_ipv4_netmask_from_prefixlen", "prefixlen") => Some(32),
+        ("aeron_ipv6_does_prefix_match" | "aeron_ipv6_netmask_from_prefixlen", "prefixlen") => Some(128),
+        _ => None,
     }
 }
 
@@ -589,32 +595,41 @@ fn classify_handler_arg(
             .find(|c| c.type_name == handler.c_type)
             .map(|c| c.fn_mut_signature.clone())
             .unwrap_or_else(|| quote! { FnMut() -> () });
-        ClassifiedArg {
-            kind: ArgRole::HandlerSync,
-            signature: Some(quote! { #name: Option<&Handler<#new_type, #policy>> }),
-            call: Some(call),
-            // These native readers invoke the callback without a null check.
-            // Publication suppliers are optional; native message polls already
-            // reject null handlers. Neither path needs another Rust check.
-            prelude: if matches!(
-                handler.c_type.as_str(),
-                "aeron_fragment_handler_t"
-                    | "aeron_controlled_fragment_handler_t"
-                    | "aeron_block_handler_t"
-                    | "aeron_reserved_value_supplier_t"
-            ) {
-                None
-            } else if returns_result {
+        // Other native readers invoke the callback without a null check.
+        // Publication suppliers are optional; native message polls already
+        // reject null handlers. Neither path needs another Rust check.
+        let required = !matches!(
+            handler.c_type.as_str(),
+            "aeron_fragment_handler_t"
+                | "aeron_controlled_fragment_handler_t"
+                | "aeron_block_handler_t"
+                | "aeron_reserved_value_supplier_t"
+        );
+        let optional_signature = quote! { #name: Option<&Handler<#new_type, #policy>> };
+        let (signature, prelude) = if !required {
+            (optional_signature, None)
+        } else if returns_result {
+            (
+                optional_signature,
                 Some(quote! {
                     if #name.is_none() {
                         return Err(AeronCError::with_message(-1, "this native reader requires a callback"));
                     }
-                })
-            } else {
-                // TODO: these readers return a plain value, so a missing callback can only panic.
-                // Taking the handler without `Option` would remove the panic but changes the API
-                Some(quote! { assert!(#name.is_some(), "this native reader requires a callback"); })
-            },
+                }),
+            )
+        } else {
+            // No `Result` to report a missing callback, so the type requires one.
+            // Rewrapping lets the shared call path stay `Option`-based
+            (
+                quote! { #name: &Handler<#new_type, #policy> },
+                Some(quote! { let #name = Some(#name); }),
+            )
+        };
+        ClassifiedArg {
+            kind: ArgRole::HandlerSync,
+            signature: Some(signature),
+            call: Some(call),
+            prelude,
             handler_prelude,
             generic: rt.method_generics_for_where(false, shared_owner),
             once_signature: Some(quote! { mut #name: #new_type }),
@@ -729,7 +744,11 @@ mod tests {
             );
             method.fn_name = native.into();
             let classified = classify_method_args(&method, "aeron_t", &BTreeMap::new(), &[]);
-            let expected = quote! { assert!(prefixlen <= #limit, "prefix length exceeds the address width"); };
+            let expected = quote! {
+                if prefixlen > #limit {
+                    return Err(AeronCError::with_message(-1, "prefix length exceeds the address width"));
+                }
+            };
             assert_eq!(classified.preludes()[0].to_string(), expected.to_string());
         }
         let method = method(

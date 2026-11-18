@@ -30,6 +30,24 @@ fn plain_struct_copy_remains_safe() {}
 /// ```
 fn raw_pointer_method_requires_unsafe() {}
 
+/// A reader with no `Result` to report a missing callback takes the callback without `Option`
+///
+/// ```compile_fail,E0308
+/// # use rusteron_client::*;
+/// fn check(reader: &AeronCountersReader) {
+///     reader.foreach_counter::<fn(i64, i32, i32, &[u8], &str), LocalCallback>(None);
+/// }
+/// ```
+fn required_reader_callback_cannot_be_none() {}
+
+/// ```no_run
+/// # use rusteron_client::*;
+/// fn check(reader: &AeronCountersReader, visitor: &Handler<fn(i64, i32, i32, &[u8], &str)>) {
+///     reader.foreach_counter(visitor);
+/// }
+/// ```
+fn required_reader_callback_takes_a_handler() {}
+
 /// ```compile_fail,E0624
 /// # use rusteron_client::*;
 /// fn check() { ManagedCResource::<bindings::aeron_frame_header_t>::new(|_| 0, None, true); }

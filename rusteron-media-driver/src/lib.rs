@@ -295,29 +295,28 @@ mod tests {
         let first = unsafe { InAddr::new(u32::from_ne_bytes([192, 168, 1, 10])).unwrap() };
         let same_subnet = unsafe { InAddr::new(u32::from_ne_bytes([192, 168, 1, 11])).unwrap() };
         let other_subnet = unsafe { InAddr::new(u32::from_ne_bytes([192, 168, 2, 10])).unwrap() };
-        assert!(first.aeron_ipv4_does_prefix_match(&same_subnet, 24));
-        assert!(!first.aeron_ipv4_does_prefix_match(&same_subnet, 32));
-        assert!(!first.aeron_ipv4_does_prefix_match(&other_subnet, 24));
-        assert!(first.aeron_ipv4_does_prefix_match(&other_subnet, 16));
-        assert!(first.aeron_ipv4_does_prefix_match(&other_subnet, 0));
-        assert_eq!(Aeron::ipv4_netmask_from_prefixlen(0), 0);
-        assert_eq!(Aeron::ipv4_netmask_from_prefixlen(32), u32::MAX);
+        assert!(first.aeron_ipv4_does_prefix_match(&same_subnet, 24).unwrap());
+        assert!(!first.aeron_ipv4_does_prefix_match(&same_subnet, 32).unwrap());
+        assert!(!first.aeron_ipv4_does_prefix_match(&other_subnet, 24).unwrap());
+        assert!(first.aeron_ipv4_does_prefix_match(&other_subnet, 16).unwrap());
+        assert!(first.aeron_ipv4_does_prefix_match(&other_subnet, 0).unwrap());
+        assert_eq!(Aeron::ipv4_netmask_from_prefixlen(0).unwrap(), 0);
+        assert_eq!(Aeron::ipv4_netmask_from_prefixlen(32).unwrap(), u32::MAX);
     }
 
     #[test]
     fn invalid_ip_prefixes_are_rejected_before_calling_native_code() {
-        use std::panic::{AssertUnwindSafe, catch_unwind};
         // SAFETY: these initialized address values have no pointers or external storage.
         let ipv4 = unsafe { InAddr::new(0).unwrap() };
         let ipv6 = unsafe { In6Addr::new_zeroed_on_heap() };
         for prefix in [33, usize::MAX] {
-            assert!(catch_unwind(AssertUnwindSafe(|| ipv4.aeron_ipv4_does_prefix_match(&ipv4, prefix))).is_err());
-            assert!(catch_unwind(|| Aeron::ipv4_netmask_from_prefixlen(prefix)).is_err());
+            assert!(ipv4.aeron_ipv4_does_prefix_match(&ipv4, prefix).is_err());
+            assert!(Aeron::ipv4_netmask_from_prefixlen(prefix).is_err());
         }
-        assert!(ipv6.aeron_ipv6_does_prefix_match(&ipv6, 0));
-        assert!(ipv6.aeron_ipv6_does_prefix_match(&ipv6, 128));
+        assert!(ipv6.aeron_ipv6_does_prefix_match(&ipv6, 0).unwrap());
+        assert!(ipv6.aeron_ipv6_does_prefix_match(&ipv6, 128).unwrap());
         for prefix in [129, usize::MAX] {
-            assert!(catch_unwind(AssertUnwindSafe(|| ipv6.aeron_ipv6_does_prefix_match(&ipv6, prefix))).is_err());
+            assert!(ipv6.aeron_ipv6_does_prefix_match(&ipv6, prefix).is_err());
         }
     }
     #[test]

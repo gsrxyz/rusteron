@@ -114,9 +114,9 @@ pub fn generate_wrappers(bindings: &mut CBinding, wrapper_type_filter: fn(&str) 
 #[cfg(test)]
 const TRYBUILD_ARCHIVE_ERROR_STUB: &str = r#"
     #[derive(Debug, Clone)]
-    pub struct AeronArchiveError { pub code: i32, pub message: String }
-    impl AeronArchiveError { pub fn from_code(code: i32) -> Self { Self { code, message: String::new() } }
-        pub fn with_message(code: i32, message: &'static str) -> Self { Self { code, message: message.to_owned() } } }
+    pub struct AeronArchiveError { pub code: i32, pub message: std::borrow::Cow<'static, str> }
+    impl AeronArchiveError { pub fn from_code(code: i32) -> Self { Self { code, message: "".into() } }
+        pub fn with_message(code: i32, message: &'static str) -> Self { Self { code, message: message.into() } } }
     impl std::fmt::Display for AeronArchiveError {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "archive error {}", self.code) }
     }

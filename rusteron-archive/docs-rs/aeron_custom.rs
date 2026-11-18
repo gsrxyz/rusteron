@@ -1445,18 +1445,6 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     }
 }
 
-impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
-    /// Calls [`AeronImage::poll`]. It adds no tracing, as there is no `instrument-ops` feature
-    #[inline]
-    pub fn poll_instrumented<AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback>(
-        &self,
-        handler: &mut AeronFragmentHandlerHandlerImpl,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        self.poll(handler, fragment_limit)
-    }
-}
-
 /// Production error handler that routes Aeron async errors through the Rust `log`
 /// facade at **error** level with a concise format. This is the recommended default for
 /// `AeronContext::set_error_handler`.
@@ -2469,7 +2457,8 @@ impl AeronArchiveErrorCode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AeronArchiveError {
     pub code: AeronArchiveErrorCode,
-    pub message: String,
+    /// Borrowed for messages from Rust checks, owned for text copied from native code
+    pub message: std::borrow::Cow<'static, str>,
 }
 
 impl AeronArchiveError {
@@ -2484,7 +2473,7 @@ impl AeronArchiveError {
         let native_code = unsafe { aeron_errcode() };
         Self {
             code: AeronArchiveErrorCode::from_native_code(if native_code == 0 { code } else { native_code }),
-            message: Aeron::errmsg_owned(),
+            message: Aeron::errmsg_owned().into(),
         }
     }
 
@@ -2495,7 +2484,7 @@ impl AeronArchiveError {
     pub(crate) fn with_message(code: i32, message: &'static str) -> Self {
         Self {
             code: AeronArchiveErrorCode::from_native_code(code),
-            message: message.to_owned(),
+            message: message.into(),
         }
     }
 }
@@ -2895,7 +2884,7 @@ impl AeronArchive {
             .map_err(|_| AeronCError::with_message(-1, "Archive error code exceeds the i32 range"))?;
         Ok(Some(AeronArchiveError {
             code: AeronArchiveErrorCode::from_code(code),
-            message: poller.error_message_owned(),
+            message: poller.error_message_owned().into(),
         }))
     }
 }

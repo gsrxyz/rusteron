@@ -1445,18 +1445,6 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     }
 }
 
-impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
-    /// Calls [`AeronImage::poll`]. It adds no tracing, as there is no `instrument-ops` feature
-    #[inline]
-    pub fn poll_instrumented<AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback>(
-        &self,
-        handler: &mut AeronFragmentHandlerHandlerImpl,
-        fragment_limit: usize,
-    ) -> Result<i32, AeronCError> {
-        self.poll(handler, fragment_limit)
-    }
-}
-
 /// Production error handler that routes Aeron async errors through the Rust `log`
 /// facade at **error** level with a concise format. This is the recommended default for
 /// `AeronContext::set_error_handler`.

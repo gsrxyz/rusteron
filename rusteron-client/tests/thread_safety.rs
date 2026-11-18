@@ -87,25 +87,6 @@ fn connect(driver: &EmbeddedDriver) -> Aeron {
     Aeron::connect_dir(driver.dir()).unwrap()
 }
 
-#[test]
-fn counter_reader_rejects_a_missing_callback_before_entering_c() {
-    let driver = driver();
-    let client = connect(&driver);
-    let reader = client.counters_reader();
-    type Visitor = fn(i64, i32, i32, &[u8], &str);
-    let callback: Option<&Handler<Visitor>> = None;
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        reader.foreach_counter(callback);
-    }));
-    assert!(result.is_err());
-    let mut count = 0;
-    reader.foreach_counter_fn(|_, _, _, _, _| count += 1);
-    assert!(
-        count > 0,
-        "the reader remains usable after rejecting a missing callback"
-    );
-}
-
 fn pair(client: &Aeron, stream: i32) -> (AeronPublication, AeronSubscription) {
     let publication = client
         .add_publication(AERON_IPC_STREAM, stream, Duration::from_secs(5))
