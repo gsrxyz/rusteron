@@ -28,7 +28,7 @@ Breaking release. See the [0.2-to-0.3 migration guide](docs/migrating_0.2_to_0.3
 - Replication params retain their strings and credentials across clones.
 - Breaking: `set_udp_channel_incoming_interceptors` and `set_udp_channel_outgoing_interceptors` are `unsafe`, as the driver context frees the bindings when it closes. Their getters and `AeronUdpChannelInterceptorBindings::load` return `Option` instead of panicking on NULL.
 - Resetting a recording descriptor poller releases the consumer it replaces. Repeated listings no longer keep every earlier consumer alive.
-- Breaking: readers that need a callback but do not return `Result`, such as `error_log_read`, `foreach_counter` and ring buffer `read`, take `&Handler` instead of `Option<&Handler>`. Required callbacks passed as `None` to methods that return `Result` return an error.
+- Breaking: readers that need a callback, such as `error_log_read`, `foreach_counter`, `loss_reporter_read` and ring buffer `read`, take `&Handler` instead of `Option<&Handler>`. A missing callback is a compile error instead of a panic.
 - UDP endpoint validation parses bracketed IPv6 hosts and rejects colons in unbracketed hosts.
 - Breaking: IP prefix utilities return `Result` and reject lengths outside the address width instead of panicking.
 - Breaking: removed `AeronImage::poll_instrumented`. Use `poll`.

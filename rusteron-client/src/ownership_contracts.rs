@@ -30,7 +30,7 @@ fn plain_struct_copy_remains_safe() {}
 /// ```
 fn raw_pointer_method_requires_unsafe() {}
 
-/// A reader with no `Result` to report a missing callback takes the callback without `Option`
+/// A reader that needs a callback takes it without `Option`
 ///
 /// ```compile_fail,E0308
 /// # use rusteron_client::*;

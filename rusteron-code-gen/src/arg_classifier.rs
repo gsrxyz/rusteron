@@ -394,7 +394,6 @@ fn classify_arg(
                 owned_retained,
                 fn_name,
                 owner_is_shared(own_type_name),
-                method.return_type.is_c_raw_int(),
                 none,
             );
         }
@@ -448,7 +447,6 @@ fn classify_handler_arg(
     owned_retained: &Option<Arg>,
     fn_name: &str,
     shared_owner: bool,
-    returns_result: bool,
     none: ClassifiedArg,
 ) -> ClassifiedArg {
     let handler = handler_client.first().unwrap();
@@ -605,25 +603,15 @@ fn classify_handler_arg(
                 | "aeron_block_handler_t"
                 | "aeron_reserved_value_supplier_t"
         );
-        let optional_signature = quote! { #name: Option<&Handler<#new_type, #policy>> };
-        let (signature, prelude) = if !required {
-            (optional_signature, None)
-        } else if returns_result {
-            (
-                optional_signature,
-                Some(quote! {
-                    if #name.is_none() {
-                        return Err(AeronCError::with_message(-1, "this native reader requires a callback"));
-                    }
-                }),
-            )
-        } else {
-            // No `Result` to report a missing callback, so the type requires one.
-            // Rewrapping lets the shared call path stay `Option`-based
+        // A required callback is not an `Option`, so a missing one fails to compile.
+        // Rewrapping lets the shared call path stay `Option`-based
+        let (signature, prelude) = if required {
             (
                 quote! { #name: &Handler<#new_type, #policy> },
                 Some(quote! { let #name = Some(#name); }),
             )
+        } else {
+            (quote! { #name: Option<&Handler<#new_type, #policy>> }, None)
         };
         ClassifiedArg {
             kind: ArgRole::HandlerSync,

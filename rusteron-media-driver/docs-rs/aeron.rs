@@ -9536,13 +9536,12 @@ impl<S: ResourceStorage<aeron_cnc_t>> AeronCnc<S> {
         AeronLossReporterReadEntryFuncHandlerImplPolicy: CallbackPolicy,
     >(
         &self,
-        entry_func: Option<
-            &Handler<AeronLossReporterReadEntryFuncHandlerImpl, AeronLossReporterReadEntryFuncHandlerImplPolicy>,
+        entry_func: &Handler<
+            AeronLossReporterReadEntryFuncHandlerImpl,
+            AeronLossReporterReadEntryFuncHandlerImplPolicy,
         >,
     ) -> Result<i32, AeronCError> {
-        if entry_func.is_none() {
-            return Err(AeronCError::with_message(-1, "this native reader requires a callback"));
-        }
+        let entry_func = Some(entry_func);
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -49902,16 +49901,12 @@ impl<S: ResourceStorage<aeron_loss_detector_t>> AeronLossDetector<S> {
     >(
         &self,
         feedback_delay_state: &AeronFeedbackDelayGeneratorState,
-        on_gap_detected: Option<
-            &Handler<
-                AeronTermGapScannerGapDetectedFuncHandlerImpl,
-                AeronTermGapScannerGapDetectedFuncHandlerImplPolicy,
-            >,
+        on_gap_detected: &Handler<
+            AeronTermGapScannerGapDetectedFuncHandlerImpl,
+            AeronTermGapScannerGapDetectedFuncHandlerImplPolicy,
         >,
     ) -> Result<i32, AeronCError> {
-        if on_gap_detected.is_none() {
-            return Err(AeronCError::with_message(-1, "this native reader requires a callback"));
-        }
+        let on_gap_detected = Some(on_gap_detected);
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -83031,11 +83026,9 @@ impl AeronUri {
         AeronUriParseCallbackHandlerImplPolicy: CallbackPolicy,
     >(
         uri: *mut ::std::os::raw::c_char,
-        param_func: Option<&Handler<AeronUriParseCallbackHandlerImpl, AeronUriParseCallbackHandlerImplPolicy>>,
+        param_func: &Handler<AeronUriParseCallbackHandlerImpl, AeronUriParseCallbackHandlerImplPolicy>,
     ) -> Result<i32, AeronCError> {
-        if param_func.is_none() {
-            return Err(AeronCError::with_message(-1, "this native reader requires a callback"));
-        }
+        let param_func = Some(param_func);
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(

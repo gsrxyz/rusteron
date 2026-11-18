@@ -12998,19 +12998,12 @@ impl<S: ResourceStorage<aeron_archive_t>> AeronArchive<S> {
     >(
         &self,
         recording_id: i64,
-        recording_descriptor_consumer: Option<
-            &Handler<
-                AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl,
-                AeronArchiveRecordingDescriptorConsumerFuncHandlerImplPolicy,
-            >,
+        recording_descriptor_consumer: &Handler<
+            AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl,
+            AeronArchiveRecordingDescriptorConsumerFuncHandlerImplPolicy,
         >,
     ) -> Result<i32, AeronArchiveError> {
-        if recording_descriptor_consumer.is_none() {
-            return Err(AeronArchiveError::with_message(
-                -1,
-                "this native reader requires a callback",
-            ));
-        }
+        let recording_descriptor_consumer = Some(recording_descriptor_consumer);
         unsafe {
             let mut mut_result: i32 = Default::default();
             #[cfg(feature = "log-c-bindings")]
@@ -13145,19 +13138,12 @@ impl<S: ResourceStorage<aeron_archive_t>> AeronArchive<S> {
         &self,
         from_recording_id: i64,
         record_count: i32,
-        recording_descriptor_consumer: Option<
-            &Handler<
-                AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl,
-                AeronArchiveRecordingDescriptorConsumerFuncHandlerImplPolicy,
-            >,
+        recording_descriptor_consumer: &Handler<
+            AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl,
+            AeronArchiveRecordingDescriptorConsumerFuncHandlerImplPolicy,
         >,
     ) -> Result<i32, AeronArchiveError> {
-        if recording_descriptor_consumer.is_none() {
-            return Err(AeronArchiveError::with_message(
-                -1,
-                "this native reader requires a callback",
-            ));
-        }
+        let recording_descriptor_consumer = Some(recording_descriptor_consumer);
         unsafe {
             let mut mut_result: i32 = Default::default();
             #[cfg(feature = "log-c-bindings")]
@@ -13302,19 +13288,12 @@ impl<S: ResourceStorage<aeron_archive_t>> AeronArchive<S> {
         record_count: i32,
         channel_fragment: &std::ffi::CStr,
         stream_id: i32,
-        recording_descriptor_consumer: Option<
-            &Handler<
-                AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl,
-                AeronArchiveRecordingDescriptorConsumerFuncHandlerImplPolicy,
-            >,
+        recording_descriptor_consumer: &Handler<
+            AeronArchiveRecordingDescriptorConsumerFuncHandlerImpl,
+            AeronArchiveRecordingDescriptorConsumerFuncHandlerImplPolicy,
         >,
     ) -> Result<i32, AeronArchiveError> {
-        if recording_descriptor_consumer.is_none() {
-            return Err(AeronArchiveError::with_message(
-                -1,
-                "this native reader requires a callback",
-            ));
-        }
+        let recording_descriptor_consumer = Some(recording_descriptor_consumer);
         unsafe {
             let mut mut_result: i32 = Default::default();
             #[cfg(feature = "log-c-bindings")]
@@ -13626,19 +13605,12 @@ impl<S: ResourceStorage<aeron_archive_t>> AeronArchive<S> {
         channel_fragment: &std::ffi::CStr,
         stream_id: i32,
         apply_stream_id: bool,
-        recording_subscription_descriptor_consumer: Option<
-            &Handler<
-                AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl,
-                AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImplPolicy,
-            >,
+        recording_subscription_descriptor_consumer: &Handler<
+            AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImpl,
+            AeronArchiveRecordingSubscriptionDescriptorConsumerFuncHandlerImplPolicy,
         >,
     ) -> Result<i32, AeronArchiveError> {
-        if recording_subscription_descriptor_consumer.is_none() {
-            return Err(AeronArchiveError::with_message(
-                -1,
-                "this native reader requires a callback",
-            ));
-        }
+        let recording_subscription_descriptor_consumer = Some(recording_subscription_descriptor_consumer);
         unsafe {
             let mut mut_result: i32 = Default::default();
             #[cfg(feature = "log-c-bindings")]
@@ -18615,13 +18587,12 @@ impl<S: ResourceStorage<aeron_cnc_t>> AeronCnc<S> {
         AeronLossReporterReadEntryFuncHandlerImplPolicy: CallbackPolicy,
     >(
         &self,
-        entry_func: Option<
-            &Handler<AeronLossReporterReadEntryFuncHandlerImpl, AeronLossReporterReadEntryFuncHandlerImplPolicy>,
+        entry_func: &Handler<
+            AeronLossReporterReadEntryFuncHandlerImpl,
+            AeronLossReporterReadEntryFuncHandlerImplPolicy,
         >,
     ) -> Result<i32, AeronCError> {
-        if entry_func.is_none() {
-            return Err(AeronCError::with_message(-1, "this native reader requires a callback"));
-        }
+        let entry_func = Some(entry_func);
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -40236,11 +40207,9 @@ impl AeronUri {
         AeronUriParseCallbackHandlerImplPolicy: CallbackPolicy,
     >(
         uri: *mut ::std::os::raw::c_char,
-        param_func: Option<&Handler<AeronUriParseCallbackHandlerImpl, AeronUriParseCallbackHandlerImplPolicy>>,
+        param_func: &Handler<AeronUriParseCallbackHandlerImpl, AeronUriParseCallbackHandlerImplPolicy>,
     ) -> Result<i32, AeronCError> {
-        if param_func.is_none() {
-            return Err(AeronCError::with_message(-1, "this native reader requires a callback"));
-        }
+        let param_func = Some(param_func);
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
