@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         builder.media(Media::Udp)?.control_mode(ControlMode::Manual)?;
         builder.build(256)?
     };
-    let subscription = aeron
+    let mut subscription = aeron
         .async_add_subscription(&cformat!("{mds_channel}"), STREAM_ID, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(5))?;
 

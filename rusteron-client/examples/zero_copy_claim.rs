@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
 
-    let subscription = aeron
+    let mut subscription = aeron
         .async_add_subscription(AERON_IPC_STREAM, STREAM_ID, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(5))?;
     let publication = aeron

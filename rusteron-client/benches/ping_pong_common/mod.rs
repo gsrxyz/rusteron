@@ -33,10 +33,10 @@ pub fn run_ping(
     println!("PING: pong publisher {:?} {PONG_STREAM_ID}", channels.pong);
     println!("PING: ping subscriber {:?} {PING_STREAM_ID}", channels.ping);
 
-    let image = wait_for_pong(&publication, &subscription, connect_timeout)?;
+    let mut image = wait_for_pong(&publication, &subscription, connect_timeout)?;
     let mut buffer = [0u8; MESSAGE_LENGTH];
     c.bench_function(name, |b| {
-        b.iter(|| record_rtt(&publication, &image, &mut buffer).expect("round trip"));
+        b.iter(|| record_rtt(&publication, &mut image, &mut buffer).expect("round trip"));
     });
     Ok(())
 }
@@ -47,7 +47,8 @@ pub fn run_pong(
     channels: &Channels,
     running: impl Fn() -> bool,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let (publication, subscription) = connect(dir, (channels.ping, PING_STREAM_ID), (channels.pong, PONG_STREAM_ID))?;
+    let (publication, mut subscription) =
+        connect(dir, (channels.ping, PING_STREAM_ID), (channels.pong, PONG_STREAM_ID))?;
     println!("PONG: ping publisher {:?} {PING_STREAM_ID}", channels.ping);
     println!("PONG: pong subscriber {:?} {PONG_STREAM_ID}", channels.pong);
 
@@ -131,7 +132,7 @@ fn echo(publication: &AeronExclusivePublication, buffer: &[u8]) -> Result<(), Bo
 #[inline]
 fn record_rtt(
     publication: &AeronExclusivePublication,
-    image: &AeronImage,
+    image: &mut AeronImage,
     buffer: &mut [u8],
 ) -> Result<(), Box<dyn Error>> {
     let mut idle = BusySpinIdleStrategy::new();

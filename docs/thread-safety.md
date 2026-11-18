@@ -13,10 +13,15 @@ local until reviewed.
 ## Handles and lifetime
 
 - Regular publications accept concurrent publishers from several threads.
-- Subscriptions, exclusive publications and images are neither `Send` nor `Sync`.
-  Aeron allows one consumer or one writer per native object, and these types are
-  `Clone`, so making them `Send` would let two clones use the same object from
-  different threads. Create them on the thread that uses them.
+- Aeron allows one consumer per subscription or image and one writer per exclusive
+  publication. These handles, replay merges and persistent subscriptions have no
+  `Clone`, so each native object has one Rust owner.
+- `AeronSubscription` is `Send` but not `Sync`. Create it on one thread and move it to
+  the thread that polls it. Exclusive publications and images stay local.
+- A retained image from `image_at_index` keeps the subscription's native object
+  alive. Do not poll it inside a poll of its own subscription, and do not keep
+  polling it on this thread after the subscription moves to another one. Both race
+  on the image position and can deliver fragments twice.
 - Native cleanup runs when the last owning handle drops. `close()` on a shared handle
   releases that handle's reference. Other clones and active claims stay valid.
   Explicit native removal APIs bypass this and are unsafe.
@@ -36,6 +41,30 @@ local until reviewed.
 - Subscriptions, exclusive publications and fragment assemblers have no safe zeroed or
   raw-pointer constructors. `FragmentAssembler` and `ControlledFragmentAssembler` are
   not cloneable and poll through `&mut self`, so one owner uses each assembler.
+
+<a id="re-entrant-calls"></a>
+
+## Re-entrant calls
+
+Aeron C saves the subscriber position only when a poll returns, and the reserved
+value supplier of an exclusive publication runs before the term offset advances.
+A nested poll from a fragment callback, or a nested offer from a supplier, would be
+overwritten and deliver or write the same data twice. Aeron Java and C++ have the
+same behaviour and document these types as not thread safe.
+
+Rusteron rejects these calls at compile time. These methods take `&mut self`:
+
+- `poll`, `controlled_poll` and `block_poll` on subscriptions
+- `poll`, `controlled_poll`, `bounded_poll`, `bounded_controlled_poll` and
+  `block_poll` on images
+- `poll` on replay merges and `poll` and `controlled_poll` on persistent subscriptions
+- `offer_raw`, `offer_with_reserved_value` and `offerv` on exclusive publications,
+  which take a reserved value supplier
+
+A callback that captures the same handle then fails with `E0499`. Plain `offer`,
+`try_claim` and `offer_parts` on an exclusive publication take no callback and keep
+`&self`. The Archive client needs no change because Aeron C rejects nested calls at
+run time. The borrow check has no runtime cost.
 
 <a id="hot-path-behaviour"></a>
 

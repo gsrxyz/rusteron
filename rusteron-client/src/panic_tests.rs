@@ -126,7 +126,7 @@ fn collect(count: usize, mut poll: impl FnMut(&mut Vec<u32>)) -> Vec<u32> {
     seen
 }
 
-fn drain(subscription: &AeronSubscription, count: usize) -> Vec<u32> {
+fn drain(subscription: &mut AeronSubscription, count: usize) -> Vec<u32> {
     collect(count, |seen| {
         subscription.poll_fn(|buffer, _| seen.push(value(buffer)), 10).unwrap();
     })
@@ -148,7 +148,7 @@ fn boom() -> ! {
 #[test]
 #[serial]
 fn panic_reaches_caller_with_payload_and_batch_is_redelivered() {
-    let ipc = ipc(5001);
+    let mut ipc = ipc(5001);
     offer(&ipc.publication, 1..=5);
 
     let mut seen = vec![];
@@ -169,7 +169,7 @@ fn panic_reaches_caller_with_payload_and_batch_is_redelivered() {
     assert_eq!(seen, [1, 2, 3]);
 
     // nothing was committed, so the whole batch comes back in order
-    assert_eq!(drain(&ipc.subscription, 5), [1, 2, 3, 4, 5]);
+    assert_eq!(drain(&mut ipc.subscription, 5), [1, 2, 3, 4, 5]);
 }
 
 /// With a COMMIT after #2 the next poll starts at #3; without one it starts at #1
@@ -177,7 +177,7 @@ fn panic_reaches_caller_with_payload_and_batch_is_redelivered() {
 #[serial]
 fn controlled_poll_redelivers_from_last_commit() {
     for (stream_id, commit_at, expected) in [(5002, Some(2), vec![3, 4, 5]), (5003, None, vec![1, 2, 3, 4, 5])] {
-        let ipc = ipc(stream_id);
+        let mut ipc = ipc(stream_id);
         offer(&ipc.publication, 1..=5);
 
         let mut seen = vec![];
@@ -202,7 +202,7 @@ fn controlled_poll_redelivers_from_last_commit() {
         assert_eq!(panic_message(&*payload), "boom");
         assert_eq!(seen, [1, 2, 3, 4], "commit at {commit_at:?}");
         assert_eq!(
-            drain(&ipc.subscription, expected.len()),
+            drain(&mut ipc.subscription, expected.len()),
             expected,
             "commit at {commit_at:?}"
         );
@@ -213,23 +213,23 @@ fn controlled_poll_redelivers_from_last_commit() {
 #[test]
 #[serial]
 fn block_poll_redelivers_the_block() {
-    type BlockPoll = fn(&Ipc, &mut dyn FnMut(&[u8]));
+    type BlockPoll = fn(&mut Ipc, &mut dyn FnMut(&[u8]));
     let variants: [(&str, i32, BlockPoll); 2] = [
         ("subscription", 5004, |ipc, f| {
             ipc.subscription.block_poll_fn(|buffer, _, _| f(buffer), 1 << 16);
         }),
         ("image", 5005, |ipc, f| {
-            let image = ipc.subscription.image_at_index(0).expect("connected image");
+            let mut image = ipc.subscription.image_at_index(0).expect("connected image");
             image.block_poll_fn(|buffer, _, _| f(buffer), 1 << 16).unwrap();
         }),
     ];
     for (name, stream_id, poll) in variants {
-        let ipc = ipc(stream_id);
+        let mut ipc = ipc(stream_id);
         offer(&ipc.publication, 1..=3);
 
         let mut first = 0;
         let payload = poll_until_panic(|| {
-            poll(&ipc, &mut |buffer| {
+            poll(&mut ipc, &mut |buffer| {
                 first = buffer.len();
                 boom();
             })
@@ -238,7 +238,7 @@ fn block_poll_redelivers_the_block() {
 
         let mut again = 0;
         wait(|| {
-            poll(&ipc, &mut |buffer| again = buffer.len());
+            poll(&mut ipc, &mut |buffer| again = buffer.len());
             again > 0
         });
         assert_eq!(again, first, "{name}");
@@ -249,7 +249,7 @@ fn block_poll_redelivers_the_block() {
 #[test]
 #[serial]
 fn image_poll_variants_redeliver() {
-    type Poll = fn(&AeronImage, &mut dyn FnMut(&[u8]));
+    type Poll = fn(&mut AeronImage, &mut dyn FnMut(&[u8]));
     let variants: [(&str, Poll); 4] = [
         ("poll", |image, f| {
             image.poll_fn(|buffer, _| f(buffer), 10).unwrap();
@@ -283,12 +283,12 @@ fn image_poll_variants_redeliver() {
     ];
     for (i, (name, poll)) in variants.into_iter().enumerate() {
         let ipc = ipc(5100 + i as i32);
-        let image = ipc.subscription.image_at_index(0).expect("connected image");
+        let mut image = ipc.subscription.image_at_index(0).expect("connected image");
         offer(&ipc.publication, 1..=3);
 
         let mut seen = vec![];
         let payload = poll_until_panic(|| {
-            poll(&image, &mut |buffer| {
+            poll(&mut image, &mut |buffer| {
                 seen.push(value(buffer));
                 if value(buffer) == 2 {
                     boom();
@@ -298,7 +298,7 @@ fn image_poll_variants_redeliver() {
         assert_eq!(panic_message(&*payload), "boom", "{name}");
         assert_eq!(seen, [1, 2], "{name}");
 
-        let again = collect(3, |again| poll(&image, &mut |buffer| again.push(value(buffer))));
+        let again = collect(3, |again| poll(&mut image, &mut |buffer| again.push(value(buffer))));
         assert_eq!(again, [1, 2, 3], "{name}");
     }
 }
@@ -308,7 +308,7 @@ fn image_poll_variants_redeliver() {
 #[test]
 #[serial]
 fn only_the_panicking_image_redelivers() {
-    let ipc = ipc(5006);
+    let mut ipc = ipc(5006);
     let first_pub = ipc
         .aeron
         .add_exclusive_publication(AERON_IPC_STREAM, 5006, timeout())
@@ -348,7 +348,7 @@ fn only_the_panicking_image_redelivers() {
     assert_eq!(panicked_on, Some(panicking_image * 100 + 1));
 
     // only the panicking image comes back, from its first value
-    assert_eq!(drain(&ipc.subscription, 3), image_values(panicking_image));
+    assert_eq!(drain(&mut ipc.subscription, 3), image_values(panicking_image));
 }
 
 struct DropCount(Rc<Cell<usize>>);
@@ -362,7 +362,7 @@ impl Drop for DropCount {
 #[test]
 #[serial]
 fn once_closure_captures_drop_exactly_once() {
-    let ipc = ipc(5007);
+    let mut ipc = ipc(5007);
     offer(&ipc.publication, [1]);
     let drops = Rc::new(Cell::new(0));
 
@@ -402,7 +402,7 @@ impl AeronFragmentHandlerCallback for Recorder {
 #[test]
 #[serial]
 fn direct_poll_borrows_callback_state_and_respects_fragment_limit() {
-    let ipc = ipc(5035);
+    let mut ipc = ipc(5035);
     offer(&ipc.publication, 1..=3);
     let mut seen = Vec::new();
     {
@@ -417,7 +417,7 @@ fn direct_poll_borrows_callback_state_and_respects_fragment_limit() {
 #[test]
 #[serial]
 fn direct_poll_recovers_after_panic_without_shared_callback_storage() {
-    let ipc = ipc(5036);
+    let mut ipc = ipc(5036);
     offer(&ipc.publication, 1..=3);
     let drops = Rc::new(Cell::new(0));
     let mut callback = Recorder {
@@ -446,7 +446,7 @@ fn direct_poll_recovers_after_panic_without_shared_callback_storage() {
 fn direct_image_poll_accepts_an_owned_fragment_assembler() {
     let ipc = ipc(5037);
     offer(&ipc.publication, [1, 2]);
-    let image = ipc.subscription.image_at_index(0).unwrap();
+    let mut image = ipc.subscription.image_at_index(0).unwrap();
     let mut seen = Vec::new();
     {
         let mut assembler = FragmentAssembler::new(|bytes: &[u8], _: &AeronHeader| seen.push(value(bytes))).unwrap();
@@ -459,7 +459,7 @@ fn direct_image_poll_accepts_an_owned_fragment_assembler() {
 #[test]
 #[serial]
 fn retained_handler_survives_panic_and_drops_once() {
-    let ipc = ipc(5008);
+    let mut ipc = ipc(5008);
     offer(&ipc.publication, 1..=3);
     let drops = Rc::new(Cell::new(0));
     let handler = Handler::new(Recorder {
@@ -491,7 +491,7 @@ fn retained_handler_survives_panic_and_drops_once() {
 fn many_panics_then_normal_traffic() {
     const WARM_UP: u32 = 100;
     const CYCLES: u32 = 10_000;
-    let ipc = ipc(5009);
+    let mut ipc = ipc(5009);
     let drops = Rc::new(Cell::new(0));
 
     let mut baseline = 0;
@@ -514,7 +514,7 @@ fn many_panics_then_normal_traffic() {
         });
         assert_eq!(*payload.downcast::<u32>().unwrap(), i);
         drop(guard);
-        assert_eq!(drain(&ipc.subscription, 1), [i]);
+        assert_eq!(drain(&mut ipc.subscription, 1), [i]);
     }
     assert_eq!(drops.get(), CYCLES as usize, "every capture dropped exactly once");
     // a leak per panic would add thousands; 64 allows for stray log lines
@@ -524,7 +524,7 @@ fn many_panics_then_normal_traffic() {
     let mut received = 0u32;
     for chunk in (0..CYCLES).collect::<Vec<_>>().chunks(100) {
         offer(&ipc.publication, chunk.iter().copied());
-        received += drain(&ipc.subscription, chunk.len()).len() as u32;
+        received += drain(&mut ipc.subscription, chunk.len()).len() as u32;
     }
     assert_eq!(received, CYCLES);
 }
@@ -539,7 +539,7 @@ fn panic_on_one_thread_does_not_affect_another() {
         let dir = dir.clone();
         std::thread::spawn(move || {
             let aeron = client(&dir);
-            let subscription = aeron
+            let mut subscription = aeron
                 .add_subscription(AERON_IPC_STREAM, stream_id, Handlers::NONE, Handlers::NONE, timeout())
                 .unwrap();
             let publication = aeron.add_publication(AERON_IPC_STREAM, stream_id, timeout()).unwrap();
@@ -550,7 +550,7 @@ fn panic_on_one_thread_does_not_affect_another() {
                     subscription.poll_fn(|_, _| boom(), 10).unwrap();
                 });
             }
-            drain(&subscription, 100)
+            drain(&mut subscription, 100)
         })
     };
     let panicking = polling(5011, true);
@@ -582,24 +582,24 @@ fn recording_delegate(
 #[test]
 #[serial]
 fn fragment_assembler_delegate_panic_resumes_from_poll() {
-    let ipc = ipc(5020);
+    let mut ipc = ipc(5020);
     let (seen, panic_on) = (Rc::default(), Rc::new(Cell::new(Some(2))));
     let mut delegate = recording_delegate(&seen, &panic_on);
     let mut assembler = FragmentAssembler::new(move |buffer: &[u8], _: &AeronHeader| delegate(buffer)).unwrap();
     offer(&ipc.publication, 1..=3);
 
     let payload = poll_until_panic(|| {
-        assembler.poll(&ipc.subscription, 10).unwrap();
+        assembler.poll(&mut ipc.subscription, 10).unwrap();
     });
     assert_eq!(panic_message(&*payload), "boom");
     wait(|| {
-        assembler.poll(&ipc.subscription, 10).unwrap();
+        assembler.poll(&mut ipc.subscription, 10).unwrap();
         seen.borrow().len() >= 3
     });
 
     offer(&ipc.publication, [4]);
     wait(|| {
-        assembler.poll(&ipc.subscription, 10).unwrap();
+        assembler.poll(&mut ipc.subscription, 10).unwrap();
         seen.borrow().len() >= 4
     });
     assert_eq!(*seen.borrow(), [1, 2, 3, 4]);
@@ -609,7 +609,7 @@ fn fragment_assembler_delegate_panic_resumes_from_poll() {
 #[test]
 #[serial]
 fn controlled_fragment_assembler_delegate_panic_redelivers() {
-    let ipc = ipc(5024);
+    let mut ipc = ipc(5024);
     let (seen, panic_on) = (Rc::default(), Rc::new(Cell::new(Some(2))));
     let mut delegate = recording_delegate(&seen, &panic_on);
     let mut assembler = ControlledFragmentAssembler::new(move |buffer: &[u8], _: &AeronHeader| {
@@ -620,21 +620,21 @@ fn controlled_fragment_assembler_delegate_panic_redelivers() {
     offer(&ipc.publication, 1..=3);
 
     let payload = poll_until_panic(|| {
-        assembler.poll(&ipc.subscription, 10).unwrap();
+        assembler.poll(&mut ipc.subscription, 10).unwrap();
     });
     assert_eq!(panic_message(&*payload), "boom");
     assert_eq!(*seen.borrow(), [1, 2]);
 
     panic_on.set(None);
     wait(|| {
-        assembler.poll(&ipc.subscription, 10).unwrap();
+        assembler.poll(&mut ipc.subscription, 10).unwrap();
         seen.borrow().len() >= 4
     });
     assert_eq!(*seen.borrow(), [1, 2, 2, 3]);
 }
 
 fn fragmented_delegate_panic(controlled: bool) {
-    let ipc = ipc(if controlled { 5032 } else { 5031 });
+    let mut ipc = ipc(if controlled { 5032 } else { 5031 });
     let length = ipc.publication.max_payload_length().unwrap() + 17;
     let session_id = ipc.publication.session_id();
     let seen = Rc::new(std::cell::RefCell::new(Vec::new()));
@@ -650,7 +650,7 @@ fn fragmented_delegate_panic(controlled: bool) {
             panic!("fragmented delegate panic");
         }
     };
-    let subscription = &ipc.subscription;
+    let subscription = &mut ipc.subscription;
     let mut poll: Box<dyn FnMut()> = if controlled {
         let mut assembler = ControlledFragmentAssembler::new(move |buffer: &[u8], header: &AeronHeader| {
             delegate(buffer, header);
@@ -711,7 +711,7 @@ fn controlled_fragment_assembler_recovers_after_fragmented_delegate_panic() {
 #[test]
 #[serial]
 fn image_visitor_panic_resumes_from_for_each_image() {
-    let ipc = ipc(5021);
+    let mut ipc = ipc(5021);
     let payload = catch_unwind(AssertUnwindSafe(|| ipc.subscription.for_each_image(|_| boom()))).unwrap_err();
     assert_eq!(panic_message(&*payload), "boom");
 
@@ -719,14 +719,14 @@ fn image_visitor_panic_resumes_from_for_each_image() {
     ipc.subscription.for_each_image(|_| images += 1);
     assert_eq!(images, 1);
     offer(&ipc.publication, [1]);
-    assert_eq!(drain(&ipc.subscription, 1), [1]);
+    assert_eq!(drain(&mut ipc.subscription, 1), [1]);
 }
 
 /// The supplier's fallback is 0, so that one message is published with reserved value 0
 #[test]
 #[serial]
 fn reserved_value_supplier_panic_resumes_from_offer() {
-    let ipc = ipc(5022);
+    let mut ipc = ipc(5022);
     let supplier = Handler::new(|_: &mut [u8]| -> i64 { boom() });
     let payload = poll_until_panic(|| {
         let _ = ipc
@@ -736,7 +736,7 @@ fn reserved_value_supplier_panic_resumes_from_offer() {
     assert_eq!(panic_message(&*payload), "boom");
 
     offer(&ipc.publication, [2]);
-    assert_eq!(drain(&ipc.subscription, 2), [1, 2]);
+    assert_eq!(drain(&mut ipc.subscription, 2), [1, 2]);
 }
 
 // Logged paths: C keeps the callback and fires it later, often on the conductor thread,
@@ -797,14 +797,14 @@ fn child_conductor_callback_panics() {
         FIRED.store(true, std::sync::atomic::Ordering::Release);
         boom()
     });
-    let subscription = ipc
+    let mut subscription = ipc
         .aeron
         .add_subscription(AERON_IPC_STREAM, 5023, Some(&on_available), Handlers::NONE, timeout())
         .unwrap();
     wait(|| FIRED.load(std::sync::atomic::Ordering::Acquire) && subscription.is_connected());
 
     offer(&ipc.publication, [1]);
-    assert_eq!(drain(&subscription, 1), [1]);
+    assert_eq!(drain(&mut subscription, 1), [1]);
 }
 
 /// One closure assembler serves different closures per poll, and keeps partial
@@ -812,10 +812,10 @@ fn child_conductor_callback_panics() {
 #[test]
 #[serial]
 fn closure_assembler_reassembles_across_polls_and_closures() {
-    let ipc = ipc(5040);
+    let mut ipc = ipc(5040);
     let length = ipc.publication.max_payload_length().unwrap() + 17;
     let mut assembler = AeronFragmentClosureAssembler::new().unwrap();
-    let image = ipc.subscription.image_at_index(0).unwrap();
+    let mut image = ipc.subscription.image_at_index(0).unwrap();
     wait(|| ipc.publication.offer(&vec![0xA5; length]).is_ok());
 
     let mut whole = Vec::new();
@@ -835,7 +835,7 @@ fn closure_assembler_reassembles_across_polls_and_closures() {
     let mut values = Vec::new();
     wait(|| {
         assembler
-            .poll(&ipc.subscription, |msg, _| values.push(value(msg)), 10)
+            .poll(&mut ipc.subscription, |msg, _| values.push(value(msg)), 10)
             .unwrap();
         !values.is_empty()
     });
@@ -846,14 +846,14 @@ fn closure_assembler_reassembles_across_polls_and_closures() {
 #[test]
 #[serial]
 fn closure_assembler_panic_resumes_from_poll() {
-    let ipc = ipc(5041);
+    let mut ipc = ipc(5041);
     let mut assembler = AeronFragmentClosureAssembler::new().unwrap();
     offer(&ipc.publication, 1..=3);
     let mut seen = Vec::new();
     let payload = poll_until_panic(|| {
         assembler
             .poll(
-                &ipc.subscription,
+                &mut ipc.subscription,
                 |msg, _| {
                     seen.push(value(msg));
                     if value(msg) == 2 {
@@ -867,7 +867,7 @@ fn closure_assembler_panic_resumes_from_poll() {
     assert_eq!(panic_message(&*payload), "boom");
     wait(|| {
         assembler
-            .poll(&ipc.subscription, |msg, _| seen.push(value(msg)), 10)
+            .poll(&mut ipc.subscription, |msg, _| seen.push(value(msg)), 10)
             .unwrap();
         seen.len() >= 3
     });
@@ -879,14 +879,14 @@ fn closure_assembler_panic_resumes_from_poll() {
 #[serial]
 fn controlled_closure_assembler_abort_and_panic_redeliver() {
     use aeron_controlled_fragment_handler_action_t::{AERON_ACTION_ABORT, AERON_ACTION_CONTINUE};
-    let ipc = ipc(5042);
+    let mut ipc = ipc(5042);
     let mut assembler = AeronControlledFragmentClosureAssembler::new().unwrap();
     offer(&ipc.publication, 1..=3);
     let mut seen = Vec::new();
     wait(|| {
         assembler
             .poll(
-                &ipc.subscription,
+                &mut ipc.subscription,
                 |msg, _| {
                     seen.push(value(msg));
                     if value(msg) == 2 {
@@ -905,7 +905,7 @@ fn controlled_closure_assembler_abort_and_panic_redeliver() {
     let payload = poll_until_panic(|| {
         assembler
             .poll(
-                &ipc.subscription,
+                &mut ipc.subscription,
                 |msg, _| {
                     seen.push(value(msg));
                     boom()
@@ -917,7 +917,7 @@ fn controlled_closure_assembler_abort_and_panic_redeliver() {
     assert_eq!(panic_message(&*payload), "boom");
 
     // the panicking message 2 comes back, this time through an image poll
-    let image = ipc.subscription.image_at_index(0).unwrap();
+    let mut image = ipc.subscription.image_at_index(0).unwrap();
     wait(|| {
         let handler = &mut assembler.with(|msg, _| {
             seen.push(value(msg));

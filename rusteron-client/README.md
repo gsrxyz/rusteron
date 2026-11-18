@@ -42,7 +42,7 @@ let client = Aeron::new(&context)?;
 client.start()?;
 
 let timeout = Duration::from_secs(5);
-let subscription = client
+let mut subscription = client
     .async_add_subscription(c"aeron:ipc", 123, Handlers::NONE, Handlers::NONE)?
     .poll_blocking(timeout)?;
 let publication = client
@@ -130,7 +130,7 @@ closure on each poll; `FragmentAssembler::new(callback)` owns one fixed callback
 
 ```rust,no_run
 # use rusteron_client::*;
-# fn receive(subscription: &AeronSubscription) -> Result<(), AeronCError> {
+# fn receive(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
 let mut assembler = AeronFragmentClosureAssembler::new()?;
 assembler.poll(subscription, |message, _header| {
     println!("received a complete {}-byte message", message.len());

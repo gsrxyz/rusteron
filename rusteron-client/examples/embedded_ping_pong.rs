@@ -87,7 +87,7 @@ fn connected(publication: &AeronPublication) -> Result<(), Box<dyn Error>> {
 
 fn run_pong(running: &AtomicBool, dir: &str) -> Result<(), Box<dyn Error>> {
     let client = client(dir)?;
-    let subscription = client
+    let mut subscription = client
         .async_add_subscription(PONG_CHANNEL, PONG_STREAM_ID, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(5))?;
     let publication = client
@@ -116,7 +116,7 @@ fn run_ping(running: &AtomicBool, dir: &str, counts: &MessageCounts) -> Result<H
     let publication = client
         .async_add_publication(PONG_CHANNEL, PONG_STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
-    let subscription = client
+    let mut subscription = client
         .async_add_subscription(PING_CHANNEL, PING_STREAM_ID, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(5))?;
     connected(&publication)?;
@@ -125,12 +125,12 @@ fn run_ping(running: &AtomicBool, dir: &str, counts: &MessageCounts) -> Result<H
     let mut histogram = Histogram::<u64>::new(3)?;
     let mut buffer = [0u8; MESSAGE_LENGTH];
     for _ in 0..counts.warmup {
-        round_trip(running, &publication, &subscription, &mut buffer, &mut histogram)?;
+        round_trip(running, &publication, &mut subscription, &mut buffer, &mut histogram)?;
     }
     histogram.reset();
     println!("warmed up");
     for _ in 0..counts.measured {
-        round_trip(running, &publication, &subscription, &mut buffer, &mut histogram)?;
+        round_trip(running, &publication, &mut subscription, &mut buffer, &mut histogram)?;
     }
     Ok(histogram)
 }
@@ -138,7 +138,7 @@ fn run_ping(running: &AtomicBool, dir: &str, counts: &MessageCounts) -> Result<H
 fn round_trip(
     running: &AtomicBool,
     publication: &AeronPublication,
-    subscription: &AeronSubscription,
+    subscription: &mut AeronSubscription,
     buffer: &mut [u8],
     histogram: &mut Histogram<u64>,
 ) -> Result<(), Box<dyn Error>> {

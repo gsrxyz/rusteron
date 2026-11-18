@@ -832,7 +832,7 @@ pub trait PersistentSubscriptionListener: 'static {
 /// aeron.start()?;
 /// let archive_context = AeronArchiveContext::new()?;
 ///
-/// let subscription = PersistentSubscriptionBuilder::new_with_aeron(&archive_context, &aeron)?
+/// let mut subscription = PersistentSubscriptionBuilder::new_with_aeron(&archive_context, &aeron)?
 ///     .recording_id(0)?
 ///     .live_channel("aeron:ipc")?
 ///     .live_stream_id(1001)?
@@ -2006,7 +2006,7 @@ mod tests {
             archive.get_max_recorded_position(recording_id)
         );
 
-        let replay_merge = AeronArchiveReplayMerge::new(
+        let mut replay_merge = AeronArchiveReplayMerge::new(
             &subscription,
             &archive,
             &replay_channel,
@@ -2030,12 +2030,8 @@ mod tests {
                 |buffer, _header| {
                     reply_count += 1;
                     if reply_count % 10_000 == 0 {
-                        info!(
-                            "replay-merge [count={}, isMerged={}, isLive={}]",
-                            reply_count,
-                            replay_merge.is_merged(),
-                            replay_merge.is_live_added()
-                        );
+                        // The merge state cannot be read here because the poll holds `&mut replay_merge`
+                        info!("replay-merge [count={}]", reply_count);
                     }
                 },
                 100,
@@ -2476,7 +2472,7 @@ mod tests {
             let params = AeronArchiveReplayParams::builder().position(-1).length(-1).build()?;
             let replay = archive.start_replay(recording_id, c"aeron:ipc?term-length=64k", 1553, &params)?;
             let channel = format!("aeron:ipc?session-id={}", replay as i32).into_c_string();
-            let subscription =
+            let mut subscription =
                 aeron.add_subscription(&channel, 1553, Handlers::NONE, Handlers::NONE, valgrind_timeout(10))?;
             let deadline = Instant::now() + valgrind_timeout(10);
             while !subscription.is_connected() {
@@ -2669,7 +2665,7 @@ mod tests {
             }
         }
         // SAFETY: the replay subscription stays alive for the scope of this test.
-        let subscription = ReplaySubscription(unsafe { AeronSubscription::from_ptr(raw_subscription) });
+        let mut subscription = ReplaySubscription(unsafe { AeronSubscription::from_ptr(raw_subscription) });
         assert!(
             !stalled.load(Ordering::SeqCst),
             "replay did not drive its invoker client"
@@ -2962,7 +2958,7 @@ mod tests {
                 .ok_or("current client not retained")?;
             // the harness does not wait for the Java driver, which can take seconds to start on CI
             let timeout = Duration::from_secs(30);
-            let subscription =
+            let mut subscription =
                 client.add_subscription(AERON_IPC_STREAM, 7001, Handlers::NONE, Handlers::NONE, timeout)?;
             let publication = client.add_publication(AERON_IPC_STREAM, 7001, timeout)?;
             let start = Instant::now();
@@ -3079,7 +3075,7 @@ mod tests {
             assert!(subscription_id >= 0);
             info!("subscription id {}", subscription_id);
 
-            let publication = aeron
+            let mut publication = aeron
                 .async_add_exclusive_publication(channel, stream_id)?
                 .poll_blocking(Duration::from_secs(5))?;
 
@@ -3194,7 +3190,7 @@ mod tests {
             let avail_image_handler = SharedHandler::new_shared(AeronAvailableImageLogger);
             let unavail_image_handler = SharedHandler::new_shared(AeronUnavailableImageLogger);
             let replay_result: Result<(), Box<dyn error::Error>> = (|| {
-                let subscription = aeron
+                let mut subscription = aeron
                     .async_add_subscription(
                         &channel_replay,
                         replay_stream_id,

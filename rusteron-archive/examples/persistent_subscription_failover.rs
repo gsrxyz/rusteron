@@ -115,7 +115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let errors: Arc<Mutex<Vec<(i32, String)>>> = Arc::new(Mutex::new(Vec::new()));
 
     // one client for the subscription and its archive context
-    let ps = PersistentSubscriptionBuilder::new_with_aeron(&archive_context, &aeron)?
+    let mut ps = PersistentSubscriptionBuilder::new_with_aeron(&archive_context, &aeron)?
         .live_channel(live_channel)?
         .live_stream_id(stream_id)?
         .replay_channel("aeron:udp?endpoint=localhost:0")?

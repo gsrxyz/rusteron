@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let publication = aeron
         .async_add_publication(AERON_IPC_STREAM, STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
-    let subscription = aeron
+    let mut subscription = aeron
         .async_add_subscription(AERON_IPC_STREAM, STREAM_ID, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(5))?;
 
@@ -128,13 +128,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         offset = end;
 
         // drain the subscription as we go (single process; a real receiver is remote)
-        assembler.poll(&subscription, |buf, hdr| on_message(&mut receiver, buf, hdr), 64)?;
+        assembler.poll(&mut subscription, |buf, hdr| on_message(&mut receiver, buf, hdr), 64)?;
     }
 
     // drain the tail until every byte has arrived
     let deadline = Instant::now() + Duration::from_secs(10);
     while receiver.received < FILE_SIZE as u64 && Instant::now() < deadline {
-        if assembler.poll(&subscription, |buf, hdr| on_message(&mut receiver, buf, hdr), 64)? == 0 {
+        if assembler.poll(&mut subscription, |buf, hdr| on_message(&mut receiver, buf, hdr), 64)? == 0 {
             sleep(Duration::from_millis(1));
         }
     }

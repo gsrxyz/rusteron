@@ -126,7 +126,8 @@ fn persistent_subscription_retains_context_client_and_listener() {
     let alias = context.clone();
     let capture = Rc::new(());
     let weak = Rc::downgrade(&capture);
-    let subscription = AeronArchivePersistentSubscription::create(context, Some(Box::new(Listener(capture)))).unwrap();
+    let mut subscription =
+        AeronArchivePersistentSubscription::create(context, Some(Box::new(Listener(capture)))).unwrap();
     assert!(alias.set_live_stream_id(999).is_err());
     assert!(archive.set_message_timeout_ns(100).is_err());
     assert!(archive.set_aeron(&client).is_err());
@@ -177,7 +178,7 @@ fn persistent_subscription_keeps_parents_after_all_external_owners_drop() {
         }))
         .unwrap();
     let context = persistent_context(&client, &archive);
-    let subscription = AeronArchivePersistentSubscription::create(context, None).unwrap();
+    let mut subscription = AeronArchivePersistentSubscription::create(context, None).unwrap();
     drop(client);
     drop(archive);
     assert!(weak.upgrade().is_some());

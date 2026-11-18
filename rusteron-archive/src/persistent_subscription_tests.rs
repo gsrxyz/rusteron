@@ -170,7 +170,7 @@ mod tests {
         // Create the subscription BEFORE publishing and wait for its image, so the
         // live IPC subscription actually sees the messages that follow. A live
         // subscription never receives messages published before its image existed.
-        let subscription = aeron_archive
+        let mut subscription = aeron_archive
             .async_add_subscription(&channel.into_c_string(), stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(5))?;
 
@@ -293,7 +293,7 @@ mod tests {
             archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)
         })?;
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
-        let replay_sub = aeron_archive
+        let mut replay_sub = aeron_archive
             .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 
@@ -329,7 +329,7 @@ mod tests {
         info!("Replayed {} messages", handler.borrow().replay_count);
 
         // Phase 3: live consumption. Subscribe first and wait for an image.
-        let subscription = aeron_archive
+        let mut subscription = aeron_archive
             .async_add_subscription(&channel.into_c_string(), stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(5))?;
         let start = Instant::now();
@@ -720,7 +720,7 @@ mod tests {
         // Create subscription for replay
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
-        let subscription = aeron_archive
+        let mut subscription = aeron_archive
             .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 
@@ -1004,7 +1004,7 @@ mod tests {
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(5) {
             let mut all_ready = true;
-            for (i, sub) in subscriptions.iter().enumerate() {
+            for (i, sub) in subscriptions.iter_mut().enumerate() {
                 sub.poll(&mut *handlers[i].lock(), 10)?;
                 if sub.image_count()? == 0 {
                     all_ready = false;
@@ -1032,7 +1032,7 @@ mod tests {
         // Poll all subscriptions
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(10) {
-            for (i, sub) in subscriptions.iter().enumerate() {
+            for (i, sub) in subscriptions.iter_mut().enumerate() {
                 sub.poll(&mut *handlers[i].lock(), 10)?;
             }
             sleep(Duration::from_millis(10));
@@ -1148,7 +1148,7 @@ mod tests {
         let joined = Arc::new(AtomicUsize::new(0));
         let errors: Arc<Mutex<Vec<(i32, String)>>> = Arc::new(Mutex::new(Vec::new()));
 
-        let ps = persistent_subscription_builder()?
+        let mut ps = persistent_subscription_builder()?
             .aeron(&aeron_archive)?
             .archive_context(&archive_context)?
             .live_channel(live_channel)?
@@ -1326,7 +1326,7 @@ mod tests {
 
         let (aeron, archive_context, _media_driver_archive, _archive_error_handler) =
             start_aeron_archive_with_config("ps_context_anchor", 9790)?;
-        let ps = {
+        let mut ps = {
             let context = AeronArchiveContext::new()?;
             context.set_aeron(&aeron)?;
             context
@@ -1455,7 +1455,7 @@ mod tests {
         let left = Arc::new(AtomicUsize::new(0));
         let errors: Arc<Mutex<Vec<(i32, String)>>> = Arc::new(Mutex::new(Vec::new()));
 
-        let ps = persistent_subscription_builder()?
+        let mut ps = persistent_subscription_builder()?
             .aeron(&aeron_archive)?
             .archive_context(&archive_context)?
             .live_channel(live_channel)?
@@ -1471,7 +1471,7 @@ mod tests {
             })?
             .build()?;
 
-        let poll_drive = |ps: &AeronArchivePersistentSubscription, pub_ref: &AeronExclusivePublication| {
+        let poll_drive = |ps: &mut AeronArchivePersistentSubscription, pub_ref: &mut AeronExclusivePublication| {
             let _ = pub_ref.offer_raw(b"live-beat", Handlers::NONE);
             ps.poll_fn(|_buf, _hdr| {}, 100)
         };
@@ -1480,7 +1480,7 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(30);
         while !ps.is_live() && Instant::now() < deadline {
             assert!(!ps.has_failed(), "ps failed: {:?}", ps.get_failure_reason());
-            poll_drive(&ps, &publication)?;
+            poll_drive(&mut ps, &mut publication)?;
             sleep(Duration::from_millis(1));
         }
         assert!(joined.load(Ordering::SeqCst) >= 1, "never went live initially");
@@ -1524,7 +1524,7 @@ mod tests {
             if joined.load(Ordering::SeqCst) >= 2 {
                 break;
             }
-            poll_drive(&ps, &publication)?;
+            poll_drive(&mut ps, &mut publication)?;
             sleep(Duration::from_millis(1));
         }
 

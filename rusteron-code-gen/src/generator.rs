@@ -2,7 +2,8 @@ use crate::get_possible_wrappers;
 #[allow(unused_imports)]
 use crate::snake_to_pascal_case;
 use crate::thread_safety::{
-    handle_has_stable_pointer, handle_is_archive_context, handle_is_consumed_by_poll, handle_is_shared, owner_is_shared,
+    NON_REENTRANT_FNS, handle_has_stable_pointer, handle_is_archive_context, handle_is_consumed_by_poll,
+    handle_is_send_only, handle_is_shared, handle_is_single_owner, owner_is_shared,
 };
 use itertools::Itertools;
 use proc_macro2::{Ident, TokenStream};
@@ -1147,7 +1148,9 @@ impl CWrapper {
                 // Logging expression for arguments
                 let args_log_expr = Self::generate_arg_logging(&method.arguments, &arg_names);
 
-                let possible_self = if uses_self {
+                let possible_self = if uses_self && NON_REENTRANT_FNS.contains(&method.fn_name.as_str()) {
+                    quote! { &mut self, }
+                } else if uses_self {
                     quote! { &self, }
                 } else {
                     quote! {}
@@ -1956,7 +1959,7 @@ impl CWrapper {
                     let parent_deps: Vec<TokenStream> = method.arguments.iter()
                         .filter(|arg| arg.is_single_mut_pointer() && wrappers.contains_key(arg.base_type()))
                         .map(|arg| { let copy = format_ident!("{}_copy", arg.name);
-                            quote! { result.inner.add_handle_dependency(&#copy); }
+                            quote! { result.inner.add_handle_dependency(#copy); }
                         }).collect();
                     let freeze_context = if ["aeron_t", "aeron_driver_t"].contains(&self.type_name.as_str()) {
                         quote! { let __context_use = context.inner.as_owned().ok_or_else(|| AeronCError::with_message(-1, "client requires an owned context"))?.reserve_context()?; }
@@ -2311,10 +2314,11 @@ impl CWrapper {
                         if handle_is_archive_context(arg.base_type()) {
                             let class = format_ident!("{}", wrappers[arg.base_type()].class_name);
                             quote! {
-                                let #arg_copy = #class::from_resource(#arg_name.resource().clone());
+                                let #arg_copy = &#class::from_resource(#arg_name.resource().clone());
                             }
                         } else {
-                            quote! { let #arg_copy = #arg_name.clone(); }
+                            // A borrow is enough to retain the owner, and single-owner handles have no Clone
+                            quote! { let #arg_copy = #arg_name; }
                         }
                     } else {
                         quote! {}
@@ -4419,6 +4423,7 @@ pub fn generate_rust_code(
         };
 
     let derive_clone = if handle_is_archive_context(&wrapper.type_name)
+        || handle_is_single_owner(&wrapper.type_name)
         || matches!(
             wrapper.type_name.as_str(),
             "aeron_archive_recording_descriptor_poller_t" | "aeron_archive_recording_subscription_descriptor_poller_t"
@@ -4551,6 +4556,13 @@ pub fn generate_rust_code(
             // storage checks dependencies and cleanup; close waits for the last owner.
             unsafe impl<S: ResourceStorage<#type_name> + SharedStorage<#type_name>> Send for #class_name<S> {}
             unsafe impl<S: ResourceStorage<#type_name> + SharedStorage<#type_name>> Sync for #class_name<S> {}
+        }
+    } else if handle_is_send_only(&wrapper.type_name) {
+        quote! {
+            // SAFETY: the owner retains only shared dependencies and has no Clone, so moving it
+            // moves the only safe handle. Without Sync, one thread at a time uses it, as C requires.
+            // Retained images keep their own reference; see the type's threading docs
+            unsafe impl Send for #class_name<LiveCResource<#type_name>> {}
         }
     } else {
         quote! {}

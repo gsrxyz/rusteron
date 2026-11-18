@@ -47,7 +47,7 @@ For synchronous polling, pass a stack closure:
 
 ```rust,no_run
 # use rusteron_archive::*;
-# fn snippet(archive_context: &AeronArchiveContext, subscription: &AeronSubscription) -> Result<(), AeronCError> {
+# fn snippet(archive_context: &AeronArchiveContext, subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
 // retained (e.g. an error handler on the archive context)
 archive_context.set_error_handler(Some(|code: i32, msg: &str| eprintln!("archive error {code}: {msg}")))?;
 
@@ -242,7 +242,7 @@ Each object is driven by its own call, once a cycle:
 
 ```rust,no_run
 # use rusteron_archive::*;
-# fn snippet(archive: &AeronArchive, ps: &AeronArchivePersistentSubscription) -> Result<(), AeronCError> {
+# fn snippet(archive: &AeronArchive, ps: &mut AeronArchivePersistentSubscription) -> Result<(), AeronCError> {
 loop {
     archive.do_work()?;
     ps.poll_fn(|message, _header| { /* a replayed or live message */ }, 100)?;
@@ -297,7 +297,7 @@ impl PersistentSubscriptionListener for MyListener {
 let live_joined = Arc::new(AtomicUsize::new(0));
 
 // one client for the subscription and its archive context
-let ps = PersistentSubscriptionBuilder::new_with_aeron(&archive_context, &aeron)?
+let mut ps = PersistentSubscriptionBuilder::new_with_aeron(&archive_context, &aeron)?
     .live_channel(live_channel)?        // the live stream to join
     .live_stream_id(stream_id)?
     .replay_channel("aeron:udp?endpoint=localhost:0")?  // scratch channel for the replay
@@ -335,7 +335,7 @@ A persistent subscription reassembles fragments itself, so your handler receives
 
 ```rust,no_run
 # use rusteron_archive::*;
-# fn snippet(ps: &AeronArchivePersistentSubscription) -> Result<(), AeronCError> {
+# fn snippet(ps: &mut AeronArchivePersistentSubscription) -> Result<(), AeronCError> {
 loop {
     // handler receives whole messages; no assembler needed
     ps.poll_fn(|buf, _hdr| { /* handle reassembled message */ }, 100)?;
@@ -353,7 +353,7 @@ way with `ps.controlled_poll`.
 
 ```rust,no_run
 # use rusteron_archive::*;
-# fn snippet(ps: &AeronArchivePersistentSubscription) -> Result<(), AeronCError> {
+# fn snippet(ps: &mut AeronArchivePersistentSubscription) -> Result<(), AeronCError> {
 let mut assembler = AeronFragmentClosureAssembler::new()?;
 let mut total = 0;
 loop {

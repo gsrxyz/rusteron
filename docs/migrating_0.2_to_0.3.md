@@ -14,6 +14,8 @@ explicit type annotations and low-level FFI access.
 | Cloning a getter's `Ref` | Borrow again with `as_ref()`, or use an explicit retained-child getter |
 | Function arguments annotated as the default owning wrapper | Add a storage parameter if the function should also accept borrowed views |
 | Cloning an Archive context or native assembler | Keep one owner. Borrow it, or share a newly created context through `Rc` during setup |
+| Cloning a subscription, image, exclusive publication, replay merge or persistent subscription | Keep one owner. Polls and supplier offers take `&mut self`. See [re-entrant calls](thread-safety.md#re-entrant-calls) |
+| A poll or supplier offer through `&handle` | Declare the handle `let mut` and borrow it mutably |
 | Cloning a recording descriptor poller | Keep one mutable owner. `poll()` takes `&mut self` and needs a consumer installed by `reset()` |
 | `close()` or `delete()` followed by reuse | These consume the owning handle. Use another owning clone if supported |
 | `From<*mut T>`, `From<native_struct>` or implicit native struct `Deref` | Use the documented unsafe constructors or explicit field getters |
@@ -156,7 +158,8 @@ Default owning handle types:
 | Handle | Send | Sync |
 | --- | --- | --- |
 | `Aeron`, `AeronPublication`, `AeronCounter`, `AeronCountersReader` | Yes | Yes |
-| `AeronSubscription`, `AeronExclusivePublication`, `AeronImage` | No | No |
+| `AeronSubscription` | Yes | No |
+| `AeronExclusivePublication`, `AeronImage` | No | No |
 | Contexts, async registrations, native assemblers, Archive and driver handles | No | No |
 | Local `Handler<T>` | No | No |
 | `SharedHandler<T>` with `T: Send` | Yes | Yes |
@@ -165,9 +168,10 @@ Create local resources on the thread that uses them. A regular publication can b
 shared among producer threads. Borrowed and retained views follow the thread
 traits of their storage and parent.
 
-Subscriptions and exclusive publications are cloneable and their poll and send
-methods take `&self`, so they stay local to stop two clones using one native
-object at once. The grouped `No` entries are conservative. See
+Subscriptions, images and exclusive publications have no `Clone`, and their polls
+and supplier offers take `&mut self`. One owner uses each native object, so a
+subscription can move to the thread that polls it. A retained image from
+`image_at_index` stays local. The grouped `No` entries are conservative. See
 [thread safety](thread-safety.md#native-contracts-and-wrapper-traits).
 
 Configure contexts before native initialization. Later setters return an error,
@@ -191,15 +195,15 @@ Fragment assembly has three forms:
   `handler_mut()`.
 - `AeronImageFragmentAssembler` and `AeronImageControlledFragmentAssembler` keep
   their names. `new` takes the callback by value instead of a `Handler`, and
-  `poll(&image, limit)` polls with it. They poll one image with one buffer
+  `poll(&mut image, limit)` polls with it. They poll one image with one buffer
   allocated at creation.
 - `AeronFragmentClosureAssembler` and `AeronControlledFragmentClosureAssembler`
   keep their names but take a closure on each poll:
-  `poll(&subscription, closure, limit)`. The closure can borrow local state, so
+  `poll(&mut subscription, closure, limit)`. The closure can borrow local state, so
   the `ctx` argument and `fn` pointer are gone.
 
-Poll a subscription with `assembler.poll(&subscription, ...)` and an image with
-`image_assembler.poll(&image, ...)`. For any other poll target, pass the
+Poll a subscription with `assembler.poll(&mut subscription, ...)` and an image with
+`image_assembler.poll(&mut image, ...)`. For any other poll target, pass the
 assembler itself, or `&mut assembler.with(closure)` for the closure forms.
 
 A persistent subscription reassembles messages itself. If 0.2 code polled one
@@ -217,7 +221,7 @@ Choose callback storage by how C invokes it:
 | State kept in a `Handler` | `subscription.poll(&mut *handler.lock(), limit)` |
 | Retained callback that may run on a conductor | Owned setter, or `SharedHandler::new_shared(callback)` |
 | Fixed complete-message callback | `FragmentAssembler::new(callback)` |
-| New complete-message closure per poll | `AeronFragmentClosureAssembler::new()` with `poll(&subscription, closure, limit)` |
+| New complete-message closure per poll | `AeronFragmentClosureAssembler::new()` with `poll(&mut subscription, closure, limit)` |
 | Controlled complete-message callback | `ControlledFragmentAssembler::new(callback)` or `AeronControlledFragmentClosureAssembler::new()` |
 
 An owned setter picks the shared callback storage for you:
@@ -257,7 +261,7 @@ impl AeronFragmentHandlerCallback for Receiver {
     }
 }
 
-# fn receive(subscription: &AeronSubscription) -> Result<(), AeronCError> {
+# fn receive(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
 let callback = Handler::new(Receiver::default());
 subscription.poll(Some(&callback), 32)?;
 # Ok(()) }
@@ -278,7 +282,7 @@ impl AeronFragmentHandlerCallback for Receiver {
     }
 }
 
-# fn receive(subscription: &AeronSubscription) -> Result<(), AeronCError> {
+# fn receive(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
 let mut callback = Receiver::default();
 subscription.poll(&mut callback, 32)?;
 # Ok(()) }
@@ -304,7 +308,7 @@ impl AeronFragmentHandlerCallback for Messages {
     }
 }
 
-# fn receive(subscription: &AeronSubscription) -> Result<(), AeronCError> {
+# fn receive(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
 let (assembler, messages) = Handler::with_fragment_assembler(Messages::default())?;
 subscription.poll(Some(&assembler), 64)?;
 println!("{} complete messages", messages.0);
@@ -326,7 +330,7 @@ impl AeronFragmentHandlerCallback for Messages {
     }
 }
 
-# fn receive(subscription: &AeronSubscription, image: &AeronImage) -> Result<(), AeronCError> {
+# fn receive(subscription: &mut AeronSubscription, image: &mut AeronImage) -> Result<(), AeronCError> {
 let mut assembler = FragmentAssembler::new(Messages::default())?;
 assembler.poll(subscription, 64)?;
 image.poll(&mut assembler, 64)?;
@@ -357,7 +361,7 @@ impl AeronControlledFragmentHandlerCallback for UntilFull {
     }
 }
 
-# fn receive(subscription: &AeronSubscription) -> Result<(), AeronCError> {
+# fn receive(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
 let mut assembler = ControlledFragmentAssembler::new(UntilFull(Vec::with_capacity(1 << 20)))?;
 assembler.poll(subscription, 64)?;
 assembler.handler_mut().0.clear();
@@ -389,7 +393,7 @@ The closure borrows local variables for the poll call only:
 ```rust,no_run
 use rusteron_archive::*;
 
-# fn receive(subscription: &AeronSubscription) -> Result<(), AeronCError> {
+# fn receive(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
 let mut bytes = 0;
 let mut assembler = AeronFragmentClosureAssembler::new()?;
 assembler.poll(subscription, |message, _header| bytes += message.len(), 64)?;

@@ -214,7 +214,7 @@ mod tests {
             archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)
         })?;
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
-        let replay_sub = aeron_archive
+        let mut replay_sub = aeron_archive
             .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 
@@ -251,7 +251,7 @@ mod tests {
 
         // Phase 3: live consumption. Subscribe first and wait for an image so the
         // live subscription sees the messages that follow.
-        let live_sub = aeron_archive
+        let mut live_sub = aeron_archive
             .async_add_subscription(&channel.into_c_string(), stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(5))?;
         let start = Instant::now();
@@ -376,7 +376,7 @@ mod tests {
 
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
-        let subscription = aeron_archive
+        let mut subscription = aeron_archive
             .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 
@@ -506,7 +506,7 @@ mod tests {
 
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
-        let subscription = aeron_archive
+        let mut subscription = aeron_archive
             .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 
@@ -622,7 +622,7 @@ mod tests {
 
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
-        let subscription = aeron_archive
+        let mut subscription = aeron_archive
             .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 
@@ -1141,7 +1141,7 @@ mod tests {
         port: u16,
         stream_id: i32,
         received: Received,
-        mut poll: impl FnMut(&AeronArchivePersistentSubscription) -> Result<i32, AeronCError>,
+        mut poll: impl FnMut(&mut AeronArchivePersistentSubscription) -> Result<i32, AeronCError>,
     ) -> Result<(), Box<dyn Error>> {
         rusteron_code_gen::test_logger::init(log::LevelFilter::Info);
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
@@ -1187,7 +1187,7 @@ mod tests {
             sleep(Duration::from_millis(10));
         }
 
-        let ps = persistent_subscription_builder()?
+        let mut ps = persistent_subscription_builder()?
             .aeron(&aeron_archive)?
             .archive_context(&archive_context)?
             .live_channel(channel)?
@@ -1201,12 +1201,12 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(20);
         while received.borrow().len() < 2 && Instant::now() < deadline {
-            poll(&ps)?;
+            poll(&mut ps)?;
             sleep(Duration::from_millis(1));
         }
         // Further polls must not redeliver anything
         for _ in 0..10 {
-            poll(&ps)?;
+            poll(&mut ps)?;
         }
         ps.close()?;
         drop(publication);

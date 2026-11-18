@@ -83,11 +83,11 @@ fn offer_poll(c: &mut Criterion) {
     let publication = aeron
         .add_exclusive_publication(AERON_IPC_STREAM, STREAM_ID, timeout)
         .unwrap();
-    let subscription = aeron
+    let mut subscription = aeron
         .add_subscription(AERON_IPC_STREAM, STREAM_ID, Handlers::NONE, Handlers::NONE, timeout)
         .unwrap();
     let deadline = Instant::now() + timeout;
-    let image = loop {
+    let mut image = loop {
         if publication.is_connected()
             && let Some(image) = subscription.image_at_index(0)
         {

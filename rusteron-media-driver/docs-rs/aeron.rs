@@ -63,8 +63,8 @@ impl Addrinfo<CResource<addrinfo>> {
         ai_addr: &Sockaddr,
         ai_next: &Addrinfo,
     ) -> Result<Self, AeronCError> {
-        let ai_addr_copy = ai_addr.clone();
-        let ai_next_copy = ai_next.clone();
+        let ai_addr_copy = ai_addr;
+        let ai_next_copy = ai_next;
         let r_constructor = ManagedCResource::<addrinfo>::new(
             move |ctx_field| {
                 let inst = addrinfo {
@@ -5322,9 +5322,9 @@ impl AeronAsyncDestination<CResource<aeron_async_destination_t>> {
         publication: &AeronPublication,
         uri: &std::ffi::CStr,
     ) -> Result<Self, AeronCError> {
-        let client_copy = client.clone();
+        let client_copy = client;
         let client: *mut aeron_t = client.into();
-        let publication_copy = publication.clone();
+        let publication_copy = publication;
         let publication: *mut aeron_publication_t = publication.into();
         let uri: *const ::std::os::raw::c_char = uri.as_ptr();
         let resource_constructor = ManagedCResource::<aeron_async_destination_t>::new(
@@ -5348,8 +5348,8 @@ impl AeronAsyncDestination<CResource<aeron_async_destination_t>> {
         let result = Self {
             inner: CResource::new(ResourceRef::new(resource_constructor)).into(),
         };
-        result.inner.add_handle_dependency(&client_copy);
-        result.inner.add_handle_dependency(&publication_copy);
+        result.inner.add_handle_dependency(client_copy);
+        result.inner.add_handle_dependency(publication_copy);
         Ok(result)
     }
     #[inline]
@@ -5363,9 +5363,9 @@ impl AeronAsyncDestination<CResource<aeron_async_destination_t>> {
         publication: &AeronPublication,
         uri: &std::ffi::CStr,
     ) -> Result<Self, AeronCError> {
-        let client_copy = client.clone();
+        let client_copy = client;
         let client: *mut aeron_t = client.into();
-        let publication_copy = publication.clone();
+        let publication_copy = publication;
         let publication: *mut aeron_publication_t = publication.into();
         let uri: *const ::std::os::raw::c_char = uri.as_ptr();
         let resource_constructor = ManagedCResource::<aeron_async_destination_t>::new(
@@ -5393,8 +5393,8 @@ impl AeronAsyncDestination<CResource<aeron_async_destination_t>> {
         let result = Self {
             inner: CResource::new(ResourceRef::new(resource_constructor)).into(),
         };
-        result.inner.add_handle_dependency(&client_copy);
-        result.inner.add_handle_dependency(&publication_copy);
+        result.inner.add_handle_dependency(client_copy);
+        result.inner.add_handle_dependency(publication_copy);
         Ok(result)
     }
     #[inline]
@@ -5408,9 +5408,9 @@ impl AeronAsyncDestination<CResource<aeron_async_destination_t>> {
         publication: &AeronPublication,
         destination_registration_id: i64,
     ) -> Result<Self, AeronCError> {
-        let client_copy = client.clone();
+        let client_copy = client;
         let client: *mut aeron_t = client.into();
-        let publication_copy = publication.clone();
+        let publication_copy = publication;
         let publication: *mut aeron_publication_t = publication.into();
         let destination_registration_id: i64 = destination_registration_id.into();
         let resource_constructor = ManagedCResource::<aeron_async_destination_t>::new(
@@ -5443,8 +5443,8 @@ impl AeronAsyncDestination<CResource<aeron_async_destination_t>> {
         let result = Self {
             inner: CResource::new(ResourceRef::new(resource_constructor)).into(),
         };
-        result.inner.add_handle_dependency(&client_copy);
-        result.inner.add_handle_dependency(&publication_copy);
+        result.inner.add_handle_dependency(client_copy);
+        result.inner.add_handle_dependency(publication_copy);
         Ok(result)
     }
     #[inline]
@@ -5458,9 +5458,9 @@ impl AeronAsyncDestination<CResource<aeron_async_destination_t>> {
         publication: &AeronExclusivePublication,
         uri: &std::ffi::CStr,
     ) -> Result<Self, AeronCError> {
-        let client_copy = client.clone();
+        let client_copy = client;
         let client: *mut aeron_t = client.into();
-        let publication_copy = publication.clone();
+        let publication_copy = publication;
         let publication: *mut aeron_exclusive_publication_t = publication.into();
         let uri: *const ::std::os::raw::c_char = uri.as_ptr();
         let resource_constructor = ManagedCResource::<aeron_async_destination_t>::new(
@@ -5488,8 +5488,8 @@ impl AeronAsyncDestination<CResource<aeron_async_destination_t>> {
         let result = Self {
             inner: CResource::new(ResourceRef::new(resource_constructor)).into(),
         };
-        result.inner.add_handle_dependency(&client_copy);
-        result.inner.add_handle_dependency(&publication_copy);
+        result.inner.add_handle_dependency(client_copy);
+        result.inner.add_handle_dependency(publication_copy);
         Ok(result)
     }
     #[inline]
@@ -5503,9 +5503,9 @@ impl AeronAsyncDestination<CResource<aeron_async_destination_t>> {
         publication: &AeronExclusivePublication,
         uri: &std::ffi::CStr,
     ) -> Result<Self, AeronCError> {
-        let client_copy = client.clone();
+        let client_copy = client;
         let client: *mut aeron_t = client.into();
-        let publication_copy = publication.clone();
+        let publication_copy = publication;
         let publication: *mut aeron_exclusive_publication_t = publication.into();
         let uri: *const ::std::os::raw::c_char = uri.as_ptr();
         let resource_constructor = ManagedCResource::<aeron_async_destination_t>::new(
@@ -5533,8 +5533,8 @@ impl AeronAsyncDestination<CResource<aeron_async_destination_t>> {
         let result = Self {
             inner: CResource::new(ResourceRef::new(resource_constructor)).into(),
         };
-        result.inner.add_handle_dependency(&client_copy);
-        result.inner.add_handle_dependency(&publication_copy);
+        result.inner.add_handle_dependency(client_copy);
+        result.inner.add_handle_dependency(publication_copy);
         Ok(result)
     }
     #[inline]
@@ -5548,9 +5548,9 @@ impl AeronAsyncDestination<CResource<aeron_async_destination_t>> {
         publication: &AeronExclusivePublication,
         destination_registration_id: i64,
     ) -> Result<Self, AeronCError> {
-        let client_copy = client.clone();
+        let client_copy = client;
         let client: *mut aeron_t = client.into();
-        let publication_copy = publication.clone();
+        let publication_copy = publication;
         let publication: *mut aeron_exclusive_publication_t = publication.into();
         let destination_registration_id: i64 = destination_registration_id.into();
         let resource_constructor = ManagedCResource::<aeron_async_destination_t>::new(
@@ -5583,8 +5583,8 @@ impl AeronAsyncDestination<CResource<aeron_async_destination_t>> {
         let result = Self {
             inner: CResource::new(ResourceRef::new(resource_constructor)).into(),
         };
-        result.inner.add_handle_dependency(&client_copy);
-        result.inner.add_handle_dependency(&publication_copy);
+        result.inner.add_handle_dependency(client_copy);
+        result.inner.add_handle_dependency(publication_copy);
         Ok(result)
     }
     #[inline]
@@ -5598,9 +5598,9 @@ impl AeronAsyncDestination<CResource<aeron_async_destination_t>> {
         subscription: &AeronSubscription,
         uri: &std::ffi::CStr,
     ) -> Result<Self, AeronCError> {
-        let client_copy = client.clone();
+        let client_copy = client;
         let client: *mut aeron_t = client.into();
-        let subscription_copy = subscription.clone();
+        let subscription_copy = subscription;
         let subscription: *mut aeron_subscription_t = subscription.into();
         let uri: *const ::std::os::raw::c_char = uri.as_ptr();
         let resource_constructor = ManagedCResource::<aeron_async_destination_t>::new(
@@ -5624,8 +5624,8 @@ impl AeronAsyncDestination<CResource<aeron_async_destination_t>> {
         let result = Self {
             inner: CResource::new(ResourceRef::new(resource_constructor)).into(),
         };
-        result.inner.add_handle_dependency(&client_copy);
-        result.inner.add_handle_dependency(&subscription_copy);
+        result.inner.add_handle_dependency(client_copy);
+        result.inner.add_handle_dependency(subscription_copy);
         Ok(result)
     }
     #[inline]
@@ -5639,9 +5639,9 @@ impl AeronAsyncDestination<CResource<aeron_async_destination_t>> {
         subscription: &AeronSubscription,
         uri: &std::ffi::CStr,
     ) -> Result<Self, AeronCError> {
-        let client_copy = client.clone();
+        let client_copy = client;
         let client: *mut aeron_t = client.into();
-        let subscription_copy = subscription.clone();
+        let subscription_copy = subscription;
         let subscription: *mut aeron_subscription_t = subscription.into();
         let uri: *const ::std::os::raw::c_char = uri.as_ptr();
         let resource_constructor = ManagedCResource::<aeron_async_destination_t>::new(
@@ -5669,8 +5669,8 @@ impl AeronAsyncDestination<CResource<aeron_async_destination_t>> {
         let result = Self {
             inner: CResource::new(ResourceRef::new(resource_constructor)).into(),
         };
-        result.inner.add_handle_dependency(&client_copy);
-        result.inner.add_handle_dependency(&subscription_copy);
+        result.inner.add_handle_dependency(client_copy);
+        result.inner.add_handle_dependency(subscription_copy);
         Ok(result)
     }
 }
@@ -6772,7 +6772,7 @@ impl AeronBroadcastTransmitter<CResource<aeron_broadcast_transmitter_t>> {
         capacity: usize,
         max_message_length: usize,
     ) -> Result<Self, AeronCError> {
-        let descriptor_copy = descriptor.clone();
+        let descriptor_copy = descriptor;
         let r_constructor = ManagedCResource::<aeron_broadcast_transmitter_t>::new(
             move |ctx_field| {
                 let inst = aeron_broadcast_transmitter_t {
@@ -13536,7 +13536,7 @@ impl AeronCountersManager<CResource<aeron_counters_manager_t>> {
         cached_clock: &AeronClockCache,
         free_to_reuse_timeout_ms: i64,
     ) -> Result<Self, AeronCError> {
-        let cached_clock_copy = cached_clock.clone();
+        let cached_clock_copy = cached_clock;
         let r_constructor = ManagedCResource::<aeron_counters_manager_t>::new(
             move |ctx_field| {
                 let inst = aeron_counters_manager_t {
@@ -15974,8 +15974,8 @@ impl AeronDataPacketDispatcher<CResource<aeron_data_packet_dispatcher_t>> {
         receiver: &AeronDriverReceiver,
         stream_session_limit: i32,
     ) -> Result<Self, AeronCError> {
-        let conductor_proxy_copy = conductor_proxy.clone();
-        let receiver_copy = receiver.clone();
+        let conductor_proxy_copy = conductor_proxy;
+        let receiver_copy = receiver;
         let r_constructor = ManagedCResource::<aeron_data_packet_dispatcher_t>::new(
             move |ctx_field| {
                 let inst = aeron_data_packet_dispatcher_t {
@@ -17558,7 +17558,7 @@ impl AeronDistinctErrorLogObservationList<CResource<aeron_distinct_error_log_obs
     #[doc = r" # Safety"]
     #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub unsafe fn new(num_observations: u64, observations: &AeronDistinctObservation) -> Result<Self, AeronCError> {
-        let observations_copy = observations.clone();
+        let observations_copy = observations;
         let r_constructor = ManagedCResource::<aeron_distinct_error_log_observation_list_t>::new(
             move |ctx_field| {
                 let inst = aeron_distinct_error_log_observation_list_t {
@@ -17826,7 +17826,7 @@ impl AeronDistinctErrorLog<CResource<aeron_distinct_error_log_t>> {
         clock: aeron_clock_func_t,
         mutex: aeron_mutex_t,
     ) -> Result<Self, AeronCError> {
-        let observation_list_copy = observation_list.clone();
+        let observation_list_copy = observation_list;
         let r_constructor = ManagedCResource::<aeron_distinct_error_log_t>::new(
             move |ctx_field| {
                 let inst = aeron_distinct_error_log_t {
@@ -18629,7 +18629,7 @@ impl AeronDriverConductorClientCommand<CResource<aeron_driver_conductor_client_c
         >,
         correlated: &AeronCorrelatedCommand,
     ) -> Result<Self, AeronCError> {
-        let correlated_copy = correlated.clone();
+        let correlated_copy = correlated;
         let r_constructor = ManagedCResource::<aeron_driver_conductor_client_command_t>::new(
             move |ctx_field| {
                 let inst = aeron_driver_conductor_client_command_t {
@@ -19190,8 +19190,8 @@ impl AeronDriverConductorProxy<CResource<aeron_driver_conductor_proxy_t>> {
         command_queue: &AeronMpscRb,
         fail_counter: &mut i64,
     ) -> Result<Self, AeronCError> {
-        let conductor_copy = conductor.clone();
-        let command_queue_copy = command_queue.clone();
+        let conductor_copy = conductor;
+        let command_queue_copy = command_queue;
         let r_constructor = ManagedCResource::<aeron_driver_conductor_proxy_t>::new(
             move |ctx_field| {
                 let inst = aeron_driver_conductor_proxy_t {
@@ -19868,9 +19868,9 @@ impl AeronDriverConductor<CResource<aeron_driver_conductor_t>> {
         driver_command: &AeronDriverConductorDriverCommand,
         padding: [u8; 64usize],
     ) -> Result<Self, AeronCError> {
-        let context_copy = context.clone();
-        let client_command_copy = client_command.clone();
-        let driver_command_copy = driver_command.clone();
+        let context_copy = context;
+        let client_command_copy = client_command;
+        let driver_command_copy = driver_command;
         let r_constructor = ManagedCResource::<aeron_driver_conductor_t>::new(
             move |ctx_field| {
                 let inst = aeron_driver_conductor_t {
@@ -31419,7 +31419,7 @@ impl
     #[doc = r" # Safety"]
     #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub unsafe fn new(mapped_raw_log: &AeronMappedRawLog, log_file_name: &std::ffi::CStr) -> Result<Self, AeronCError> {
-        let mapped_raw_log_copy = mapped_raw_log.clone();
+        let mapped_raw_log_copy = mapped_raw_log;
         let r_constructor = ManagedCResource::<aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t>::new(
             move |ctx_field| {
                 let inst = aeron_driver_native_resource_agent_proxy_cmd_free_log_buffer_t {
@@ -31737,7 +31737,7 @@ impl
         is_sparse: bool,
         result: &AeronDriverNativeResourceAgentCommandResult,
     ) -> Result<Self, AeronCError> {
-        let result_copy = result.clone();
+        let result_copy = result;
         let r_constructor = ManagedCResource::<aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t>::new(
             move |ctx_field| {
                 let inst = aeron_driver_native_resource_agent_proxy_cmd_map_log_buffer_t {
@@ -32064,8 +32064,8 @@ impl
         async_parse: &AeronUdpChannelAsyncParse,
         result: &AeronDriverNativeResourceAgentCommandResult,
     ) -> Result<Self, AeronCError> {
-        let async_parse_copy = async_parse.clone();
-        let result_copy = result.clone();
+        let async_parse_copy = async_parse;
+        let result_copy = result;
         let r_constructor = ManagedCResource::<aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t>::new(
             move |ctx_field| {
                 let inst = aeron_driver_native_resource_agent_proxy_cmd_parse_channel_t {
@@ -32382,7 +32382,7 @@ impl
         address_resolution_params: *mut aeron_name_resolver_async_resolve_t,
         result: &AeronDriverNativeResourceAgentCommandResult,
     ) -> Result<Self, AeronCError> {
-        let result_copy = result.clone();
+        let result_copy = result;
         let r_constructor = ManagedCResource::<aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t>::new(
             move |ctx_field| {
                 let inst = aeron_driver_native_resource_agent_proxy_cmd_resolve_address_t {
@@ -32677,8 +32677,8 @@ impl AeronDriverNativeResourceAgentProxy<CResource<aeron_driver_native_resource_
         fail_counter: &mut i64,
         command_queue: &AeronSpscRb,
     ) -> Result<Self, AeronCError> {
-        let native_resource_agent_copy = native_resource_agent.clone();
-        let command_queue_copy = command_queue.clone();
+        let native_resource_agent_copy = native_resource_agent;
+        let command_queue_copy = command_queue;
         let r_constructor = ManagedCResource::<aeron_driver_native_resource_agent_proxy_t>::new(
             move |ctx_field| {
                 let inst = aeron_driver_native_resource_agent_proxy_t {
@@ -33118,7 +33118,7 @@ impl AeronDriverNativeResourceAgent<CResource<aeron_driver_native_resource_agent
         name_resolver: aeron_name_resolver_t,
         log_buffers_queue: AeronDeque<Inline<aeron_deque_t>>,
     ) -> Result<Self, AeronCError> {
-        let context_copy = context.clone();
+        let context_copy = context;
         let r_constructor = ManagedCResource::<aeron_driver_native_resource_agent_t>::new(
             move |ctx_field| {
                 let inst = aeron_driver_native_resource_agent_t {
@@ -33608,7 +33608,7 @@ impl AeronDriverReceiverImageEntry<CResource<aeron_driver_receiver_image_entry_t
     #[doc = r" # Safety"]
     #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub unsafe fn new(image: &AeronPublicationImage) -> Result<Self, AeronCError> {
-        let image_copy = image.clone();
+        let image_copy = image;
         let r_constructor = ManagedCResource::<aeron_driver_receiver_image_entry_t>::new(
             move |ctx_field| {
                 let inst = aeron_driver_receiver_image_entry_t { image: image.into() };
@@ -33882,8 +33882,8 @@ impl AeronDriverReceiverPendingSetupEntry<CResource<aeron_driver_receiver_pendin
         time_of_status_message_ns: i64,
         control_addr: SockaddrStorage<Inline<sockaddr_storage>>,
     ) -> Result<Self, AeronCError> {
-        let endpoint_copy = endpoint.clone();
-        let destination_copy = destination.clone();
+        let endpoint_copy = endpoint;
+        let destination_copy = destination;
         let r_constructor = ManagedCResource::<aeron_driver_receiver_pending_setup_entry_t>::new(
             move |ctx_field| {
                 let inst = aeron_driver_receiver_pending_setup_entry_t {
@@ -34850,8 +34850,8 @@ impl AeronDriverReceiver<CResource<aeron_driver_receiver_t>> {
         total_bytes_received_counter: &mut i64,
         resolution_changes_counter: &mut i64,
     ) -> Result<Self, AeronCError> {
-        let context_copy = context.clone();
-        let error_log_copy = error_log.clone();
+        let context_copy = context;
+        let error_log_copy = error_log;
         let r_constructor = ManagedCResource::<aeron_driver_receiver_t>::new(
             move |ctx_field| {
                 let inst = aeron_driver_receiver_t {
@@ -35702,7 +35702,7 @@ impl AeronDriverSenderNetworkPublicationEntry<CResource<aeron_driver_sender_netw
     #[doc = r" # Safety"]
     #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub unsafe fn new(publication: &AeronNetworkPublication) -> Result<Self, AeronCError> {
-        let publication_copy = publication.clone();
+        let publication_copy = publication;
         let r_constructor = ManagedCResource::<aeron_driver_sender_network_publication_entry_t>::new(
             move |ctx_field| {
                 let inst = aeron_driver_sender_network_publication_entry_t {
@@ -35961,8 +35961,8 @@ impl AeronDriverSenderProxy<CResource<aeron_driver_sender_proxy_t>> {
         command_queue: &AeronSpscRb,
         fail_counter: &mut i64,
     ) -> Result<Self, AeronCError> {
-        let sender_copy = sender.clone();
-        let command_queue_copy = command_queue.clone();
+        let sender_copy = sender;
+        let command_queue_copy = command_queue;
         let r_constructor = ManagedCResource::<aeron_driver_sender_proxy_t>::new(
             move |ctx_field| {
                 let inst = aeron_driver_sender_proxy_t {
@@ -36466,8 +36466,8 @@ impl AeronDriverSender<CResource<aeron_driver_sender_t>> {
         duty_cycle_ratio: usize,
         padding: [u8; 64usize],
     ) -> Result<Self, AeronCError> {
-        let context_copy = context.clone();
-        let error_log_copy = error_log.clone();
+        let context_copy = context;
+        let error_log_copy = error_log;
         let r_constructor = ManagedCResource::<aeron_driver_sender_t>::new(
             move |ctx_field| {
                 let inst = aeron_driver_sender_t {
@@ -37275,7 +37275,7 @@ impl AeronDriver<CResource<aeron_driver_t>> {
             .as_owned()
             .ok_or_else(|| AeronCError::with_message(-1, "client requires an owned context"))?
             .reserve_context()?;
-        let context_copy = context.clone();
+        let context_copy = context;
         let context: *mut aeron_driver_context_t = context.into();
         let resource_constructor = ManagedCResource::<aeron_driver_t>::new(
             move |ctx_field| unsafe {
@@ -37304,7 +37304,7 @@ impl AeronDriver<CResource<aeron_driver_t>> {
         let result = Self {
             inner: CResource::new(ResourceRef::new(resource_constructor)).into(),
         };
-        result.inner.add_handle_dependency(&context_copy);
+        result.inner.add_handle_dependency(context_copy);
         Ok(result)
     }
 }
@@ -40077,7 +40077,6 @@ mod aeron_error_response_t_allocation_tests {
 unsafe impl NativeResource for aeron_exclusive_publication_t {
     type Policy = SharedResource;
 }
-#[derive(Clone)]
 pub struct AeronExclusivePublication<
     S: ResourceStorage<aeron_exclusive_publication_t> = LiveCResource<aeron_exclusive_publication_t>,
 > {
@@ -40139,7 +40138,7 @@ impl<S: ResourceStorage<aeron_exclusive_publication_t>> AeronExclusivePublicatio
         AeronReservedValueSupplierHandlerImpl: AeronReservedValueSupplierCallback,
         AeronReservedValueSupplierHandlerImplPolicy: CallbackPolicy,
     >(
-        &self,
+        &mut self,
         iov: &AeronIovec,
         iovcnt: usize,
         reserved_value_supplier: Option<
@@ -40212,7 +40211,7 @@ impl<S: ResourceStorage<aeron_exclusive_publication_t>> AeronExclusivePublicatio
     #[doc = r" A panic in the closure is caught so the C call can finish, then passed to"]
     #[doc = r" the caller once it returns"]
     pub fn offerv_fn<AeronReservedValueSupplierHandlerImpl: FnMut(&mut [u8]) -> i64>(
-        &self,
+        &mut self,
         iov: &AeronIovec,
         iovcnt: usize,
         mut reserved_value_supplier: AeronReservedValueSupplierHandlerImpl,
@@ -44436,7 +44435,7 @@ impl AeronImageConstants<CResource<aeron_image_constants_t>> {
         initial_term_id: i32,
         subscriber_position_id: i32,
     ) -> Result<Self, AeronCError> {
-        let subscription_copy = subscription.clone();
+        let subscription_copy = subscription;
         let r_constructor = ManagedCResource::<aeron_image_constants_t>::new(
             move |ctx_field| {
                 let inst = aeron_image_constants_t {
@@ -44934,7 +44933,6 @@ mod aeron_image_message_t_allocation_tests {
 unsafe impl NativeResource for aeron_image_t {
     type Policy = LocalResource;
 }
-#[derive(Clone)]
 pub struct AeronImage<S: ResourceStorage<aeron_image_t> = LiveCResource<aeron_image_t>> {
     inner: S,
 }
@@ -45208,7 +45206,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
     #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn poll<AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback>(
-        &self,
+        &mut self,
         handler: &mut AeronFragmentHandlerHandlerImpl,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -45276,7 +45274,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
     #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> ()>(
-        &self,
+        &mut self,
         mut handler: AeronFragmentHandlerHandlerImpl,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -45321,7 +45319,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
     #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn controlled_poll<AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback>(
-        &self,
+        &mut self,
         handler: &mut AeronControlledFragmentHandlerHandlerImpl,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -45392,7 +45390,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     pub fn controlled_poll_fn<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> aeron_controlled_fragment_handler_action_t,
     >(
-        &self,
+        &mut self,
         mut handler: AeronControlledFragmentHandlerHandlerImpl,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -45442,7 +45440,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
     #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn bounded_poll<AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback>(
-        &self,
+        &mut self,
         handler: &mut AeronFragmentHandlerHandlerImpl,
         limit_position: i64,
         fragment_limit: usize,
@@ -45516,7 +45514,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     pub fn bounded_poll_fn<
         AeronFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> (),
     >(
-        &self,
+        &mut self,
         mut handler: AeronFragmentHandlerHandlerImpl,
         limit_position: i64,
         fragment_limit: usize,
@@ -45567,7 +45565,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     pub fn bounded_controlled_poll<
         AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback,
     >(
-        &self,
+        &mut self,
         handler: &mut AeronControlledFragmentHandlerHandlerImpl,
         limit_position: i64,
         fragment_limit: usize,
@@ -45642,7 +45640,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     pub fn bounded_controlled_poll_fn<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> aeron_controlled_fragment_handler_action_t,
     >(
-        &self,
+        &mut self,
         mut handler: AeronControlledFragmentHandlerHandlerImpl,
         limit_position: i64,
         fragment_limit: usize,
@@ -45699,7 +45697,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
     #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn block_poll<AeronBlockHandlerHandlerImpl: AeronBlockHandlerCallback>(
-        &self,
+        &mut self,
         handler: &mut AeronBlockHandlerHandlerImpl,
         block_length_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -45760,7 +45758,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
     #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn block_poll_fn<AeronBlockHandlerHandlerImpl: FnMut(&[u8], i32, i32) -> ()>(
-        &self,
+        &mut self,
         mut handler: AeronBlockHandlerHandlerImpl,
         block_length_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -46740,7 +46738,7 @@ impl AeronInt64ToTaggedPtrHashMap<CResource<aeron_int64_to_tagged_ptr_hash_map_t
         size: usize,
         resize_threshold: usize,
     ) -> Result<Self, AeronCError> {
-        let entries_copy = entries.clone();
+        let entries_copy = entries;
         let r_constructor = ManagedCResource::<aeron_int64_to_tagged_ptr_hash_map_t>::new(
             move |ctx_field| {
                 let inst = aeron_int64_to_tagged_ptr_hash_map_t {
@@ -47539,8 +47537,8 @@ impl AeronIpcPublicationEntry<CResource<aeron_ipc_publication_entry_t>> {
         mapped_raw_log: &AeronMappedRawLog,
         log_file_name: &std::ffi::CStr,
     ) -> Result<Self, AeronCError> {
-        let publication_copy = publication.clone();
-        let mapped_raw_log_copy = mapped_raw_log.clone();
+        let publication_copy = publication;
+        let mapped_raw_log_copy = mapped_raw_log;
         let r_constructor = ManagedCResource::<aeron_ipc_publication_entry_t>::new(
             move |ctx_field| {
                 let inst = aeron_ipc_publication_entry_t {
@@ -49788,7 +49786,7 @@ impl AeronLossDetector<CResource<aeron_loss_detector_t>> {
         active_gap: AeronLossDetectorGap<Inline<aeron_loss_detector_gap_t>>,
         expiry_ns: i64,
     ) -> Result<Self, AeronCError> {
-        let feedback_delay_state_copy = feedback_delay_state.clone();
+        let feedback_delay_state_copy = feedback_delay_state;
         let r_constructor = ManagedCResource::<aeron_loss_detector_t>::new(
             move |ctx_field| {
                 let inst = aeron_loss_detector_t {
@@ -52138,7 +52136,7 @@ impl AeronMpscRb<CResource<aeron_mpsc_rb_t>> {
         capacity: usize,
         max_message_length: usize,
     ) -> Result<Self, AeronCError> {
-        let descriptor_copy = descriptor.clone();
+        let descriptor_copy = descriptor;
         let r_constructor = ManagedCResource::<aeron_mpsc_rb_t>::new(
             move |ctx_field| {
                 let inst = aeron_mpsc_rb_t {
@@ -53253,8 +53251,8 @@ impl AeronNetworkPublicationEntry<CResource<aeron_network_publication_entry_t>> 
         mapped_raw_log: &AeronMappedRawLog,
         log_file_name: &std::ffi::CStr,
     ) -> Result<Self, AeronCError> {
-        let publication_copy = publication.clone();
-        let mapped_raw_log_copy = mapped_raw_log.clone();
+        let publication_copy = publication;
+        let mapped_raw_log_copy = mapped_raw_log;
         let r_constructor = ManagedCResource::<aeron_network_publication_entry_t>::new(
             move |ctx_field| {
                 let inst = aeron_network_publication_entry_t {
@@ -58705,8 +58703,8 @@ impl AeronPublicationImageConnection<CResource<aeron_publication_image_connectio
         eos_position: i64,
         padding_after: [u8; 64usize],
     ) -> Result<Self, AeronCError> {
-        let destination_copy = destination.clone();
-        let control_addr_copy = control_addr.clone();
+        let destination_copy = destination;
+        let control_addr_copy = control_addr;
         let r_constructor = ManagedCResource::<aeron_publication_image_connection_t>::new(
             move |ctx_field| {
                 let inst = aeron_publication_image_connection_t {
@@ -59030,8 +59028,8 @@ impl AeronPublicationImageEntry<CResource<aeron_publication_image_entry_t>> {
         mapped_raw_log: &AeronMappedRawLog,
         log_file_name: &std::ffi::CStr,
     ) -> Result<Self, AeronCError> {
-        let image_copy = image.clone();
-        let mapped_raw_log_copy = mapped_raw_log.clone();
+        let image_copy = image;
+        let mapped_raw_log_copy = mapped_raw_log;
         let r_constructor = ManagedCResource::<aeron_publication_image_entry_t>::new(
             move |ctx_field| {
                 let inst = aeron_publication_image_entry_t {
@@ -60318,7 +60316,7 @@ impl AeronPublicationLink<CResource<aeron_publication_link_t>> {
     #[doc = r" # Safety"]
     #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub unsafe fn new(resource: &AeronDriverManagedResource, registration_id: i64) -> Result<Self, AeronCError> {
-        let resource_copy = resource.clone();
+        let resource_copy = resource;
         let r_constructor = ManagedCResource::<aeron_publication_link_t>::new(
             move |ctx_field| {
                 let inst = aeron_publication_link_t {
@@ -61756,7 +61754,7 @@ impl AeronReceiveChannelEndpointEntry<CResource<aeron_receive_channel_endpoint_e
     #[doc = r" # Safety"]
     #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub unsafe fn new(endpoint: &AeronReceiveChannelEndpoint) -> Result<Self, AeronCError> {
-        let endpoint_copy = endpoint.clone();
+        let endpoint_copy = endpoint;
         let r_constructor = ManagedCResource::<aeron_receive_channel_endpoint_entry_t>::new(
             move |ctx_field| {
                 let inst = aeron_receive_channel_endpoint_entry_t {
@@ -63318,7 +63316,7 @@ impl AeronReceiveDestinationEntry<CResource<aeron_receive_destination_entry_t>> 
     #[doc = r" # Safety"]
     #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub unsafe fn new(destination: &AeronReceiveDestination) -> Result<Self, AeronCError> {
-        let destination_copy = destination.clone();
+        let destination_copy = destination;
         let r_constructor = ManagedCResource::<aeron_receive_destination_entry_t>::new(
             move |ctx_field| {
                 let inst = aeron_receive_destination_entry_t {
@@ -66155,7 +66153,7 @@ impl AeronRetransmitHandler<CResource<aeron_retransmit_handler_t>> {
         max_retransmits: usize,
         retransmit_overflow_counter: &mut i64,
     ) -> Result<Self, AeronCError> {
-        let retransmit_action_pool_copy = retransmit_action_pool.clone();
+        let retransmit_action_pool_copy = retransmit_action_pool;
         let r_constructor = ManagedCResource::<aeron_retransmit_handler_t>::new(
             move |ctx_field| {
                 let inst = aeron_retransmit_handler_t {
@@ -66913,7 +66911,7 @@ impl AeronSendChannelEndpointEntry<CResource<aeron_send_channel_endpoint_entry_t
     #[doc = r" # Safety"]
     #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub unsafe fn new(endpoint: &AeronSendChannelEndpoint) -> Result<Self, AeronCError> {
-        let endpoint_copy = endpoint.clone();
+        let endpoint_copy = endpoint;
         let r_constructor = ManagedCResource::<aeron_send_channel_endpoint_entry_t>::new(
             move |ctx_field| {
                 let inst = aeron_send_channel_endpoint_entry_t {
@@ -68362,7 +68360,7 @@ impl AeronSpscRb<CResource<aeron_spsc_rb_t>> {
         capacity: usize,
         max_message_length: usize,
     ) -> Result<Self, AeronCError> {
-        let descriptor_copy = descriptor.clone();
+        let descriptor_copy = descriptor;
         let r_constructor = ManagedCResource::<aeron_spsc_rb_t>::new(
             move |ctx_field| {
                 let inst = aeron_spsc_rb_t {
@@ -70247,7 +70245,7 @@ impl AeronStrToPtrHashMap<CResource<aeron_str_to_ptr_hash_map_t>> {
         size: usize,
         resize_threshold: usize,
     ) -> Result<Self, AeronCError> {
-        let keys_copy = keys.clone();
+        let keys_copy = keys;
         let r_constructor = ManagedCResource::<aeron_str_to_ptr_hash_map_t>::new(
             move |ctx_field| {
                 let inst = aeron_str_to_ptr_hash_map_t {
@@ -70808,7 +70806,7 @@ impl AeronSubscribableListEntry<CResource<aeron_subscribable_list_entry_t>> {
     #[doc = r" # Safety"]
     #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub unsafe fn new(counter_id: i32, subscribable: &AeronSubscribable) -> Result<Self, AeronCError> {
-        let subscribable_copy = subscribable.clone();
+        let subscribable_copy = subscribable;
         let r_constructor = ManagedCResource::<aeron_subscribable_list_entry_t>::new(
             move |ctx_field| {
                 let inst = aeron_subscribable_list_entry_t {
@@ -71078,7 +71076,7 @@ impl AeronSubscribable<CResource<aeron_subscribable_t>> {
         >,
         clientd: *mut ::std::os::raw::c_void,
     ) -> Result<Self, AeronCError> {
-        let array_copy = array.clone();
+        let array_copy = array;
         let r_constructor = ManagedCResource::<aeron_subscribable_t>::new(
             move |ctx_field| {
                 let inst = aeron_subscribable_t {
@@ -72032,8 +72030,8 @@ impl AeronSubscriptionLink<CResource<aeron_subscription_link_t>> {
         spy_channel: &AeronUdpChannel,
         subscribable_list: aeron_subscription_link_stct_subscribable_list_stct,
     ) -> Result<Self, AeronCError> {
-        let endpoint_copy = endpoint.clone();
-        let spy_channel_copy = spy_channel.clone();
+        let endpoint_copy = endpoint;
+        let spy_channel_copy = spy_channel;
         let r_constructor = ManagedCResource::<aeron_subscription_link_t>::new(
             move |ctx_field| {
                 let inst = aeron_subscription_link_t {
@@ -72596,7 +72594,7 @@ mod aeron_subscription_ready_t_allocation_tests {
 unsafe impl NativeResource for aeron_subscription_t {
     type Policy = SharedResource;
 }
-#[derive(Clone)]
+unsafe impl Send for AeronSubscription<LiveCResource<aeron_subscription_t>> {}
 pub struct AeronSubscription<S: ResourceStorage<aeron_subscription_t> = LiveCResource<aeron_subscription_t>> {
     inner: S,
 }
@@ -72662,7 +72660,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
     #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn poll<AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback>(
-        &self,
+        &mut self,
         handler: &mut AeronFragmentHandlerHandlerImpl,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -72732,7 +72730,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
     #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> ()>(
-        &self,
+        &mut self,
         mut handler: AeronFragmentHandlerHandlerImpl,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -72781,7 +72779,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
     #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn controlled_poll<AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback>(
-        &self,
+        &mut self,
         handler: &mut AeronControlledFragmentHandlerHandlerImpl,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -72856,7 +72854,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     pub fn controlled_poll_fn<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> aeron_controlled_fragment_handler_action_t,
     >(
-        &self,
+        &mut self,
         mut handler: AeronControlledFragmentHandlerHandlerImpl,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -72904,7 +72902,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
     #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn block_poll<AeronBlockHandlerHandlerImpl: AeronBlockHandlerCallback>(
-        &self,
+        &mut self,
         handler: &mut AeronBlockHandlerHandlerImpl,
         block_length_limit: usize,
     ) -> ::std::os::raw::c_long {
@@ -72953,7 +72951,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
     #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn block_poll_fn<AeronBlockHandlerHandlerImpl: FnMut(&[u8], i32, i32) -> ()>(
-        &self,
+        &mut self,
         mut handler: AeronBlockHandlerHandlerImpl,
         block_length_limit: usize,
     ) -> ::std::os::raw::c_long {
@@ -73809,7 +73807,7 @@ impl AeronSystemCounters<CResource<aeron_system_counters_t>> {
     #[doc = r" # Safety"]
     #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub unsafe fn new(manager: &AeronCountersManager) -> Result<Self, AeronCError> {
-        let manager_copy = manager.clone();
+        let manager_copy = manager;
         let r_constructor = ManagedCResource::<aeron_system_counters_t>::new(
             move |ctx_field| {
                 let inst = aeron_system_counters_t {
@@ -74079,7 +74077,7 @@ impl Aeron<LiveCResource<aeron_t>> {
             .as_owned()
             .ok_or_else(|| AeronCError::with_message(-1, "client requires an owned context"))?
             .reserve_context()?;
-        let context_copy = context.clone();
+        let context_copy = context;
         let context: *mut aeron_context_t = context.into();
         let resource_constructor = ManagedCResource::<aeron_t>::new(
             move |ctx_field| unsafe {
@@ -74110,7 +74108,7 @@ impl Aeron<LiveCResource<aeron_t>> {
         let result = Self {
             inner: CResource::new(ResourceRef::new(resource_constructor)).into(),
         };
-        result.inner.add_handle_dependency(&context_copy);
+        result.inner.add_handle_dependency(context_copy);
         Ok(result)
     }
 }
@@ -78200,7 +78198,7 @@ impl AeronUdpChannelAsyncParse<CResource<aeron_udp_channel_async_parse_t>> {
     #[doc = r" # Safety"]
     #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub unsafe fn new(channel: &AeronUdpChannel, is_destination: bool) -> Result<Self, AeronCError> {
-        let channel_copy = channel.clone();
+        let channel_copy = channel;
         let r_constructor = ManagedCResource::<aeron_udp_channel_async_parse_t>::new(
             move |ctx_field| {
                 let inst = aeron_udp_channel_async_parse_t {
@@ -78460,8 +78458,8 @@ impl AeronUdpChannelDataPaths<CResource<aeron_udp_channel_data_paths_t>> {
         send_func: aeron_udp_channel_transport_send_func_t,
         recv_func: aeron_udp_transport_recv_func_t,
     ) -> Result<Self, AeronCError> {
-        let outgoing_interceptors_copy = outgoing_interceptors.clone();
-        let incoming_interceptors_copy = incoming_interceptors.clone();
+        let outgoing_interceptors_copy = outgoing_interceptors;
+        let incoming_interceptors_copy = incoming_interceptors;
         let r_constructor = ManagedCResource::<aeron_udp_channel_data_paths_t>::new(
             move |ctx_field| {
                 let inst = aeron_udp_channel_data_paths_t {
@@ -79022,7 +79020,7 @@ impl AeronUdpChannelIncomingInterceptor<CResource<aeron_udp_channel_incoming_int
         incoming_image_notification_func: aeron_udp_channel_interceptor_image_notification_func_t,
         next_interceptor: &AeronUdpChannelIncomingInterceptor,
     ) -> Result<Self, AeronCError> {
-        let next_interceptor_copy = next_interceptor.clone();
+        let next_interceptor_copy = next_interceptor;
         let r_constructor = ManagedCResource::<aeron_udp_channel_incoming_interceptor_t>::new(
             move |ctx_field| {
                 let inst = aeron_udp_channel_incoming_interceptor_t {
@@ -79713,7 +79711,7 @@ impl AeronUdpChannelOutgoingInterceptor<CResource<aeron_udp_channel_outgoing_int
         outgoing_image_notification_func: aeron_udp_channel_interceptor_image_notification_func_t,
         next_interceptor: &AeronUdpChannelOutgoingInterceptor,
     ) -> Result<Self, AeronCError> {
-        let next_interceptor_copy = next_interceptor.clone();
+        let next_interceptor_copy = next_interceptor;
         let r_constructor = ManagedCResource::<aeron_udp_channel_outgoing_interceptor_t>::new(
             move |ctx_field| {
                 let inst = aeron_udp_channel_outgoing_interceptor_t {
@@ -80771,7 +80769,7 @@ impl AeronUdpDestinationEntry<CResource<aeron_udp_destination_entry_t>> {
         addr: SockaddrStorage<Inline<sockaddr_storage>>,
         padding_after: [u8; 64usize],
     ) -> Result<Self, AeronCError> {
-        let uri_copy = uri.clone();
+        let uri_copy = uri;
         let r_constructor = ManagedCResource::<aeron_udp_destination_entry_t>::new(
             move |ctx_field| {
                 let inst = aeron_udp_destination_entry_t {
@@ -81790,7 +81788,7 @@ impl AeronUriParams<CResource<aeron_uri_params_t>> {
     #[doc = r" # Safety"]
     #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
     pub unsafe fn new(length: usize, array: &AeronUriParam) -> Result<Self, AeronCError> {
-        let array_copy = array.clone();
+        let array_copy = array;
         let r_constructor = ManagedCResource::<aeron_uri_params_t>::new(
             move |ctx_field| {
                 let inst = aeron_uri_params_t {
@@ -85038,7 +85036,7 @@ impl Msghdr<CResource<msghdr>> {
         msg_controllen: socklen_t,
         msg_flags: ::std::os::raw::c_int,
     ) -> Result<Self, AeronCError> {
-        let msg_iov_copy = msg_iov.clone();
+        let msg_iov_copy = msg_iov;
         let r_constructor = ManagedCResource::<msghdr>::new(
             move |ctx_field| {
                 let inst = msghdr {

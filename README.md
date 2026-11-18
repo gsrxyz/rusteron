@@ -89,7 +89,9 @@ for both publishing and receiving.
 | Borrowed getters | `Ref<'_, T>` borrows its parent and cannot be cloned or outlive that parent |
 | Buffer claims | `try_claim_owned()` returns a lifetime-bound guard; commit it or let drop abort it |
 | Shared handles | `Aeron`, regular publications, counters and counter readers are `Send + Sync`; share one through `Arc` or a clone ([example](docs/client-guide.md#sharing-across-threads)) |
-| Local handles | Subscriptions, exclusive publications, contexts, async pollers, assemblers, Archive and driver handles stay local; create them on the thread that uses them |
+| Local handles | Exclusive publications, images, contexts, async pollers, assemblers, Archive and driver handles stay local; create them on the thread that uses them |
+| Subscriptions | `Send` but not `Sync` and not `Clone`; move one to the thread that polls it |
+| Re-entrant calls | Polls and supplier offers take `&mut self`, so a callback cannot call them again on the same handle ([details](docs/thread-safety.md#re-entrant-calls)) |
 | Configuration | Configure contexts before creating their clients or starting their drivers |
 
 There is no `multi-threaded` feature. Storage and thread traits are selected at

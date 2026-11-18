@@ -30,6 +30,9 @@ local!(
 assert_not_impl!(AeronArchiveContext, Clone);
 assert_not_impl!(AeronArchiveRecordingDescriptorPoller, Clone);
 assert_not_impl!(AeronArchiveRecordingSubscriptionDescriptorPoller, Clone);
+// A second handle would let a poll callback re-enter the same native poll
+assert_not_impl!(AeronArchiveReplayMerge, Clone);
+assert_not_impl!(AeronArchivePersistentSubscription, Clone);
 
 #[test]
 fn transport_handles_keep_their_native_threading_contracts_in_the_archive_crate() {

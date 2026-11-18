@@ -147,7 +147,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // client
     // 1. subscribe for responses on a control-mode=response channel
-    let response_subscription = aeron
+    let mut response_subscription = aeron
         .async_add_subscription(
             &AeronUriStringBuilder::udp_control(&response_control_endpoint, ControlMode::Response)?
                 .session_id(&RESPONSE_SESSION_ID.to_string())?

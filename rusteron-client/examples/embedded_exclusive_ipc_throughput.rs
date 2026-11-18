@@ -86,7 +86,7 @@ fn publish(running: &AtomicBool, dir: &str) -> Result<(), Box<dyn Error>> {
 
 fn subscribe(running: &AtomicBool, dir: &str) -> Result<(), Box<dyn Error>> {
     let client = client(dir)?;
-    let subscription = client
+    let mut subscription = client
         .async_add_subscription(AERON_IPC_STREAM, STREAM_ID, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(5))?;
     let mut messages = 0u64;

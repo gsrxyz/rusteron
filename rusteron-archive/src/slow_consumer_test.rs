@@ -208,7 +208,7 @@ mod tests {
         let subscription_channel_template = "aeron:udp?endpoint=localhost:0";
         let avail_image_handler = SharedHandler::new_shared(AeronAvailableImageLogger);
         let unavail_image_handler = SharedHandler::new_shared(AeronUnavailableImageLogger);
-        let subscription = aeron_subscriber
+        let mut subscription = aeron_subscriber
             .async_add_subscription(
                 &subscription_channel_template.into_c_string(),
                 replay_stream_id,

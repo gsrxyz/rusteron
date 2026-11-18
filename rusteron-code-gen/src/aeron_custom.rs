@@ -462,10 +462,15 @@ impl<S: ResourceStorage<aeron_t>> Aeron<S> {
 impl AeronSubscription {
     /// A retained image handle for `index`, or `None` when no such image exists.
     ///
-    /// The returned [`AeronImage`] releases the image when its last clone drops. Until then
-    /// the image stays valid even once it becomes unavailable: [`AeronImage::is_closed`]
-    /// turns true, polling reads nothing more, and its log buffer stays mapped. The image
-    /// owns a subscription clone, so [`Self::close`] waits for the image to drop
+    /// The returned [`AeronImage`] releases the image when it drops. Until then the image
+    /// stays valid even once it becomes unavailable: [`AeronImage::is_closed`] turns true,
+    /// polling reads nothing more, and its log buffer stays mapped. The image keeps the
+    /// native subscription open, so [`Self::close`] waits for the image to drop
+    ///
+    /// The borrow checker cannot see that the image and the subscription share a session
+    /// position. Do not poll a retained image inside a poll of its own subscription, and do
+    /// not keep polling it on this thread after the subscription moves to another thread.
+    /// Either one races on the image position and can deliver fragments twice
     ///
     /// The image is one publisher session: a publisher that reconnects with a new session
     /// is a new image, so poll the subscription, or fetch the new image, to follow it. To
@@ -487,14 +492,14 @@ impl AeronSubscription {
         if image.is_null() {
             return None;
         }
-        let subscription = self.clone();
+        let subscription = self.inner.owner().clone();
         let resource = ManagedCResource::<aeron_image_t>::new(
             move |ctx| {
                 unsafe { *ctx = image };
                 0
             },
             Some(Box::new(move |ctx| {
-                // Capturing the clone keeps the native subscription open until this release
+                // Capturing the owner keeps the native subscription open until this release
                 let _ = &subscription;
                 unsafe { aeron_image_release(*ctx) }
             })),
@@ -1194,7 +1199,9 @@ fn reserved_callback<H: AeronReservedValueSupplierCallback, P: CallbackPolicy>(
 }
 
 macro_rules! impl_publication_methods {
-    ($ty:ident, $native:ty, $offer:ident, $offerv:ident, $try_claim:ident) => {
+    // `$($supplier_mut)?` is `mut` when the native offer cannot be re-entered from its reserved
+    // value supplier, so the borrow checker rejects a nested offer on the same publication
+    ($ty:ident, $native:ty, $offer:ident, $offerv:ident, $try_claim:ident $(, $supplier_mut:tt)?) => {
         impl<S: ResourceStorage<$native>> $ty<S> {
             /// Raw, branch-free variant of [`Self::offer`]: returns the new stream position, or a
             /// negative Aeron sentinel (see [`AeronOfferError::from_position`]).
@@ -1203,7 +1210,7 @@ macro_rules! impl_publication_methods {
             /// to avoid macro-hygiene name conflicts.
             #[inline]
             pub fn offer_raw<H: AeronReservedValueSupplierCallback>(
-                &self,
+                &$($supplier_mut)? self,
                 buffer: &[u8],
                 reserved_value_supplier: Option<&Handler<H, impl CallbackPolicy>>,
             ) -> i64 {
@@ -1244,7 +1251,7 @@ macro_rules! impl_publication_methods {
             /// [`Self::offer`] with a reserved-value supplier.
             #[inline]
             pub fn offer_with_reserved_value<H: AeronReservedValueSupplierCallback>(
-                &self,
+                &$($supplier_mut)? self,
                 buffer: &[u8],
                 reserved_value_supplier: Option<&Handler<H, impl CallbackPolicy>>,
             ) -> Result<i64, AeronOfferError> {
@@ -1341,7 +1348,8 @@ impl_publication_methods!(
     aeron_exclusive_publication_t,
     aeron_exclusive_publication_offer,
     aeron_exclusive_publication_offerv,
-    aeron_exclusive_publication_try_claim
+    aeron_exclusive_publication_try_claim,
+    mut
 );
 
 impl<S: ResourceStorage<aeron_publication_t>> AeronPublication<S> {
@@ -1389,14 +1397,20 @@ impl AeronExclusivePublication {
 }
 
 impl<S: ResourceStorage<aeron_exclusive_publication_t>> AeronExclusivePublication<S> {
+    /// Without a supplier there is no callback to re-enter, so this keeps `&self`
     #[inline]
     pub fn offer(&self, buffer: &[u8]) -> Result<i64, AeronOfferError> {
-        AeronOfferError::from_position(
-            self.offer_raw::<AeronReservedValueSupplierLogger>(
-                buffer,
-                None::<&Handler<AeronReservedValueSupplierLogger>>,
-            ),
-        )
+        // SAFETY: the publication is live and C only reads `buffer` during the call
+        let position = unsafe {
+            aeron_exclusive_publication_offer(
+                self.get_inner(),
+                buffer.as_ptr() as *mut _,
+                buffer.len(),
+                None,
+                std::ptr::null_mut(),
+            )
+        };
+        AeronOfferError::from_position(position)
     }
 
     #[inline]
@@ -2031,7 +2045,7 @@ macro_rules! owned_assembler {
             #[inline]
             pub fn poll<S: ResourceStorage<$target_native>>(
                 &mut self,
-                source: &$target<S>,
+                source: &mut $target<S>,
                 fragment_limit: usize,
             ) -> Result<i32, AeronCError> {
                 source.$poll(self, fragment_limit)
@@ -2216,7 +2230,7 @@ impl AeronFragmentClosureAssembler {
     /// Poll a subscription and call `handler` with complete messages
     #[inline]
     pub fn poll<S: ResourceStorage<aeron_subscription_t>, F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>)>(
-        &mut self, subscription: &AeronSubscription<S>, handler: F, fragment_limit: usize,
+        &mut self, subscription: &mut AeronSubscription<S>, handler: F, fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
         subscription.poll(&mut self.with(handler), fragment_limit)
     }
@@ -2281,7 +2295,7 @@ impl AeronControlledFragmentClosureAssembler {
         S: ResourceStorage<aeron_subscription_t>,
         F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> aeron_controlled_fragment_handler_action_t,
     >(
-        &mut self, subscription: &AeronSubscription<S>, handler: F, fragment_limit: usize,
+        &mut self, subscription: &mut AeronSubscription<S>, handler: F, fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
         subscription.controlled_poll(&mut self.with(handler), fragment_limit)
     }

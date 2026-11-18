@@ -88,7 +88,14 @@ fn harness() -> Harness {
 
 /// Times `iters` successful publishes, including identical retry behaviour in
 /// every arm. Window waits and receive draining stay outside the timer
-fn timed(h: &Harness, iters: u64, payload: &[u8], check_payload: bool, mut publish: impl FnMut() -> bool) -> Duration {
+fn timed(
+    publisher: &AeronPublication,
+    subscription: &mut AeronSubscription,
+    iters: u64,
+    payload: &[u8],
+    check_payload: bool,
+    mut publish: impl FnMut() -> bool,
+) -> Duration {
     let frame_len = frame_length(payload.len()) as i64;
     let mut elapsed = Duration::ZERO;
     let mut left = iters;
@@ -97,7 +104,7 @@ fn timed(h: &Harness, iters: u64, payload: &[u8], check_payload: bool, mut publi
         // the driver reopens the window only as fast as it cleans old terms, which a
         // saturating publisher can outrun
         let deadline = Instant::now() + TIMEOUT;
-        while h.publisher.position_limit() - h.publisher.position() < batch as i64 * frame_len {
+        while publisher.position_limit() - publisher.position() < batch as i64 * frame_len {
             assert!(Instant::now() < deadline, "publication window did not reopen");
             std::thread::yield_now();
         }
@@ -113,8 +120,7 @@ fn timed(h: &Harness, iters: u64, payload: &[u8], check_payload: bool, mut publi
         let mut received = 0;
         let deadline = Instant::now() + Duration::from_secs(5);
         while received < batch {
-            received += h
-                .subscription
+            received += subscription
                 .poll_fn(
                     |data, _| {
                         assert_eq!(data.len(), payload.len());
@@ -134,7 +140,7 @@ fn timed(h: &Harness, iters: u64, payload: &[u8], check_payload: bool, mut publi
 }
 
 fn bench_offer(c: &mut Criterion) {
-    let h = harness();
+    let mut h = harness();
     let warmup_payload = [0xA5; 32];
     let claim_buf = AeronBufferClaim::default();
     // read once, as a C caller holds its pointers
@@ -145,9 +151,14 @@ fn bench_offer(c: &mut Criterion) {
     // This is setup work: its returned duration is intentionally discarded
     let constants = h.publisher.get_constants().unwrap();
     let ring_messages = 3 * constants.term_buffer_length() as u64 / frame_length(warmup_payload.len()) as u64 + 1;
-    let _ = timed(&h, ring_messages, &warmup_payload, true, || {
-        h.publisher.offer(&warmup_payload).is_ok()
-    });
+    let _ = timed(
+        &h.publisher,
+        &mut h.subscription,
+        ring_messages,
+        &warmup_payload,
+        true,
+        || h.publisher.offer(&warmup_payload).is_ok(),
+    );
 
     for payload_len in PAYLOAD_LENGTHS {
         // Allocation and initialisation happen once, outside all timed loops
@@ -159,7 +170,7 @@ fn bench_offer(c: &mut Criterion) {
             let mut g = c.benchmark_group(format!("offer/{payload_len}B"));
             g.bench_function("c_offer", |b| {
                 b.iter_custom(|iters| {
-                    timed(&h, iters, &payload, true, || {
+                    timed(&h.publisher, &mut h.subscription, iters, &payload, true, || {
                         // SAFETY: the publication outlives the bench and the payload outlives the call
                         black_box(unsafe {
                             aeron_publication_offer(
@@ -175,14 +186,14 @@ fn bench_offer(c: &mut Criterion) {
             });
             g.bench_function("raw_offer_i64", |b| {
                 b.iter_custom(|iters| {
-                    timed(&h, iters, &payload, true, || {
+                    timed(&h.publisher, &mut h.subscription, iters, &payload, true, || {
                         black_box(h.publisher.offer_raw(black_box(&payload), Handlers::NONE)) >= 0
                     })
                 })
             });
             g.bench_function("offer", |b| {
                 b.iter_custom(|iters| {
-                    timed(&h, iters, &payload, true, || {
+                    timed(&h.publisher, &mut h.subscription, iters, &payload, true, || {
                         black_box(h.publisher.offer(black_box(&payload))).is_ok()
                     })
                 })
@@ -194,7 +205,7 @@ fn bench_offer(c: &mut Criterion) {
             let mut g = c.benchmark_group(format!("claim/{payload_len}B"));
             g.bench_function("c_try_claim_commit", |b| {
                 b.iter_custom(|iters| {
-                    timed(&h, iters, &payload, false, || {
+                    timed(&h.publisher, &mut h.subscription, iters, &payload, false, || {
                         // SAFETY: the publication and the claim outlive the bench; the claim is
                         // committed only after a successful try_claim filled it
                         unsafe {
@@ -210,7 +221,7 @@ fn bench_offer(c: &mut Criterion) {
             });
             g.bench_function("raw_try_claim_commit", |b| {
                 b.iter_custom(|iters| {
-                    timed(&h, iters, &payload, false, || {
+                    timed(&h.publisher, &mut h.subscription, iters, &payload, false, || {
                         if h.publisher.try_claim_raw(payload_len, &claim_buf) >= 0 {
                             // SAFETY: this thread holds the successful raw claim.
                             unsafe { claim_buf.commit().unwrap() };
@@ -223,7 +234,7 @@ fn bench_offer(c: &mut Criterion) {
             });
             g.bench_function("try_claim_owned_commit", |b| {
                 b.iter_custom(|iters| {
-                    timed(&h, iters, &payload, false, || {
+                    timed(&h.publisher, &mut h.subscription, iters, &payload, false, || {
                         if let Ok(claim) = h.publisher.try_claim_owned(payload_len) {
                             claim.commit().unwrap();
                             true
@@ -240,7 +251,7 @@ fn bench_offer(c: &mut Criterion) {
             let mut g = c.benchmark_group(format!("claim_copy/{payload_len}B"));
             g.bench_function("c_try_claim_copy_commit", |b| {
                 b.iter_custom(|iters| {
-                    timed(&h, iters, &payload, true, || {
+                    timed(&h.publisher, &mut h.subscription, iters, &payload, true, || {
                         // SAFETY: native success initialises the claim; it remains
                         // writable until commit. The payload has exactly payload_len bytes
                         unsafe {
@@ -258,7 +269,7 @@ fn bench_offer(c: &mut Criterion) {
             });
             g.bench_function("raw_try_claim_copy_commit", |b| {
                 b.iter_custom(|iters| {
-                    timed(&h, iters, &payload, true, || {
+                    timed(&h.publisher, &mut h.subscription, iters, &payload, true, || {
                         if h.publisher.try_claim_raw(payload_len, &claim_buf) >= 0 {
                             // SAFETY: this thread has exclusive access to the successful
                             // claim's payload until commit.
@@ -275,7 +286,7 @@ fn bench_offer(c: &mut Criterion) {
             });
             g.bench_function("try_claim_owned_copy_commit", |b| {
                 b.iter_custom(|iters| {
-                    timed(&h, iters, &payload, true, || {
+                    timed(&h.publisher, &mut h.subscription, iters, &payload, true, || {
                         if let Ok(mut claim) = h.publisher.try_claim_owned(payload_len) {
                             claim.data().copy_from_slice(black_box(&payload));
                             claim.commit().unwrap();

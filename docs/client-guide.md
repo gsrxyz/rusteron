@@ -101,7 +101,7 @@ local state without allocating:
 
 ```rust,no_run
 # use rusteron_client::*;
-# fn snippet(subscription: &AeronSubscription) -> Result<(), AeronCError> {
+# fn snippet(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
 subscription.poll_fn(|buf: &[u8], header: &AeronHeader| {
     println!("received {} bytes", buf.len());
 }, 10)?;
@@ -116,7 +116,7 @@ borrow local state for that call only:
 
 ```rust,no_run
 # use rusteron_client::*;
-# fn snippet(subscription: &AeronSubscription) -> Result<(), AeronCError> {
+# fn snippet(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
 let mut bytes = 0;
 let mut assembler = AeronFragmentClosureAssembler::new()?;
 let fragments = assembler.poll(subscription, |msg, _header| bytes += msg.len() as u64, 10)?;
@@ -129,7 +129,7 @@ own state. Read that state between polls with `handler()`:
 
 ```rust,no_run
 # use rusteron_client::*;
-# fn snippet(subscription: &AeronSubscription) -> Result<(), AeronCError> {
+# fn snippet(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
 #[derive(Default)]
 struct Bytes(u64);
 
@@ -154,7 +154,7 @@ next poll:
 
 ```rust,no_run
 # use rusteron_client::*;
-# fn snippet(subscription: &AeronSubscription) -> Result<(), AeronCError> {
+# fn snippet(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
 use rusteron_client::bindings::aeron_controlled_fragment_handler_action_t::AERON_ACTION_CONTINUE;
 
 let mut assembler = ControlledFragmentAssembler::new(
@@ -187,10 +187,11 @@ Pass `Handlers::NONE` for any optional callback parameter you do not need.
 A clone shares the same native object, and native cleanup runs when the last
 owner drops. Several threads can offer on one regular publication at once.
 
-`AeronSubscription`, `AeronExclusivePublication` and `AeronImage` are neither
-`Send` nor `Sync`, so the compiler rejects moving them to another thread. Move
-the client into the thread instead and create the subscription or exclusive
-publication there.
+`AeronSubscription` is `Send` but not `Sync`, so one thread at a time can poll it.
+`AeronExclusivePublication` and `AeronImage` are neither `Send` nor `Sync`, so the
+compiler rejects moving them to another thread. Move the client into the thread
+instead and create the exclusive publication there. Polls take `&mut self`, see
+[re-entrant calls](thread-safety.md#re-entrant-calls).
 
 ```rust,no_run
 use rusteron_client::*;
@@ -225,7 +226,7 @@ let producers: Vec<_> = (0..4u8)
 // The subscription is created on the thread that polls it
 let consumer_client = client.clone();
 let consumer = thread::spawn(move || -> Result<usize, AeronCError> {
-    let subscription = consumer_client
+    let mut subscription = consumer_client
         .async_add_subscription(c"aeron:ipc", 1001, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(timeout)?;
     let mut received = 0;
@@ -331,7 +332,7 @@ immediately when work was done and backs off otherwise. For example:
 
 ```rust,no_run
 # use rusteron_client::{AeronFragmentHandlerCallback, AeronSubscription, AeronCError, Handler};
-# fn snippet<H: AeronFragmentHandlerCallback>(subscription: &AeronSubscription, mut handler: H) -> Result<(), AeronCError> {
+# fn snippet<H: AeronFragmentHandlerCallback>(subscription: &mut AeronSubscription, mut handler: H) -> Result<(), AeronCError> {
 use rusteron_client::{BackoffIdleStrategy, IdleStrategy};
 
 let mut idle = BackoffIdleStrategy::new(); // Aeron's default spins, yields, then sleeps.

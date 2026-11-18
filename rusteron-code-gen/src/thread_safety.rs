@@ -11,6 +11,46 @@ pub const SHARED_HANDLES: &[&str] = &[
     "aeron_counters_reader_t",
 ];
 
+/// Native calls that save their progress only when they return, checked by reading the
+/// Aeron C source. A nested call on the same object from a callback would be overwritten,
+/// so the wrapper takes `&mut self` and the borrow checker rejects the nested call
+pub const NON_REENTRANT_FNS: &[&str] = &[
+    "aeron_subscription_poll",
+    "aeron_subscription_controlled_poll",
+    "aeron_subscription_block_poll",
+    "aeron_image_poll",
+    "aeron_image_controlled_poll",
+    "aeron_image_bounded_poll",
+    "aeron_image_bounded_controlled_poll",
+    "aeron_image_block_poll",
+    "aeron_archive_replay_merge_poll",
+    "aeron_archive_persistent_subscription_poll",
+    "aeron_archive_persistent_subscription_controlled_poll",
+    // The reserved value supplier runs before the term offset advances. The hand-written
+    // supplier offers in `aeron_custom.rs` follow the same rule
+    "aeron_exclusive_publication_offer",
+    "aeron_exclusive_publication_offerv",
+];
+
+/// Owners of a `NON_REENTRANT_FNS` call have no `Clone`, so a callback cannot reach the
+/// same native object through a second handle
+pub fn handle_is_single_owner(name: &str) -> bool {
+    matches!(
+        name,
+        "aeron_subscription_t"
+            | "aeron_image_t"
+            | "aeron_exclusive_publication_t"
+            | "aeron_archive_replay_merge_t"
+            | "aeron_archive_persistent_subscription_t"
+    )
+}
+
+/// Single-owner handles that may move to another thread but not be shared. Their owner
+/// retains only shared dependencies, and C allows any one thread at a time to use them
+pub fn handle_is_send_only(name: &str) -> bool {
+    name == "aeron_subscription_t"
+}
+
 /// Owners that a shared handle can retain and drop.
 /// Their public wrappers remain local because configuration and async polling
 /// do not support concurrent calls.
@@ -100,6 +140,33 @@ mod tests {
             assert!(!handle_is_shared(name));
         }
     }
+
+    #[test]
+    fn non_reentrant_owners_are_single_owner_and_not_shared() {
+        for function in NON_REENTRANT_FNS {
+            let owner = SINGLE_OWNERS_BY_PREFIX
+                .iter()
+                .find(|(prefix, _)| function.starts_with(prefix))
+                .map(|(_, owner)| *owner)
+                .unwrap_or_else(|| panic!("{function} has no single owner"));
+            assert!(handle_is_single_owner(owner), "{owner}");
+            assert!(!handle_is_shared(owner), "{owner}");
+        }
+        assert!(handle_is_single_owner("aeron_subscription_t"));
+        assert!(!handle_is_send_only("aeron_image_t"));
+        assert!(!handle_is_send_only("aeron_exclusive_publication_t"));
+    }
+
+    const SINGLE_OWNERS_BY_PREFIX: &[(&str, &str)] = &[
+        (
+            "aeron_archive_persistent_subscription_",
+            "aeron_archive_persistent_subscription_t",
+        ),
+        ("aeron_archive_replay_merge_", "aeron_archive_replay_merge_t"),
+        ("aeron_exclusive_publication_", "aeron_exclusive_publication_t"),
+        ("aeron_subscription_", "aeron_subscription_t"),
+        ("aeron_image_", "aeron_image_t"),
+    ];
 
     #[test]
     fn stable_pointers_do_not_grant_concurrent_access() {
