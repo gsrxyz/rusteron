@@ -61,6 +61,26 @@ macro_rules! descriptor_poller_contract {
             assert!(weak.upgrade().is_some(), "the poller retains its consumer");
             assert_eq!(poller.poll().unwrap(), 0);
 
+            // Each request resets the poller, so a reset must replace the retained consumer
+            let dependencies = poller.inner.as_owned().unwrap().dependency_len();
+            for correlation_id in 323..333 {
+                let consumer = Handler::new(|_: &$descriptor| {});
+                poller.reset(correlation_id, 1, Some(&consumer)).unwrap();
+            }
+            assert!(weak.upgrade().is_none(), "a reset releases the previous consumer");
+            assert_eq!(
+                poller.inner.as_owned().unwrap().dependency_len(),
+                dependencies,
+                "repeated resets keep one consumer"
+            );
+            let state = Rc::new(());
+            let weak = Rc::downgrade(&state);
+            let consumer = Handler::new(move |_: &$descriptor| {
+                std::hint::black_box(&state);
+            });
+            poller.reset(333, 1, Some(&consumer)).unwrap();
+            drop(consumer);
+
             // SAFETY: the owning poller remains alive and calls do not overlap.
             // A native borrow constructed here still cannot poll.
             let mut borrowed = unsafe { $wrapper::from_ptr(poller.get_inner()) };

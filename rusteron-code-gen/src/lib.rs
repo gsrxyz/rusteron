@@ -110,12 +110,13 @@ pub fn generate_wrappers(bindings: &mut CBinding, wrapper_type_filter: fn(&str) 
 /// Minimal `AeronArchiveError` stub for the `archive` trybuild test only. The real type
 /// lives in `aeron_custom_archive.rs` and depends on hand-written `rusteron-archive` types,
 /// which the isolated trybuild compile cannot see. Generated `aeron_archive_t` methods
-/// only call `AeronArchiveError::from_code(i32)`, so a bare struct suffices.
+/// only call `from_code` and `with_message`, so a bare struct suffices.
 #[cfg(test)]
 const TRYBUILD_ARCHIVE_ERROR_STUB: &str = r#"
     #[derive(Debug, Clone)]
     pub struct AeronArchiveError { pub code: i32, pub message: String }
-    impl AeronArchiveError { pub fn from_code(code: i32) -> Self { Self { code, message: String::new() } } }
+    impl AeronArchiveError { pub fn from_code(code: i32) -> Self { Self { code, message: String::new() } }
+        pub fn with_message(code: i32, message: &'static str) -> Self { Self { code, message: message.to_owned() } } }
     impl std::fmt::Display for AeronArchiveError {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "archive error {}", self.code) }
     }

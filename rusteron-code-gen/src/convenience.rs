@@ -503,12 +503,14 @@ fn descriptor_poller_methods(wrapper: &CWrapper) -> TokenStream {
                 let Some(handler) = #consumer_name else {
                     return Err(AeronCError::with_message(-1, "descriptor polling requires a consumer"));
                 };
+                // A consumer that resets its own poller would free itself mid-call
+                self.inner.check_callback_replacement("descriptor_consumer")?;
                 let callback: #callback_type = Some(#trampoline::<H, LocalCallback> as _);
                 #[cfg(feature = "log-c-bindings")]
                 log::info!("{}({correlation_id}, {})", stringify!(#reset), #count);
                 unsafe { #reset(self.get_inner(), correlation_id, #count, callback, handler.as_raw()) };
-                // C stores this pointer until the poller closes or another reset replaces it.
-                inner.add_dependency(handler.clone());
+                // C keeps only the latest consumer, so release the one this reset replaced
+                inner.replace_handler_dependency("descriptor_consumer", Some(handler.clone()));
                 Ok(())
             }
 

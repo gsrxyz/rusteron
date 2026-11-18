@@ -152,6 +152,17 @@ impl AeronArchiveError {
             message: Aeron::errmsg_owned(),
         }
     }
+
+    /// A Rust check rejected the call before C ran, so there is no native error to read.
+    /// Generated Archive methods reach this through their `AeronCError` token substitution
+    #[cold]
+    #[allow(dead_code)]
+    pub(crate) fn with_message(code: i32, message: &'static str) -> Self {
+        Self {
+            code: AeronArchiveErrorCode::from_native_code(code),
+            message: message.to_owned(),
+        }
+    }
 }
 
 /// Preserves the native code and captured message when using `?` in code that

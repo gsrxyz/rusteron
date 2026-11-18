@@ -585,6 +585,14 @@ impl<T: NativeResource> From<CResource<T>> for LiveCResource<T> {
         }
     }
 }
+impl<T: NativeResource> LiveCResource<T> {
+    #[doc = " A live handle always has an owner, unlike `ResourceStorage::as_owned`"]
+    #[allow(dead_code)]
+    #[inline(always)]
+    pub(crate) fn owner(&self) -> &ResourceRef<ManagedCResource<T>> {
+        &self.owner.0
+    }
+}
 impl<T: NativeResource> Clone for LiveCResource<T> {
     #[inline]
     fn clone(&self) -> Self {
@@ -678,6 +686,10 @@ impl<T: NativeResource> Borrowed<T> {
     pub(crate) unsafe fn new_unchecked(ptr: *mut T) -> Self {
         Self(unsafe { std::ptr::NonNull::new_unchecked(ptr) })
     }
+    #[doc = " Panics if `ptr` is null"]
+    #[doc = ""]
+    #[doc = " # Safety"]
+    #[doc = " `ptr` points to a live native object for as long as this borrow is used"]
     #[inline]
     pub(crate) unsafe fn new(ptr: *mut T) -> Self {
         Self(std::ptr::NonNull::new(ptr).expect("native getter returned null"))
@@ -3591,7 +3603,7 @@ impl Aeron {
                     let invoker = poller.agent_invoker_client();
                     while start.elapsed() <= timeout {
                         if let Some(aeron) = &invoker {
-                            aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
+                            aeron.inner.owner().bind_conductor_thread()?;
                             unsafe {
                                 aeron.main_do_work()?;
                             }
@@ -3726,7 +3738,7 @@ impl AeronAsyncAddCounter {
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
             if let Some(aeron) = &invoker {
-                aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
+                aeron.inner.owner().bind_conductor_thread()?;
                 unsafe {
                     aeron.main_do_work()?;
                 }
@@ -4029,7 +4041,7 @@ impl Aeron {
                     let invoker = poller.agent_invoker_client();
                     while start.elapsed() <= timeout {
                         if let Some(aeron) = &invoker {
-                            aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
+                            aeron.inner.owner().bind_conductor_thread()?;
                             unsafe {
                                 aeron.main_do_work()?;
                             }
@@ -4161,7 +4173,7 @@ impl AeronAsyncAddExclusivePublication {
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
             if let Some(aeron) = &invoker {
-                aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
+                aeron.inner.owner().bind_conductor_thread()?;
                 unsafe {
                     aeron.main_do_work()?;
                 }
@@ -4444,7 +4456,7 @@ impl Aeron {
                     let invoker = poller.agent_invoker_client();
                     while start.elapsed() <= timeout {
                         if let Some(aeron) = &invoker {
-                            aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
+                            aeron.inner.owner().bind_conductor_thread()?;
                             unsafe {
                                 aeron.main_do_work()?;
                             }
@@ -4571,7 +4583,7 @@ impl AeronAsyncAddPublication {
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
             if let Some(aeron) = &invoker {
-                aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
+                aeron.inner.owner().bind_conductor_thread()?;
                 unsafe {
                     aeron.main_do_work()?;
                 }
@@ -4881,7 +4893,7 @@ impl Aeron {
                     let invoker = poller.agent_invoker_client();
                     while start.elapsed() <= timeout {
                         if let Some(aeron) = &invoker {
-                            aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
+                            aeron.inner.owner().bind_conductor_thread()?;
                             unsafe {
                                 aeron.main_do_work()?;
                             }
@@ -5072,7 +5084,7 @@ impl AeronAsyncAddSubscription {
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
             if let Some(aeron) = &invoker {
-                aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
+                aeron.inner.owner().bind_conductor_thread()?;
                 unsafe {
                     aeron.main_do_work()?;
                 }
@@ -9528,7 +9540,9 @@ impl<S: ResourceStorage<aeron_cnc_t>> AeronCnc<S> {
             &Handler<AeronLossReporterReadEntryFuncHandlerImpl, AeronLossReporterReadEntryFuncHandlerImplPolicy>,
         >,
     ) -> Result<i32, AeronCError> {
-        assert!(entry_func.is_some(), "this native reader requires a callback");
+        if entry_func.is_none() {
+            return Err(AeronCError::with_message(-1, "this native reader requires a callback"));
+        }
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -49899,7 +49913,9 @@ impl<S: ResourceStorage<aeron_loss_detector_t>> AeronLossDetector<S> {
             >,
         >,
     ) -> Result<i32, AeronCError> {
-        assert!(on_gap_detected.is_some(), "this native reader requires a callback");
+        if on_gap_detected.is_none() {
+            return Err(AeronCError::with_message(-1, "this native reader requires a callback"));
+        }
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -83018,7 +83034,9 @@ impl AeronUri {
         uri: *mut ::std::os::raw::c_char,
         param_func: Option<&Handler<AeronUriParseCallbackHandlerImpl, AeronUriParseCallbackHandlerImplPolicy>>,
     ) -> Result<i32, AeronCError> {
-        assert!(param_func.is_some(), "this native reader requires a callback");
+        if param_func.is_none() {
+            return Err(AeronCError::with_message(-1, "this native reader requires a callback"));
+        }
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -89102,10 +89120,6 @@ unsafe extern "C" fn aeron_fprintf_handler_t_callback<F: AeronFprintfHandlerCall
     arg4: *const ::std::os::raw::c_char,
     arg5: *mut ::std::os::raw::c_char,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if arg3.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_fprintf_handler_t_callback));
@@ -89124,6 +89138,10 @@ unsafe extern "C" fn aeron_fprintf_handler_t_callback<F: AeronFprintfHandlerCall
         .join(", ")
     );
     log_panic(stringify!(aeron_fprintf_handler_t_callback), Default::default(), || {
+        #[cfg(debug_assertions)]
+        if arg3.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(arg3) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_fprintf_handler(
@@ -89154,10 +89172,6 @@ unsafe extern "C" fn aeron_fprintf_handler_t_callback_catch<F: AeronFprintfHandl
     arg4: *const ::std::os::raw::c_char,
     arg5: *mut ::std::os::raw::c_char,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if arg3.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_fprintf_handler_t_callback_catch));
@@ -89176,6 +89190,10 @@ unsafe extern "C" fn aeron_fprintf_handler_t_callback_catch<F: AeronFprintfHandl
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if arg3.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(arg3) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_fprintf_handler(
@@ -89208,10 +89226,6 @@ unsafe extern "C" fn aeron_fprintf_handler_t_callback_for_once_closure_catch<
     arg4: *const ::std::os::raw::c_char,
     arg5: *mut ::std::os::raw::c_char,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if arg3.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -89233,6 +89247,10 @@ unsafe extern "C" fn aeron_fprintf_handler_t_callback_for_once_closure_catch<
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if arg3.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(arg3 as *mut F) };
         closure(
             if arg1.is_null() {
@@ -89357,10 +89375,6 @@ unsafe extern "C" fn aeron_error_handler_t_callback<F: AeronErrorHandlerCallback
     errcode: ::std::os::raw::c_int,
     message: *const ::std::os::raw::c_char,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_error_handler_t_callback));
@@ -89377,6 +89391,10 @@ unsafe extern "C" fn aeron_error_handler_t_callback<F: AeronErrorHandlerCallback
         .join(", ")
     );
     log_panic(stringify!(aeron_error_handler_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_error_handler(
@@ -89400,10 +89418,6 @@ unsafe extern "C" fn aeron_error_handler_t_callback_catch<F: AeronErrorHandlerCa
     errcode: ::std::os::raw::c_int,
     message: *const ::std::os::raw::c_char,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_error_handler_t_callback_catch));
@@ -89420,6 +89434,10 @@ unsafe extern "C" fn aeron_error_handler_t_callback_catch<F: AeronErrorHandlerCa
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_error_handler(
@@ -89445,10 +89463,6 @@ unsafe extern "C" fn aeron_error_handler_t_callback_for_once_closure_catch<
     errcode: ::std::os::raw::c_int,
     message: *const ::std::os::raw::c_char,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -89468,6 +89482,10 @@ unsafe extern "C" fn aeron_error_handler_t_callback_for_once_closure_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             errcode.into(),
@@ -89614,10 +89632,6 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback<
     clientd: *mut ::std::os::raw::c_void,
     error_frame: *mut aeron_publication_error_values_t,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -89636,6 +89650,10 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback<
         .join(", ")
     );
     log_panic(stringify!(aeron_publication_error_frame_handler_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_publication_error_frame_handler(&unsafe {
@@ -89658,10 +89676,6 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_catch<
     clientd: *mut ::std::os::raw::c_void,
     error_frame: *mut aeron_publication_error_values_t,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -89680,6 +89694,10 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_publication_error_frame_handler(&unsafe {
@@ -89701,10 +89719,6 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_for_once_c
     clientd: *mut ::std::os::raw::c_void,
     error_frame: *mut aeron_publication_error_values_t,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -89723,6 +89737,10 @@ unsafe extern "C" fn aeron_publication_error_frame_handler_t_callback_for_once_c
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(&unsafe { AeronPublicationErrorValues::from_ptr(error_frame as *mut _) })
     })
@@ -89824,10 +89842,6 @@ impl AeronNotificationCallback for NoHandler {
 unsafe extern "C" fn aeron_notification_t_callback<F: AeronNotificationCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_notification_t_callback));
@@ -89839,6 +89853,10 @@ unsafe extern "C" fn aeron_notification_t_callback<F: AeronNotificationCallback,
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
     log_panic(stringify!(aeron_notification_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_notification()
@@ -89853,10 +89871,6 @@ unsafe extern "C" fn aeron_notification_t_callback<F: AeronNotificationCallback,
 unsafe extern "C" fn aeron_notification_t_callback_catch<F: AeronNotificationCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_notification_t_callback_catch));
@@ -89868,6 +89882,10 @@ unsafe extern "C" fn aeron_notification_t_callback_catch<F: AeronNotificationCal
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_notification()
@@ -89882,10 +89900,6 @@ unsafe extern "C" fn aeron_notification_t_callback_catch<F: AeronNotificationCal
 unsafe extern "C" fn aeron_notification_t_callback_for_once_closure_catch<F: FnMut() -> ()>(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -89900,6 +89914,10 @@ unsafe extern "C" fn aeron_notification_t_callback_for_once_closure_catch<F: FnM
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure()
     })
@@ -90069,10 +90087,6 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback<F: AeronNewPublicationC
     session_id: i32,
     correlation_id: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_on_new_publication_t_callback));
@@ -90091,6 +90105,10 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback<F: AeronNewPublicationC
         .join(", ")
     );
     log_panic(stringify!(aeron_on_new_publication_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_on_new_publication(
@@ -90127,10 +90145,6 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback_catch<F: AeronNewPublic
     session_id: i32,
     correlation_id: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_on_new_publication_t_callback_catch));
@@ -90149,6 +90163,10 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback_catch<F: AeronNewPublic
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_on_new_publication(
@@ -90185,10 +90203,6 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback_for_once_closure_catch<
     session_id: i32,
     correlation_id: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -90210,6 +90224,10 @@ unsafe extern "C" fn aeron_on_new_publication_t_callback_for_once_closure_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             if channel.is_null() {
@@ -90350,10 +90368,6 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback<F: AeronNewSubscriptio
     stream_id: i32,
     correlation_id: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_on_new_subscription_t_callback));
@@ -90371,6 +90385,10 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback<F: AeronNewSubscriptio
         .join(", ")
     );
     log_panic(stringify!(aeron_on_new_subscription_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_on_new_subscription(
@@ -90405,10 +90423,6 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback_catch<F: AeronNewSubsc
     stream_id: i32,
     correlation_id: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_on_new_subscription_t_callback_catch));
@@ -90426,6 +90440,10 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback_catch<F: AeronNewSubsc
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_on_new_subscription(
@@ -90460,10 +90478,6 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback_for_once_closure_catch
     stream_id: i32,
     correlation_id: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -90484,6 +90498,10 @@ unsafe extern "C" fn aeron_on_new_subscription_t_callback_for_once_closure_catch
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             if channel.is_null() {
@@ -90649,10 +90667,6 @@ unsafe extern "C" fn aeron_on_available_image_t_callback<F: AeronAvailableImageC
     subscription: *mut aeron_subscription_t,
     image: *mut aeron_image_t,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_on_available_image_t_callback));
@@ -90669,6 +90683,10 @@ unsafe extern "C" fn aeron_on_available_image_t_callback<F: AeronAvailableImageC
         .join(", ")
     );
     log_panic(stringify!(aeron_on_available_image_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_on_available_image(
@@ -90692,10 +90710,6 @@ unsafe extern "C" fn aeron_on_available_image_t_callback_catch<F: AeronAvailable
     subscription: *mut aeron_subscription_t,
     image: *mut aeron_image_t,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_on_available_image_t_callback_catch));
@@ -90712,6 +90726,10 @@ unsafe extern "C" fn aeron_on_available_image_t_callback_catch<F: AeronAvailable
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_on_available_image(
@@ -90737,10 +90755,6 @@ unsafe extern "C" fn aeron_on_available_image_t_callback_for_once_closure_catch<
     subscription: *mut aeron_subscription_t,
     image: *mut aeron_image_t,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -90760,6 +90774,10 @@ unsafe extern "C" fn aeron_on_available_image_t_callback_for_once_closure_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             &unsafe { AeronSubscription::from_ptr(subscription as *mut _) },
@@ -90922,10 +90940,6 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback<F: AeronUnavailableIm
     subscription: *mut aeron_subscription_t,
     image: *mut aeron_image_t,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_on_unavailable_image_t_callback));
@@ -90942,6 +90956,10 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback<F: AeronUnavailableIm
         .join(", ")
     );
     log_panic(stringify!(aeron_on_unavailable_image_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_on_unavailable_image(
@@ -90969,10 +90987,6 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback_catch<
     subscription: *mut aeron_subscription_t,
     image: *mut aeron_image_t,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_on_unavailable_image_t_callback_catch));
@@ -90989,6 +91003,10 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_on_unavailable_image(
@@ -91015,10 +91033,6 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback_for_once_closure_catc
     subscription: *mut aeron_subscription_t,
     image: *mut aeron_image_t,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -91038,6 +91052,10 @@ unsafe extern "C" fn aeron_on_unavailable_image_t_callback_for_once_closure_catc
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             &unsafe { AeronSubscription::from_ptr(subscription as *mut _) },
@@ -91200,10 +91218,6 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback<F: AeronAvailableCoun
     registration_id: i64,
     counter_id: i32,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_on_available_counter_t_callback));
@@ -91221,6 +91235,10 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback<F: AeronAvailableCoun
         .join(", ")
     );
     log_panic(stringify!(aeron_on_available_counter_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_on_available_counter(
@@ -91250,10 +91268,6 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback_catch<
     registration_id: i64,
     counter_id: i32,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_on_available_counter_t_callback_catch));
@@ -91271,6 +91285,10 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_on_available_counter(
@@ -91299,10 +91317,6 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback_for_once_closure_catc
     registration_id: i64,
     counter_id: i32,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -91323,6 +91337,10 @@ unsafe extern "C" fn aeron_on_available_counter_t_callback_for_once_closure_catc
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             &unsafe { AeronCountersReader::from_ptr(counters_reader as *mut _) },
@@ -91486,10 +91504,6 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback<F: AeronUnavailable
     registration_id: i64,
     counter_id: i32,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_on_unavailable_counter_t_callback));
@@ -91507,6 +91521,10 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback<F: AeronUnavailable
         .join(", ")
     );
     log_panic(stringify!(aeron_on_unavailable_counter_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_on_unavailable_counter(
@@ -91536,10 +91554,6 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback_catch<
     registration_id: i64,
     counter_id: i32,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_on_unavailable_counter_t_callback_catch));
@@ -91557,6 +91571,10 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_on_unavailable_counter(
@@ -91585,10 +91603,6 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback_for_once_closure_ca
     registration_id: i64,
     counter_id: i32,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -91609,6 +91623,10 @@ unsafe extern "C" fn aeron_on_unavailable_counter_t_callback_for_once_closure_ca
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             &unsafe { AeronCountersReader::from_ptr(counters_reader as *mut _) },
@@ -91718,10 +91736,6 @@ impl AeronCloseClientCallback for NoHandler {
 unsafe extern "C" fn aeron_on_close_client_t_callback<F: AeronCloseClientCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_on_close_client_t_callback));
@@ -91733,6 +91747,10 @@ unsafe extern "C" fn aeron_on_close_client_t_callback<F: AeronCloseClientCallbac
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
     log_panic(stringify!(aeron_on_close_client_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_on_close_client()
@@ -91749,10 +91767,6 @@ unsafe extern "C" fn aeron_on_close_client_t_callback<F: AeronCloseClientCallbac
 unsafe extern "C" fn aeron_on_close_client_t_callback_catch<F: AeronCloseClientCallback, P: CallbackPolicy>(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_on_close_client_t_callback_catch));
@@ -91764,6 +91778,10 @@ unsafe extern "C" fn aeron_on_close_client_t_callback_catch<F: AeronCloseClientC
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_on_close_client()
@@ -91780,10 +91798,6 @@ unsafe extern "C" fn aeron_on_close_client_t_callback_catch<F: AeronCloseClientC
 unsafe extern "C" fn aeron_on_close_client_t_callback_for_once_closure_catch<F: FnMut() -> ()>(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -91798,6 +91812,10 @@ unsafe extern "C" fn aeron_on_close_client_t_callback_for_once_closure_catch<F: 
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure()
     })
@@ -91902,10 +91920,6 @@ unsafe extern "C" fn aeron_agent_on_start_func_t_callback<F: AeronAgentStartFunc
     state: *mut ::std::os::raw::c_void,
     role_name: *const ::std::os::raw::c_char,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_agent_on_start_func_t_callback));
@@ -91921,6 +91935,10 @@ unsafe extern "C" fn aeron_agent_on_start_func_t_callback<F: AeronAgentStartFunc
         .join(", ")
     );
     log_panic(stringify!(aeron_agent_on_start_func_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_agent_on_start_func(if role_name.is_null() {
@@ -91939,10 +91957,6 @@ unsafe extern "C" fn aeron_agent_on_start_func_t_callback_catch<F: AeronAgentSta
     state: *mut ::std::os::raw::c_void,
     role_name: *const ::std::os::raw::c_char,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_agent_on_start_func_t_callback_catch));
@@ -91958,6 +91972,10 @@ unsafe extern "C" fn aeron_agent_on_start_func_t_callback_catch<F: AeronAgentSta
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_agent_on_start_func(if role_name.is_null() {
@@ -91976,10 +91994,6 @@ unsafe extern "C" fn aeron_agent_on_start_func_t_callback_for_once_closure_catch
     state: *mut ::std::os::raw::c_void,
     role_name: *const ::std::os::raw::c_char,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -91998,6 +92012,10 @@ unsafe extern "C" fn aeron_agent_on_start_func_t_callback_for_once_closure_catch
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(if role_name.is_null() {
             ""
@@ -92180,10 +92198,6 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback<
     label_length: usize,
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -92211,6 +92225,10 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback<
         stringify!(aeron_counters_reader_foreach_counter_func_t_callback),
         (),
         || {
+            #[cfg(debug_assertions)]
+            if clientd.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_counters_reader_foreach_counter_func(
@@ -92262,10 +92280,6 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback_catch
     label_length: usize,
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -92290,6 +92304,10 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback_catch
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_counters_reader_foreach_counter_func(
@@ -92339,10 +92357,6 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback_for_o
     label_length: usize,
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -92367,6 +92381,10 @@ unsafe extern "C" fn aeron_counters_reader_foreach_counter_func_t_callback_for_o
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             value.into(),
@@ -92500,10 +92518,6 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback<
     buffer: *mut u8,
     frame_length: usize,
 ) -> i64 {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_reserved_value_supplier_t_callback));
@@ -92523,6 +92537,10 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback<
         stringify!(aeron_reserved_value_supplier_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if clientd.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_reserved_value_supplier(unsafe {
@@ -92553,10 +92571,6 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback_catch<
     buffer: *mut u8,
     frame_length: usize,
 ) -> i64 {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_reserved_value_supplier_t_callback_catch));
@@ -92573,6 +92587,10 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback_catch<
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_reserved_value_supplier(unsafe {
@@ -92599,10 +92617,6 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback_for_once_closure_c
     buffer: *mut u8,
     frame_length: usize,
 ) -> i64 {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -92622,6 +92636,10 @@ unsafe extern "C" fn aeron_reserved_value_supplier_t_callback_for_once_closure_c
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(unsafe {
             if buffer.is_null() {
@@ -92755,10 +92773,6 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback<F: AeronFragmentHa
     length: usize,
     header: *mut aeron_header_t,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_fragment_handler_t_callback));
@@ -92776,6 +92790,10 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback<F: AeronFragmentHa
         .join(", ")
     );
     log_panic(stringify!(aeron_fragment_handler_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_fragment_handler(
@@ -92811,10 +92829,6 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_catch<
     length: usize,
     header: *mut aeron_header_t,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_fragment_handler_t_callback_catch));
@@ -92832,6 +92846,10 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_fragment_handler(
@@ -92866,10 +92884,6 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_c
     length: usize,
     header: *mut aeron_header_t,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -92890,6 +92904,10 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_c
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             if buffer.is_null() {
@@ -92923,10 +92941,6 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_borrowed_handl
     length: usize,
     header: *mut aeron_header_t,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -92947,6 +92961,10 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_borrowed_handl
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure.handle_aeron_fragment_handler(
             if buffer.is_null() {
@@ -92981,10 +92999,6 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_unwind<
     length: usize,
     header: *mut aeron_header_t,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_fragment_handler_t_callback_unwind));
@@ -93001,6 +93015,10 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_unwind<
         ]
         .join(", ")
     );
+    #[cfg(debug_assertions)]
+    if clientd.is_null() {
+        panic!("closure should not be null")
+    }
     let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
     let closure: &mut F = &mut *state;
     closure.handle_aeron_fragment_handler(
@@ -93034,10 +93052,6 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_u
     length: usize,
     header: *mut aeron_header_t,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -93057,6 +93071,10 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_once_closure_u
         ]
         .join(", ")
     );
+    #[cfg(debug_assertions)]
+    if clientd.is_null() {
+        panic!("closure should not be null")
+    }
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(
         if buffer.is_null() {
@@ -93089,10 +93107,6 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_borrowed_handl
     length: usize,
     header: *mut aeron_header_t,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -93112,6 +93126,10 @@ unsafe extern "C-unwind" fn aeron_fragment_handler_t_callback_for_borrowed_handl
         ]
         .join(", ")
     );
+    #[cfg(debug_assertions)]
+    if clientd.is_null() {
+        panic!("closure should not be null")
+    }
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_fragment_handler(
         if buffer.is_null() {
@@ -93275,10 +93293,6 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback<
     length: usize,
     header: *mut aeron_header_t,
 ) -> aeron_controlled_fragment_handler_action_t {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_controlled_fragment_handler_t_callback));
@@ -93299,6 +93313,10 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback<
         stringify!(aeron_controlled_fragment_handler_t_callback),
         aeron_controlled_fragment_handler_action_t::AERON_ACTION_ABORT,
         || {
+            #[cfg(debug_assertions)]
+            if clientd.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_controlled_fragment_handler(
@@ -93336,10 +93354,6 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_catch<
     length: usize,
     header: *mut aeron_header_t,
 ) -> aeron_controlled_fragment_handler_action_t {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -93360,6 +93374,10 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_catch<
         .join(", ")
     );
     catch_panic(aeron_controlled_fragment_handler_action_t::AERON_ACTION_ABORT, || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_controlled_fragment_handler(
@@ -93395,10 +93413,6 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_onc
     length: usize,
     header: *mut aeron_header_t,
 ) -> aeron_controlled_fragment_handler_action_t {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -93419,6 +93433,10 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_onc
         .join(", ")
     );
     catch_panic(aeron_controlled_fragment_handler_action_t::AERON_ACTION_ABORT, || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             if buffer.is_null() {
@@ -93453,10 +93471,6 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_bor
     length: usize,
     header: *mut aeron_header_t,
 ) -> aeron_controlled_fragment_handler_action_t {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -93477,6 +93491,10 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_bor
         .join(", ")
     );
     catch_panic(aeron_controlled_fragment_handler_action_t::AERON_ACTION_ABORT, || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure.handle_aeron_controlled_fragment_handler(
             if buffer.is_null() {
@@ -93512,10 +93530,6 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_unwind<
     length: usize,
     header: *mut aeron_header_t,
 ) -> aeron_controlled_fragment_handler_action_t {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -93535,6 +93549,10 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_unwind<
         ]
         .join(", ")
     );
+    #[cfg(debug_assertions)]
+    if clientd.is_null() {
+        panic!("closure should not be null")
+    }
     let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
     let closure: &mut F = &mut *state;
     closure.handle_aeron_controlled_fragment_handler(
@@ -93569,10 +93587,6 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_onc
     length: usize,
     header: *mut aeron_header_t,
 ) -> aeron_controlled_fragment_handler_action_t {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -93592,6 +93606,10 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_onc
         ]
         .join(", ")
     );
+    #[cfg(debug_assertions)]
+    if clientd.is_null() {
+        panic!("closure should not be null")
+    }
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(
         if buffer.is_null() {
@@ -93625,10 +93643,6 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_bor
     length: usize,
     header: *mut aeron_header_t,
 ) -> aeron_controlled_fragment_handler_action_t {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -93648,6 +93662,10 @@ unsafe extern "C-unwind" fn aeron_controlled_fragment_handler_t_callback_for_bor
         ]
         .join(", ")
     );
+    #[cfg(debug_assertions)]
+    if clientd.is_null() {
+        panic!("closure should not be null")
+    }
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_controlled_fragment_handler(
         if buffer.is_null() {
@@ -93776,10 +93794,6 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback<F: AeronBlockHandlerC
     session_id: i32,
     term_id: i32,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_block_handler_t_callback));
@@ -93798,6 +93812,10 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback<F: AeronBlockHandlerC
         .join(", ")
     );
     log_panic(stringify!(aeron_block_handler_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_block_handler(
@@ -93831,10 +93849,6 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_catch<F: AeronBlockHa
     session_id: i32,
     term_id: i32,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_block_handler_t_callback_catch));
@@ -93853,6 +93867,10 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_catch<F: AeronBlockHa
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_block_handler(
@@ -93886,10 +93904,6 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_once_closure_catc
     session_id: i32,
     term_id: i32,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -93911,6 +93925,10 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_once_closure_catc
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             if buffer.is_null() {
@@ -93943,10 +93961,6 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_borrowed_handler_
     session_id: i32,
     term_id: i32,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -93968,6 +93982,10 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_borrowed_handler_
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure.handle_aeron_block_handler(
             if buffer.is_null() {
@@ -94000,10 +94018,6 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_unwind<F: AeronBlockH
     session_id: i32,
     term_id: i32,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_block_handler_t_callback_unwind));
@@ -94021,6 +94035,10 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_unwind<F: AeronBlockH
         ]
         .join(", ")
     );
+    #[cfg(debug_assertions)]
+    if clientd.is_null() {
+        panic!("closure should not be null")
+    }
     let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
     let closure: &mut F = &mut *state;
     closure.handle_aeron_block_handler(
@@ -94053,10 +94071,6 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_once_closure_unwi
     session_id: i32,
     term_id: i32,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -94077,6 +94091,10 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_once_closure_unwi
         ]
         .join(", ")
     );
+    #[cfg(debug_assertions)]
+    if clientd.is_null() {
+        panic!("closure should not be null")
+    }
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure(
         if buffer.is_null() {
@@ -94108,10 +94126,6 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_borrowed_handler_
     session_id: i32,
     term_id: i32,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -94132,6 +94146,10 @@ unsafe extern "C-unwind" fn aeron_block_handler_t_callback_for_borrowed_handler_
         ]
         .join(", ")
     );
+    #[cfg(debug_assertions)]
+    if clientd.is_null() {
+        panic!("closure should not be null")
+    }
     let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
     closure.handle_aeron_block_handler(
         if buffer.is_null() {
@@ -94312,10 +94330,6 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback<F: AeronErrorLogRead
     error_length: usize,
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_error_log_reader_func_t_callback));
@@ -94343,6 +94357,10 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback<F: AeronErrorLogRead
         .join(", ")
     );
     log_panic(stringify!(aeron_error_log_reader_func_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_error_log_reader_func(
@@ -94379,10 +94397,6 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback_catch<
     error_length: usize,
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_error_log_reader_func_t_callback_catch));
@@ -94410,6 +94424,10 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_error_log_reader_func(
@@ -94445,10 +94463,6 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback_for_once_closure_cat
     error_length: usize,
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -94479,6 +94493,10 @@ unsafe extern "C" fn aeron_error_log_reader_func_t_callback_for_once_closure_cat
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             observation_count.into(),
@@ -94717,10 +94735,6 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback<
     source: *const ::std::os::raw::c_char,
     source_length: i32,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_loss_reporter_read_entry_func_t_callback));
@@ -94753,6 +94767,10 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback<
         .join(", ")
     );
     log_panic(stringify!(aeron_loss_reporter_read_entry_func_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_loss_reporter_read_entry_func(
@@ -94808,10 +94826,6 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback_catch<
     source: *const ::std::os::raw::c_char,
     source_length: i32,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -94847,6 +94861,10 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_loss_reporter_read_entry_func(
@@ -94901,10 +94919,6 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback_for_once_clo
     source: *const ::std::os::raw::c_char,
     source_length: i32,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -94940,6 +94954,10 @@ unsafe extern "C" fn aeron_loss_reporter_read_entry_func_t_callback_for_once_clo
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             observation_count.into(),
@@ -95073,10 +95091,6 @@ unsafe extern "C" fn aeron_idle_strategy_func_t_callback<F: AeronIdleStrategyFun
     state: *mut ::std::os::raw::c_void,
     work_count: ::std::os::raw::c_int,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_idle_strategy_func_t_callback));
@@ -95092,6 +95106,10 @@ unsafe extern "C" fn aeron_idle_strategy_func_t_callback<F: AeronIdleStrategyFun
         .join(", ")
     );
     log_panic(stringify!(aeron_idle_strategy_func_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_idle_strategy_func(work_count.into())
@@ -95106,10 +95124,6 @@ unsafe extern "C" fn aeron_idle_strategy_func_t_callback_catch<F: AeronIdleStrat
     state: *mut ::std::os::raw::c_void,
     work_count: ::std::os::raw::c_int,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_idle_strategy_func_t_callback_catch));
@@ -95125,6 +95139,10 @@ unsafe extern "C" fn aeron_idle_strategy_func_t_callback_catch<F: AeronIdleStrat
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_idle_strategy_func(work_count.into())
@@ -95141,10 +95159,6 @@ unsafe extern "C" fn aeron_idle_strategy_func_t_callback_for_once_closure_catch<
     state: *mut ::std::os::raw::c_void,
     work_count: ::std::os::raw::c_int,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -95163,6 +95177,10 @@ unsafe extern "C" fn aeron_idle_strategy_func_t_callback_for_once_closure_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(work_count.into())
     })
@@ -95267,10 +95285,6 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback<F: AeronUriParseCallbac
     key: *const ::std::os::raw::c_char,
     value: *const ::std::os::raw::c_char,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_uri_parse_callback_t_callback));
@@ -95290,6 +95304,10 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback<F: AeronUriParseCallbac
         stringify!(aeron_uri_parse_callback_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if clientd.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_uri_parse_callback(
@@ -95317,10 +95335,6 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback_catch<F: AeronUriParseC
     key: *const ::std::os::raw::c_char,
     value: *const ::std::os::raw::c_char,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_uri_parse_callback_t_callback_catch));
@@ -95337,6 +95351,10 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback_catch<F: AeronUriParseC
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_uri_parse_callback(
@@ -95365,10 +95383,6 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback_for_once_closure_catch<
     key: *const ::std::os::raw::c_char,
     value: *const ::std::os::raw::c_char,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -95388,6 +95402,10 @@ unsafe extern "C" fn aeron_uri_parse_callback_t_callback_for_once_closure_catch<
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             if key.is_null() {
@@ -95504,10 +95522,6 @@ unsafe extern "C" fn aeron_driver_termination_validator_func_t_callback<
     buffer: *mut u8,
     length: i32,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -95530,6 +95544,10 @@ unsafe extern "C" fn aeron_driver_termination_validator_func_t_callback<
         stringify!(aeron_driver_termination_validator_func_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if state.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_driver_termination_validator_func(unsafe {
@@ -95555,10 +95573,6 @@ unsafe extern "C" fn aeron_driver_termination_validator_func_t_callback_catch<
     buffer: *mut u8,
     length: i32,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -95578,6 +95592,10 @@ unsafe extern "C" fn aeron_driver_termination_validator_func_t_callback_catch<
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_driver_termination_validator_func(unsafe {
@@ -95601,10 +95619,6 @@ unsafe extern "C" fn aeron_driver_termination_validator_func_t_callback_for_once
     buffer: *mut u8,
     length: i32,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -95624,6 +95638,10 @@ unsafe extern "C" fn aeron_driver_termination_validator_func_t_callback_for_once
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(unsafe {
             if buffer.is_null() {
@@ -95738,10 +95756,6 @@ unsafe extern "C" fn aeron_driver_termination_hook_func_t_callback<
 >(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_driver_termination_hook_func_t_callback));
@@ -95753,6 +95767,10 @@ unsafe extern "C" fn aeron_driver_termination_hook_func_t_callback<
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
     log_panic(stringify!(aeron_driver_termination_hook_func_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_driver_termination_hook_func()
@@ -95769,10 +95787,6 @@ unsafe extern "C" fn aeron_driver_termination_hook_func_t_callback_catch<
 >(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -95787,6 +95801,10 @@ unsafe extern "C" fn aeron_driver_termination_hook_func_t_callback_catch<
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_driver_termination_hook_func()
@@ -95800,10 +95818,6 @@ unsafe extern "C" fn aeron_driver_termination_hook_func_t_callback_catch<
 unsafe extern "C" fn aeron_driver_termination_hook_func_t_callback_for_once_closure_catch<F: FnMut() -> ()>(
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -95818,6 +95832,10 @@ unsafe extern "C" fn aeron_driver_termination_hook_func_t_callback_for_once_clos
         [format!("{} = {:?}", stringify!(clientd), clientd)].join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure()
     })
@@ -95922,10 +95940,6 @@ unsafe extern "C" fn aeron_queue_drain_func_t_callback<F: AeronQueueDrainFuncCal
     clientd: *mut ::std::os::raw::c_void,
     item: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_queue_drain_func_t_callback));
@@ -95941,6 +95955,10 @@ unsafe extern "C" fn aeron_queue_drain_func_t_callback<F: AeronQueueDrainFuncCal
         .join(", ")
     );
     log_panic(stringify!(aeron_queue_drain_func_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_queue_drain_func(item.into())
@@ -95955,10 +95973,6 @@ unsafe extern "C" fn aeron_queue_drain_func_t_callback_catch<F: AeronQueueDrainF
     clientd: *mut ::std::os::raw::c_void,
     item: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_queue_drain_func_t_callback_catch));
@@ -95974,6 +95988,10 @@ unsafe extern "C" fn aeron_queue_drain_func_t_callback_catch<F: AeronQueueDrainF
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_queue_drain_func(item.into())
@@ -95990,10 +96008,6 @@ unsafe extern "C" fn aeron_queue_drain_func_t_callback_for_once_closure_catch<
     clientd: *mut ::std::os::raw::c_void,
     item: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -96012,6 +96026,10 @@ unsafe extern "C" fn aeron_queue_drain_func_t_callback_for_once_closure_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(item.into())
     })
@@ -96123,10 +96141,6 @@ unsafe extern "C" fn aeron_rb_handler_t_callback<F: AeronRbHandlerCallback, P: C
     arg3: usize,
     arg4: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if arg4.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_rb_handler_t_callback));
@@ -96144,6 +96158,10 @@ unsafe extern "C" fn aeron_rb_handler_t_callback<F: AeronRbHandlerCallback, P: C
         .join(", ")
     );
     log_panic(stringify!(aeron_rb_handler_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if arg4.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(arg4) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_rb_handler(arg1.into(), arg2.into(), arg3.into())
@@ -96160,10 +96178,6 @@ unsafe extern "C" fn aeron_rb_handler_t_callback_catch<F: AeronRbHandlerCallback
     arg3: usize,
     arg4: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if arg4.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_rb_handler_t_callback_catch));
@@ -96181,6 +96195,10 @@ unsafe extern "C" fn aeron_rb_handler_t_callback_catch<F: AeronRbHandlerCallback
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if arg4.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(arg4) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_rb_handler(arg1.into(), arg2.into(), arg3.into())
@@ -96199,10 +96217,6 @@ unsafe extern "C" fn aeron_rb_handler_t_callback_for_once_closure_catch<
     arg3: usize,
     arg4: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if arg4.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -96223,6 +96237,10 @@ unsafe extern "C" fn aeron_rb_handler_t_callback_for_once_closure_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if arg4.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(arg4 as *mut F) };
         closure(arg1.into(), arg2.into(), arg3.into())
     })
@@ -96363,10 +96381,6 @@ unsafe extern "C" fn aeron_rb_controlled_handler_t_callback<F: AeronRbControlled
     arg3: usize,
     arg4: *mut ::std::os::raw::c_void,
 ) -> aeron_rb_read_action_t {
-    #[cfg(debug_assertions)]
-    if arg4.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_rb_controlled_handler_t_callback));
@@ -96387,6 +96401,10 @@ unsafe extern "C" fn aeron_rb_controlled_handler_t_callback<F: AeronRbControlled
         stringify!(aeron_rb_controlled_handler_t_callback),
         aeron_rb_read_action_t::AERON_RB_ABORT,
         || {
+            #[cfg(debug_assertions)]
+            if arg4.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(arg4) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_rb_controlled_handler(arg1.into(), arg2.into(), arg3.into())
@@ -96407,10 +96425,6 @@ unsafe extern "C" fn aeron_rb_controlled_handler_t_callback_catch<
     arg3: usize,
     arg4: *mut ::std::os::raw::c_void,
 ) -> aeron_rb_read_action_t {
-    #[cfg(debug_assertions)]
-    if arg4.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_rb_controlled_handler_t_callback_catch));
@@ -96428,6 +96442,10 @@ unsafe extern "C" fn aeron_rb_controlled_handler_t_callback_catch<
         .join(", ")
     );
     catch_panic(aeron_rb_read_action_t::AERON_RB_ABORT, || {
+        #[cfg(debug_assertions)]
+        if arg4.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(arg4) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_rb_controlled_handler(arg1.into(), arg2.into(), arg3.into())
@@ -96446,10 +96464,6 @@ unsafe extern "C" fn aeron_rb_controlled_handler_t_callback_for_once_closure_cat
     arg3: usize,
     arg4: *mut ::std::os::raw::c_void,
 ) -> aeron_rb_read_action_t {
-    #[cfg(debug_assertions)]
-    if arg4.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -96470,6 +96484,10 @@ unsafe extern "C" fn aeron_rb_controlled_handler_t_callback_for_once_closure_cat
         .join(", ")
     );
     catch_panic(aeron_rb_read_action_t::AERON_RB_ABORT, || {
+        #[cfg(debug_assertions)]
+        if arg4.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(arg4 as *mut F) };
         closure(arg1.into(), arg2.into(), arg3.into())
     })
@@ -96619,10 +96637,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_idle_func_t_callback<
     snd_pos: i64,
     is_end_of_stream: bool,
 ) -> i64 {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -96647,6 +96661,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_idle_func_t_callback<
         stringify!(aeron_flow_control_strategy_on_idle_func_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if state.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_flow_control_strategy_on_idle_func(
@@ -96673,10 +96691,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_idle_func_t_callback_catch<
     snd_pos: i64,
     is_end_of_stream: bool,
 ) -> i64 {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -96698,6 +96712,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_idle_func_t_callback_catch<
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_flow_control_strategy_on_idle_func(
@@ -96722,10 +96740,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_idle_func_t_callback_for_onc
     snd_pos: i64,
     is_end_of_stream: bool,
 ) -> i64 {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -96747,6 +96761,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_idle_func_t_callback_for_onc
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(now_ns.into(), snd_lmt.into(), snd_pos.into(), is_end_of_stream.into())
     })
@@ -96926,10 +96944,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback<
     position_bits_to_shift: usize,
     now_ns: i64,
 ) -> i64 {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -96957,6 +96971,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback<
         stringify!(aeron_flow_control_strategy_on_sm_func_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if state.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_flow_control_strategy_on_sm_func(
@@ -96992,10 +97010,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback_catch<
     position_bits_to_shift: usize,
     now_ns: i64,
 ) -> i64 {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -97020,6 +97034,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback_catch<
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_flow_control_strategy_on_sm_func(
@@ -97053,10 +97071,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback_for_once_
     position_bits_to_shift: usize,
     now_ns: i64,
 ) -> i64 {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -97081,6 +97095,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_sm_func_t_callback_for_once_
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(
             if sm.is_null() {
@@ -97250,10 +97268,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_setup_func_t_callback<
     position_bits_to_shift: usize,
     snd_pos: i64,
 ) -> i64 {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -97280,6 +97294,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_setup_func_t_callback<
         stringify!(aeron_flow_control_strategy_on_setup_func_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if state.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_flow_control_strategy_on_setup_func(
@@ -97313,10 +97331,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_setup_func_t_callback_catch<
     position_bits_to_shift: usize,
     snd_pos: i64,
 ) -> i64 {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -97340,6 +97354,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_setup_func_t_callback_catch<
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_flow_control_strategy_on_setup_func(
@@ -97371,10 +97389,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_setup_func_t_callback_for_on
     position_bits_to_shift: usize,
     snd_pos: i64,
 ) -> i64 {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -97398,6 +97412,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_setup_func_t_callback_for_on
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(
             if setup.is_null() {
@@ -97559,10 +97577,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback<
     recv_addr: *mut sockaddr_storage,
     now_ns: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -97587,6 +97601,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback<
         stringify!(aeron_flow_control_strategy_on_error_func_t_callback),
         (),
         || {
+            #[cfg(debug_assertions)]
+            if state.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_flow_control_strategy_on_error_func(
@@ -97616,10 +97634,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback_catch<
     recv_addr: *mut sockaddr_storage,
     now_ns: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -97641,6 +97655,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_flow_control_strategy_on_error_func(
@@ -97668,10 +97686,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback_for_on
     recv_addr: *mut sockaddr_storage,
     now_ns: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -97693,6 +97707,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_error_func_t_callback_for_on
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(
             if error.is_null() {
@@ -97852,10 +97870,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_ca
     recv_addr: *mut sockaddr_storage,
     now_ns: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -97880,6 +97894,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_ca
         stringify!(aeron_flow_control_strategy_on_trigger_send_setup_func_t_callback),
         (),
         || {
+            #[cfg(debug_assertions)]
+            if state.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_flow_control_strategy_on_trigger_send_setup_func(
@@ -97909,10 +97927,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_ca
     recv_addr: *mut sockaddr_storage,
     now_ns: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -97934,6 +97948,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_ca
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_flow_control_strategy_on_trigger_send_setup_func(
@@ -97961,10 +97979,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_ca
     recv_addr: *mut sockaddr_storage,
     now_ns: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -97986,6 +98000,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_on_trigger_send_setup_func_t_ca
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(
             if sm.is_null() {
@@ -98152,10 +98170,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_max_retransmission_length_func_
     term_buffer_length: usize,
     mtu_length: usize,
 ) -> usize {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -98180,6 +98194,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_max_retransmission_length_func_
         stringify!(aeron_flow_control_strategy_max_retransmission_length_func_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if state.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_flow_control_strategy_max_retransmission_length_func(
@@ -98206,10 +98224,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_max_retransmission_length_func_
     term_buffer_length: usize,
     mtu_length: usize,
 ) -> usize {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -98231,6 +98245,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_max_retransmission_length_func_
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_flow_control_strategy_max_retransmission_length_func(
@@ -98255,10 +98273,6 @@ unsafe extern "C" fn aeron_flow_control_strategy_max_retransmission_length_func_
     term_buffer_length: usize,
     mtu_length: usize,
 ) -> usize {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -98280,6 +98294,10 @@ unsafe extern "C" fn aeron_flow_control_strategy_max_retransmission_length_func_
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(
             term_offset.into(),
@@ -98393,10 +98411,6 @@ unsafe extern "C" fn aeron_congestion_control_strategy_should_measure_rtt_func_t
     state: *mut ::std::os::raw::c_void,
     now_ns: i64,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -98418,6 +98432,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_should_measure_rtt_func_t
         stringify!(aeron_congestion_control_strategy_should_measure_rtt_func_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if state.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_congestion_control_strategy_should_measure_rtt_func(now_ns.into())
@@ -98436,10 +98454,6 @@ unsafe extern "C" fn aeron_congestion_control_strategy_should_measure_rtt_func_t
     state: *mut ::std::os::raw::c_void,
     now_ns: i64,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -98458,6 +98472,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_should_measure_rtt_func_t
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_congestion_control_strategy_should_measure_rtt_func(now_ns.into())
@@ -98474,10 +98492,6 @@ unsafe extern "C" fn aeron_congestion_control_strategy_should_measure_rtt_func_t
     state: *mut ::std::os::raw::c_void,
     now_ns: i64,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -98496,6 +98510,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_should_measure_rtt_func_t
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(now_ns.into())
     })
@@ -98605,10 +98623,6 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_sent_func_t_callb
     state: *mut ::std::os::raw::c_void,
     now_ns: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -98630,6 +98644,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_sent_func_t_callb
         stringify!(aeron_congestion_control_strategy_on_rttm_sent_func_t_callback),
         (),
         || {
+            #[cfg(debug_assertions)]
+            if state.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_congestion_control_strategy_on_rttm_sent_func(now_ns.into())
@@ -98648,10 +98666,6 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_sent_func_t_callb
     state: *mut ::std::os::raw::c_void,
     now_ns: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -98670,6 +98684,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_sent_func_t_callb
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_congestion_control_strategy_on_rttm_sent_func(now_ns.into())
@@ -98686,10 +98704,6 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_sent_func_t_callb
     state: *mut ::std::os::raw::c_void,
     now_ns: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -98708,6 +98722,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_sent_func_t_callb
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(now_ns.into())
     })
@@ -98858,10 +98876,6 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback<
     rtt_ns: i64,
     source_address: *mut sockaddr_storage,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -98885,6 +98899,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback<
         stringify!(aeron_congestion_control_strategy_on_rttm_func_t_callback),
         (),
         || {
+            #[cfg(debug_assertions)]
+            if state.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_congestion_control_strategy_on_rttm_func(now_ns.into(), rtt_ns.into(), &unsafe {
@@ -98907,10 +98925,6 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback_c
     rtt_ns: i64,
     source_address: *mut sockaddr_storage,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -98931,6 +98945,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback_c
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_congestion_control_strategy_on_rttm_func(now_ns.into(), rtt_ns.into(), &unsafe {
@@ -98951,10 +98969,6 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback_f
     rtt_ns: i64,
     source_address: *mut sockaddr_storage,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -98975,6 +98989,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_on_rttm_func_t_callback_f
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(now_ns.into(), rtt_ns.into(), &unsafe {
             SockaddrStorage::from_ptr(source_address as *mut _)
@@ -99084,10 +99102,6 @@ unsafe extern "C" fn aeron_congestion_control_strategy_initial_window_length_fun
 >(
     state: *mut ::std::os::raw::c_void,
 ) -> i32 {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -99105,6 +99119,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_initial_window_length_fun
         stringify!(aeron_congestion_control_strategy_initial_window_length_func_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if state.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_congestion_control_strategy_initial_window_length_func()
@@ -99122,10 +99140,6 @@ unsafe extern "C" fn aeron_congestion_control_strategy_initial_window_length_fun
 >(
     state: *mut ::std::os::raw::c_void,
 ) -> i32 {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -99140,6 +99154,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_initial_window_length_fun
         [format!("{} = {:?}", stringify!(state), state)].join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_congestion_control_strategy_initial_window_length_func()
@@ -99155,10 +99173,6 @@ unsafe extern "C" fn aeron_congestion_control_strategy_initial_window_length_fun
 >(
     state: *mut ::std::os::raw::c_void,
 ) -> i32 {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -99173,6 +99187,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_initial_window_length_fun
         [format!("{} = {:?}", stringify!(state), state)].join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure()
     })
@@ -99280,10 +99298,6 @@ unsafe extern "C" fn aeron_congestion_control_strategy_max_window_length_func_t_
 >(
     state: *mut ::std::os::raw::c_void,
 ) -> i32 {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -99301,6 +99315,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_max_window_length_func_t_
         stringify!(aeron_congestion_control_strategy_max_window_length_func_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if state.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_congestion_control_strategy_max_window_length_func()
@@ -99318,10 +99336,6 @@ unsafe extern "C" fn aeron_congestion_control_strategy_max_window_length_func_t_
 >(
     state: *mut ::std::os::raw::c_void,
 ) -> i32 {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -99336,6 +99350,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_max_window_length_func_t_
         [format!("{} = {:?}", stringify!(state), state)].join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_congestion_control_strategy_max_window_length_func()
@@ -99351,10 +99369,6 @@ unsafe extern "C" fn aeron_congestion_control_strategy_max_window_length_func_t_
 >(
     state: *mut ::std::os::raw::c_void,
 ) -> i32 {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -99369,6 +99383,10 @@ unsafe extern "C" fn aeron_congestion_control_strategy_max_window_length_func_t_
         [format!("{} = {:?}", stringify!(state), state)].join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure()
     })
@@ -99463,10 +99481,6 @@ impl AeronAgentDoWorkFuncCallback for NoHandler {
 unsafe extern "C" fn aeron_agent_do_work_func_t_callback<F: AeronAgentDoWorkFuncCallback, P: CallbackPolicy>(
     arg1: *mut ::std::os::raw::c_void,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if arg1.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_agent_do_work_func_t_callback));
@@ -99481,6 +99495,10 @@ unsafe extern "C" fn aeron_agent_do_work_func_t_callback<F: AeronAgentDoWorkFunc
         stringify!(aeron_agent_do_work_func_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if arg1.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(arg1) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_agent_do_work_func()
@@ -99495,10 +99513,6 @@ unsafe extern "C" fn aeron_agent_do_work_func_t_callback<F: AeronAgentDoWorkFunc
 unsafe extern "C" fn aeron_agent_do_work_func_t_callback_catch<F: AeronAgentDoWorkFuncCallback, P: CallbackPolicy>(
     arg1: *mut ::std::os::raw::c_void,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if arg1.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_agent_do_work_func_t_callback_catch));
@@ -99510,6 +99524,10 @@ unsafe extern "C" fn aeron_agent_do_work_func_t_callback_catch<F: AeronAgentDoWo
         [format!("{} = {:?}", stringify!(arg1), arg1)].join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if arg1.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(arg1) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_agent_do_work_func()
@@ -99523,10 +99541,6 @@ unsafe extern "C" fn aeron_agent_do_work_func_t_callback_catch<F: AeronAgentDoWo
 unsafe extern "C" fn aeron_agent_do_work_func_t_callback_for_once_closure_catch<F: FnMut() -> ::std::os::raw::c_int>(
     arg1: *mut ::std::os::raw::c_void,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if arg1.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -99541,6 +99555,10 @@ unsafe extern "C" fn aeron_agent_do_work_func_t_callback_for_once_closure_catch<
         [format!("{} = {:?}", stringify!(arg1), arg1)].join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if arg1.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(arg1 as *mut F) };
         closure()
     })
@@ -99644,10 +99662,6 @@ impl AeronAgentCloseFuncCallback for NoHandler {
 unsafe extern "C" fn aeron_agent_on_close_func_t_callback<F: AeronAgentCloseFuncCallback, P: CallbackPolicy>(
     arg1: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if arg1.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_agent_on_close_func_t_callback));
@@ -99659,6 +99673,10 @@ unsafe extern "C" fn aeron_agent_on_close_func_t_callback<F: AeronAgentCloseFunc
         [format!("{} = {:?}", stringify!(arg1), arg1)].join(", ")
     );
     log_panic(stringify!(aeron_agent_on_close_func_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if arg1.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(arg1) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_agent_on_close_func()
@@ -99672,10 +99690,6 @@ unsafe extern "C" fn aeron_agent_on_close_func_t_callback<F: AeronAgentCloseFunc
 unsafe extern "C" fn aeron_agent_on_close_func_t_callback_catch<F: AeronAgentCloseFuncCallback, P: CallbackPolicy>(
     arg1: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if arg1.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_agent_on_close_func_t_callback_catch));
@@ -99687,6 +99701,10 @@ unsafe extern "C" fn aeron_agent_on_close_func_t_callback_catch<F: AeronAgentClo
         [format!("{} = {:?}", stringify!(arg1), arg1)].join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if arg1.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(arg1) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_agent_on_close_func()
@@ -99700,10 +99718,6 @@ unsafe extern "C" fn aeron_agent_on_close_func_t_callback_catch<F: AeronAgentClo
 unsafe extern "C" fn aeron_agent_on_close_func_t_callback_for_once_closure_catch<F: FnMut() -> ()>(
     arg1: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if arg1.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -99718,6 +99732,10 @@ unsafe extern "C" fn aeron_agent_on_close_func_t_callback_for_once_closure_catch
         [format!("{} = {:?}", stringify!(arg1), arg1)].join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if arg1.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(arg1 as *mut F) };
         closure()
     })
@@ -99874,10 +99892,6 @@ unsafe extern "C" fn aeron_counters_reader_foreach_metadata_func_t_callback<
     label_length: usize,
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -99904,6 +99918,10 @@ unsafe extern "C" fn aeron_counters_reader_foreach_metadata_func_t_callback<
         stringify!(aeron_counters_reader_foreach_metadata_func_t_callback),
         (),
         || {
+            #[cfg(debug_assertions)]
+            if clientd.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_counters_reader_foreach_metadata_func(
@@ -99940,10 +99958,6 @@ unsafe extern "C" fn aeron_counters_reader_foreach_metadata_func_t_callback_catc
     label_length: usize,
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -99967,6 +99981,10 @@ unsafe extern "C" fn aeron_counters_reader_foreach_metadata_func_t_callback_catc
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_counters_reader_foreach_metadata_func(
@@ -100001,10 +100019,6 @@ unsafe extern "C" fn aeron_counters_reader_foreach_metadata_func_t_callback_for_
     label_length: usize,
     clientd: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -100028,6 +100042,10 @@ unsafe extern "C" fn aeron_counters_reader_foreach_metadata_func_t_callback_for_
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             id.into(),
@@ -100150,10 +100168,6 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_update_func_t_callback<
     state: *mut ::std::os::raw::c_void,
     now_ns: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -100172,6 +100186,10 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_update_func_t_callback<
         .join(", ")
     );
     log_panic(stringify!(aeron_duty_cycle_tracker_update_func_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_duty_cycle_tracker_update_func(now_ns.into())
@@ -100189,10 +100207,6 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_update_func_t_callback_catch<
     state: *mut ::std::os::raw::c_void,
     now_ns: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -100211,6 +100225,10 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_update_func_t_callback_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_duty_cycle_tracker_update_func(now_ns.into())
@@ -100225,10 +100243,6 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_update_func_t_callback_for_once_cl
     state: *mut ::std::os::raw::c_void,
     now_ns: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -100247,6 +100261,10 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_update_func_t_callback_for_once_cl
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(now_ns.into())
     })
@@ -100356,10 +100374,6 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_measure_and_update_func_t_callback
     state: *mut ::std::os::raw::c_void,
     now_ns: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -100381,6 +100395,10 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_measure_and_update_func_t_callback
         stringify!(aeron_duty_cycle_tracker_measure_and_update_func_t_callback),
         (),
         || {
+            #[cfg(debug_assertions)]
+            if state.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_duty_cycle_tracker_measure_and_update_func(now_ns.into())
@@ -100399,10 +100417,6 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_measure_and_update_func_t_callback
     state: *mut ::std::os::raw::c_void,
     now_ns: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -100421,6 +100435,10 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_measure_and_update_func_t_callback
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_duty_cycle_tracker_measure_and_update_func(now_ns.into())
@@ -100437,10 +100455,6 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_measure_and_update_func_t_callback
     state: *mut ::std::os::raw::c_void,
     now_ns: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -100459,6 +100473,10 @@ unsafe extern "C" fn aeron_duty_cycle_tracker_measure_and_update_func_t_callback
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(now_ns.into())
     })
@@ -100573,10 +100591,6 @@ unsafe extern "C" fn aeron_int64_counter_map_for_each_func_t_callback<
     key: i64,
     value: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -100596,6 +100610,10 @@ unsafe extern "C" fn aeron_int64_counter_map_for_each_func_t_callback<
         .join(", ")
     );
     log_panic(stringify!(aeron_int64_counter_map_for_each_func_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_int64_counter_map_for_each_func(key.into(), value.into())
@@ -100614,10 +100632,6 @@ unsafe extern "C" fn aeron_int64_counter_map_for_each_func_t_callback_catch<
     key: i64,
     value: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -100637,6 +100651,10 @@ unsafe extern "C" fn aeron_int64_counter_map_for_each_func_t_callback_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_int64_counter_map_for_each_func(key.into(), value.into())
@@ -100654,10 +100672,6 @@ unsafe extern "C" fn aeron_int64_counter_map_for_each_func_t_callback_for_once_c
     key: i64,
     value: i64,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -100677,6 +100691,10 @@ unsafe extern "C" fn aeron_int64_counter_map_for_each_func_t_callback_for_once_c
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(key.into(), value.into())
     })
@@ -100786,10 +100804,6 @@ unsafe extern "C" fn aeron_int64_counter_map_predicate_func_t_callback<
     key: i64,
     value: i64,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -100812,6 +100826,10 @@ unsafe extern "C" fn aeron_int64_counter_map_predicate_func_t_callback<
         stringify!(aeron_int64_counter_map_predicate_func_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if clientd.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_int64_counter_map_predicate_func(key.into(), value.into())
@@ -100831,10 +100849,6 @@ unsafe extern "C" fn aeron_int64_counter_map_predicate_func_t_callback_catch<
     key: i64,
     value: i64,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -100854,6 +100868,10 @@ unsafe extern "C" fn aeron_int64_counter_map_predicate_func_t_callback_catch<
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_int64_counter_map_predicate_func(key.into(), value.into())
@@ -100871,10 +100889,6 @@ unsafe extern "C" fn aeron_int64_counter_map_predicate_func_t_callback_for_once_
     key: i64,
     value: i64,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -100894,6 +100908,10 @@ unsafe extern "C" fn aeron_int64_counter_map_predicate_func_t_callback_for_once_
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(key.into(), value.into())
     })
@@ -101059,10 +101077,6 @@ unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback<
     udp_channel: *mut aeron_udp_channel_t,
     bind_addr: *mut sockaddr_storage,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -101086,6 +101100,10 @@ unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback<
         stringify!(aeron_port_manager_get_managed_port_func_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if state.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_port_manager_get_managed_port_func(
@@ -101110,10 +101128,6 @@ unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback_catch<
     udp_channel: *mut aeron_udp_channel_t,
     bind_addr: *mut sockaddr_storage,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -101134,6 +101148,10 @@ unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback_catch<
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_port_manager_get_managed_port_func(
@@ -101160,10 +101178,6 @@ unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback_for_onc
     udp_channel: *mut aeron_udp_channel_t,
     bind_addr: *mut sockaddr_storage,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -101184,6 +101198,10 @@ unsafe extern "C" fn aeron_port_manager_get_managed_port_func_t_callback_for_onc
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(
             &unsafe { SockaddrStorage::from_ptr(bind_addr_out as *mut _) },
@@ -101315,10 +101333,6 @@ unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback<
     state: *mut ::std::os::raw::c_void,
     bind_addr: *mut sockaddr_storage,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -101340,6 +101354,10 @@ unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback<
         stringify!(aeron_port_manager_free_managed_port_func_t_callback),
         (),
         || {
+            #[cfg(debug_assertions)]
+            if state.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_port_manager_free_managed_port_func(&unsafe {
@@ -101360,10 +101378,6 @@ unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback_catch<
     state: *mut ::std::os::raw::c_void,
     bind_addr: *mut sockaddr_storage,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -101382,6 +101396,10 @@ unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_port_manager_free_managed_port_func(&unsafe {
@@ -101400,10 +101418,6 @@ unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback_for_on
     state: *mut ::std::os::raw::c_void,
     bind_addr: *mut sockaddr_storage,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -101422,6 +101436,10 @@ unsafe extern "C" fn aeron_port_manager_free_managed_port_func_t_callback_for_on
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(&unsafe { SockaddrStorage::from_ptr(bind_addr as *mut _) })
     })
@@ -101523,10 +101541,6 @@ unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback<
 >(
     resource: *mut ::std::os::raw::c_void,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if resource.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_end_of_life_resource_free_t_callback));
@@ -101541,6 +101555,10 @@ unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback<
         stringify!(aeron_end_of_life_resource_free_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if resource.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(resource) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_end_of_life_resource_free()
@@ -101558,10 +101576,6 @@ unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback_catch<
 >(
     resource: *mut ::std::os::raw::c_void,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if resource.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -101576,6 +101590,10 @@ unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback_catch<
         [format!("{} = {:?}", stringify!(resource), resource)].join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if resource.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(resource) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_end_of_life_resource_free()
@@ -101589,10 +101607,6 @@ unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback_catch<
 unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback_for_once_closure_catch<F: FnMut() -> bool>(
     resource: *mut ::std::os::raw::c_void,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if resource.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -101607,6 +101621,10 @@ unsafe extern "C" fn aeron_end_of_life_resource_free_t_callback_for_once_closure
         [format!("{} = {:?}", stringify!(resource), resource)].join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if resource.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(resource as *mut F) };
         closure()
     })
@@ -101716,10 +101734,6 @@ unsafe extern "C" fn aeron_send_channel_loss_supplier_func_t_callback<
     clientd: *mut ::std::os::raw::c_void,
     endpoint: *mut aeron_send_channel_endpoint_stct,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -101738,6 +101752,10 @@ unsafe extern "C" fn aeron_send_channel_loss_supplier_func_t_callback<
         .join(", ")
     );
     log_panic(stringify!(aeron_send_channel_loss_supplier_func_t_callback), (), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_send_channel_loss_supplier_func(endpoint.into())
@@ -101755,10 +101773,6 @@ unsafe extern "C" fn aeron_send_channel_loss_supplier_func_t_callback_catch<
     clientd: *mut ::std::os::raw::c_void,
     endpoint: *mut aeron_send_channel_endpoint_stct,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -101777,6 +101791,10 @@ unsafe extern "C" fn aeron_send_channel_loss_supplier_func_t_callback_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_send_channel_loss_supplier_func(endpoint.into())
@@ -101793,10 +101811,6 @@ unsafe extern "C" fn aeron_send_channel_loss_supplier_func_t_callback_for_once_c
     clientd: *mut ::std::os::raw::c_void,
     endpoint: *mut aeron_send_channel_endpoint_stct,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -101815,6 +101829,10 @@ unsafe extern "C" fn aeron_send_channel_loss_supplier_func_t_callback_for_once_c
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(endpoint.into())
     })
@@ -101942,10 +101960,6 @@ unsafe extern "C" fn aeron_receive_channel_loss_supplier_func_t_callback<
     clientd: *mut ::std::os::raw::c_void,
     endpoint: *mut aeron_receive_channel_endpoint_stct,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -101967,6 +101981,10 @@ unsafe extern "C" fn aeron_receive_channel_loss_supplier_func_t_callback<
         stringify!(aeron_receive_channel_loss_supplier_func_t_callback),
         (),
         || {
+            #[cfg(debug_assertions)]
+            if clientd.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_receive_channel_loss_supplier_func(endpoint.into())
@@ -101985,10 +102003,6 @@ unsafe extern "C" fn aeron_receive_channel_loss_supplier_func_t_callback_catch<
     clientd: *mut ::std::os::raw::c_void,
     endpoint: *mut aeron_receive_channel_endpoint_stct,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -102007,6 +102021,10 @@ unsafe extern "C" fn aeron_receive_channel_loss_supplier_func_t_callback_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_receive_channel_loss_supplier_func(endpoint.into())
@@ -102023,10 +102041,6 @@ unsafe extern "C" fn aeron_receive_channel_loss_supplier_func_t_callback_for_onc
     clientd: *mut ::std::os::raw::c_void,
     endpoint: *mut aeron_receive_channel_endpoint_stct,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -102045,6 +102059,10 @@ unsafe extern "C" fn aeron_receive_channel_loss_supplier_func_t_callback_for_onc
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(endpoint.into())
     })
@@ -102160,10 +102178,6 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback<
     key_len: usize,
     value: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -102187,6 +102201,10 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback<
         stringify!(aeron_str_to_ptr_hash_map_for_each_func_t_callback),
         (),
         || {
+            #[cfg(debug_assertions)]
+            if clientd.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_str_to_ptr_hash_map_for_each_func(
@@ -102220,10 +102238,6 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback_catch<
     key_len: usize,
     value: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -102244,6 +102258,10 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_str_to_ptr_hash_map_for_each_func(
@@ -102275,10 +102293,6 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback_for_once
     key_len: usize,
     value: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -102299,6 +102313,10 @@ unsafe extern "C" fn aeron_str_to_ptr_hash_map_for_each_func_t_callback_for_once
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             if key.is_null() {
@@ -102426,10 +102444,6 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_for_each_func_t_callback<
     key: i64,
     value: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -102452,6 +102466,10 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_for_each_func_t_callback<
         stringify!(aeron_int64_to_ptr_hash_map_for_each_func_t_callback),
         (),
         || {
+            #[cfg(debug_assertions)]
+            if clientd.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_int64_to_ptr_hash_map_for_each_func(key.into(), value.into())
@@ -102471,10 +102489,6 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_for_each_func_t_callback_catch<
     key: i64,
     value: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -102494,6 +102508,10 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_for_each_func_t_callback_catch<
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_int64_to_ptr_hash_map_for_each_func(key.into(), value.into())
@@ -102511,10 +102529,6 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_for_each_func_t_callback_for_on
     key: i64,
     value: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -102534,6 +102548,10 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_for_each_func_t_callback_for_on
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(key.into(), value.into())
     })
@@ -102667,10 +102685,6 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_predicate_func_t_callback<
     key: i64,
     value: *mut ::std::os::raw::c_void,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -102693,6 +102707,10 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_predicate_func_t_callback<
         stringify!(aeron_int64_to_ptr_hash_map_predicate_func_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if clientd.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_int64_to_ptr_hash_map_predicate_func(key.into(), value.into())
@@ -102712,10 +102730,6 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_predicate_func_t_callback_catch
     key: i64,
     value: *mut ::std::os::raw::c_void,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -102735,6 +102749,10 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_predicate_func_t_callback_catch
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_int64_to_ptr_hash_map_predicate_func(key.into(), value.into())
@@ -102752,10 +102770,6 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_predicate_func_t_callback_for_o
     key: i64,
     value: *mut ::std::os::raw::c_void,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -102775,6 +102789,10 @@ unsafe extern "C" fn aeron_int64_to_ptr_hash_map_predicate_func_t_callback_for_o
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(key.into(), value.into())
     })
@@ -102922,10 +102940,6 @@ unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback<
     hints: *mut addrinfo,
     info: *mut *mut addrinfo,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_uri_hostname_resolver_func_t_callback));
@@ -102946,6 +102960,10 @@ unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback<
         stringify!(aeron_uri_hostname_resolver_func_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if clientd.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_uri_hostname_resolver_func(
@@ -102974,10 +102992,6 @@ unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback_catch<
     hints: *mut addrinfo,
     info: *mut *mut addrinfo,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -102998,6 +103012,10 @@ unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback_catch<
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_uri_hostname_resolver_func(
@@ -103024,10 +103042,6 @@ unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback_for_once_closur
     hints: *mut addrinfo,
     info: *mut *mut addrinfo,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -103048,6 +103062,10 @@ unsafe extern "C" fn aeron_uri_hostname_resolver_func_t_callback_for_once_closur
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             if host.is_null() {
@@ -103227,10 +103245,6 @@ unsafe extern "C" fn aeron_ifaddr_func_t_callback<F: AeronIfaddrFuncCallback, P:
     netmask: *mut sockaddr,
     flags: ::std::os::raw::c_uint,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_ifaddr_func_t_callback));
@@ -103249,6 +103263,10 @@ unsafe extern "C" fn aeron_ifaddr_func_t_callback<F: AeronIfaddrFuncCallback, P:
         .join(", ")
     );
     log_panic(stringify!(aeron_ifaddr_func_t_callback), Default::default(), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_ifaddr_func(
@@ -103275,10 +103293,6 @@ unsafe extern "C" fn aeron_ifaddr_func_t_callback_catch<F: AeronIfaddrFuncCallba
     netmask: *mut sockaddr,
     flags: ::std::os::raw::c_uint,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!("calling {}", stringify!(aeron_ifaddr_func_t_callback_catch));
@@ -103297,6 +103311,10 @@ unsafe extern "C" fn aeron_ifaddr_func_t_callback_catch<F: AeronIfaddrFuncCallba
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_ifaddr_func(
@@ -103330,10 +103348,6 @@ unsafe extern "C" fn aeron_ifaddr_func_t_callback_for_once_closure_catch<
     netmask: *mut sockaddr,
     flags: ::std::os::raw::c_uint,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -103355,6 +103369,10 @@ unsafe extern "C" fn aeron_ifaddr_func_t_callback_for_once_closure_catch<
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(
             if name.is_null() {
@@ -103505,10 +103523,6 @@ unsafe extern "C" fn aeron_retransmit_handler_resend_func_t_callback<
     term_offset: i32,
     length: usize,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -103532,6 +103546,10 @@ unsafe extern "C" fn aeron_retransmit_handler_resend_func_t_callback<
         stringify!(aeron_retransmit_handler_resend_func_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if clientd.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_retransmit_handler_resend_func(term_id.into(), term_offset.into(), length.into())
@@ -103552,10 +103570,6 @@ unsafe extern "C" fn aeron_retransmit_handler_resend_func_t_callback_catch<
     term_offset: i32,
     length: usize,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -103576,6 +103590,10 @@ unsafe extern "C" fn aeron_retransmit_handler_resend_func_t_callback_catch<
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_retransmit_handler_resend_func(term_id.into(), term_offset.into(), length.into())
@@ -103594,10 +103612,6 @@ unsafe extern "C" fn aeron_retransmit_handler_resend_func_t_callback_for_once_cl
     term_offset: i32,
     length: usize,
 ) -> ::std::os::raw::c_int {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -103618,6 +103632,10 @@ unsafe extern "C" fn aeron_retransmit_handler_resend_func_t_callback_for_once_cl
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(term_id.into(), term_offset.into(), length.into())
     })
@@ -103752,10 +103770,6 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_simple_func_t_callba
     buffer: *const u8,
     length: i32,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -103779,6 +103793,10 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_simple_func_t_callba
         stringify!(aeron_loss_generator_should_drop_frame_simple_func_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if state.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_loss_generator_should_drop_frame_simple_func(
@@ -103806,10 +103824,6 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_simple_func_t_callba
     buffer: *const u8,
     length: i32,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -103830,6 +103844,10 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_simple_func_t_callba
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_loss_generator_should_drop_frame_simple_func(
@@ -103855,10 +103873,6 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_simple_func_t_callba
     buffer: *const u8,
     length: i32,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -103879,6 +103893,10 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_simple_func_t_callba
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(
             address.into(),
@@ -104071,10 +104089,6 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_detailed_func_t_call
     term_offset: i32,
     length: i32,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -104102,6 +104116,10 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_detailed_func_t_call
         stringify!(aeron_loss_generator_should_drop_frame_detailed_func_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if state.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_loss_generator_should_drop_frame_detailed_func(
@@ -104134,10 +104152,6 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_detailed_func_t_call
     term_offset: i32,
     length: i32,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -104162,6 +104176,10 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_detailed_func_t_call
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(state) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_loss_generator_should_drop_frame_detailed_func(
@@ -104192,10 +104210,6 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_detailed_func_t_call
     term_offset: i32,
     length: i32,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if state.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -104220,6 +104234,10 @@ unsafe extern "C" fn aeron_loss_generator_should_drop_frame_detailed_func_t_call
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if state.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(state as *mut F) };
         closure(
             address.into(),
@@ -104374,10 +104392,6 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback
     tag: u32,
     value: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -104401,6 +104415,10 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback
         stringify!(aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback),
         (),
         || {
+            #[cfg(debug_assertions)]
+            if clientd.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_int64_to_tagged_ptr_hash_map_for_each_func(key.into(), tag.into(), value.into())
@@ -104421,10 +104439,6 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback
     tag: u32,
     value: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -104445,6 +104459,10 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_int64_to_tagged_ptr_hash_map_for_each_func(key.into(), tag.into(), value.into())
@@ -104463,10 +104481,6 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback
     tag: u32,
     value: *mut ::std::os::raw::c_void,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -104487,6 +104501,10 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_for_each_func_t_callback
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(key.into(), tag.into(), value.into())
     })
@@ -104628,10 +104646,6 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callbac
     tag: u32,
     value: *mut ::std::os::raw::c_void,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -104655,6 +104669,10 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callbac
         stringify!(aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callback),
         Default::default(),
         || {
+            #[cfg(debug_assertions)]
+            if clientd.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_int64_to_tagged_ptr_hash_map_predicate_func(key.into(), tag.into(), value.into())
@@ -104675,10 +104693,6 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callbac
     tag: u32,
     value: *mut ::std::os::raw::c_void,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -104699,6 +104713,10 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callbac
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_int64_to_tagged_ptr_hash_map_predicate_func(key.into(), tag.into(), value.into())
@@ -104717,10 +104735,6 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callbac
     tag: u32,
     value: *mut ::std::os::raw::c_void,
 ) -> bool {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -104741,6 +104755,10 @@ unsafe extern "C" fn aeron_int64_to_tagged_ptr_hash_map_predicate_func_t_callbac
         .join(", ")
     );
     catch_panic(Default::default(), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(key.into(), tag.into(), value.into())
     })
@@ -104887,10 +104905,6 @@ unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback<
     term_offset: i32,
     length: usize,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -104914,6 +104928,10 @@ unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback<
         stringify!(aeron_term_gap_scanner_on_gap_detected_func_t_callback),
         (),
         || {
+            #[cfg(debug_assertions)]
+            if clientd.is_null() {
+                panic!("closure should not be null")
+            }
             let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
             let closure: &mut F = &mut *state;
             closure.handle_aeron_term_gap_scanner_on_gap_detected_func(
@@ -104938,10 +104956,6 @@ unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback_catc
     term_offset: i32,
     length: usize,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -104962,6 +104976,10 @@ unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback_catc
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let mut state = unsafe { Handler::<F, P>::lock_raw(clientd) };
         let closure: &mut F = &mut *state;
         closure.handle_aeron_term_gap_scanner_on_gap_detected_func(term_id.into(), term_offset.into(), length.into())
@@ -104980,10 +104998,6 @@ unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback_for_
     term_offset: i32,
     length: usize,
 ) -> () {
-    #[cfg(debug_assertions)]
-    if clientd.is_null() {
-        unimplemented!("closure should not be null")
-    }
     #[cfg(feature = "extra-logging")]
     {
         log::debug!(
@@ -105004,6 +105018,10 @@ unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback_for_
         .join(", ")
     );
     catch_panic((), || {
+        #[cfg(debug_assertions)]
+        if clientd.is_null() {
+            panic!("closure should not be null")
+        }
         let closure: &mut F = unsafe { &mut *(clientd as *mut F) };
         closure(term_id.into(), term_offset.into(), length.into())
     })

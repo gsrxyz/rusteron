@@ -26,6 +26,10 @@ Breaking release. See the [0.2-to-0.3 migration guide](docs/migrating_0.2_to_0.3
 - Added native replay-parameter copying, bounded-replay checks and Archive protocol-version queries. Methods with multiple pointers to the same native type now generate separate source and destination arguments.
 - URI setters come from native key constants. Removed `timestamp_offset_reserved()`; use `"reserved"` as the value of a timestamp offset setter.
 - Replication params retain their strings and credentials across clones.
+- Breaking: `set_udp_channel_incoming_interceptors` and `set_udp_channel_outgoing_interceptors` are `unsafe`, as the driver context frees the bindings when it closes. Their getters and `AeronUdpChannelInterceptorBindings::load` return `Option` instead of panicking on NULL.
+- Resetting a recording descriptor poller releases the consumer it replaces. Repeated listings no longer keep every earlier consumer alive.
+- Required callbacks passed as `None` return an error from methods that return `Result`. Other methods still panic.
+- UDP endpoint validation parses bracketed IPv6 hosts and rejects colons in unbracketed hosts.
 - IP prefix utilities reject lengths outside the address width.
 - Native shallow-copy checks cover unions, arrays and unknown embedded types.
 - `Debug` keeps safe fields and immutable queries without allocating. Error formatting uses a stack snapshot, and literal error messages do not allocate.

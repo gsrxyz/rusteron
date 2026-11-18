@@ -114,7 +114,7 @@ impl ClassifiedMethodArgs {
                 quote! { resume_caught_panic(); }
             });
             // Native assemblers can bypass the Rust fragment trampoline.
-            if unwinds && handler.c_type != "aeron_block_handler_t" {
+            if unwinds && NATIVE_ASSEMBLER_HANDLER_TYPES.contains(&handler.c_type.as_str()) {
                 let callback = format_ident!("{}_callback", original.name);
                 let clientd = format_ident!("{}_clientd", original.name);
                 let native_type = handler.as_type();
@@ -235,7 +235,7 @@ pub fn classify_method_args(
                 wrappers,
                 closure_handlers,
                 &owned_retained,
-                &method.fn_name,
+                method,
                 &mut uses_self,
             )
         })
@@ -290,6 +290,10 @@ pub fn classify_method_args(
 }
 
 // exceptions to the general ownership rule
+/// Handlers a native fragment assembler can stand in for. A poll then passes the
+/// assembler's own C callback and skips the Rust trampoline
+const NATIVE_ASSEMBLER_HANDLER_TYPES: &[&str] = &["aeron_fragment_handler_t", "aeron_controlled_fragment_handler_t"];
+
 /// Types a C setter takes ownership of. C frees them, so `self` must not keep them too.
 /// The generator also derives from this list that their setters are `unsafe` and their
 /// getters return `Option`, as C holds NULL until the setter runs
@@ -316,9 +320,10 @@ fn classify_arg(
     wrappers: &BTreeMap<String, CWrapper>,
     closure_handlers: &[CHandler],
     owned_retained: &Option<Arg>,
-    fn_name: &str,
+    method: &Method,
     uses_self: &mut bool,
 ) -> ClassifiedArg {
+    let fn_name = method.fn_name.as_str();
     let none = ClassifiedArg {
         kind: ArgRole::Absorbed,
         signature: None,
@@ -389,6 +394,7 @@ fn classify_arg(
                 owned_retained,
                 fn_name,
                 owner_is_shared(own_type_name),
+                method.return_type.is_c_raw_int(),
                 none,
             );
         }
@@ -436,6 +442,7 @@ fn classify_handler_arg(
     owned_retained: &Option<Arg>,
     fn_name: &str,
     shared_owner: bool,
+    returns_result: bool,
     none: ClassifiedArg,
 ) -> ClassifiedArg {
     let handler = handler_client.first().unwrap();
@@ -544,11 +551,7 @@ fn classify_handler_arg(
         // for the whole poll instead of checking it again for every fragment.
         let state = format_ident!("{}_state", arg.name);
         let direct_shim = format_ident!("{}_callback_for_borrowed_handler{}", handler.c_type, suffix);
-        let (call, handler_prelude) = if unwinds
-            && matches!(
-                handler.c_type.as_str(),
-                "aeron_fragment_handler_t" | "aeron_controlled_fragment_handler_t"
-            ) {
+        let (call, handler_prelude) = if unwinds && NATIVE_ASSEMBLER_HANDLER_TYPES.contains(&handler.c_type.as_str()) {
             let callback = format_ident!("{}_callback", arg.name);
             let clientd = format_ident!("{}_clientd", arg.name);
             (
@@ -601,7 +604,15 @@ fn classify_handler_arg(
                     | "aeron_reserved_value_supplier_t"
             ) {
                 None
+            } else if returns_result {
+                Some(quote! {
+                    if #name.is_none() {
+                        return Err(AeronCError::with_message(-1, "this native reader requires a callback"));
+                    }
+                })
             } else {
+                // TODO: these readers return a plain value, so a missing callback can only panic.
+                // Taking the handler without `Option` would remove the panic but changes the API
                 Some(quote! { assert!(#name.is_some(), "this native reader requires a callback"); })
             },
             handler_prelude,

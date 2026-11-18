@@ -2,9 +2,9 @@
 //!
 //! The driver stops and joins on `Drop`, so teardown order lives in one place.
 
-use crate::{Aeron, AeronCError, AeronDriver, AeronDriverContext, IntoCString};
+use crate::{AeronCError, AeronDriver, AeronDriverContext, IntoCString};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 
 /// An embedded media driver running on a background thread, with a unique directory,
@@ -37,8 +37,13 @@ impl EmbeddedDriver {
         let context = AeronDriverContext::new()?;
         context.set_dir_delete_on_shutdown(true)?;
         context.set_dir_delete_on_start(true)?;
+        // The clock alone repeats when parallel tests launch in the same tick, and delete-on-start
+        // would then remove another driver's directory. The pid and counter keep each one unique
+        static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+        let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
         // SAFETY: the text is copied before set_dir changes this local context
-        context.set_dir(&format!("{}{}", unsafe { context.get_dir() }, Aeron::nano_clock()).into_c_string())?;
+        let dir = format!("{}{}-{id}", unsafe { context.get_dir() }, std::process::id());
+        context.set_dir(&dir.into_c_string())?;
         configure(&context)?;
         let dir = context.get_dir_owned();
         let (stop, handle) = AeronDriver::launch_embedded(context.clone(), false);

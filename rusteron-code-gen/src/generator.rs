@@ -1628,11 +1628,7 @@ impl CWrapper {
         method_docs: &Vec<TokenStream>,
         additional_methods: &mut Vec<TokenStream>,
     ) {
-        if ["constants", "buffers", "values", "get_buffers"]
-            .iter()
-            .any(|name| method.struct_method_name == *name)
-            && method.arguments.len() == 2
-        {
+        if POINTER_OUTPUT_METHODS.contains(&method.struct_method_name.as_str()) && method.arguments.len() == 2 {
             let rt = ReturnType::new(method.arguments[1].clone(), wrappers.clone());
             let class = format_ident!("{}", rt.pointee_wrapper().expect("native constants output").class_name);
             let native = format_ident!("{}", rt.pointee_wrapper().unwrap().type_name);
@@ -2394,7 +2390,8 @@ impl CWrapper {
     }
 
     fn has_default_method(&self) -> bool {
-        // AeronUriStringBuilder does not follow the normal convention so have additional check arg.is_single_mut_pointer() && m.fn_name.contains("_init_")
+        // A type with a C constructor has no `Default`. Most constructors return through a double
+        // pointer, but `aeron_uri_string_builder_init_*` fill a single pointer instead
         let no_init_method = !self.methods.iter().any(|m| {
             m.arguments
                 .iter()
@@ -2754,7 +2751,6 @@ mod documentation_tests {
 
 fn generate_stateless_handler_code(handler: &CHandler) -> TokenStream {
     let type_name_ident = format_ident!("{}", handler.type_name);
-    let callback_fn_name = format_ident!("{}_callback", handler.type_name);
     let closure_type_name = format_ident!("{}Callback", snake_to_pascal_case(&handler.type_name));
     let logger_type_name = format_ident!("{}Logger", snake_to_pascal_case(&handler.type_name));
     let handle_method_name = format_ident!("handle_{}", &handler.type_name[..handler.type_name.len() - 2]);
@@ -2810,12 +2806,7 @@ fn generate_stateless_handler_code(handler: &CHandler) -> TokenStream {
                 unimplemented!()
             }
         }
-
-        // Stub callback for stateless handlers, panics when called
-        #[allow(dead_code)]
-        unsafe extern "C" fn #callback_fn_name<F: #closure_type_name>(#(#trait_args),*) -> #closure_return_type {
-            unimplemented!("Stateless handler callback called - not supported")
-        }
+        // No trampoline: without `clientd`, C has nowhere to pass the closure
     }
 }
 
@@ -2895,7 +2886,7 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
         .iter()
         .map(|arg| {
             let arg_name = arg.as_ident();
-            // do not need to convert as its calling hour handler
+            // Raw C types, as this signature belongs to the trampoline C calls
             let arg_type: Type = arg.as_type();
             quote! { #arg_name: #arg_type }
         })
@@ -3097,6 +3088,14 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
                 },
             )
         };
+        // Inside the catch body, so a null `clientd` is logged instead of aborting the process
+        let callback_access = quote! {
+            #[cfg(debug_assertions)]
+            if #closure_name.is_null() {
+                panic!("closure should not be null")
+            }
+            #callback_access
+        };
         let body = match on_panic {
             OnPanic::Log => quote! { log_panic(stringify!(#name), #fallback, || { #callback_access #call }) },
             OnPanic::Catch => quote! { catch_panic(#fallback, || { #callback_access #call }) },
@@ -3111,10 +3110,6 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
                 #(#args),*
             ) -> #closure_return_type
             {
-                #[cfg(debug_assertions)]
-                if #closure_name.is_null() {
-                    unimplemented!("closure should not be null")
-                }
                 #[cfg(feature = "extra-logging")]
                 {
                     log::debug!("calling {}", stringify!(#name));
@@ -3734,11 +3729,16 @@ pub fn generate_rust_code(
                 .filter(|t| !t.is_empty())
                 .collect();
 
+            // `new` signatures are already tokens here, so match the rendered `name : Aeron`
+            let client_arg_name = |a: &TokenStream| {
+                let a = a.to_string();
+                (a.contains(" : Aeron") || a.contains(" : & Aeron"))
+                    .then(|| format_ident!("{}", a.split_whitespace().next().unwrap()))
+            };
             let async_dependancies = async_new_args
                 .iter()
-                .filter(|a| a.to_string().contains(" : Aeron") || a.to_string().contains(" : & Aeron"))
-                .map(|e| {
-                    let var_name = format_ident!("{}", e.to_string().split_whitespace().next().unwrap());
+                .filter_map(client_arg_name)
+                .map(|var_name| {
                     let callback_snapshot = if handle_is_archive_context(&client_class.type_name) {
                         quote! { result.inner.copy_dependencies_from(&#var_name.inner); }
                     } else {
@@ -3770,10 +3770,7 @@ pub fn generate_rust_code(
 
             // The `Aeron` client argument, if any, keeps retained handlers alive and is passed to
             // `..._cancel(client, async)` on drop and `.cancel()`
-            let async_client_var: Option<Ident> = async_new_args
-                .iter()
-                .find(|a| a.to_string().contains(" : Aeron") || a.to_string().contains(" : & Aeron"))
-                .map(|a| format_ident!("{}", a.to_string().split_whitespace().next().unwrap()));
+            let async_client_var: Option<Ident> = async_new_args.iter().find_map(client_arg_name);
 
             let mut async_handler_deps: Vec<TokenStream> =
                 CWrapper::handler_dependency_registrations(&new_method.arguments);
@@ -3782,11 +3779,7 @@ pub fn generate_rust_code(
             // handlers) for as long as the *client* lives, even if this async poller is
             // dropped without ever being polled. Anchor each handler to the client too, so
             // dropping an unpolled poller cannot free a callback C still points at.
-            if let Some(client_arg) = async_new_args
-                .iter()
-                .find(|a| a.to_string().contains(" : Aeron") || a.to_string().contains(" : & Aeron"))
-            {
-                let client_var = format_ident!("{}", client_arg.to_string().split_whitespace().next().unwrap());
+            if let Some(client_var) = &async_client_var {
                 let client_anchored: Vec<TokenStream> = new_method
                     .arguments
                     .iter()
@@ -4008,7 +4001,7 @@ pub fn generate_rust_code(
                                       if let Some(aeron) = &invoker {
                                           // SAFETY: this blocking helper drives the
                                           // conductor on its assigned thread.
-                                          aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
+                                          aeron.inner.owner().bind_conductor_thread()?;
                                           unsafe { aeron.main_do_work()?; }
                                       }
                                       if let Some(result) = poller.poll()? {
@@ -4124,7 +4117,7 @@ pub fn generate_rust_code(
                                 if let Some(aeron) = &invoker {
                                     // SAFETY: this synchronous wait is on the manual
                                     // conductor's thread, outside any native invocation.
-                                    aeron.inner.as_owned().unwrap().bind_conductor_thread()?;
+                                    aeron.inner.owner().bind_conductor_thread()?;
                                     unsafe { aeron.main_do_work()?; }
                                 }
                                 if let Some(result) = self.poll()? {
@@ -4520,7 +4513,7 @@ pub fn generate_rust_code(
                     "archive context must not own the native client",
                 ));
             }
-            client.inner.as_owned().unwrap().bind_conductor_thread()?;
+            client.inner.owner().bind_conductor_thread()?;
             Ok(client)
         }
 

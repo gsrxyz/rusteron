@@ -928,3 +928,17 @@ fn controlled_closure_assembler_abort_and_panic_redeliver() {
     });
     assert_eq!(seen, [1, 2, 2, 2, 3]);
 }
+
+#[test]
+#[cfg(debug_assertions)]
+fn null_clientd_is_logged_instead_of_aborting() {
+    // A panic that escapes an `extern "C"` trampoline aborts the whole process
+    // SAFETY: the trampoline checks `clientd` before reading it
+    unsafe {
+        aeron_error_handler_t_callback::<AeronErrorHandlerLogger, LocalCallback>(
+            std::ptr::null_mut(),
+            1,
+            c"null clientd".as_ptr(),
+        )
+    };
+}

@@ -665,3 +665,12 @@ fn uri_timestamp_offsets_accept_reserved_as_a_value() -> Result<(), AeronCError>
     assert!(channel.contains("channel-snd-ts-offset=reserved"));
     Ok(())
 }
+
+#[test]
+fn a_missing_required_callback_returns_an_error() {
+    let driver = rusteron_media_driver::testing::EmbeddedDriver::launch().unwrap();
+    let cnc = AeronCnc::open(&driver.dir().into_c_string()).unwrap();
+    // C calls this reader's callback without a null check, and the method returns `Result`
+    let result = cnc.loss_reporter_read::<AeronLossReporterReadEntryFuncLogger, LocalCallback>(None);
+    assert!(result.is_err());
+}

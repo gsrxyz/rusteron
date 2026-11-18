@@ -312,6 +312,14 @@ impl<T: NativeResource> From<CResource<T>> for LiveCResource<T> {
         }
     }
 }
+impl<T: NativeResource> LiveCResource<T> {
+    /// A live handle always has an owner, unlike `ResourceStorage::as_owned`
+    #[allow(dead_code)]
+    #[inline(always)]
+    pub(crate) fn owner(&self) -> &ResourceRef<ManagedCResource<T>> {
+        &self.owner.0
+    }
+}
 impl<T: NativeResource> Clone for LiveCResource<T> {
     #[inline]
     fn clone(&self) -> Self {
@@ -410,6 +418,10 @@ impl<T: NativeResource> Borrowed<T> {
         Self(unsafe { std::ptr::NonNull::new_unchecked(ptr) })
     }
 
+    /// Panics if `ptr` is null
+    ///
+    /// # Safety
+    /// `ptr` points to a live native object for as long as this borrow is used
     #[inline]
     pub(crate) unsafe fn new(ptr: *mut T) -> Self {
         Self(std::ptr::NonNull::new(ptr).expect("native getter returned null"))

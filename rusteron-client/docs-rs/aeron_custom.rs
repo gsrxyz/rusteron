@@ -422,7 +422,7 @@ fn poll_destination_op_to_completion<C: std::fmt::Debug>(
     let deadline = std::time::Instant::now() + timeout;
     loop {
         if invoker {
-            client.inner.as_owned().unwrap().bind_conductor_thread()?;
+            client.inner.owner().bind_conductor_thread()?;
             // SAFETY: the synchronous wait runs on the assigned conductor thread.
             unsafe {
                 client.main_do_work()?;
@@ -465,9 +465,8 @@ impl AeronSubscription {
     ///
     /// The returned [`AeronImage`] releases the image when its last clone drops. Until then
     /// the image stays valid even once it becomes unavailable: [`AeronImage::is_closed`]
-    /// turns true, polling reads nothing more, and its log buffer stays mapped. Drop the
-    /// handles before calling [`Self::close`]: after it, a handle must not be used, and its
-    /// image may stay mapped until the client closes.
+    /// turns true, polling reads nothing more, and its log buffer stays mapped. The image
+    /// owns a subscription clone, so [`Self::close`] waits for the image to drop
     ///
     /// The image is one publisher session: a publisher that reconnects with a new session
     /// is a new image, so poll the subscription, or fetch the new image, to follow it. To
@@ -495,14 +494,10 @@ impl AeronSubscription {
                 unsafe { *ctx = image };
                 0
             },
-            Some(Box::new(move |ctx| unsafe {
-                // skip the release if the subscription was closed first, as the C client
-                // reclaimed the image during the subscription close
-                if !subscription.get_inner().is_null() {
-                    aeron_image_release(*ctx)
-                } else {
-                    0
-                }
+            Some(Box::new(move |ctx| {
+                // Capturing the clone keeps the native subscription open until this release
+                let _ = &subscription;
+                unsafe { aeron_image_release(*ctx) }
             })),
             false,
         )
@@ -1451,8 +1446,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
 }
 
 impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
-    /// Instrumented wrapper around [`AeronImage::poll`] that adds tracing spans
-    /// when the `instrument-ops` feature is enabled.
+    /// Calls [`AeronImage::poll`]. It adds no tracing, as there is no `instrument-ops` feature
     #[inline]
     pub fn poll_instrumented<AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback>(
         &self,
@@ -1568,135 +1562,19 @@ impl Default for AeronStatusTracker {
 /// assert!(validate_endpoint_for_aeron_udp("localhost?foo:8080").is_err());
 /// ```
 pub fn validate_endpoint_for_aeron_udp(endpoint: &str) -> Result<(), AeronCError> {
-    if endpoint.is_empty() {
-        return Err(AeronCError::from_code(-1));
+    let invalid = || AeronCError::with_message(-1, "invalid UDP endpoint, expected host:port or [IPv6]:port");
+    // The last colon separates the port, so an IPv6 host must be bracketed
+    let (host, port) = endpoint.rsplit_once(':').ok_or_else(invalid)?;
+    // `u16::from_str` alone would accept a leading `+`
+    if !port.bytes().all(|b| b.is_ascii_digit()) || port.parse::<u16>().is_err() {
+        return Err(invalid());
     }
-
-    // Reject URI separator characters that would break channel string parsing.
-    // These are safe in a full URI (e.g. `aeron:udp?endpoint=...`) but not in
-    // the endpoint value itself.
-    if endpoint.contains('?') || endpoint.contains('=') || endpoint.contains('/') {
-        return Err(AeronCError::from_code(-1));
-    }
-
-    // IPv6 addresses are bracketed: `[IPv6]:port`. Extract the host part.
-    if endpoint.starts_with('[') {
-        let end_bracket = endpoint.find(']').ok_or_else(|| AeronCError::from_code(-1))?;
-        if end_bracket == 1 {
-            // Empty `[]` is invalid.
-            return Err(AeronCError::from_code(-1));
-        }
-        let host_part = &endpoint[1..end_bracket];
-        // Find the port separator colon AFTER the closing bracket.
-        let after_bracket = &endpoint[end_bracket..];
-        let colon_offset = after_bracket.find(':').ok_or_else(|| AeronCError::from_code(-1))?;
-        let colon_pos = end_bracket + colon_offset;
-        if colon_offset != 1 || colon_pos + 1 >= endpoint.len() {
-            // Port must immediately follow `]` and be non-empty.
-            return Err(AeronCError::from_code(-1));
-        }
-        let port_str = &endpoint[colon_pos + 1..];
-        validate_ipv6(host_part)?;
-        validate_port(port_str)?;
-        return Ok(());
-    }
-
-    // Unbracketed form: `host:port`. Split on the last `:` (IPv4 has at most
-    // 3 colons for dotted decimals; we only want the port separator).
-    let colon_pos = endpoint.rfind(':').ok_or_else(|| AeronCError::from_code(-1))?;
-    if colon_pos == 0 || colon_pos + 1 >= endpoint.len() {
-        // Require non-empty host and port.
-        return Err(AeronCError::from_code(-1));
-    }
-    let host = &endpoint[..colon_pos];
-    let port_str = &endpoint[colon_pos + 1..];
-
-    validate_host(host)?;
-    validate_port(port_str)?;
-    Ok(())
-}
-
-/// Validate an IPv6 address (without brackets). Returns `Err` if the string
-/// is not a valid IPv6 literal.
-fn validate_ipv6(addr: &str) -> Result<(), AeronCError> {
-    if addr.is_empty() {
-        return Err(AeronCError::from_code(-1));
-    }
-
-    // IPv6 allows: hexadecimal digits, `:` (single or `::` for compression).
-    // Require valid characters and at least one colon.
-    let has_colon = addr.bytes().any(|b| b == b':');
-    if !has_colon {
-        return Err(AeronCError::from_code(-1));
-    }
-
-    for ch in addr.bytes() {
-        let is_hex = ch.is_ascii_hexdigit();
-        let is_colon = ch == b':';
-        if !(is_hex || is_colon) {
-            return Err(AeronCError::from_code(-1));
-        }
-    }
-
-    Ok(())
-}
-
-/// Validate an Aeron UDP host identifier (hostname or IPv4). Returns `Err` if
-/// the host contains characters outside the safe allowlist, is empty, or looks
-/// like an unbracketed IPv6 address.
-fn validate_host(host: &str) -> Result<(), AeronCError> {
-    if host.is_empty() {
-        return Err(AeronCError::from_code(-1));
-    }
-
-    // Reject unbracketed IPv6 addresses (they must use `[IPv6]:port` form).
-    // IPv6 addresses have multiple consecutive colons or colons in positions
-    // that don't match IPv4 dotted decimal.
-    let colon_count = host.bytes().filter(|&b| b == b':').count();
-    if colon_count > 1 {
-        // Multiple colons means this is likely an IPv6 address without brackets.
-        return Err(AeronCError::from_code(-1));
-    }
-    if colon_count == 1 {
-        // Single colon: could be IPv4 (ok) or a short IPv6 form like `::1` (reject).
-        // If there's a colon adjacent to another colon or at the start, it's IPv6.
-        if host.contains("::") || host.starts_with(':') || host.ends_with(':') {
-            return Err(AeronCError::from_code(-1));
-        }
-    }
-
-    // Safe character set: alphanumeric, `-`, `.`, `:` (IPv4 has a single colon
-    // between octets; IPv6 brackets are handled by the caller).
-    for ch in host.bytes() {
-        let is_alnum = ch.is_ascii_alphanumeric();
-        let is_safe = matches!(ch, b'-' | b'.' | b':');
-        if !(is_alnum || is_safe) {
-            return Err(AeronCError::from_code(-1));
-        }
-    }
-
-    Ok(())
-}
-
-/// Validate a TCP/UDP port number. Returns `Err` if the port is not a
-/// decimal integer in `0..=65535`.
-fn validate_port(port: &str) -> Result<(), AeronCError> {
-    if port.is_empty() {
-        return Err(AeronCError::from_code(-1));
-    }
-
-    // Port must be all digits (no leading `-` or `+`).
-    if !port.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(AeronCError::from_code(-1));
-    }
-
-    // Parse as u16; reject values that overflow 65535.
-    let port_num = port.parse::<u32>().map_err(|_| AeronCError::from_code(-1))?;
-    if port_num > 65535 {
-        return Err(AeronCError::from_code(-1));
-    }
-
-    Ok(())
+    let valid_host = match host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+        Some(ipv6) => ipv6.parse::<std::net::Ipv6Addr>().is_ok(),
+        // Hostname or IPv4. Anything else, such as `?`, `=` or `/`, would break channel parsing
+        None => !host.is_empty() && host.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.')),
+    };
+    if valid_host { Ok(()) } else { Err(invalid()) }
 }
 
 #[cfg(test)]
@@ -2039,6 +1917,17 @@ mod aeron_custom_tests {
 
         // Bracket without colon in the right place.
         assert!(validate_endpoint_for_aeron_udp("[::1]8080").is_err());
+    }
+
+    #[test]
+    fn validate_endpoint_rejects_invalid_hosts_that_pass_the_character_check() {
+        // An unbracketed host keeps every colon but the last, so these are not host:port
+        assert!(validate_endpoint_for_aeron_udp("a:b:8080").is_err());
+        assert!(validate_endpoint_for_aeron_udp("127.0.0.1:1:8080").is_err());
+        // Hex digits and colons alone do not make an IPv6 address
+        assert!(validate_endpoint_for_aeron_udp("[:::::]:8080").is_err());
+        assert!(validate_endpoint_for_aeron_udp("[1:2:3:4:5:6:7:8:9]:8080").is_err());
+        assert!(validate_endpoint_for_aeron_udp("[12345::1]:8080").is_err());
     }
 
     #[test]
