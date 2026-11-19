@@ -18,10 +18,9 @@ impl<S: ResourceStorage<aeron_archive_context_t>> AeronArchiveContext<S> {
                 "archive context requires owning heap storage",
             ));
         };
-        let Some(client_owner) = aeron.inner.as_owned() else {
+        if aeron.inner.as_owned().is_none() {
             return Err(AeronCError::with_message(-1, "client requires owning heap storage"));
-        };
-        client_owner.bind_conductor_thread()?;
+        }
         let result = unsafe { aeron_archive_context_set_aeron(self.get_inner(), aeron.get_inner()) };
         if result < 0 {
             return Err(AeronCError::from_code(result));
@@ -63,7 +62,6 @@ impl<S: ResourceStorage<aeron_archive_persistent_subscription_context_t>> AeronA
             .inner
             .as_owned()
             .ok_or_else(|| AeronCError::with_message(-1, "client requires owning storage"))?;
-        client_owner.bind_conductor_thread()?;
         let result =
             unsafe { aeron_archive_persistent_subscription_context_set_aeron(self.get_inner(), aeron.get_inner()) };
         if result < 0 {
@@ -73,7 +71,9 @@ impl<S: ResourceStorage<aeron_archive_persistent_subscription_context_t>> AeronA
         Ok(result)
     }
 
-    /// Retain the archive context until the persistent subscription has closed.
+    /// Give the persistent subscription its own copy of `context`, kept until it closes. The
+    /// subscription writes its client into the context when it starts, so one context can be
+    /// reused for many subscriptions. Callbacks set on `context` are shared with the copy
     pub fn set_archive_context(&self, context: &AeronArchiveContext) -> Result<i32, AeronCError> {
         self.inner.check_configurable()?;
         let Some(owner) = self.inner.as_owned() else {
@@ -86,13 +86,20 @@ impl<S: ResourceStorage<aeron_archive_persistent_subscription_context_t>> AeronA
             .inner
             .as_owned()
             .ok_or_else(|| AeronCError::with_message(-1, "archive context requires owning storage"))?;
-        let result = unsafe {
-            aeron_archive_persistent_subscription_context_set_archive_context(self.get_inner(), context.get_inner())
-        };
+        let source = context.get_inner();
+        let copy = ResourceRef::new(ManagedCResource::<aeron_archive_context_t>::new(
+            move |copy| unsafe { aeron_archive_context_duplicate(copy, source) },
+            Some(Box::new(|copy| unsafe { aeron_archive_context_close(*copy) })),
+            false,
+        )?);
+        // The copy holds the same callback pointers, so it keeps their handlers alive too
+        copy.copy_dependencies_from(context_owner);
+        let result =
+            unsafe { aeron_archive_persistent_subscription_context_set_archive_context(self.get_inner(), copy.get()) };
         if result < 0 {
             return Err(AeronCError::from_code(result));
         }
-        owner.replace_callback_dependency("persistent_subscription_archive_context", Some(context_owner.clone()));
+        owner.replace_callback_dependency("persistent_subscription_archive_context", Some(copy));
         Ok(result)
     }
 }
@@ -221,6 +228,57 @@ impl AeronArchivePersistentSubscription {
 
     // `get_and_own_persistent_subscription_context` is intentionally omitted: `build`
     // already moves the context into Rust ownership, so a second transfer would double free
+
+    /// The error code of a failed subscription, or `None` while it has not failed. Copies the
+    /// failure message into `message`, reusing its capacity
+    pub fn failure_reason(&self, message: &mut String) -> Option<i32> {
+        let mut code = 0;
+        let mut text = std::ptr::null();
+        if !unsafe { aeron_archive_persistent_subscription_failure_reason(self.get_inner(), &mut code, &mut text) } {
+            return None;
+        }
+        message.clear();
+        if !text.is_null() {
+            // The message lives in the subscription and is copied before any other call
+            message.push_str(&unsafe { std::ffi::CStr::from_ptr(text) }.to_string_lossy());
+        }
+        Some(code)
+    }
+}
+
+impl AeronArchiveReplayMerge {
+    /// Create a replay merge that moves `subscription` from a replay of `recording_id` onto
+    /// the live stream. `subscription` must be a manual-control multi-destination subscription
+    ///
+    /// The merge takes the archive client because it reads the archive's control responses
+    /// until it finishes. Any other request on that archive meanwhile can take a response the
+    /// merge is waiting for and stall it until `merge_progress_timeout_ms`. Pass
+    /// `archive.clone()` only if you need the archive afterwards, and leave it unused until
+    /// the merge is dropped
+    pub fn new(
+        subscription: &AeronSubscription,
+        archive: AeronArchive,
+        replay_channel: &std::ffi::CStr,
+        replay_destination: &std::ffi::CStr,
+        live_destination: &std::ffi::CStr,
+        recording_id: i64,
+        start_position: i64,
+        epoch_clock: i64,
+        merge_progress_timeout_ms: i64,
+    ) -> Result<Self, AeronCError> {
+        // The merge keeps its own reference to the archive, so `archive` can drop here
+        Self::new_native(
+            subscription,
+            &archive,
+            replay_channel,
+            replay_destination,
+            live_destination,
+            recording_id,
+            start_position,
+            epoch_clock,
+            merge_progress_timeout_ms,
+        )
+    }
 }
 
 /// Fluent builder for [`AeronArchiveReplayParams`], starting from aeron's defaults

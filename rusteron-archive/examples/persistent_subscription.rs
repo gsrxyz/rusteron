@@ -121,7 +121,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Build the persistent subscription. start_from_beginning replays from the
     //    start; use start_from_live() to skip straight to the live stream.
     // one client for the subscription and its archive context
-    let mut ps = PersistentSubscriptionBuilder::new_with_aeron(&archive_context, &aeron)?
+    let ps = PersistentSubscriptionBuilder::new_with_aeron(&archive_context, &aeron)?
         .live_channel(live_channel.to_str()?)?
         .live_stream_id(stream_id)?
         .replay_channel("aeron:udp?endpoint=localhost:0")? // ephemeral scratch channel

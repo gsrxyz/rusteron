@@ -16,8 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // and the AERON_*_CPU_AFFINITY settings are read but never applied
     aeron_context.apply_cgroup_cpuset_affinity()?;
     aeron_context.set_thread_affinity_on_start();
-    // SAFETY: this local context has no alias that can change the directory
-    info!("aeron dir: {:?}", unsafe { aeron_context.get_dir() });
+    info!("aeron dir: {:?}", aeron_context.get_dir());
     aeron_context.print_configuration();
 
     // Each error captures Aeron's message where it happens, as dropping the

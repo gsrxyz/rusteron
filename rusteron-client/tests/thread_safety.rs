@@ -38,10 +38,8 @@ local!(
 );
 // A subscription may move to one polling thread, but `Sync` would let two threads poll it
 assert_not_impl!(AeronSubscription, Sync);
-// A second handle would let a poll callback re-enter the same native poll or supplier offer
+// A clone could be moved to a second thread and poll alongside the first
 assert_not_impl!(AeronSubscription, Clone);
-assert_not_impl!(AeronExclusivePublication, Clone);
-assert_not_impl!(AeronImage, Clone);
 assert_not_impl!(FragmentAssembler<fn(&[u8], &AeronHeader)>, Clone);
 assert_not_impl!(
     ControlledFragmentAssembler<fn(&[u8], &AeronHeader) -> bindings::aeron_controlled_fragment_handler_action_t>,
@@ -121,7 +119,7 @@ fn cloned_publications_publish_from_several_threads_and_keep_the_client_alive() 
     const MESSAGES: usize = 1000;
     let driver = driver();
     let client = connect(&driver);
-    let (publication, mut subscription) = pair(&client, 8601);
+    let (publication, subscription) = pair(&client, 8601);
     let start = Arc::new(Barrier::new(THREADS + 1));
     let deadline = Instant::now() + Duration::from_secs(15);
     let mut workers = Vec::new();
@@ -169,7 +167,7 @@ fn cloned_publications_publish_from_several_threads_and_keep_the_client_alive() 
 fn closing_a_publication_clone_does_not_invalidate_an_active_claim() {
     let driver = driver();
     let client = connect(&driver);
-    let (publication, mut subscription) = pair(&client, 8602);
+    let (publication, subscription) = pair(&client, 8602);
     let other = publication.clone();
     let mut claim = publication.try_claim_owned(8).unwrap();
     other.close().unwrap();
@@ -198,7 +196,7 @@ fn native_assembler_delivers_fragmented_messages_after_a_delegate_panic() {
 
     let driver = driver();
     let client = connect(&driver);
-    let (publication, mut subscription) = pair(&client, 8605);
+    let (publication, subscription) = pair(&client, 8605);
     let length = publication.max_payload_length().unwrap() + 17;
     let payload = vec![7u8; length];
     let calls = Rc::new(Cell::new(0));
@@ -219,7 +217,7 @@ fn native_assembler_delivers_fragmented_messages_after_a_delegate_panic() {
             std::thread::yield_now();
         }
         while calls.get() < message {
-            let result = catch_unwind(AssertUnwindSafe(|| assembler.poll(&mut subscription, 64).unwrap()));
+            let result = catch_unwind(AssertUnwindSafe(|| assembler.poll(&subscription, 64).unwrap()));
             assert_eq!(result.is_err(), message == 1 && calls.get() == 1);
             assert!(Instant::now() < deadline);
         }
@@ -452,7 +450,7 @@ fn committed_claims_publish_payload_and_headers_to_another_thread() {
     const MESSAGES: u64 = 2000;
     let driver = driver();
     let client = connect(&driver);
-    let (publication, mut subscription) = pair(&client, 8606);
+    let (publication, subscription) = pair(&client, 8606);
     let deadline = Instant::now() + Duration::from_secs(15);
     let publisher = std::thread::spawn(move || {
         for sequence in 0..MESSAGES {
@@ -491,7 +489,7 @@ fn committed_claims_publish_payload_and_headers_to_another_thread() {
 fn vectored_offers_handle_empty_parts_capacity_and_fragmentation() {
     let driver = driver();
     let client = connect(&driver);
-    let (publication, mut subscription) = pair(&client, 8607);
+    let (publication, subscription) = pair(&client, 8607);
     let exclusive = client
         .add_exclusive_publication(AERON_IPC_STREAM, 8607, Duration::from_secs(5))
         .unwrap();
@@ -532,7 +530,7 @@ fn vectored_offers_handle_empty_parts_capacity_and_fragmentation() {
                 std::thread::yield_now();
             }
             while !received.get() {
-                assembler.poll(&mut subscription, 64).unwrap();
+                assembler.poll(&subscription, 64).unwrap();
                 assert!(Instant::now() < deadline);
             }
         }
@@ -567,7 +565,7 @@ fn owned_assembler_borrows_callback_state_and_recovers_after_a_fragmented_panic(
     }
     let driver = driver();
     let client = connect(&driver);
-    let (publication, mut subscription) = pair(&client, 8608);
+    let (publication, subscription) = pair(&client, 8608);
     let mut seen = Vec::new();
     let large = vec![7; publication.max_payload_length().unwrap() * 3 + 17];
     let deadline = Instant::now() + Duration::from_secs(15);
@@ -590,7 +588,7 @@ fn owned_assembler_borrows_callback_state_and_recovers_after_a_fragmented_panic(
             let mut panicked = false;
             while assembler.handler().calls <= index {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    assembler.poll(&mut subscription, 1).unwrap();
+                    assembler.poll(&subscription, 1).unwrap();
                 }));
                 if let Err(payload) = result {
                     assert_eq!(payload.downcast_ref::<&str>(), Some(&"owned assembler recovery"));
@@ -649,7 +647,7 @@ fn controlled_owned_assembler_retries_a_fragmented_message_after_abort() {
 
     let driver = driver();
     let client = connect(&driver);
-    let (publication, mut subscription) = pair(&client, 8610);
+    let (publication, subscription) = pair(&client, 8610);
     let large = vec![0x5a; publication.max_payload_length().unwrap() * 2 + 17];
     let deadline = Instant::now() + Duration::from_secs(15);
     while publication.offer(&large).is_err() {
@@ -666,7 +664,7 @@ fn controlled_owned_assembler_retries_a_fragmented_message_after_abort() {
         .unwrap();
         assert!(!assembler.delete_session_buffer(publication.session_id()));
         while assembler.handler().seen.len() < 2 {
-            assembler.poll(&mut subscription, 1).unwrap();
+            assembler.poll(&subscription, 1).unwrap();
             assert!(
                 Instant::now() < deadline,
                 "controlled assembler did not retry the final fragment"
@@ -699,7 +697,7 @@ fn controlled_owned_assembler_resumes_panic_and_retries() {
 
     let driver = driver();
     let client = connect(&driver);
-    let (publication, mut subscription) = pair(&client, 8611);
+    let (publication, subscription) = pair(&client, 8611);
     let large = vec![0x4b; publication.max_payload_length().unwrap() * 2 + 17];
     let deadline = Instant::now() + Duration::from_secs(15);
     while publication.offer(&large).is_err() {
@@ -715,7 +713,7 @@ fn controlled_owned_assembler_resumes_panic_and_retries() {
         })
         .unwrap();
         let panic_payload = loop {
-            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| assembler.poll(&mut subscription, 1))) {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| assembler.poll(&subscription, 1))) {
                 Ok(result) => {
                     result.unwrap();
                 }
@@ -728,7 +726,7 @@ fn controlled_owned_assembler_resumes_panic_and_retries() {
             Some(&"controlled owned assembler panic")
         );
         while assembler.handler().seen.len() < 2 {
-            assembler.poll(&mut subscription, 1).unwrap();
+            assembler.poll(&subscription, 1).unwrap();
             assert!(Instant::now() < deadline, "panicked message was not retried");
         }
     }
@@ -772,16 +770,13 @@ fn typed_claims_map_errors_and_write_through_the_claimed_buffer() {
     assert_eq!(lonely.try_claim(8, &claim), Err(AeronOfferError::NotConnected));
     assert_eq!(lonely.try_claim_raw(8, &claim), -1);
 
-    let (publication, mut subscription) = pair(&client, 8702);
+    let (publication, subscription) = pair(&client, 8702);
     let mut claim = AeronBufferClaim::default();
     assert!(publication.try_claim(4, &claim).unwrap() > 0);
-    // SAFETY: the claim succeeded and nothing else touches it before the commit
-    unsafe {
-        assert_eq!(claim.data_mut().len(), 4);
-        claim.data_mut().copy_from_slice(b"ping");
-        claim.frame_header_mut().expect("claimed frame header").reserved_value = 77;
-        claim.commit().unwrap();
-    }
+    assert_eq!(claim.data_mut().len(), 4);
+    claim.data_mut().copy_from_slice(b"ping");
+    claim.frame_header_mut().expect("claimed frame header").reserved_value = 77;
+    claim.commit().unwrap();
 
     let mut received = None;
     let deadline = Instant::now() + Duration::from_secs(5);

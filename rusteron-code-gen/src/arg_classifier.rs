@@ -262,16 +262,10 @@ pub fn classify_method_args(
                 method.fn_name, arg.name
             );
             if method.return_type.is_c_raw_int() {
-                let bind_conductor = if arg.base_type() == "aeron_t" {
-                    quote! { #name.resource().as_owned().unwrap().bind_conductor_thread()?; }
-                } else {
-                    quote! {}
-                };
                 classified.prelude = Some(quote! {
                     if self.inner.as_owned().is_none() || #name.resource().as_owned().is_none() {
                         return Err(AeronCError::with_message(-1, #msg));
                     }
-                    #bind_conductor
                 });
             } else {
                 classified.prelude = Some(quote! {

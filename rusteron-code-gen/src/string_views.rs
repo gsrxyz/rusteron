@@ -111,11 +111,12 @@ mod tests {
         use quote::ToTokens;
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("bindings/archive.rs");
         let bindings = crate::parse_bindings_with_custom(&path, &[crate::CUSTOM_ARCHIVE_CODE]);
-        for (native, name, borrowed_safety) in [
-            ("aeron_archive_context_t", "get_control_response_channel", false),
-            ("aeron_archive_recording_descriptor_t", "original_channel", true),
-            ("aeron_publication_t", "channel", true),
-            ("aeron_t", "errmsg", false),
+        // Only the free function `errmsg` has no owner to bound its text, so only it is unsafe
+        for (native, name, safe, has_owned) in [
+            ("aeron_archive_context_t", "get_control_response_channel", true, true),
+            ("aeron_archive_recording_descriptor_t", "original_channel", true, false),
+            ("aeron_publication_t", "channel", true, false),
+            ("aeron_t", "errmsg", false, true),
         ] {
             let generated = crate::generate_rust_code(
                 &bindings.wrappers[native],
@@ -143,14 +144,14 @@ mod tests {
             let getter = methods.iter().find(|method| method.sig.ident == name).unwrap();
             assert_eq!(
                 matches!(getter.sig.safety, syn::Safety::Default),
-                borrowed_safety,
+                safe,
                 "{native}::{name}"
             );
             assert!(getter.sig.output.to_token_stream().to_string().ends_with("str"));
             let body = getter.block.to_token_stream().to_string();
             assert!(!body.contains("to_owned"), "{native}::{name}");
             assert!(!body.contains("String ::"), "{native}::{name}");
-            if !borrowed_safety {
+            if has_owned {
                 let owned_name = format!("{name}_owned");
                 let owned = methods.iter().find(|method| method.sig.ident == owned_name).unwrap();
                 assert!(matches!(owned.sig.safety, syn::Safety::Default));

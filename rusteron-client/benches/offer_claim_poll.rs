@@ -223,8 +223,7 @@ fn bench_offer(c: &mut Criterion) {
                 b.iter_custom(|iters| {
                     timed(&h.publisher, &mut h.subscription, iters, &payload, false, || {
                         if h.publisher.try_claim_raw(payload_len, &claim_buf) >= 0 {
-                            // SAFETY: this thread holds the successful raw claim.
-                            unsafe { claim_buf.commit().unwrap() };
+                            claim_buf.commit().unwrap();
                             true
                         } else {
                             false

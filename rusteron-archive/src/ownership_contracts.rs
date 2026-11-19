@@ -1,14 +1,6 @@
 //! Compile-time ownership and FFI safety contracts.
 //! Run with `cargo test --doc ownership_contracts --features static`.
 
-/// ```compile_fail,E0133
-/// # use rusteron_archive::*;
-/// fn check(context: &AeronArchiveContext) -> &str {
-///     context.get_control_response_channel()
-/// }
-/// ```
-fn replaceable_channel_text_requires_an_explicit_borrow_contract() {}
-
 /// ```compile_fail,E0277
 /// # use rusteron_archive::*;
 /// # fn require_clone<T: Clone>(_: &T) {}
@@ -58,3 +50,15 @@ fn archive_subscription_transfer_is_not_a_borrowed_getter() {}
 /// fn check(value: &AeronArchivePersistentSubscription) { unsafe { value.get_and_own_persistent_subscription_context(); } }
 /// ```
 fn persistent_subscription_context_stays_owned_by_rust() {}
+
+/// A replay merge takes the archive, so the archive cannot be used while the merge runs
+///
+/// ```compile_fail,E0382
+/// # use rusteron_archive::*;
+/// fn check(subscription: &AeronSubscription, archive: AeronArchive) -> Result<(), AeronCError> {
+///     let _merge = AeronArchiveReplayMerge::new(subscription, archive, c"", c"", c"", 0, 0, 0, 0)?;
+///     archive.get_stop_position(0)?;
+///     Ok(())
+/// }
+/// ```
+fn replay_merge_takes_the_archive() {}

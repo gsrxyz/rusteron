@@ -170,7 +170,7 @@ mod tests {
         // Create the subscription BEFORE publishing and wait for its image, so the
         // live IPC subscription actually sees the messages that follow. A live
         // subscription never receives messages published before its image existed.
-        let mut subscription = aeron_archive
+        let subscription = aeron_archive
             .async_add_subscription(&channel.into_c_string(), stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(5))?;
 
@@ -293,7 +293,7 @@ mod tests {
             archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)
         })?;
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
-        let mut replay_sub = aeron_archive
+        let replay_sub = aeron_archive
             .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 
@@ -329,7 +329,7 @@ mod tests {
         info!("Replayed {} messages", handler.borrow().replay_count);
 
         // Phase 3: live consumption. Subscribe first and wait for an image.
-        let mut subscription = aeron_archive
+        let subscription = aeron_archive
             .async_add_subscription(&channel.into_c_string(), stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(5))?;
         let start = Instant::now();
@@ -720,7 +720,7 @@ mod tests {
         // Create subscription for replay
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
-        let mut subscription = aeron_archive
+        let subscription = aeron_archive
             .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 
@@ -1148,7 +1148,7 @@ mod tests {
         let joined = Arc::new(AtomicUsize::new(0));
         let errors: Arc<Mutex<Vec<(i32, String)>>> = Arc::new(Mutex::new(Vec::new()));
 
-        let mut ps = persistent_subscription_builder()?
+        let ps = persistent_subscription_builder()?
             .aeron(&aeron_archive)?
             .archive_context(&archive_context)?
             .live_channel(live_channel)?
@@ -1326,7 +1326,7 @@ mod tests {
 
         let (aeron, archive_context, _media_driver_archive, _archive_error_handler) =
             start_aeron_archive_with_config("ps_context_anchor", 9790)?;
-        let mut ps = {
+        let ps = {
             let context = AeronArchiveContext::new()?;
             context.set_aeron(&aeron)?;
             context

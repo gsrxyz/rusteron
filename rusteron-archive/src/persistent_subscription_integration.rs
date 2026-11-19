@@ -214,7 +214,7 @@ mod tests {
             archive.start_replay(recording_id, &channel.into_c_string(), replay_stream_id, &replay_params)
         })?;
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
-        let mut replay_sub = aeron_archive
+        let replay_sub = aeron_archive
             .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 
@@ -251,7 +251,7 @@ mod tests {
 
         // Phase 3: live consumption. Subscribe first and wait for an image so the
         // live subscription sees the messages that follow.
-        let mut live_sub = aeron_archive
+        let live_sub = aeron_archive
             .async_add_subscription(&channel.into_c_string(), stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(5))?;
         let start = Instant::now();
@@ -376,7 +376,7 @@ mod tests {
 
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
-        let mut subscription = aeron_archive
+        let subscription = aeron_archive
             .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 
@@ -506,7 +506,7 @@ mod tests {
 
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
-        let mut subscription = aeron_archive
+        let subscription = aeron_archive
             .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 
@@ -622,7 +622,7 @@ mod tests {
 
         let replay_channel = format!("{}?session-id={}", channel, replay_session_id as i32).into_c_string();
 
-        let mut subscription = aeron_archive
+        let subscription = aeron_archive
             .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(10))?;
 

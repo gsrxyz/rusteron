@@ -97,16 +97,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // The late joiner: replay history, then merge onto the live stream
 
-    let mut subscription = aeron.add_subscription(
+    let subscription = aeron.add_subscription(
         &cformat!("aeron:udp?control-mode=manual|session-id={session_id}"),
         STREAM_ID,
         Handlers::NONE,
         Handlers::NONE,
         Duration::from_secs(5),
     )?;
-    let mut replay_merge = AeronArchiveReplayMerge::new(
+    let replay_merge = AeronArchiveReplayMerge::new(
         &subscription,
-        &archive,
+        archive,
         &cformat!("aeron:udp?session-id={session_id}"),
         c"aeron:udp?endpoint=localhost:0", // replay destination (ephemeral)
         &cformat!("aeron:udp?endpoint=localhost:{live_port}|control={control_endpoint}"),

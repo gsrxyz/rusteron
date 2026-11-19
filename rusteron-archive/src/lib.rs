@@ -394,13 +394,11 @@ impl AeronArchive {
         self.get_archive_context().get_aeron()
     }
 
-    /// Retain this archive while using its Aeron client. Clone retains the
-    /// archive owner; borrowing this handle only reads its cached native pointer.
-    pub fn aeron_owned(&self) -> OwnedWithReference<ResourceRef<ManagedCResource<aeron_archive_t>>, Aeron> {
-        let pointer = self.aeron().get_inner();
-        // SAFETY: the archive retains its client and defers close until the
-        // last owner, including this retained reference, is dropped.
-        unsafe { OwnedWithReference::new(self.inner.as_owned().unwrap().clone(), pointer) }
+    /// A clone of the Aeron client this archive was connected with. `None` for an archive
+    /// wrapped from a raw pointer, which holds no Rust client
+    pub fn aeron_owned(&self) -> Option<Aeron> {
+        self.inner
+            .get_handle_dependency_matching::<Aeron>(self.aeron().get_inner())
     }
 
     /// One duty-cycle step for this archive and its Aeron client: runs the client's
@@ -425,9 +423,7 @@ impl AeronArchive {
     pub fn do_work(&self) -> Result<i32, AeronCError> {
         let aeron = self.aeron();
         let conductor = if aeron.context().get_use_conductor_agent_invoker() {
-            // SAFETY: archive handles stay local. Supplying an agent-invoker
-            // client binds native archive calls to its conductor thread.
-            unsafe { aeron.main_do_work()? }
+            aeron.main_do_work()?
         } else {
             0
         };
@@ -445,7 +441,7 @@ impl AeronArchive {
         let mut result = None;
         let mut count = 0;
         self.list_recordings_fn(&mut count, 0, i32::MAX, |desc| {
-            let descriptor = self.descriptor_to_owned(&desc);
+            let descriptor = desc.to_owned();
             if predicate(&descriptor) {
                 if result.is_none()
                     || result
@@ -476,33 +472,36 @@ impl AeronArchive {
         let mut recordings = Vec::new();
         let mut count = 0;
         self.list_recordings_fn(&mut count, 0, i32::MAX, |desc| {
-            let descriptor = self.descriptor_to_owned(&desc);
+            let descriptor = desc.to_owned();
             if predicate(&descriptor) {
                 recordings.push(descriptor);
             }
         })?;
         Ok(recordings)
     }
+}
 
-    /// Convert a callback-scoped recording descriptor to an owned struct.
-    fn descriptor_to_owned(&self, desc: &AeronArchiveRecordingDescriptor) -> RecordingDescriptor {
-        let start_position = desc.start_position();
-        let stop_position = desc.stop_position();
+impl<S: ResourceStorage<aeron_archive_recording_descriptor_t>> AeronArchiveRecordingDescriptor<S> {
+    /// Copy this callback-scoped descriptor into an owned one that can be kept or sent to
+    /// another thread. This allocates its three channel strings
+    pub fn to_owned(&self) -> RecordingDescriptor {
+        let start_position = self.start_position();
+        let stop_position = self.stop_position();
         RecordingDescriptor {
-            recording_id: desc.recording_id(),
+            recording_id: self.recording_id(),
             start_position,
             stop_position,
-            start_timestamp: desc.start_timestamp(),
-            stop_timestamp: desc.stop_timestamp(),
+            start_timestamp: self.start_timestamp(),
+            stop_timestamp: self.stop_timestamp(),
             position: stop_position.saturating_sub(start_position),
             recording_length: stop_position.saturating_sub(start_position),
-            control_session_id: desc.control_session_id() as i32,
-            correlation_id: desc.correlation_id(),
-            session_id: desc.session_id(),
-            stream_id: desc.stream_id(),
-            channel: desc.stripped_channel().to_string(),
-            source_identity: desc.source_identity().to_string(),
-            original_channel: desc.original_channel().to_string(),
+            control_session_id: self.control_session_id() as i32,
+            correlation_id: self.correlation_id(),
+            session_id: self.session_id(),
+            stream_id: self.stream_id(),
+            channel: self.stripped_channel().to_string(),
+            source_identity: self.source_identity().to_string(),
+            original_channel: self.original_channel().to_string(),
         }
     }
 }
@@ -2006,9 +2005,9 @@ mod tests {
             archive.get_max_recorded_position(recording_id)
         );
 
-        let mut replay_merge = AeronArchiveReplayMerge::new(
+        let replay_merge = AeronArchiveReplayMerge::new(
             &subscription,
-            &archive,
+            archive.clone(),
             &replay_channel,
             &replay_destination,
             &live_destination,
@@ -2472,7 +2471,7 @@ mod tests {
             let params = AeronArchiveReplayParams::builder().position(-1).length(-1).build()?;
             let replay = archive.start_replay(recording_id, c"aeron:ipc?term-length=64k", 1553, &params)?;
             let channel = format!("aeron:ipc?session-id={}", replay as i32).into_c_string();
-            let mut subscription =
+            let subscription =
                 aeron.add_subscription(&channel, 1553, Handlers::NONE, Handlers::NONE, valgrind_timeout(10))?;
             let deadline = Instant::now() + valgrind_timeout(10);
             while !subscription.is_connected() {
@@ -2619,9 +2618,7 @@ mod tests {
             sleep(Duration::from_millis(1));
             if Aeron::nano_clock() > idle_deadline.load(Ordering::SeqCst) {
                 idle_stalled.store(true, Ordering::SeqCst);
-                // SAFETY: the idle callback runs between native invocations on
-                // this archive's conductor thread.
-                let _ = unsafe { idle_client.main_do_work() };
+                let _ = idle_client.main_do_work();
             }
         }))?;
         let invoker_archive = context.aeron_archive_connect(valgrind_timeout(30))?;
@@ -2665,7 +2662,7 @@ mod tests {
             }
         }
         // SAFETY: the replay subscription stays alive for the scope of this test.
-        let mut subscription = ReplaySubscription(unsafe { AeronSubscription::from_ptr(raw_subscription) });
+        let subscription = ReplaySubscription(unsafe { AeronSubscription::from_ptr(raw_subscription) });
         assert!(
             !stalled.load(Ordering::SeqCst),
             "replay did not drive its invoker client"
@@ -2958,7 +2955,7 @@ mod tests {
                 .ok_or("current client not retained")?;
             // the harness does not wait for the Java driver, which can take seconds to start on CI
             let timeout = Duration::from_secs(30);
-            let mut subscription =
+            let subscription =
                 client.add_subscription(AERON_IPC_STREAM, 7001, Handlers::NONE, Handlers::NONE, timeout)?;
             let publication = client.add_publication(AERON_IPC_STREAM, 7001, timeout)?;
             let start = Instant::now();
@@ -3075,7 +3072,7 @@ mod tests {
             assert!(subscription_id >= 0);
             info!("subscription id {}", subscription_id);
 
-            let mut publication = aeron
+            let publication = aeron
                 .async_add_exclusive_publication(channel, stream_id)?
                 .poll_blocking(Duration::from_secs(5))?;
 
@@ -3190,7 +3187,7 @@ mod tests {
             let avail_image_handler = SharedHandler::new_shared(AeronAvailableImageLogger);
             let unavail_image_handler = SharedHandler::new_shared(AeronUnavailableImageLogger);
             let replay_result: Result<(), Box<dyn error::Error>> = (|| {
-                let mut subscription = aeron
+                let subscription = aeron
                     .async_add_subscription(
                         &channel_replay,
                         replay_stream_id,

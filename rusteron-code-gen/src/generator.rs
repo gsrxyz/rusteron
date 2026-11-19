@@ -2,8 +2,8 @@ use crate::get_possible_wrappers;
 #[allow(unused_imports)]
 use crate::snake_to_pascal_case;
 use crate::thread_safety::{
-    NON_REENTRANT_FNS, handle_has_stable_pointer, handle_is_archive_context, handle_is_consumed_by_poll,
-    handle_is_send_only, handle_is_shared, handle_is_single_owner, owner_is_shared,
+    handle_has_stable_pointer, handle_is_archive_context, handle_is_consumed_by_poll, handle_is_send_only,
+    handle_is_shared, handle_is_single_owner, owner_is_shared,
 };
 use itertools::Itertools;
 use proc_macro2::{Ident, TokenStream};
@@ -113,17 +113,10 @@ const RAW_LIFECYCLE_FNS: &[&str] = &[
     "aeron_exclusive_publication_revoke",
     // the safe setter keeps the listener alive as long as the context
     "aeron_archive_persistent_subscription_context_set_listener",
-    // `AeronBufferClaim::commit` and `abort` consume the claim so it cannot be finished twice
-    "aeron_buffer_claim_commit",
-    "aeron_buffer_claim_abort",
 ];
 
 /// Ends in `_close` but only registers a close notification, so it stays safe
 const NOT_RAW_LIFECYCLE_FNS: &[&str] = &["aeron_exclusive_publication_revoke_on_close"];
-
-/// Conductor calls for a client built with `use_conductor_agent_invoker`. Nothing in the headers
-/// says that only one caller may drive the conductor, so these are listed by hand
-const MANUAL_CONDUCTOR_FNS: &[&str] = &["aeron_main_do_work", "aeron_main_idle_strategy"];
 
 /// Native getters whose output struct holds pointers into the queried handle. The lifetime-bound
 /// `get_*` forms are safe, the raw forms are `unsafe`
@@ -136,7 +129,6 @@ struct MethodUnsafety {
     /// A setter passes a value C frees later (see [`crate::arg_classifier::is_c_owned_set_type`])
     c_takes_ownership: bool,
     output_has_pointers: bool,
-    manual_conductor: bool,
     raw_lifecycle: bool,
 }
 
@@ -176,17 +168,12 @@ impl MethodUnsafety {
             raw_pointer_args,
             c_takes_ownership,
             output_has_pointers,
-            manual_conductor: MANUAL_CONDUCTOR_FNS.contains(&fn_name),
             raw_lifecycle,
         }
     }
 
     fn any(&self) -> bool {
-        self.raw_pointer_args
-            || self.c_takes_ownership
-            || self.output_has_pointers
-            || self.manual_conductor
-            || self.raw_lifecycle
+        self.raw_pointer_args || self.c_takes_ownership || self.output_has_pointers || self.raw_lifecycle
     }
 
     fn docs(&self) -> Vec<TokenStream> {
@@ -202,10 +189,6 @@ impl MethodUnsafety {
             (
                 self.output_has_pointers,
                 "The output may contain borrowed native pointers. Do not use those pointers after the queried handle is dropped or changed. Prefer the lifetime-bound `get_constants`, `get_buffers` or `get_values` method.",
-            ),
-            (
-                self.manual_conductor,
-                "Use only for an agent-invoker client. No other conductor invocation may overlap or re-enter this call, including invocations made by native archive operations. The caller must coordinate every user of this native client.",
             ),
             (
                 self.raw_lifecycle,
@@ -1113,10 +1096,13 @@ impl CWrapper {
 
                 let mut method_docs: Vec<TokenStream> = get_docs(&method.docs, wrappers, Some(&fn_arguments) );
                 let unsafety = MethodUnsafety::new(&self.type_name, method, wrappers, &fn_arguments);
-                let method_unsafety = if unsafety.any() || unchecked_text { quote! { unsafe } } else { quote! {} };
+                // Free functions have no owner to bound the text, so they stay `unsafe`. Getters on a
+                // handle match Aeron Java and C++, which also hand out views of the native text
+                let method_unsafety = if unsafety.any() || (unchecked_text && !uses_self) { quote! { unsafe } } else { quote! {} };
                 if unchecked_text {
-                    method_docs.push(quote! { #[doc = "# Safety"] });
-                    method_docs.push(quote! { #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."] });
+                    let heading = if uses_self { "# Lifetime" } else { "# Safety" };
+                    method_docs.push(quote! { #[doc = #heading] });
+                    method_docs.push(quote! { #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."] });
                     if crate::string_views::has_owned_method(&self.type_name, method) {
                         let owned_doc = format!("Use `{fn_name}_owned()` to keep a copy.");
                         method_docs.push(quote! { #[doc = #owned_doc] });
@@ -1148,9 +1134,7 @@ impl CWrapper {
                 // Logging expression for arguments
                 let args_log_expr = Self::generate_arg_logging(&method.arguments, &arg_names);
 
-                let possible_self = if uses_self && NON_REENTRANT_FNS.contains(&method.fn_name.as_str()) {
-                    quote! { &mut self, }
-                } else if uses_self {
+                let possible_self = if uses_self {
                     quote! { &self, }
                 } else {
                     quote! {}
@@ -1244,7 +1228,6 @@ impl CWrapper {
                     };
                     quote! {
                         let __owner = self.inner.as_owned().ok_or_else(|| AeronCError::with_message(-1, "manual conductor operations require an owning client handle"))?;
-                        __owner.bind_conductor_thread()?;
                         #started
                         let __operation = __owner.operation_guard()?;
                         #started
@@ -1823,11 +1806,11 @@ impl CWrapper {
                             == crate::string_views::StringView::Unchecked =>
                     {
                         (
-                            quote! { unsafe },
+                            quote! {},
                             quote! {
-                                /// # Safety
-                                /// Keep the backing allocation alive and unchanged for every use of
-                                /// the returned text. No setter, poll or other alias may invalidate it.
+                                /// # Lifetime
+                                /// The text points into native storage. Use it straight away, and do not
+                                /// hold it across a setter, poll or other call that can change it.
                             },
                         )
                     }
@@ -1967,7 +1950,6 @@ impl CWrapper {
 
 
                     let commit_context = if self.type_name == "aeron_t" { quote! {
-                        let resource_constructor = resource_constructor.with_manual_conductor(context_copy.get_use_conductor_agent_invoker());
                         __context_use.commit();
                     } } else if self.type_name == "aeron_driver_t" { quote! { __context_use.commit(); } } else { quote! {} };
                     // Parent ownership lives in ManagedCResource's dependencies. Keeping
@@ -2013,6 +1995,12 @@ impl CWrapper {
                             .replace("init", "new")
                             .replace("create", "new")
                     );
+                    // A hand-written constructor of the same name wraps this one, so keep it crate-private
+                    let (fn_name, visibility) = if self.skipped_methods.contains(&fn_name.to_string()) {
+                        (format_ident!("{}_native", fn_name), quote! { pub(crate) })
+                    } else {
+                        (fn_name, quote! { pub })
+                    };
 
                     let generic_types: Vec<TokenStream> = method
                         .arguments
@@ -2094,7 +2082,7 @@ impl CWrapper {
                         #[inline]
                         #(#method_docs)*
                         #constructor_safety_docs
-                        pub #constructor_unsafety fn #fn_name #where_clause(#(#new_args),*) -> Result<Self, AeronCError> {
+                        #visibility #constructor_unsafety fn #fn_name #where_clause(#(#new_args),*) -> Result<Self, AeronCError> {
                             #freeze_context
                             #(#handler_keeps)*
                             #(#lets)*
@@ -3471,10 +3459,6 @@ fn generate_debug_fields(
     }
 
     let field_impl: syn::ItemImpl = syn::parse2(quote! { impl Placeholder { #(#fields)* } }).expect("generated fields");
-    // Unchecked text getters are unsafe because the returned `&str` can outlive a later
-    // setter or poll. Formatting finishes before any such call can run on a local handle,
-    // so Debug may read them. Shared handles skip them, as another thread may write
-    let local = !handle_is_shared(&wrapper.type_name);
     let getters: BTreeMap<_, _> = field_impl
         .items
         .iter()
@@ -3484,8 +3468,6 @@ fn generate_debug_fields(
                 let ident = &method.sig.ident;
                 if matches!(method.sig.safety, syn::Safety::Default) {
                     Some((ident.to_string(), quote! { self.#ident() }))
-                } else if local && method.sig.output.to_token_stream().to_string() == "-> & str" {
-                    Some((ident.to_string(), quote! { unsafe { self.#ident() } }))
                 } else {
                     None
                 }
@@ -4008,10 +3990,7 @@ pub fn generate_rust_code(
                                     let invoker = poller.agent_invoker_client();
                                     while start.elapsed() <= timeout  {
                                       if let Some(aeron) = &invoker {
-                                          // SAFETY: this blocking helper drives the
-                                          // conductor on its assigned thread.
-                                          aeron.inner.owner().bind_conductor_thread()?;
-                                          unsafe { aeron.main_do_work()?; }
+                                          aeron.main_do_work()?;
                                       }
                                       if let Some(result) = poller.poll()? {
                                           return Ok(result);
@@ -4124,10 +4103,7 @@ pub fn generate_rust_code(
                             let time = std::time::Instant::now();
                             while time.elapsed() < timeout {
                                 if let Some(aeron) = &invoker {
-                                    // SAFETY: this synchronous wait is on the manual
-                                    // conductor's thread, outside any native invocation.
-                                    aeron.inner.owner().bind_conductor_thread()?;
-                                    unsafe { aeron.main_do_work()?; }
+                                    aeron.main_do_work()?;
                                 }
                                 if let Some(result) = self.poll()? {
                                     return Ok(result);
@@ -4523,7 +4499,6 @@ pub fn generate_rust_code(
                     "archive context must not own the native client",
                 ));
             }
-            client.inner.owner().bind_conductor_thread()?;
             Ok(client)
         }
 
@@ -4760,7 +4735,7 @@ mod tests {
         for (name, present, absent) in [
             ("aeron_async_add_publication_t", None, "self . get_"),
             ("aeron_uri_param_t", Some("self . key ()"), "unsafe"),
-            ("aeron_context_t", Some("unsafe { self . get_dir () }"), "get_dir_owned"),
+            ("aeron_context_t", Some("self . get_dir ()"), "get_dir_owned"),
         ] {
             let generated = generate_rust_code(
                 &bindings.wrappers[name],

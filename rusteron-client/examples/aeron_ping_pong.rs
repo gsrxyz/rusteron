@@ -4,7 +4,7 @@
 
 mod benchmark_support;
 
-use benchmark_support::{MessageCounts, StopOnDrop, print_histogram};
+use benchmark_support::{MessageCounts, print_histogram, spawn_peer};
 use hdrhistogram::Histogram;
 use rusteron_client::*;
 use rusteron_media_driver::testing::EmbeddedDriver;
@@ -36,17 +36,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         counts.warmup, counts.measured
     );
     let running = Arc::new(AtomicBool::new(true));
-    let pong = {
-        let running = running.clone();
-        let dir = dir.clone();
-        thread::Builder::new().name("pong".into()).spawn(move || {
-            let _stop = StopOnDrop(&running);
-            run_pong(&running, &dir).expect("pong failed");
-        })?
-    };
+    let pong_dir = dir.clone();
+    let pong = spawn_peer("pong", running.clone(), move |running| run_pong(running, &pong_dir))?;
     let result = run_ping(&running, &dir, &counts);
     running.store(false, Ordering::Release);
-    pong.join().map_err(|_| "pong thread panicked")?;
+    // A pong failure is reported first, as it is what made ping stop early
+    pong.join()
+        .map_err(|_| "pong thread panicked")?
+        .map_err(|error| format!("pong: {error}"))?;
     let histogram = result?;
     if histogram.len() != counts.measured as u64 {
         return Err(format!("expected {} RTT samples, got {}", counts.measured, histogram.len()).into());
@@ -86,14 +83,14 @@ fn run_pong(running: &Arc<AtomicBool>, dir: &str) -> Result<(), Box<dyn Error>> 
     let publication = client
         .async_add_exclusive_publication(PONG_CHANNEL, PONG_STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
-    let mut image = image(&subscription, running)?;
+    let image = image(&subscription, running)?;
     let mut assembler = AeronImageFragmentAssembler::new(Echo {
         publication,
         running: running.clone(),
     })?;
     let mut idle = BusySpinIdleStrategy::new();
     while running.load(Ordering::Acquire) {
-        idle.idle(assembler.poll(&mut image, FRAGMENT_COUNT_LIMIT)?);
+        idle.idle(assembler.poll(&image, FRAGMENT_COUNT_LIMIT)?);
     }
     Ok(())
 }
@@ -145,7 +142,7 @@ fn run_ping(running: &AtomicBool, dir: &str, counts: &MessageCounts) -> Result<H
     let publication = client
         .async_add_exclusive_publication(PING_CHANNEL, PING_STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
-    let mut image = image(&subscription, running)?;
+    let image = image(&subscription, running)?;
     let mut assembler = AeronImageFragmentAssembler::new(Measure {
         histogram: Histogram::new_with_bounds(1, 10_000_000_000, 3)?,
         received: 0,
@@ -178,7 +175,7 @@ fn run_ping(running: &AtomicBool, dir: &str, counts: &MessageCounts) -> Result<H
                 if !running.load(Ordering::Acquire) {
                     return Err("pong stopped".into());
                 }
-                idle.idle(assembler.poll(&mut image, FRAGMENT_COUNT_LIMIT)?);
+                idle.idle(assembler.poll(&image, FRAGMENT_COUNT_LIMIT)?);
             }
         }
     }

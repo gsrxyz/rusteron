@@ -99,13 +99,11 @@ fn harness() -> Harness {
 fn warm_up(h: &mut Harness) {
     let _ = h.publisher.offer(&h.payload);
     if h.publisher.try_claim_raw(PAYLOAD_LEN, &h.claim) >= 0 {
-        // SAFETY: try_claim_raw succeeded, and this thread holds the claim.
-        let _ = unsafe { h.claim.commit() };
+        let _ = h.claim.commit();
     }
     let _ = h.exclusive.offer(&h.payload);
     if h.exclusive.try_claim_raw(PAYLOAD_LEN, &h.claim) >= 0 {
-        // SAFETY: try_claim_raw succeeded, and this thread holds the claim.
-        let _ = unsafe { h.claim.commit() };
+        let _ = h.claim.commit();
     }
     offerv(h.exclusive.get_inner(), &h.payload);
     while h.subscription.poll_fn(|_, _| {}, 1024).expect("drain") > 0 {}
@@ -246,8 +244,7 @@ fn hot_path(c: &mut Criterion) {
         b.iter_custom(|iters| {
             concurrent.time_publish(iters, || {
                 if h.publisher.try_claim_raw(PAYLOAD_LEN, &h.claim) >= 0 {
-                    // SAFETY: try_claim_raw succeeded, and this thread holds the claim.
-                    let _ = black_box(unsafe { h.claim.commit() });
+                    let _ = black_box(h.claim.commit());
                 }
             })
         })
@@ -263,8 +260,7 @@ fn hot_path(c: &mut Criterion) {
         b.iter_custom(|iters| {
             exclusive.time_publish(iters, || {
                 if h.exclusive.try_claim_raw(PAYLOAD_LEN, &h.claim) >= 0 {
-                    // SAFETY: try_claim_raw succeeded, and this thread holds the claim.
-                    let _ = black_box(unsafe { h.claim.commit() });
+                    let _ = black_box(h.claim.commit());
                 }
             })
         })

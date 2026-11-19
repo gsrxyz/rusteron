@@ -17,9 +17,9 @@ Breaking release. See the [0.2-to-0.3 migration guide](docs/migrating_0.2_to_0.3
 - Removed generated getters that transfer native ownership while returning a borrow.
 - Local callbacks use `Handler`. Retained conductor callbacks use `SharedHandler`. Added owned `FragmentAssembler` and `ControlledFragmentAssembler` for local polling.
 - Breaking: fragment polls take `&mut callback` instead of `Option<&Handler>`, so the poll path has no `RefCell`. Own the callback and call `poll(&mut callback, limit)`.
-- Breaking: subscription, image, replay merge and persistent subscription polls, and exclusive publication offers that take a reserved value supplier, take `&mut self`. A callback can no longer call them again on the same handle, which made Aeron overwrite the saved position and deliver or write data twice. Plain `offer`, `try_claim` and `offer_parts` keep `&self`.
-- Breaking: `AeronSubscription`, `AeronImage`, `AeronExclusivePublication`, `AeronArchiveReplayMerge` and `AeronArchivePersistentSubscription` are not cloneable. `AeronSubscription` is `Send`, so it can move to the thread that polls it.
-- Raw APIs that transfer ownership, convert raw pointers, alias native buffers or return replaceable strings now require `unsafe`. Explicit `_owned` getters return safe copies. Erased message handlers require `unsafe` to store a borrowed context pointer.
+- Breaking: `AeronArchiveReplayMerge::new` takes the `AeronArchive` by value. The merge reads the archive's control responses until it finishes, so another request on the same archive can stall it. Pass `archive.clone()` if you need the archive after the merge.
+- Breaking: `AeronSubscription` is not cloneable. It is `Send`, so it can move to the thread that polls it. Images, exclusive publications, replay merges and persistent subscriptions stay cloneable and local. As in Aeron Java and C++, polls and supplier offers do not check for nested calls on the same handle.
+- Raw APIs that transfer ownership, convert raw pointers or alias native buffers now require `unsafe`. Text getters on a handle return `&str` without allocating, as Aeron Java and C++ do. Use the text before any setter or close, or call the `_owned` getter for a copy. `AeronBufferClaim::data_mut`, `frame_header_mut`, `commit`, `abort`, `main_do_work` and `main_idle_strategy` are safe. Erased message handlers require `unsafe` to store a borrowed context pointer.
 - Archive errors use native numeric codes instead of parsing messages. `poll_for_error()` returns the typed code and full message. Converting an Archive error to `AeronCError` keeps both. `AeronArchiveError.message` is a `Cow<'static, str>`, so errors from Rust checks do not allocate.
 - Added generated `AeronCounterTypeId`, `AeronCounterState` and `AeronDriverErrorCode` enums that keep unknown integer values. Archive error variants and native-code conversions come from the bindings.
 - Added checked integer conversions for native enums. Unknown values return the original integer as an error. The recording-signal helper uses the native enum values.
@@ -36,7 +36,10 @@ Breaking release. See the [0.2-to-0.3 migration guide](docs/migrating_0.2_to_0.3
 - Breaking: removed `AeronImage::poll_instrumented`. Use `poll`.
 - Native shallow-copy checks cover unions, arrays and unknown embedded types.
 - `Debug` keeps safe fields and immutable queries without allocating. Error formatting uses a stack snapshot, and literal error messages do not allocate.
-- Text callbacks validate UTF-8, required callbacks reject `None`, and URI parsing checks input bounds.
+- Text callbacks validate UTF-8, required callbacks reject `None`, and URI parsing checks input bounds. Rusteron keeps only checks that stop undefined behaviour in Aeron C, such as a NULL callback, an out-of-bounds read or an oversized shift.
+- Added `AeronArchivePersistentSubscription::failure_reason(&mut String)`, which reuses the string's capacity, and `AeronArchiveRecordingDescriptor::to_owned()` for a sendable copy of a descriptor.
+- Breaking: `AeronArchive::aeron_owned()` returns `Option<Aeron>`, a clone of the client the archive connected with.
+- `AeronArchivePersistentSubscriptionContext::set_archive_context` gives the subscription its own copy of the Archive context, so one context can be reused for several subscriptions.
 - Fixed archive proxy cleanup closing separately owned publications, async registration reuse, and persistent-subscription context and callback lifetimes.
 - Failed native cleanup keeps dependencies alive instead of freeing them while C may still use them.
 - Moved repeated Duration, URI, destination and Archive descriptor-poller wrappers into generator templates.

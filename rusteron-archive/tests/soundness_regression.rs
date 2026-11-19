@@ -34,21 +34,17 @@ fn retained_archive_context_survives_close_and_final_clone_drop() -> Result<(), 
     let connecting = AeronArchiveAsyncConnect::new_with_aeron(&context, &client)?;
     context.set_error_handler::<fn(i32, &str)>(None)?;
     let archive = connecting.poll_blocking(Duration::from_secs(60))?;
-    let retained_client = archive.aeron_owned();
+    let retained_client = archive.aeron_owned().ok_or("connected archive holds its client")?;
     let retained_client_clone = retained_client.clone();
-    assert_eq!(
-        std::mem::size_of_val(&retained_client),
-        2 * std::mem::size_of::<usize>()
-    );
     let retained = archive.retain_archive_context()?;
     let clone = retained.clone();
     assert_eq!(retained.as_ref().get_inner(), clone.as_ref().get_inner());
     assert_eq!(retained.as_ref().get_inner(), archive.get_archive_context().get_inner());
     assert_eq!(std::mem::size_of_val(&retained), 2 * std::mem::size_of::<usize>());
     archive.close()?;
-    assert_eq!(retained_client.as_ref().client_id(), client.client_id());
+    assert_eq!(retained_client.client_id(), client.client_id());
     drop(retained_client);
-    assert_eq!(retained_client_clone.as_ref().get_inner(), client.get_inner());
+    assert_eq!(retained_client_clone.get_inner(), client.get_inner());
     drop(retained_client_clone);
     drop(context);
     drop(calls);

@@ -219,7 +219,7 @@ fn block_poll_redelivers_the_block() {
             ipc.subscription.block_poll_fn(|buffer, _, _| f(buffer), 1 << 16);
         }),
         ("image", 5005, |ipc, f| {
-            let mut image = ipc.subscription.image_at_index(0).expect("connected image");
+            let image = ipc.subscription.image_at_index(0).expect("connected image");
             image.block_poll_fn(|buffer, _, _| f(buffer), 1 << 16).unwrap();
         }),
     ];
@@ -362,7 +362,7 @@ impl Drop for DropCount {
 #[test]
 #[serial]
 fn once_closure_captures_drop_exactly_once() {
-    let mut ipc = ipc(5007);
+    let ipc = ipc(5007);
     offer(&ipc.publication, [1]);
     let drops = Rc::new(Cell::new(0));
 
@@ -402,7 +402,7 @@ impl AeronFragmentHandlerCallback for Recorder {
 #[test]
 #[serial]
 fn direct_poll_borrows_callback_state_and_respects_fragment_limit() {
-    let mut ipc = ipc(5035);
+    let ipc = ipc(5035);
     offer(&ipc.publication, 1..=3);
     let mut seen = Vec::new();
     {
@@ -417,7 +417,7 @@ fn direct_poll_borrows_callback_state_and_respects_fragment_limit() {
 #[test]
 #[serial]
 fn direct_poll_recovers_after_panic_without_shared_callback_storage() {
-    let mut ipc = ipc(5036);
+    let ipc = ipc(5036);
     offer(&ipc.publication, 1..=3);
     let drops = Rc::new(Cell::new(0));
     let mut callback = Recorder {
@@ -446,7 +446,7 @@ fn direct_poll_recovers_after_panic_without_shared_callback_storage() {
 fn direct_image_poll_accepts_an_owned_fragment_assembler() {
     let ipc = ipc(5037);
     offer(&ipc.publication, [1, 2]);
-    let mut image = ipc.subscription.image_at_index(0).unwrap();
+    let image = ipc.subscription.image_at_index(0).unwrap();
     let mut seen = Vec::new();
     {
         let mut assembler = FragmentAssembler::new(|bytes: &[u8], _: &AeronHeader| seen.push(value(bytes))).unwrap();
@@ -459,7 +459,7 @@ fn direct_image_poll_accepts_an_owned_fragment_assembler() {
 #[test]
 #[serial]
 fn retained_handler_survives_panic_and_drops_once() {
-    let mut ipc = ipc(5008);
+    let ipc = ipc(5008);
     offer(&ipc.publication, 1..=3);
     let drops = Rc::new(Cell::new(0));
     let handler = Handler::new(Recorder {
@@ -815,7 +815,7 @@ fn closure_assembler_reassembles_across_polls_and_closures() {
     let mut ipc = ipc(5040);
     let length = ipc.publication.max_payload_length().unwrap() + 17;
     let mut assembler = AeronFragmentClosureAssembler::new().unwrap();
-    let mut image = ipc.subscription.image_at_index(0).unwrap();
+    let image = ipc.subscription.image_at_index(0).unwrap();
     wait(|| ipc.publication.offer(&vec![0xA5; length]).is_ok());
 
     let mut whole = Vec::new();
@@ -917,7 +917,7 @@ fn controlled_closure_assembler_abort_and_panic_redeliver() {
     assert_eq!(panic_message(&*payload), "boom");
 
     // the panicking message 2 comes back, this time through an image poll
-    let mut image = ipc.subscription.image_at_index(0).unwrap();
+    let image = ipc.subscription.image_at_index(0).unwrap();
     wait(|| {
         let handler = &mut assembler.with(|msg, _| {
             seen.push(value(msg));

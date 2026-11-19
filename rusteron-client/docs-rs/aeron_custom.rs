@@ -422,11 +422,7 @@ fn poll_destination_op_to_completion<C: std::fmt::Debug>(
     let deadline = std::time::Instant::now() + timeout;
     loop {
         if invoker {
-            client.inner.owner().bind_conductor_thread()?;
-            // SAFETY: the synchronous wait runs on the assigned conductor thread.
-            unsafe {
-                client.main_do_work()?;
-            }
+            client.main_do_work()?;
         }
         match result.aeron_subscription_async_destination_poll() {
             Ok(v) if v > 0 => {
@@ -468,10 +464,12 @@ impl AeronSubscription {
     /// polling reads nothing more, and its log buffer stays mapped. The image keeps the
     /// native subscription open, so [`Self::close`] waits for the image to drop
     ///
-    /// The borrow checker cannot see that the image and the subscription share a session
-    /// position. Do not poll a retained image inside a poll of its own subscription, and do
-    /// not keep polling it on this thread after the subscription moves to another thread.
-    /// Either one races on the image position and can deliver fragments twice
+    /// Each call returns a new handle, and every handle to the same image shares one position
+    /// with the subscription, which the borrow checker cannot see. Do not poll one handle
+    /// inside a poll of another handle to the same image or of its subscription, and do not
+    /// keep polling it on this thread after the subscription moves to another thread. Either
+    /// one races on the image position and can deliver fragments twice. Aeron Java and C++
+    /// do not check for this either
     ///
     /// The image is one publisher session: a publisher that reconnects with a new session
     /// is a new image, so poll the subscription, or fetch the new image, to follow it. To
@@ -1031,11 +1029,11 @@ impl Aeron {
 impl<S: ResourceStorage<aeron_buffer_claim_t>> AeronBufferClaim<S> {
     /// The claimed bytes, to write into. Empty if the claim holds no buffer, for example one
     /// from `new_zeroed_on_heap` or before a successful `try_claim`
-    /// # Safety
-    /// The publication and native claim must still be live. No other access may
-    /// overlap the returned mutable borrow. Prefer `AeronClaim` for safe access.
+    ///
+    /// As in Aeron Java and C++, the bytes stay valid only while the publication is open and
+    /// until the claim is committed or aborted. `AeronClaim` from `try_claim_owned` enforces this
     #[inline]
-    pub unsafe fn data_mut(&mut self) -> &mut [u8] {
+    pub fn data_mut(&mut self) -> &mut [u8] {
         if (unsafe { self.get_inner_ref() }).data.is_null() {
             return &mut [];
         }
@@ -1047,12 +1045,10 @@ impl<S: ResourceStorage<aeron_buffer_claim_t>> AeronBufferClaim<S> {
         }
     }
 
-    /// The frame header of the claim, or `None` if the claim holds no buffer
-    /// # Safety
-    /// The publication and native claim must still be live. No other access may
-    /// overlap the returned mutable borrow. Prefer `AeronClaim` for safe access.
+    /// The frame header of the claim, or `None` if the claim holds no buffer. Valid for as long
+    /// as [`Self::data_mut`]
     #[inline]
-    pub unsafe fn frame_header_mut(&mut self) -> Option<&mut aeron_header_values_frame_t> {
+    pub fn frame_header_mut(&mut self) -> Option<&mut aeron_header_values_frame_t> {
         if (unsafe { self.get_inner_ref() }).frame_header.is_null() {
             return None;
         }
@@ -1200,9 +1196,7 @@ fn reserved_callback<H: AeronReservedValueSupplierCallback, P: CallbackPolicy>(
 }
 
 macro_rules! impl_publication_methods {
-    // `$($supplier_mut)?` is `mut` when the native offer cannot be re-entered from its reserved
-    // value supplier, so the borrow checker rejects a nested offer on the same publication
-    ($ty:ident, $native:ty, $offer:ident, $offerv:ident, $try_claim:ident $(, $supplier_mut:tt)?) => {
+    ($ty:ident, $native:ty, $offer:ident, $offerv:ident, $try_claim:ident) => {
         impl<S: ResourceStorage<$native>> $ty<S> {
             /// Raw, branch-free variant of [`Self::offer`]: returns the new stream position, or a
             /// negative Aeron sentinel (see [`AeronOfferError::from_position`]).
@@ -1211,7 +1205,7 @@ macro_rules! impl_publication_methods {
             /// to avoid macro-hygiene name conflicts.
             #[inline]
             pub fn offer_raw<H: AeronReservedValueSupplierCallback>(
-                &$($supplier_mut)? self,
+                &self,
                 buffer: &[u8],
                 reserved_value_supplier: Option<&Handler<H, impl CallbackPolicy>>,
             ) -> i64 {
@@ -1252,7 +1246,7 @@ macro_rules! impl_publication_methods {
             /// [`Self::offer`] with a reserved-value supplier.
             #[inline]
             pub fn offer_with_reserved_value<H: AeronReservedValueSupplierCallback>(
-                &$($supplier_mut)? self,
+                &self,
                 buffer: &[u8],
                 reserved_value_supplier: Option<&Handler<H, impl CallbackPolicy>>,
             ) -> Result<i64, AeronOfferError> {
@@ -1349,8 +1343,7 @@ impl_publication_methods!(
     aeron_exclusive_publication_t,
     aeron_exclusive_publication_offer,
     aeron_exclusive_publication_offerv,
-    aeron_exclusive_publication_try_claim,
-    mut
+    aeron_exclusive_publication_try_claim
 );
 
 impl<S: ResourceStorage<aeron_publication_t>> AeronPublication<S> {
@@ -2046,7 +2039,7 @@ macro_rules! owned_assembler {
             #[inline]
             pub fn poll<S: ResourceStorage<$target_native>>(
                 &mut self,
-                source: &mut $target<S>,
+                source: &$target<S>,
                 fragment_limit: usize,
             ) -> Result<i32, AeronCError> {
                 source.$poll(self, fragment_limit)
@@ -2231,7 +2224,7 @@ impl AeronFragmentClosureAssembler {
     /// Poll a subscription and call `handler` with complete messages
     #[inline]
     pub fn poll<S: ResourceStorage<aeron_subscription_t>, F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>)>(
-        &mut self, subscription: &mut AeronSubscription<S>, handler: F, fragment_limit: usize,
+        &mut self, subscription: &AeronSubscription<S>, handler: F, fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
         subscription.poll(&mut self.with(handler), fragment_limit)
     }
@@ -2296,7 +2289,7 @@ impl AeronControlledFragmentClosureAssembler {
         S: ResourceStorage<aeron_subscription_t>,
         F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> aeron_controlled_fragment_handler_action_t,
     >(
-        &mut self, subscription: &mut AeronSubscription<S>, handler: F, fragment_limit: usize,
+        &mut self, subscription: &AeronSubscription<S>, handler: F, fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
         subscription.controlled_poll(&mut self.with(handler), fragment_limit)
     }

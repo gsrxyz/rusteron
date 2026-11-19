@@ -218,12 +218,6 @@ fn view_cannot_outlive_retained_owner() {}
 /// ```
 fn native_struct_borrow_requires_unsafe() {}
 
-/// ```compile_fail,E0133
-/// # use rusteron_client::*;
-/// fn check(value: &mut AeronBufferClaim) { value.data_mut(); }
-/// ```
-fn raw_claim_buffer_requires_unsafe() {}
-
 /// ```compile_fail,E0599
 /// # use rusteron_client::*;
 /// fn check(owner: &AeronRef) {
@@ -300,7 +294,7 @@ fn internal_factory_cannot_bypass_unsafe_constructor() {}
 ///
 /// ```compile_fail,E0502
 /// # use rusteron_client::*;
-/// fn receive(subscription: &mut AeronSubscription) {
+/// fn receive(subscription: &AeronSubscription) {
 ///     let mut received = 0;
 ///     let state = &received;
 ///     let mut callback = |_: &[u8], _: &AeronHeader| received += 1;
@@ -330,42 +324,9 @@ fn direct_poll_does_not_hide_shared_callback_storage() {}
 /// ```
 fn owned_assembler_does_not_hide_shared_callback_storage() {}
 
-/// C saves the subscriber position only when a poll returns, so a nested poll from the
-/// callback would deliver the same fragments twice. `poll` takes `&mut self` to reject it
-///
-/// ```compile_fail,E0499
-/// # use rusteron_client::*;
-/// fn receive(subscription: &mut AeronSubscription) {
-///     subscription
-///         .poll_fn(|_, _| { subscription.poll_fn(|_, _| {}, 1).unwrap(); }, 1)
-///         .unwrap();
-/// }
-/// ```
-fn subscription_poll_rejects_a_nested_poll() {}
-
-/// ```compile_fail,E0499
-/// # use rusteron_client::*;
-/// fn receive(image: &mut AeronImage) {
-///     image.poll_fn(|_, _| { image.poll_fn(|_, _| {}, 1).unwrap(); }, 1).unwrap();
-/// }
-/// ```
-fn image_poll_rejects_a_nested_poll() {}
-
-/// The reserved value supplier runs before C advances the term offset, so a nested offer
-/// from the supplier would write over the same frame
-///
-/// ```compile_fail,E0499
-/// # use rusteron_client::*;
-/// fn send(publication: &mut AeronExclusivePublication) {
-///     let supplier = Handler::new(|_: &mut [u8]| publication.offer_raw(b"inner", Handlers::NONE));
-///     publication.offer_raw(b"outer", Some(&supplier));
-/// }
-/// ```
-fn exclusive_supplier_offer_rejects_a_nested_offer() {}
-
 /// ```no_run
 /// # use rusteron_client::*;
-/// fn send(publication: &mut AeronExclusivePublication) {
+/// fn send(publication: &AeronExclusivePublication) {
 ///     let supplier = Handler::new(|_: &mut [u8]| 7);
 ///     publication.offer_raw(b"outer", Some(&supplier));
 /// }

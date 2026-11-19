@@ -47,7 +47,7 @@ For synchronous polling, pass a stack closure:
 
 ```rust,no_run
 # use rusteron_archive::*;
-# fn snippet(archive_context: &AeronArchiveContext, subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
+# fn snippet(archive_context: &AeronArchiveContext, subscription: &AeronSubscription) -> Result<(), AeronCError> {
 // retained (e.g. an error handler on the archive context)
 archive_context.set_error_handler(Some(|code: i32, msg: &str| eprintln!("archive error {code}: {msg}")))?;
 

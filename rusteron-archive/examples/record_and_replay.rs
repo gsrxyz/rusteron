@@ -127,7 +127,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let replay_session_id =
         archive.start_replay(recording_id, &cformat!("{channel}"), replay_stream_id, &replay_params)?;
     let replay_channel = ChannelUri::add_session_id(channel, replay_session_id as i32).into_c_string();
-    let mut replay_sub = retry_transient(Instant::now() + Duration::from_secs(10), || {
+    let replay_sub = retry_transient(Instant::now() + Duration::from_secs(10), || {
         aeron
             .async_add_subscription(&replay_channel, replay_stream_id, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(2))

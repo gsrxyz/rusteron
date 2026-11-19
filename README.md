@@ -10,6 +10,17 @@ for IPC and UDP messaging, recording, replay and replication. It exposes the C A
 minimal abstraction, optimised for production use in latency-sensitive environments,
 and manages resource ownership and callback lifetimes.
 
+## Design goals
+
+- Be as safe as the Aeron Java and C++ clients, at the same cost. Rusteron adds a
+  check only when it costs nothing at run time, such as a lifetime or a borrow rule.
+  It does not add run-time validation, locks or copies that Java and C++ do not have
+- Pass calls through to Aeron C. If Aeron C accepts an invalid argument or state,
+  report it to [Aeron](https://github.com/real-logic/aeron/issues) so every client
+  gets the fix, rather than adding a workaround here
+- Document the rules Aeron leaves to the caller, such as not polling an image from
+  inside a poll on the same image
+
 ## Sponsored by GSR
 
 Rusteron is sponsored and maintained by [GSR](https://www.gsr.io), a global leader in algorithmic trading and market making in digital assets.
@@ -91,7 +102,6 @@ for both publishing and receiving.
 | Shared handles | `Aeron`, regular publications, counters and counter readers are `Send + Sync`; share one through `Arc` or a clone ([example](docs/client-guide.md#sharing-across-threads)) |
 | Local handles | Exclusive publications, images, contexts, async pollers, assemblers, Archive and driver handles stay local; create them on the thread that uses them |
 | Subscriptions | `Send` but not `Sync` and not `Clone`; move one to the thread that polls it |
-| Re-entrant calls | Polls and supplier offers take `&mut self`, so a callback cannot call them again on the same handle ([details](docs/thread-safety.md#re-entrant-calls)) |
 | Configuration | Configure contexts before creating their clients or starting their drivers |
 
 There is no `multi-threaded` feature. Storage and thread traits are selected at

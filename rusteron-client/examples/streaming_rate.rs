@@ -52,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir = driver.dir().to_string();
     let subscriber = thread::spawn(move || -> Result<(u64, u64), AeronCError> {
         let aeron = Aeron::connect_dir(&dir)?;
-        let mut subscription = aeron
+        let subscription = aeron
             .async_add_subscription(AERON_IPC_STREAM, STREAM_ID, Handlers::NONE, Handlers::NONE)?
             .poll_blocking(Duration::from_secs(5))?;
         // fragment assembler so messages larger than the MTU are reassembled
@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut idle = BusySpinIdleStrategy::new();
         loop {
             let fragments = assembler.poll(
-                &mut subscription,
+                &subscription,
                 |buf, _hdr| {
                     counters.0 += 1;
                     counters.1 += buf.len() as u64;

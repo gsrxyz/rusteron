@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .poll_blocking(Duration::from_secs(5))?;
 
     let deadline = Instant::now() + Duration::from_secs(5);
-    let mut image = loop {
+    let image = loop {
         if let Some(image) = subscription.image_by_session_id(publication.session_id()) {
             break image;
         }

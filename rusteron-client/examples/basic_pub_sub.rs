@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let aeron = Aeron::new(&ctx)?;
     aeron.start()?;
 
-    let mut subscription = aeron
+    let subscription = aeron
         .async_add_subscription(AERON_IPC_STREAM, STREAM_ID, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(5))?;
 
@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut assembler = FragmentAssembler::new(Counter { count: 0, bad: 0 })?;
     let mut idle = BackoffIdleStrategy::new();
     loop {
-        idle.idle(assembler.poll(&mut subscription, 10)?);
+        idle.idle(assembler.poll(&subscription, 10)?);
         if assembler.handler().count >= MESSAGES {
             break;
         }

@@ -126,11 +126,10 @@ fn persistent_subscription_retains_context_client_and_listener() {
     let alias = context.clone();
     let capture = Rc::new(());
     let weak = Rc::downgrade(&capture);
-    let mut subscription =
-        AeronArchivePersistentSubscription::create(context, Some(Box::new(Listener(capture)))).unwrap();
+    let subscription = AeronArchivePersistentSubscription::create(context, Some(Box::new(Listener(capture)))).unwrap();
     assert!(alias.set_live_stream_id(999).is_err());
-    assert!(archive.set_message_timeout_ns(100).is_err());
-    assert!(archive.set_aeron(&client).is_err());
+    // The subscription holds its own copy of the Archive context
+    archive.set_message_timeout_ns(100).unwrap();
     assert!(AeronArchivePersistentSubscription::create(alias.clone(), None).is_err());
     drop(client);
     drop(archive);
@@ -144,16 +143,16 @@ fn persistent_subscription_retains_context_client_and_listener() {
 }
 
 #[test]
-fn closing_persistent_subscription_allows_archive_reconfiguration() {
+fn one_archive_context_configures_several_persistent_subscriptions() {
     let driver = driver();
     let client = Aeron::connect_dir(driver.dir()).unwrap();
     let archive = AeronArchiveContext::new().unwrap();
     archive.set_aeron(&client).unwrap();
-    let context = persistent_context(&client, &archive);
-    let subscription = AeronArchivePersistentSubscription::create(context, None).unwrap();
-    assert!(archive.set_message_timeout_ns(123).is_err());
-    drop(subscription);
+    let first = AeronArchivePersistentSubscription::create(persistent_context(&client, &archive), None).unwrap();
     archive.set_message_timeout_ns(123).unwrap();
+    let second = AeronArchivePersistentSubscription::create(persistent_context(&client, &archive), None).unwrap();
+    first.poll_fn(|_, _| {}, 10).unwrap();
+    second.poll_fn(|_, _| {}, 10).unwrap();
 }
 
 #[test]
@@ -178,7 +177,7 @@ fn persistent_subscription_keeps_parents_after_all_external_owners_drop() {
         }))
         .unwrap();
     let context = persistent_context(&client, &archive);
-    let mut subscription = AeronArchivePersistentSubscription::create(context, None).unwrap();
+    let subscription = AeronArchivePersistentSubscription::create(context, None).unwrap();
     drop(client);
     drop(archive);
     assert!(weak.upgrade().is_some());

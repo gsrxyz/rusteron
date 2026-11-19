@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("<< unavailable image");
     });
 
-    let mut subscription = aeron
+    let subscription = aeron
         .async_add_subscription(CHANNEL, STREAM_ID, Some(&on_avail), Some(&on_unavail))?
         .poll_blocking(Duration::from_secs(5))?;
     println!("subscribing to {} on stream id {STREAM_ID}", CHANNEL.to_str()?);

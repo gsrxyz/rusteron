@@ -99,7 +99,7 @@ mod claim_borrow_contract {}
 ///
 /// ```no_run
 /// # use rusteron_client::*;
-/// # fn receive(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
+/// # fn receive(subscription: &AeronSubscription) -> Result<(), AeronCError> {
 /// let mut received = 0;
 /// {
 ///     let mut assembler = FragmentAssembler::new(|_: &[u8], _: &AeronHeader| {
@@ -117,7 +117,7 @@ mod claim_borrow_contract {}
 /// ```compile_fail,E0502
 /// # use rusteron_client::*;
 /// fn overlapping<T: AeronFragmentHandlerCallback>(
-///     assembler: &mut FragmentAssembler<T>, subscription: &mut AeronSubscription,
+///     assembler: &mut FragmentAssembler<T>, subscription: &AeronSubscription,
 /// ) {
 ///     let state = assembler.handler();
 ///     assembler.poll(subscription, 64).unwrap();
@@ -132,7 +132,7 @@ mod owned_assembler_borrow_contract {}
 ///
 /// ```no_run
 /// # use rusteron_client::*;
-/// # fn receive(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
+/// # fn receive(subscription: &AeronSubscription) -> Result<(), AeronCError> {
 /// use rusteron_client::bindings::aeron_controlled_fragment_handler_action_t::AERON_ACTION_CONTINUE;
 /// let mut assembler = ControlledFragmentAssembler::new(
 ///     |message: &[u8], _: &AeronHeader| {
@@ -689,7 +689,7 @@ mod udp_timestamp_tests {
             proxy.local_addr()?
         )
         .into_c_string();
-        let mut subscription =
+        let subscription =
             client.add_subscription(&subscribe_channel, 1540, Handlers::NONE, Handlers::NONE, timeout)?;
         let publication = client.add_exclusive_publication(&publish_channel, 1540, timeout)?;
 
@@ -1263,7 +1263,7 @@ mod tests {
         info!("publication: {:?}", publication);
         info!("subscription: {:?}", subscription);
 
-        if let (Some(publisher), Some(mut subscription)) = (publication, subscription) {
+        if let (Some(publisher), Some(subscription)) = (publication, subscription) {
             let payload = b"hello-aeron";
             let send_start = Instant::now();
             let mut sent = false;
@@ -1357,7 +1357,7 @@ mod tests {
             sleep(Duration::from_millis(10));
         }
 
-        let (publisher, mut subscription) = match (publication, subscription) {
+        let (publisher, subscription) = match (publication, subscription) {
             (Some(p), Some(s)) => (p, s),
             _ => panic!("publication/subscription did not come up"),
         };
@@ -1523,7 +1523,7 @@ mod tests {
             sleep(Duration::from_millis(10));
         }
 
-        let (publisher, mut subscription) = match (publication, subscription) {
+        let (publisher, subscription) = match (publication, subscription) {
             (Some(p), Some(s)) => (p, s),
             _ => panic!("publication/subscription did not come up"),
         };
@@ -1639,7 +1639,7 @@ mod tests {
             sleep(Duration::from_millis(10));
         }
 
-        let (publisher, mut subscription) = match (publication, subscription) {
+        let (publisher, subscription) = match (publication, subscription) {
             (Some(p), Some(s)) => (p, s),
             _ => panic!("publication/subscription did not come up"),
         };
@@ -2690,7 +2690,7 @@ mod tests {
         let aeron = Aeron::new(&ctx)?;
         aeron.start()?;
 
-        let mut subscription = aeron.add_subscription(
+        let subscription = aeron.add_subscription(
             AERON_IPC_STREAM,
             123,
             Handlers::NONE,
@@ -2777,14 +2777,14 @@ mod tests {
         let publisher = aeron.add_publication(AERON_IPC_STREAM, 123, Duration::from_secs(5))?;
 
         // Create two subscriptions on the same channel.
-        let mut subscription1 = aeron.add_subscription(
+        let subscription1 = aeron.add_subscription(
             AERON_IPC_STREAM,
             123,
             Handlers::NONE,
             Handlers::NONE,
             Duration::from_secs(5),
         )?;
-        let mut subscription2 = aeron.add_subscription(
+        let subscription2 = aeron.add_subscription(
             AERON_IPC_STREAM,
             123,
             Handlers::NONE,
@@ -2946,7 +2946,7 @@ mod tests {
         let aeron = Aeron::new(&ctx)?;
         aeron.start()?;
         let publisher = aeron.add_publication(AERON_IPC_STREAM, 123, Duration::from_secs(5))?;
-        let mut subscription = aeron.add_subscription(
+        let subscription = aeron.add_subscription(
             AERON_IPC_STREAM,
             123,
             Handlers::NONE,
@@ -3118,7 +3118,7 @@ mod tests {
             let (_ctx, aeron) =
                 create_client_for_dir(&subscriber_dir).expect("failed to create subscriber aeron client");
 
-            let mut subscription = aeron
+            let subscription = aeron
                 .add_subscription(
                     &subscriber_channel.into_c_string(),
                     STREAM_ID,
@@ -3172,7 +3172,7 @@ mod tests {
         let publisher_thread = std::thread::spawn(move || -> u64 {
             let (_ctx, aeron) = create_client_for_dir(&publisher_dir).expect("failed to create publisher aeron client");
 
-            let mut publication = aeron
+            let publication = aeron
                 .add_exclusive_publication(&publisher_channel.into_c_string(), STREAM_ID, Duration::from_secs(5))
                 .expect("failed to create publication");
 
@@ -3248,7 +3248,7 @@ mod tests {
         let (_a_ctx2, aeron_sub) = create_client(&md_ctx)?;
 
         info!("creating suscriber 1");
-        let mut sub = aeron_sub
+        let sub = aeron_sub
             .add_subscription(
                 c"aeron:udp?tags=100",
                 123,
@@ -3270,7 +3270,7 @@ mod tests {
         aeron.start()?;
 
         info!("creating suscriber 2");
-        let mut sub2 = aeron_sub.add_subscription(
+        let sub2 = aeron_sub.add_subscription(
             c"aeron:udp?tags=100",
             123,
             Handlers::NONE,
@@ -3655,7 +3655,7 @@ mod tests {
                 sleep(Duration::from_millis(10));
             }
 
-            let (publisher, mut subscription) = match (publication, subscription) {
+            let (publisher, subscription) = match (publication, subscription) {
                 (Some(p), Some(s)) => (p, s),
                 _ => panic!("publication/subscription did not come up"),
             };
@@ -3875,7 +3875,7 @@ mod tests {
             Handlers::NONE,
             Duration::from_secs(5),
         )?;
-        let mut responses = aeron.add_subscription(
+        let responses = aeron.add_subscription(
             &response_channel,
             1551,
             Handlers::NONE,
@@ -4246,7 +4246,7 @@ mod tests {
         let publisher = aeron
             .add_publication(AERON_IPC_STREAM, 1501, Duration::from_secs(5))
             .unwrap();
-        let mut subscription = aeron
+        let subscription = aeron
             .add_subscription(
                 AERON_IPC_STREAM,
                 1501,
@@ -4527,7 +4527,7 @@ mod tests {
             available: available.clone(),
             drops: image_drops.clone(),
         });
-        let mut subscription = aeron
+        let subscription = aeron
             .add_subscription(
                 AERON_IPC_STREAM,
                 1801,
@@ -4681,7 +4681,7 @@ mod tests {
         let publication = aeron
             .add_publication(AERON_IPC_STREAM, 1952, Duration::from_secs(5))
             .unwrap();
-        let mut subscription = aeron
+        let subscription = aeron
             .add_subscription(
                 AERON_IPC_STREAM,
                 1952,
@@ -5276,7 +5276,7 @@ mod tests {
         let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
         let stream_id = 1904;
 
-        let mut subscription = aeron
+        let subscription = aeron
             .async_add_subscription(
                 &manual_control_mode_channel(),
                 stream_id,
@@ -5639,7 +5639,7 @@ mod tests {
         let publisher = aeron
             .add_publication(AERON_IPC_STREAM, 1901, Duration::from_secs(5))
             .unwrap();
-        let mut subscription = aeron
+        let subscription = aeron
             .add_subscription(
                 AERON_IPC_STREAM,
                 1901,
@@ -5704,7 +5704,7 @@ mod tests {
         let publication = aeron
             .add_publication(AERON_IPC_STREAM, 1902, Duration::from_secs(5))
             .unwrap();
-        let mut subscription = aeron
+        let subscription = aeron
             .add_subscription(
                 AERON_IPC_STREAM,
                 1902,
@@ -5775,7 +5775,7 @@ mod tests {
         let publication = aeron
             .add_publication(AERON_IPC_STREAM, 1904, Duration::from_secs(5))
             .unwrap();
-        let mut subscription = aeron
+        let subscription = aeron
             .add_subscription(
                 AERON_IPC_STREAM,
                 1904,
@@ -5998,7 +5998,7 @@ mod tests {
         let publisher = aeron
             .add_publication(AERON_IPC_STREAM, 1631, Duration::from_secs(5))
             .unwrap();
-        let mut subscription = aeron
+        let subscription = aeron
             .add_subscription(
                 AERON_IPC_STREAM,
                 1631,
@@ -6078,7 +6078,7 @@ mod tests {
         let publisher = aeron
             .add_publication(AERON_IPC_STREAM, 1701, Duration::from_secs(5))
             .unwrap();
-        let mut subscription = aeron
+        let subscription = aeron
             .add_subscription(
                 AERON_IPC_STREAM,
                 1701,
@@ -6296,10 +6296,7 @@ mod tests {
         macro_rules! drive_until {
             ($cond:expr, $msg:expr) => {{
                 loop {
-                    // SAFETY: this test is the only caller of its manual conductor.
-                    unsafe {
-                        aeron.main_do_work().unwrap();
-                    }
+                    aeron.main_do_work().unwrap();
                     if $cond {
                         break;
                     }
@@ -6352,10 +6349,7 @@ mod tests {
         // Pump the invoker a bit more so the close (and any in-flight callback racing
         // with it) is fully processed under our control, proving it's safe either way.
         for _ in 0..200 {
-            // SAFETY: this test is the only caller of its manual conductor.
-            unsafe {
-                aeron.main_do_work().unwrap();
-            }
+            aeron.main_do_work().unwrap();
             sleep(Duration::from_millis(1));
         }
 

@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     aeron.start()?;
 
     // Create a subscription in manual control mode.
-    let mut subscription = aeron
+    let subscription = aeron
         .async_add_subscription(c"aeron:udp?control-mode=manual", 1003, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(Duration::from_secs(5))?;
 
@@ -59,7 +59,7 @@ Remove an endpoint when a network path changes or a server fails:
 ```rust,no_run
 # use rusteron_client::*;
 # use std::time::Duration;
-# fn snippet(subscription: &mut AeronSubscription, destination_a: &str) -> Result<(), AeronCError> {
+# fn snippet(subscription: &AeronSubscription, destination_a: &str) -> Result<(), AeronCError> {
 // Remove a destination from the subscription
 subscription.remove_destination(&cformat!("{destination_a}"), Duration::from_secs(5))?;
 # Ok(()) }

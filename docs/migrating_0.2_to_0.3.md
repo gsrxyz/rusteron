@@ -14,16 +14,16 @@ explicit type annotations and low-level FFI access.
 | Cloning a getter's `Ref` | Borrow again with `as_ref()`, or use an explicit retained-child getter |
 | Function arguments annotated as the default owning wrapper | Add a storage parameter if the function should also accept borrowed views |
 | Cloning an Archive context or native assembler | Keep one owner. Borrow it, or share a newly created context through `Rc` during setup |
-| Cloning a subscription, image, exclusive publication, replay merge or persistent subscription | Keep one owner. Polls and supplier offers take `&mut self`. See [re-entrant calls](thread-safety.md#re-entrant-calls) |
-| A poll or supplier offer through `&handle` | Declare the handle `let mut` and borrow it mutably |
+| Cloning a subscription | Keep one owner and move it to the thread that polls it |
+| `AeronArchiveReplayMerge::new(&subscription, &archive, ...)` | Pass `archive` by value. Pass `archive.clone()` if you use the archive after the merge, and leave it idle until the merge drops |
 | Cloning a recording descriptor poller | Keep one mutable owner. `poll()` takes `&mut self` and needs a consumer installed by `reset()` |
 | `close()` or `delete()` followed by reuse | These consume the owning handle. Use another owning clone if supported |
 | `From<*mut T>`, `From<native_struct>` or implicit native struct `Deref` | Use the documented unsafe constructors or explicit field getters |
-| Mutable configuration strings borrowed as `&str` | Borrowing needs `unsafe`. Use `_owned()` for a copy |
+| Holding a configuration string across a setter | Use the `&str` straight away, or `_owned()` for a copy |
 | Raw counter addresses used as references | Use `addr_atomic()` |
 | `timestamp_offset_reserved("...")` | Use `media_rcv_timestamp_offset("reserved")`, `channel_rcv_timestamp_offset("reserved")` or `channel_snd_timestamp_offset("reserved")`. Aeron defines `reserved` as a value, not a key |
 | Exhaustive matches on public Rust enums | Add a fallback arm. The enums are `#[non_exhaustive]` |
-| Raw manual conductor calls | Coordinate all native callers and use the documented unsafe entry point |
+| Raw manual conductor calls | Call `main_do_work()` from one thread at a time, as in Aeron Java and C++ |
 
 Update the crate versions together:
 
@@ -42,9 +42,8 @@ Use `rusteron-archive` instead if you need both transport and Archive APIs.
 let context = AeronArchiveContext::new()?;
 context.set_control_response_channel(c"aeron:ipc")?;
 
-// No allocation. This local context stays unchanged while channel is borrowed.
-// SAFETY: the text is used at once, before any setter can change it
-let channel = unsafe { context.get_control_response_channel() };
+// No allocation. Use the text before any setter can change it
+let channel = context.get_control_response_channel();
 assert_eq!(channel, "aeron:ipc");
 
 // One explicit copy. The snapshot stays valid after the context changes.
@@ -54,8 +53,8 @@ assert_eq!(saved, "aeron:ipc");
 # Ok(()) }
 ```
 
-The safe `&str` getter in 0.2 let a setter free or overwrite text that was still
-borrowed. In 0.3 the borrowing getter is `unsafe` and `_owned` returns a copy.
+As in Aeron Java and C++, the `&str` points into native storage, and a setter can
+free or overwrite it. Use it straight away, or call `_owned` for a copy.
 
 Publishing, claiming, committing, direct polling and reading recording descriptor
 fields do not allocate on the Rust heap. Owned fragment assemblers allocate once
@@ -118,15 +117,15 @@ To keep a child beyond a short borrow, use a retained getter:
 use rusteron_archive::*;
 
 # fn retain(archive: AeronArchive) -> Result<(), AeronCError> {
-let client = archive.aeron_owned();
+// `None` only for an archive wrapped from a raw pointer
+let client = archive.aeron_owned().ok_or_else(|| AeronCError::with_message(-1, "no client"))?;
 let context = archive.retain_archive_context()?;
 archive.close()?;
 
-// These retained handles keep the archive and its children alive.
-let id = client.as_ref().client_id();
-let view = context.as_ref();
-// SAFETY: context stays alive and unchanged while request_channel is borrowed
-let request_channel = unsafe { view.get_control_request_channel() };
+// The client clone and the retained context outlive the archive
+let id = client.client_id();
+// Use the text straight away, before any setter on the context
+let request_channel = context.as_ref().get_control_request_channel().to_owned();
 # let _ = (id, request_channel);
 # Ok(()) }
 ```
@@ -168,17 +167,16 @@ Create local resources on the thread that uses them. A regular publication can b
 shared among producer threads. Borrowed and retained views follow the thread
 traits of their storage and parent.
 
-Subscriptions, images and exclusive publications have no `Clone`, and their polls
-and supplier offers take `&mut self`. One owner uses each native object, so a
-subscription can move to the thread that polls it. A retained image from
+Subscriptions have no `Clone`, so a subscription can move to the thread that
+polls it. A retained image from
 `image_at_index` stays local. The grouped `No` entries are conservative. See
 [thread safety](thread-safety.md#native-contracts-and-wrapper-traits).
 
 Configure contexts before native initialization. Later setters return an error,
 or panic if the signature has no error result. Manual conductor methods such as
-`main_do_work()` and `main_idle_strategy()` require `unsafe`. The caller must
-prevent concurrent and recursive conductor calls, including calls from native
-Archive operations. A background conductor avoids this for shared clients.
+`main_do_work()` and `main_idle_strategy()` are safe. As in Aeron Java and C++,
+call them from one thread at a time. A background conductor avoids this for
+shared clients.
 
 To share a client or regular publication, put it in an `Arc` or clone it. See
 [sharing across threads](client-guide.md#sharing-across-threads) for an example
@@ -261,7 +259,7 @@ impl AeronFragmentHandlerCallback for Receiver {
     }
 }
 
-# fn receive(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
+# fn receive(subscription: &AeronSubscription) -> Result<(), AeronCError> {
 let callback = Handler::new(Receiver::default());
 subscription.poll(Some(&callback), 32)?;
 # Ok(()) }
@@ -282,7 +280,7 @@ impl AeronFragmentHandlerCallback for Receiver {
     }
 }
 
-# fn receive(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
+# fn receive(subscription: &AeronSubscription) -> Result<(), AeronCError> {
 let mut callback = Receiver::default();
 subscription.poll(&mut callback, 32)?;
 # Ok(()) }
@@ -308,7 +306,7 @@ impl AeronFragmentHandlerCallback for Messages {
     }
 }
 
-# fn receive(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
+# fn receive(subscription: &AeronSubscription) -> Result<(), AeronCError> {
 let (assembler, messages) = Handler::with_fragment_assembler(Messages::default())?;
 subscription.poll(Some(&assembler), 64)?;
 println!("{} complete messages", messages.0);
@@ -330,7 +328,7 @@ impl AeronFragmentHandlerCallback for Messages {
     }
 }
 
-# fn receive(subscription: &mut AeronSubscription, image: &mut AeronImage) -> Result<(), AeronCError> {
+# fn receive(subscription: &AeronSubscription, image: &AeronImage) -> Result<(), AeronCError> {
 let mut assembler = FragmentAssembler::new(Messages::default())?;
 assembler.poll(subscription, 64)?;
 image.poll(&mut assembler, 64)?;
@@ -361,7 +359,7 @@ impl AeronControlledFragmentHandlerCallback for UntilFull {
     }
 }
 
-# fn receive(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
+# fn receive(subscription: &AeronSubscription) -> Result<(), AeronCError> {
 let mut assembler = ControlledFragmentAssembler::new(UntilFull(Vec::with_capacity(1 << 20)))?;
 assembler.poll(subscription, 64)?;
 assembler.handler_mut().0.clear();
@@ -393,7 +391,7 @@ The closure borrows local variables for the poll call only:
 ```rust,no_run
 use rusteron_archive::*;
 
-# fn receive(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
+# fn receive(subscription: &AeronSubscription) -> Result<(), AeronCError> {
 let mut bytes = 0;
 let mut assembler = AeronFragmentClosureAssembler::new()?;
 assembler.poll(subscription, |message, _header| bytes += message.len(), 64)?;
@@ -456,7 +454,8 @@ unfinished. `data()` needs mutable access, so mutable slices cannot overlap. The
 lifetime adds no runtime cost.
 
 The low-level `AeronBufferClaim` API needs `unsafe` to construct claims from
-external buffers or access their mutable buffers. The same applies to
+external buffers. `data_mut()`, `commit()` and `abort()` are safe. As in Aeron Java
+and C++, the bytes stay valid only until the claim is committed or aborted. The same applies to
 pointer-bearing wrappers such as `AeronMappedBuffer`. An unsafe constructor does
 not extend the backing buffer's lifetime.
 
@@ -489,12 +488,10 @@ owner. `build()` returns an error for embedded NULs in string fields.
   cancelled async handles cannot expose a cached borrowed view.
 - Deleting a separately created `AeronArchiveProxy` leaves its Rust-owned
   publication open. It closes when its last owner is released.
-- String getters return borrowed `&str` without allocating. Getters for immutable
-  text, such as version strings, publication channels and recording descriptor
-  fields, are safe. Getters for replaceable text, such as
-  `get_control_request_channel()`, need `unsafe`. Keep the owner alive and do not
-  let any setter, native call or alias change the text while it is borrowed. Use
-  `get_control_request_channel_owned()` for a copy.
+- String getters return borrowed `&str` without allocating. For replaceable text,
+  such as `get_control_request_channel()`, use the text before any setter, poll or
+  close changes it, or call `get_control_request_channel_owned()` for a copy.
+  Free functions that return native text, such as `errmsg()`, stay `unsafe`.
 - Optional persistent-subscription counter getters return
   `Option<Ref<'_, AeronCounter>>`. Handle `None` for an unset counter. Raw setters
   and builder counter methods that transfer native ownership need `unsafe` and

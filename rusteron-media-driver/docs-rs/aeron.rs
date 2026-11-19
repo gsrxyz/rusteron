@@ -45,7 +45,7 @@ impl<S: ResourceStorage<addrinfo>> core::fmt::Debug for Addrinfo<S> {
             .field("ai_family", &self.ai_family())
             .field("ai_socktype", &self.ai_socktype())
             .field("ai_protocol", &self.ai_protocol())
-            .field("ai_canonname", &unsafe { self.ai_canonname() })
+            .field("ai_canonname", &self.ai_canonname())
             .finish()
     }
 }
@@ -154,10 +154,10 @@ impl<S: ResourceStorage<addrinfo>> Addrinfo<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn ai_canonname(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn ai_canonname(&self) -> &str {
         if unsafe { self.get_inner_ref() }.ai_canonname.is_null() {
             ""
         } else {
@@ -811,8 +811,6 @@ pub struct ManagedCResource<T: NativeResource> {
     dependencies: std::sync::Mutex<Vec<ResourceDependency<<T::Policy as ResourcePolicy>::Erased>>>,
     frozen: std::sync::atomic::AtomicBool,
     operation: std::sync::atomic::AtomicBool,
-    manual_conductor: bool,
-    conductor_thread: std::sync::OnceLock<std::thread::ThreadId>,
     started: std::sync::atomic::AtomicBool,
 }
 struct ResourceDependency<E: ?Sized> {
@@ -856,8 +854,6 @@ impl<T: NativeResource> ManagedCResource<T> {
             dependencies: std::sync::Mutex::new(Vec::new()),
             frozen: std::sync::atomic::AtomicBool::new(false),
             operation: std::sync::atomic::AtomicBool::new(false),
-            manual_conductor: false,
-            conductor_thread: std::sync::OnceLock::new(),
             started: std::sync::atomic::AtomicBool::new(false),
         })
     }
@@ -1031,24 +1027,6 @@ impl<T: NativeResource> ManagedCResource<T> {
     pub(crate) fn check_not_frozen(&self) -> Result<(), AeronCError> {
         if self.frozen.load(std::sync::atomic::Ordering::Acquire) {
             return Err(AeronCError::with_message(-1, "context cannot be changed after use"));
-        }
-        Ok(())
-    }
-    pub(crate) fn with_manual_conductor(mut self, enabled: bool) -> Self {
-        self.manual_conductor = enabled;
-        self
-    }
-    #[doc = " Native archive calls can invoke the conductor without going through Rust."]
-    #[doc = " Keep every safe native archive using this manual client on one thread."]
-    pub(crate) fn bind_conductor_thread(&self) -> Result<(), AeronCError> {
-        if self.manual_conductor {
-            let current = std::thread::current().id();
-            if *self.conductor_thread.get_or_init(|| current) != current {
-                return Err(AeronCError::with_message(
-                    -1,
-                    "an agent-invoker client must be started and used by archives on the same thread",
-                ));
-            }
         }
         Ok(())
     }
@@ -3603,10 +3581,7 @@ impl Aeron {
                     let invoker = poller.agent_invoker_client();
                     while start.elapsed() <= timeout {
                         if let Some(aeron) = &invoker {
-                            aeron.inner.owner().bind_conductor_thread()?;
-                            unsafe {
-                                aeron.main_do_work()?;
-                            }
+                            aeron.main_do_work()?;
                         }
                         if let Some(result) = poller.poll()? {
                             return Ok(result);
@@ -3738,10 +3713,7 @@ impl AeronAsyncAddCounter {
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
             if let Some(aeron) = &invoker {
-                aeron.inner.owner().bind_conductor_thread()?;
-                unsafe {
-                    aeron.main_do_work()?;
-                }
+                aeron.main_do_work()?;
             }
             if let Some(result) = self.poll()? {
                 return Ok(result);
@@ -4041,10 +4013,7 @@ impl Aeron {
                     let invoker = poller.agent_invoker_client();
                     while start.elapsed() <= timeout {
                         if let Some(aeron) = &invoker {
-                            aeron.inner.owner().bind_conductor_thread()?;
-                            unsafe {
-                                aeron.main_do_work()?;
-                            }
+                            aeron.main_do_work()?;
                         }
                         if let Some(result) = poller.poll()? {
                             return Ok(result);
@@ -4173,10 +4142,7 @@ impl AeronAsyncAddExclusivePublication {
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
             if let Some(aeron) = &invoker {
-                aeron.inner.owner().bind_conductor_thread()?;
-                unsafe {
-                    aeron.main_do_work()?;
-                }
+                aeron.main_do_work()?;
             }
             if let Some(result) = self.poll()? {
                 return Ok(result);
@@ -4456,10 +4422,7 @@ impl Aeron {
                     let invoker = poller.agent_invoker_client();
                     while start.elapsed() <= timeout {
                         if let Some(aeron) = &invoker {
-                            aeron.inner.owner().bind_conductor_thread()?;
-                            unsafe {
-                                aeron.main_do_work()?;
-                            }
+                            aeron.main_do_work()?;
                         }
                         if let Some(result) = poller.poll()? {
                             return Ok(result);
@@ -4583,10 +4546,7 @@ impl AeronAsyncAddPublication {
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
             if let Some(aeron) = &invoker {
-                aeron.inner.owner().bind_conductor_thread()?;
-                unsafe {
-                    aeron.main_do_work()?;
-                }
+                aeron.main_do_work()?;
             }
             if let Some(result) = self.poll()? {
                 return Ok(result);
@@ -4893,10 +4853,7 @@ impl Aeron {
                     let invoker = poller.agent_invoker_client();
                     while start.elapsed() <= timeout {
                         if let Some(aeron) = &invoker {
-                            aeron.inner.owner().bind_conductor_thread()?;
-                            unsafe {
-                                aeron.main_do_work()?;
-                            }
+                            aeron.main_do_work()?;
                         }
                         if let Some(result) = poller.poll()? {
                             return Ok(result);
@@ -5084,10 +5041,7 @@ impl AeronAsyncAddSubscription {
         let time = std::time::Instant::now();
         while time.elapsed() < timeout {
             if let Some(aeron) = &invoker {
-                aeron.inner.owner().bind_conductor_thread()?;
-                unsafe {
-                    aeron.main_do_work()?;
-                }
+                aeron.main_do_work()?;
             }
             if let Some(result) = self.poll()? {
                 return Ok(result);
@@ -7188,9 +7142,7 @@ impl<S: ResourceStorage<aeron_buffer_claim_t>> AeronBufferClaim<S> {
     #[doc = "Commit the given buffer_claim as a complete message available for consumption."]
     #[doc = ""]
     #[doc = " \n# Return\n 0 for success or -1 for error."]
-    #[doc = "# Safety"]
-    #[doc = "This bypasses Rust ownership. Keep all retained pointers valid until native cleanup. Initializers require exclusive access and must not overwrite live native state or invalidate borrowed views. After raw removal or deletion, prevent all further access and Rust cleanup through every alias. Prefer the owning handle's constructor, close or cancel method."]
-    pub unsafe fn commit(&self) -> Result<i32, AeronCError> {
+    pub fn commit(&self) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -7212,9 +7164,7 @@ impl<S: ResourceStorage<aeron_buffer_claim_t>> AeronBufferClaim<S> {
     #[doc = "Abort the given buffer_claim and assign its position as padding."]
     #[doc = ""]
     #[doc = " \n# Return\n 0 for success or -1 for error."]
-    #[doc = "# Safety"]
-    #[doc = "This bypasses Rust ownership. Keep all retained pointers valid until native cleanup. Initializers require exclusive access and must not overwrite live native state or invalidate borrowed views. After raw removal or deletion, prevent all further access and Rust cleanup through every alias. Prefer the owning handle's constructor, close or cancel method."]
-    pub unsafe fn abort(&self) -> Result<i32, AeronCError> {
+    pub fn abort(&self) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -9979,12 +9929,10 @@ impl<S: ResourceStorage<aeron_context_t>> core::fmt::Debug for AeronContext<S> {
         }
         f.debug_struct(stringify!(AeronContext))
             .field("inner", &self.inner)
-            .field("get_dir", &unsafe { self.get_dir() })
-            .field("get_idle_strategy_init_args", &unsafe {
-                self.get_idle_strategy_init_args()
-            })
-            .field("get_idle_strategy", &unsafe { self.get_idle_strategy() })
-            .field("get_client_name", &unsafe { self.get_client_name() })
+            .field("get_dir", &self.get_dir())
+            .field("get_idle_strategy_init_args", &self.get_idle_strategy_init_args())
+            .field("get_idle_strategy", &self.get_idle_strategy())
+            .field("get_client_name", &self.get_client_name())
             .finish()
     }
 }
@@ -10086,10 +10034,10 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_dir_owned()` to keep a copy."]
-    pub unsafe fn get_dir(&self) -> &str {
+    pub fn get_dir(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -10306,10 +10254,10 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_idle_strategy_init_args_owned()` to keep a copy."]
-    pub unsafe fn get_idle_strategy_init_args(&self) -> &str {
+    pub fn get_idle_strategy_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -10366,10 +10314,10 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_idle_strategy_owned()` to keep a copy."]
-    pub unsafe fn get_idle_strategy(&self) -> &str {
+    pub fn get_idle_strategy(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -10466,10 +10414,10 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_client_name_owned()` to keep a copy."]
-    pub unsafe fn get_client_name(&self) -> &str {
+    pub fn get_client_name(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -18164,7 +18112,7 @@ impl<S: ResourceStorage<aeron_distinct_observation_t>> core::fmt::Debug for Aero
         }
         f.debug_struct(stringify!(AeronDistinctObservation))
             .field("inner", &self.inner)
-            .field("description", &unsafe { self.description() })
+            .field("description", &self.description())
             .field("error_code", &self.error_code())
             .field("offset", &self.offset())
             .field("description_length", &self.description_length())
@@ -18241,10 +18189,10 @@ impl AeronDistinctObservation {}
 impl<S: ResourceStorage<aeron_distinct_observation_t>> AeronDistinctObservation<S> {
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn description(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn description(&self) -> &str {
         if unsafe { self.get_inner_ref() }.description.is_null() {
             ""
         } else {
@@ -22279,7 +22227,7 @@ impl<S: ResourceStorage<aeron_driver_context_bindings_clientd_entry_t>> core::fm
         }
         f.debug_struct(stringify!(AeronDriverContextBindingsClientdEntry))
             .field("inner", &self.inner)
-            .field("name", &unsafe { self.name() })
+            .field("name", &self.name())
             .finish()
     }
 }
@@ -22353,10 +22301,10 @@ impl AeronDriverContextBindingsClientdEntry {}
 impl<S: ResourceStorage<aeron_driver_context_bindings_clientd_entry_t>> AeronDriverContextBindingsClientdEntry<S> {
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.name.is_null() {
             ""
         } else {
@@ -22650,42 +22598,36 @@ impl<S: ResourceStorage<aeron_driver_context_t>> core::fmt::Debug for AeronDrive
                 "native_resource_agent_command_queue",
                 &self.native_resource_agent_command_queue(),
             )
-            .field("conductor_idle_strategy_init_args", &unsafe {
-                self.conductor_idle_strategy_init_args()
-            })
-            .field("conductor_idle_strategy_name", &unsafe {
-                self.conductor_idle_strategy_name()
-            })
-            .field("shared_idle_strategy_init_args", &unsafe {
-                self.shared_idle_strategy_init_args()
-            })
-            .field("shared_idle_strategy_name", &unsafe {
-                self.shared_idle_strategy_name()
-            })
-            .field("shared_network_idle_strategy_init_args", &unsafe {
-                self.shared_network_idle_strategy_init_args()
-            })
-            .field("shared_network_idle_strategy_name", &unsafe {
-                self.shared_network_idle_strategy_name()
-            })
-            .field("sender_idle_strategy_init_args", &unsafe {
-                self.sender_idle_strategy_init_args()
-            })
-            .field("sender_idle_strategy_name", &unsafe {
-                self.sender_idle_strategy_name()
-            })
-            .field("receiver_idle_strategy_init_args", &unsafe {
-                self.receiver_idle_strategy_init_args()
-            })
-            .field("receiver_idle_strategy_name", &unsafe {
-                self.receiver_idle_strategy_name()
-            })
-            .field("native_resource_agent_idle_strategy_init_args", &unsafe {
-                self.native_resource_agent_idle_strategy_init_args()
-            })
-            .field("native_resource_agent_idle_strategy_name", &unsafe {
-                self.native_resource_agent_idle_strategy_name()
-            })
+            .field(
+                "conductor_idle_strategy_init_args",
+                &self.conductor_idle_strategy_init_args(),
+            )
+            .field("conductor_idle_strategy_name", &self.conductor_idle_strategy_name())
+            .field("shared_idle_strategy_init_args", &self.shared_idle_strategy_init_args())
+            .field("shared_idle_strategy_name", &self.shared_idle_strategy_name())
+            .field(
+                "shared_network_idle_strategy_init_args",
+                &self.shared_network_idle_strategy_init_args(),
+            )
+            .field(
+                "shared_network_idle_strategy_name",
+                &self.shared_network_idle_strategy_name(),
+            )
+            .field("sender_idle_strategy_init_args", &self.sender_idle_strategy_init_args())
+            .field("sender_idle_strategy_name", &self.sender_idle_strategy_name())
+            .field(
+                "receiver_idle_strategy_init_args",
+                &self.receiver_idle_strategy_init_args(),
+            )
+            .field("receiver_idle_strategy_name", &self.receiver_idle_strategy_name())
+            .field(
+                "native_resource_agent_idle_strategy_init_args",
+                &self.native_resource_agent_idle_strategy_init_args(),
+            )
+            .field(
+                "native_resource_agent_idle_strategy_name",
+                &self.native_resource_agent_idle_strategy_name(),
+            )
             .field(
                 "udp_channel_transport_poller_iteration_threshold",
                 &self.udp_channel_transport_poller_iteration_threshold(),
@@ -22703,11 +22645,9 @@ impl<S: ResourceStorage<aeron_driver_context_t>> core::fmt::Debug for AeronDrive
                 "multicast_delay_feedback_generator",
                 &self.multicast_delay_feedback_generator(),
             )
-            .field("resolver_name", &unsafe { self.resolver_name() })
-            .field("resolver_interface", &unsafe { self.resolver_interface() })
-            .field("resolver_bootstrap_neighbor", &unsafe {
-                self.resolver_bootstrap_neighbor()
-            })
+            .field("resolver_name", &self.resolver_name())
+            .field("resolver_interface", &self.resolver_interface())
+            .field("resolver_bootstrap_neighbor", &self.resolver_bootstrap_neighbor())
             .field("resolver_neighbor_timeout_ns", &self.resolver_neighbor_timeout_ns())
             .field(
                 "resolver_self_resolution_interval_ns",
@@ -22721,10 +22661,11 @@ impl<S: ResourceStorage<aeron_driver_context_t>> core::fmt::Debug for AeronDrive
                 "resolver_bootstrap_neighbor_resolution_interval_ns",
                 &self.resolver_bootstrap_neighbor_resolution_interval_ns(),
             )
-            .field("name_resolver_init_args", &unsafe { self.name_resolver_init_args() })
-            .field("driver_name_resolver_boostrap_resolver_init_args", &unsafe {
-                self.driver_name_resolver_boostrap_resolver_init_args()
-            })
+            .field("name_resolver_init_args", &self.name_resolver_init_args())
+            .field(
+                "driver_name_resolver_boostrap_resolver_init_args",
+                &self.driver_name_resolver_boostrap_resolver_init_args(),
+            )
             .field(
                 "conductor_duty_cycle_stall_tracker",
                 &self.conductor_duty_cycle_stall_tracker(),
@@ -22744,47 +22685,50 @@ impl<S: ResourceStorage<aeron_driver_context_t>> core::fmt::Debug for AeronDrive
             .field("sender_wildcard_port_manager", &self.sender_wildcard_port_manager())
             .field("receiver_wildcard_port_manager", &self.receiver_wildcard_port_manager())
             .field("num_bindings_clientd_entries", &self.num_bindings_clientd_entries())
-            .field("get_dir", &unsafe { self.get_dir() })
-            .field("get_sender_idle_strategy", &unsafe { self.get_sender_idle_strategy() })
-            .field("get_conductor_idle_strategy", &unsafe {
-                self.get_conductor_idle_strategy()
-            })
-            .field("get_receiver_idle_strategy", &unsafe {
-                self.get_receiver_idle_strategy()
-            })
-            .field("get_sharednetwork_idle_strategy", &unsafe {
-                self.get_sharednetwork_idle_strategy()
-            })
-            .field("get_shared_idle_strategy", &unsafe { self.get_shared_idle_strategy() })
-            .field("get_sender_idle_strategy_init_args", &unsafe {
-                self.get_sender_idle_strategy_init_args()
-            })
-            .field("get_conductor_idle_strategy_init_args", &unsafe {
-                self.get_conductor_idle_strategy_init_args()
-            })
-            .field("get_receiver_idle_strategy_init_args", &unsafe {
-                self.get_receiver_idle_strategy_init_args()
-            })
-            .field("get_sharednetwork_idle_strategy_init_args", &unsafe {
-                self.get_sharednetwork_idle_strategy_init_args()
-            })
-            .field("get_shared_idle_strategy_init_args", &unsafe {
-                self.get_shared_idle_strategy_init_args()
-            })
-            .field("get_native_resource_agent_idle_strategy", &unsafe {
-                self.get_native_resource_agent_idle_strategy()
-            })
-            .field("get_native_resource_agent_idle_strategy_init_args", &unsafe {
-                self.get_native_resource_agent_idle_strategy_init_args()
-            })
-            .field("get_resolver_name", &unsafe { self.get_resolver_name() })
-            .field("get_resolver_interface", &unsafe { self.get_resolver_interface() })
-            .field("get_resolver_bootstrap_neighbor", &unsafe {
-                self.get_resolver_bootstrap_neighbor()
-            })
-            .field("get_name_resolver_init_args", &unsafe {
-                self.get_name_resolver_init_args()
-            })
+            .field("get_dir", &self.get_dir())
+            .field("get_sender_idle_strategy", &self.get_sender_idle_strategy())
+            .field("get_conductor_idle_strategy", &self.get_conductor_idle_strategy())
+            .field("get_receiver_idle_strategy", &self.get_receiver_idle_strategy())
+            .field(
+                "get_sharednetwork_idle_strategy",
+                &self.get_sharednetwork_idle_strategy(),
+            )
+            .field("get_shared_idle_strategy", &self.get_shared_idle_strategy())
+            .field(
+                "get_sender_idle_strategy_init_args",
+                &self.get_sender_idle_strategy_init_args(),
+            )
+            .field(
+                "get_conductor_idle_strategy_init_args",
+                &self.get_conductor_idle_strategy_init_args(),
+            )
+            .field(
+                "get_receiver_idle_strategy_init_args",
+                &self.get_receiver_idle_strategy_init_args(),
+            )
+            .field(
+                "get_sharednetwork_idle_strategy_init_args",
+                &self.get_sharednetwork_idle_strategy_init_args(),
+            )
+            .field(
+                "get_shared_idle_strategy_init_args",
+                &self.get_shared_idle_strategy_init_args(),
+            )
+            .field(
+                "get_native_resource_agent_idle_strategy",
+                &self.get_native_resource_agent_idle_strategy(),
+            )
+            .field(
+                "get_native_resource_agent_idle_strategy_init_args",
+                &self.get_native_resource_agent_idle_strategy_init_args(),
+            )
+            .field("get_resolver_name", &self.get_resolver_name())
+            .field("get_resolver_interface", &self.get_resolver_interface())
+            .field(
+                "get_resolver_bootstrap_neighbor",
+                &self.get_resolver_bootstrap_neighbor(),
+            )
+            .field("get_name_resolver_init_args", &self.get_name_resolver_init_args())
             .finish()
     }
 }
@@ -23400,10 +23344,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn conductor_idle_strategy_init_args(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn conductor_idle_strategy_init_args(&self) -> &str {
         if unsafe { self.get_inner_ref() }
             .conductor_idle_strategy_init_args
             .is_null()
@@ -23437,10 +23381,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn conductor_idle_strategy_name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn conductor_idle_strategy_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.conductor_idle_strategy_name.is_null() {
             ""
         } else {
@@ -23478,10 +23422,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn shared_idle_strategy_init_args(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn shared_idle_strategy_init_args(&self) -> &str {
         if unsafe { self.get_inner_ref() }.shared_idle_strategy_init_args.is_null() {
             ""
         } else {
@@ -23509,10 +23453,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn shared_idle_strategy_name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn shared_idle_strategy_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.shared_idle_strategy_name.is_null() {
             ""
         } else {
@@ -23552,10 +23496,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn shared_network_idle_strategy_init_args(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn shared_network_idle_strategy_init_args(&self) -> &str {
         if unsafe { self.get_inner_ref() }
             .shared_network_idle_strategy_init_args
             .is_null()
@@ -23589,10 +23533,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn shared_network_idle_strategy_name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn shared_network_idle_strategy_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }
             .shared_network_idle_strategy_name
             .is_null()
@@ -23636,10 +23580,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn sender_idle_strategy_init_args(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn sender_idle_strategy_init_args(&self) -> &str {
         if unsafe { self.get_inner_ref() }.sender_idle_strategy_init_args.is_null() {
             ""
         } else {
@@ -23667,10 +23611,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn sender_idle_strategy_name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn sender_idle_strategy_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.sender_idle_strategy_name.is_null() {
             ""
         } else {
@@ -23708,10 +23652,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn receiver_idle_strategy_init_args(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn receiver_idle_strategy_init_args(&self) -> &str {
         if unsafe { self.get_inner_ref() }
             .receiver_idle_strategy_init_args
             .is_null()
@@ -23745,10 +23689,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn receiver_idle_strategy_name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn receiver_idle_strategy_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.receiver_idle_strategy_name.is_null() {
             ""
         } else {
@@ -23790,10 +23734,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn native_resource_agent_idle_strategy_init_args(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn native_resource_agent_idle_strategy_init_args(&self) -> &str {
         if unsafe { self.get_inner_ref() }
             .native_resource_agent_idle_strategy_init_args
             .is_null()
@@ -23827,10 +23771,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn native_resource_agent_idle_strategy_name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn native_resource_agent_idle_strategy_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }
             .native_resource_agent_idle_strategy_name
             .is_null()
@@ -24086,10 +24030,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn resolver_name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn resolver_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.resolver_name.is_null() {
             ""
         } else {
@@ -24117,10 +24061,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn resolver_interface(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn resolver_interface(&self) -> &str {
         if unsafe { self.get_inner_ref() }.resolver_interface.is_null() {
             ""
         } else {
@@ -24148,10 +24092,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn resolver_bootstrap_neighbor(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn resolver_bootstrap_neighbor(&self) -> &str {
         if unsafe { self.get_inner_ref() }.resolver_bootstrap_neighbor.is_null() {
             ""
         } else {
@@ -24205,10 +24149,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn name_resolver_init_args(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn name_resolver_init_args(&self) -> &str {
         if unsafe { self.get_inner_ref() }.name_resolver_init_args.is_null() {
             ""
         } else {
@@ -24248,10 +24192,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn driver_name_resolver_boostrap_resolver_init_args(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn driver_name_resolver_boostrap_resolver_init_args(&self) -> &str {
         if unsafe { self.get_inner_ref() }
             .driver_name_resolver_boostrap_resolver_init_args
             .is_null()
@@ -24505,10 +24449,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_dir_owned()` to keep a copy."]
-    pub unsafe fn get_dir(&self) -> &str {
+    pub fn get_dir(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -26099,10 +26043,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_sender_idle_strategy_owned()` to keep a copy."]
-    pub unsafe fn get_sender_idle_strategy(&self) -> &str {
+    pub fn get_sender_idle_strategy(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -26159,10 +26103,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_conductor_idle_strategy_owned()` to keep a copy."]
-    pub unsafe fn get_conductor_idle_strategy(&self) -> &str {
+    pub fn get_conductor_idle_strategy(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -26219,10 +26163,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_receiver_idle_strategy_owned()` to keep a copy."]
-    pub unsafe fn get_receiver_idle_strategy(&self) -> &str {
+    pub fn get_receiver_idle_strategy(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -26279,10 +26223,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_sharednetwork_idle_strategy_owned()` to keep a copy."]
-    pub unsafe fn get_sharednetwork_idle_strategy(&self) -> &str {
+    pub fn get_sharednetwork_idle_strategy(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -26339,10 +26283,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_shared_idle_strategy_owned()` to keep a copy."]
-    pub unsafe fn get_shared_idle_strategy(&self) -> &str {
+    pub fn get_shared_idle_strategy(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -26399,10 +26343,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_sender_idle_strategy_init_args_owned()` to keep a copy."]
-    pub unsafe fn get_sender_idle_strategy_init_args(&self) -> &str {
+    pub fn get_sender_idle_strategy_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -26459,10 +26403,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_conductor_idle_strategy_init_args_owned()` to keep a copy."]
-    pub unsafe fn get_conductor_idle_strategy_init_args(&self) -> &str {
+    pub fn get_conductor_idle_strategy_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -26519,10 +26463,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_receiver_idle_strategy_init_args_owned()` to keep a copy."]
-    pub unsafe fn get_receiver_idle_strategy_init_args(&self) -> &str {
+    pub fn get_receiver_idle_strategy_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -26580,10 +26524,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_sharednetwork_idle_strategy_init_args_owned()` to keep a copy."]
-    pub unsafe fn get_sharednetwork_idle_strategy_init_args(&self) -> &str {
+    pub fn get_sharednetwork_idle_strategy_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -26640,10 +26584,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_shared_idle_strategy_init_args_owned()` to keep a copy."]
-    pub unsafe fn get_shared_idle_strategy_init_args(&self) -> &str {
+    pub fn get_shared_idle_strategy_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -26700,10 +26644,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_native_resource_agent_idle_strategy_owned()` to keep a copy."]
-    pub unsafe fn get_native_resource_agent_idle_strategy(&self) -> &str {
+    pub fn get_native_resource_agent_idle_strategy(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -26766,10 +26710,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_native_resource_agent_idle_strategy_init_args_owned()` to keep a copy."]
-    pub unsafe fn get_native_resource_agent_idle_strategy_init_args(&self) -> &str {
+    pub fn get_native_resource_agent_idle_strategy_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -28342,10 +28286,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_resolver_name_owned()` to keep a copy."]
-    pub unsafe fn get_resolver_name(&self) -> &str {
+    pub fn get_resolver_name(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -28402,10 +28346,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_resolver_interface_owned()` to keep a copy."]
-    pub unsafe fn get_resolver_interface(&self) -> &str {
+    pub fn get_resolver_interface(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -28462,10 +28406,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_resolver_bootstrap_neighbor_owned()` to keep a copy."]
-    pub unsafe fn get_resolver_bootstrap_neighbor(&self) -> &str {
+    pub fn get_resolver_bootstrap_neighbor(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -28562,10 +28506,10 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_name_resolver_init_args_owned()` to keep a copy."]
-    pub unsafe fn get_name_resolver_init_args(&self) -> &str {
+    pub fn get_name_resolver_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -31406,7 +31350,7 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_free_log_bu
         }
         f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer))
             .field("inner", &self.inner)
-            .field("log_file_name", &unsafe { self.log_file_name() })
+            .field("log_file_name", &self.log_file_name())
             .finish()
     }
 }
@@ -31503,10 +31447,10 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_free_log_bu
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn log_file_name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn log_file_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.log_file_name.is_null() {
             ""
         } else {
@@ -31718,7 +31662,7 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_map_log_buf
         }
         f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxyCmdMapLogBuffer))
             .field("inner", &self.inner)
-            .field("log_file_name", &unsafe { self.log_file_name() })
+            .field("log_file_name", &self.log_file_name())
             .field("term_length", &self.term_length())
             .field("is_sparse", &self.is_sparse())
             .finish()
@@ -31810,10 +31754,10 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_map_log_buf
 {
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn log_file_name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn log_file_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.log_file_name.is_null() {
             ""
         } else {
@@ -40077,6 +40021,7 @@ mod aeron_error_response_t_allocation_tests {
 unsafe impl NativeResource for aeron_exclusive_publication_t {
     type Policy = SharedResource;
 }
+#[derive(Clone)]
 pub struct AeronExclusivePublication<
     S: ResourceStorage<aeron_exclusive_publication_t> = LiveCResource<aeron_exclusive_publication_t>,
 > {
@@ -40138,7 +40083,7 @@ impl<S: ResourceStorage<aeron_exclusive_publication_t>> AeronExclusivePublicatio
         AeronReservedValueSupplierHandlerImpl: AeronReservedValueSupplierCallback,
         AeronReservedValueSupplierHandlerImplPolicy: CallbackPolicy,
     >(
-        &mut self,
+        &self,
         iov: &AeronIovec,
         iovcnt: usize,
         reserved_value_supplier: Option<
@@ -40211,7 +40156,7 @@ impl<S: ResourceStorage<aeron_exclusive_publication_t>> AeronExclusivePublicatio
     #[doc = r" A panic in the closure is caught so the C call can finish, then passed to"]
     #[doc = r" the caller once it returns"]
     pub fn offerv_fn<AeronReservedValueSupplierHandlerImpl: FnMut(&mut [u8]) -> i64>(
-        &mut self,
+        &self,
         iov: &AeronIovec,
         iovcnt: usize,
         mut reserved_value_supplier: AeronReservedValueSupplierHandlerImpl,
@@ -41433,7 +41378,7 @@ impl<S: ResourceStorage<aeron_flow_control_strategy_supplier_func_table_entry_t>
         }
         f.debug_struct(stringify!(AeronFlowControlStrategySupplierFuncTableEntry))
             .field("inner", &self.inner)
-            .field("name", &unsafe { self.name() })
+            .field("name", &self.name())
             .finish()
     }
 }
@@ -41517,10 +41462,10 @@ impl<S: ResourceStorage<aeron_flow_control_strategy_supplier_func_table_entry_t>
 {
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.name.is_null() {
             ""
         } else {
@@ -44933,6 +44878,7 @@ mod aeron_image_message_t_allocation_tests {
 unsafe impl NativeResource for aeron_image_t {
     type Policy = LocalResource;
 }
+#[derive(Clone)]
 pub struct AeronImage<S: ResourceStorage<aeron_image_t> = LiveCResource<aeron_image_t>> {
     inner: S,
 }
@@ -45206,7 +45152,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
     #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn poll<AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback>(
-        &mut self,
+        &self,
         handler: &mut AeronFragmentHandlerHandlerImpl,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -45274,7 +45220,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
     #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> ()>(
-        &mut self,
+        &self,
         mut handler: AeronFragmentHandlerHandlerImpl,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -45319,7 +45265,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
     #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn controlled_poll<AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback>(
-        &mut self,
+        &self,
         handler: &mut AeronControlledFragmentHandlerHandlerImpl,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -45390,7 +45336,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     pub fn controlled_poll_fn<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> aeron_controlled_fragment_handler_action_t,
     >(
-        &mut self,
+        &self,
         mut handler: AeronControlledFragmentHandlerHandlerImpl,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -45440,7 +45386,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
     #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn bounded_poll<AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback>(
-        &mut self,
+        &self,
         handler: &mut AeronFragmentHandlerHandlerImpl,
         limit_position: i64,
         fragment_limit: usize,
@@ -45514,7 +45460,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     pub fn bounded_poll_fn<
         AeronFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> (),
     >(
-        &mut self,
+        &self,
         mut handler: AeronFragmentHandlerHandlerImpl,
         limit_position: i64,
         fragment_limit: usize,
@@ -45565,7 +45511,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     pub fn bounded_controlled_poll<
         AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback,
     >(
-        &mut self,
+        &self,
         handler: &mut AeronControlledFragmentHandlerHandlerImpl,
         limit_position: i64,
         fragment_limit: usize,
@@ -45640,7 +45586,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     pub fn bounded_controlled_poll_fn<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> aeron_controlled_fragment_handler_action_t,
     >(
-        &mut self,
+        &self,
         mut handler: AeronControlledFragmentHandlerHandlerImpl,
         limit_position: i64,
         fragment_limit: usize,
@@ -45697,7 +45643,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
     #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn block_poll<AeronBlockHandlerHandlerImpl: AeronBlockHandlerCallback>(
-        &mut self,
+        &self,
         handler: &mut AeronBlockHandlerHandlerImpl,
         block_length_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -45758,7 +45704,7 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
     #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn block_poll_fn<AeronBlockHandlerHandlerImpl: FnMut(&[u8], i32, i32) -> ()>(
-        &mut self,
+        &self,
         mut handler: AeronBlockHandlerHandlerImpl,
         block_length_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -47524,7 +47470,7 @@ impl<S: ResourceStorage<aeron_ipc_publication_entry_t>> core::fmt::Debug for Aer
         }
         f.debug_struct(stringify!(AeronIpcPublicationEntry))
             .field("inner", &self.inner)
-            .field("log_file_name", &unsafe { self.log_file_name() })
+            .field("log_file_name", &self.log_file_name())
             .finish()
     }
 }
@@ -47628,10 +47574,10 @@ impl<S: ResourceStorage<aeron_ipc_publication_entry_t>> AeronIpcPublicationEntry
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn log_file_name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn log_file_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.log_file_name.is_null() {
             ""
         } else {
@@ -47813,7 +47759,7 @@ impl<S: ResourceStorage<aeron_ipc_publication_t>> core::fmt::Debug for AeronIpcP
         }
         f.debug_struct(stringify!(AeronIpcPublication))
             .field("inner", &self.inner)
-            .field("log_file_name", &unsafe { self.log_file_name() })
+            .field("log_file_name", &self.log_file_name())
             .field("log_file_name_length", &self.log_file_name_length())
             .field("pub_lmt_position", &self.pub_lmt_position())
             .field("pub_pos_position", &self.pub_pos_position())
@@ -47838,7 +47784,7 @@ impl<S: ResourceStorage<aeron_ipc_publication_t>> core::fmt::Debug for AeronIpcP
             .field("starting_term_id", &self.starting_term_id())
             .field("starting_term_offset", &self.starting_term_offset())
             .field("channel_length", &self.channel_length())
-            .field("channel", &unsafe { self.channel() })
+            .field("channel", &self.channel())
             .finish()
     }
 }
@@ -47942,10 +47888,10 @@ impl<S: ResourceStorage<aeron_ipc_publication_t>> AeronIpcPublication<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn log_file_name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn log_file_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.log_file_name.is_null() {
             ""
         } else {
@@ -48078,10 +48024,10 @@ impl<S: ResourceStorage<aeron_ipc_publication_t>> AeronIpcPublication<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn channel(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn channel(&self) -> &str {
         if unsafe { self.get_inner_ref() }.channel.is_null() {
             ""
         } else {
@@ -53238,7 +53184,7 @@ impl<S: ResourceStorage<aeron_network_publication_entry_t>> core::fmt::Debug for
         }
         f.debug_struct(stringify!(AeronNetworkPublicationEntry))
             .field("inner", &self.inner)
-            .field("log_file_name", &unsafe { self.log_file_name() })
+            .field("log_file_name", &self.log_file_name())
             .finish()
     }
 }
@@ -53342,10 +53288,10 @@ impl<S: ResourceStorage<aeron_network_publication_entry_t>> AeronNetworkPublicat
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn log_file_name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn log_file_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.log_file_name.is_null() {
             ""
         } else {
@@ -53536,7 +53482,7 @@ impl<S: ResourceStorage<aeron_network_publication_t>> core::fmt::Debug for Aeron
             .field("snd_bpe_counter", &self.snd_bpe_counter())
             .field("snd_naks_received_counter", &self.snd_naks_received_counter())
             .field("retransmit_handler", &self.retransmit_handler())
-            .field("log_file_name", &unsafe { self.log_file_name() })
+            .field("log_file_name", &self.log_file_name())
             .field("log_file_name_length", &self.log_file_name_length())
             .field("has_initial_connection", &self.has_initial_connection())
             .field("track_sender_limits", &self.track_sender_limits())
@@ -53856,10 +53802,10 @@ impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S>
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn log_file_name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn log_file_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.log_file_name.is_null() {
             ""
         } else {
@@ -59015,7 +58961,7 @@ impl<S: ResourceStorage<aeron_publication_image_entry_t>> core::fmt::Debug for A
         }
         f.debug_struct(stringify!(AeronPublicationImageEntry))
             .field("inner", &self.inner)
-            .field("log_file_name", &unsafe { self.log_file_name() })
+            .field("log_file_name", &self.log_file_name())
             .finish()
     }
 }
@@ -59119,10 +59065,10 @@ impl<S: ResourceStorage<aeron_publication_image_entry_t>> AeronPublicationImageE
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn log_file_name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn log_file_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.log_file_name.is_null() {
             ""
         } else {
@@ -59311,7 +59257,7 @@ impl<S: ResourceStorage<aeron_publication_image_t>> core::fmt::Debug for AeronPu
             .field("rcv_hwm_position", &self.rcv_hwm_position())
             .field("rcv_pos_position", &self.rcv_pos_position())
             .field("rcv_naks_sent", &self.rcv_naks_sent())
-            .field("log_file_name", &unsafe { self.log_file_name() })
+            .field("log_file_name", &self.log_file_name())
             .field("log_file_name_length", &self.log_file_name_length())
             .field("session_id", &self.session_id())
             .field("stream_id", &self.stream_id())
@@ -59338,7 +59284,7 @@ impl<S: ResourceStorage<aeron_publication_image_t>> core::fmt::Debug for AeronPu
             .field("next_sm_deadline_ns", &self.next_sm_deadline_ns())
             .field("sm_timeout_ns", &self.sm_timeout_ns())
             .field("time_of_last_packet_ns", &self.time_of_last_packet_ns())
-            .field("invalidation_reason", &unsafe { self.invalidation_reason() })
+            .field("invalidation_reason", &self.invalidation_reason())
             .field("is_sm_enabled", &self.is_sm_enabled())
             .field(
                 "is_next_sm_deadline_reset_requested",
@@ -59607,10 +59553,10 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn log_file_name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn log_file_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.log_file_name.is_null() {
             ""
         } else {
@@ -59760,10 +59706,10 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn invalidation_reason(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn invalidation_reason(&self) -> &str {
         if unsafe { self.get_inner_ref() }.invalidation_reason.is_null() {
             ""
         } else {
@@ -72660,7 +72606,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
     #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn poll<AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback>(
-        &mut self,
+        &self,
         handler: &mut AeronFragmentHandlerHandlerImpl,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -72730,7 +72676,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
     #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn poll_fn<AeronFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> ()>(
-        &mut self,
+        &self,
         mut handler: AeronFragmentHandlerHandlerImpl,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -72779,7 +72725,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
     #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn controlled_poll<AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback>(
-        &mut self,
+        &self,
         handler: &mut AeronControlledFragmentHandlerHandlerImpl,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -72854,7 +72800,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     pub fn controlled_poll_fn<
         AeronControlledFragmentHandlerHandlerImpl: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> aeron_controlled_fragment_handler_action_t,
     >(
-        &mut self,
+        &self,
         mut handler: AeronControlledFragmentHandlerHandlerImpl,
         fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
@@ -72902,7 +72848,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
     #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn block_poll<AeronBlockHandlerHandlerImpl: AeronBlockHandlerCallback>(
-        &mut self,
+        &self,
         handler: &mut AeronBlockHandlerHandlerImpl,
         block_length_limit: usize,
     ) -> ::std::os::raw::c_long {
@@ -72951,7 +72897,7 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = r" A panic in the closure is passed to the caller. Fragments since the poll"]
     #[doc = r" started (or the last `COMMIT`) are delivered again on the next poll"]
     pub fn block_poll_fn<AeronBlockHandlerHandlerImpl: FnMut(&[u8], i32, i32) -> ()>(
-        &mut self,
+        &self,
         mut handler: AeronBlockHandlerHandlerImpl,
         block_length_limit: usize,
     ) -> ::std::os::raw::c_long {
@@ -73560,7 +73506,7 @@ impl<S: ResourceStorage<aeron_system_counter_t>> core::fmt::Debug for AeronSyste
         }
         f.debug_struct(stringify!(AeronSystemCounter))
             .field("inner", &self.inner)
-            .field("label", &unsafe { self.label() })
+            .field("label", &self.label())
             .field("id", &self.id())
             .finish()
     }
@@ -73628,10 +73574,10 @@ impl AeronSystemCounter {}
 impl<S: ResourceStorage<aeron_system_counter_t>> AeronSystemCounter<S> {
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn label(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn label(&self) -> &str {
         if unsafe { self.get_inner_ref() }.label.is_null() {
             ""
         } else {
@@ -74102,8 +74048,6 @@ impl Aeron<LiveCResource<aeron_t>> {
             })),
             false,
         )?;
-        let resource_constructor =
-            resource_constructor.with_manual_conductor(context_copy.get_use_conductor_agent_invoker());
         __context_use.commit();
         let result = Self {
             inner: CResource::new(ResourceRef::new(resource_constructor)).into(),
@@ -74475,7 +74419,7 @@ impl Aeron {
     #[doc = ""]
     #[doc = " \n# Return\n aeron error message for calling thread."]
     #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `errmsg_owned()` to keep a copy."]
     pub unsafe fn errmsg<'text>() -> &'text str {
         unsafe {
@@ -75352,7 +75296,7 @@ impl Aeron {
     }
     #[inline]
     #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     pub unsafe fn realpath<'text>(path: &std::ffi::CStr, resolved_path: &mut [u8]) -> &'text str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -75381,7 +75325,7 @@ impl Aeron {
     }
     #[inline]
     #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     pub unsafe fn tmpdir<'text>(path: &mut [u8]) -> &'text str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -75517,7 +75461,7 @@ impl Aeron {
     #[doc = "# Parameters\n \n - `dir_template` to be used to create the temporary directory."]
     #[doc = " \n# Return\n the new temporary path."]
     #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     pub unsafe fn temp_dir<'text>(dir_template: &std::ffi::CStr) -> &'text str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -76664,7 +76608,6 @@ impl<S: ResourceStorage<aeron_t>> Aeron<S> {
         let __owner = self.inner.as_owned().ok_or_else(|| {
             AeronCError::with_message(-1, "manual conductor operations require an owning client handle")
         })?;
-        __owner.bind_conductor_thread()?;
         if __owner.started.load(std::sync::atomic::Ordering::Acquire) {
             return Ok(0);
         }
@@ -76698,9 +76641,7 @@ impl<S: ResourceStorage<aeron_t>> Aeron<S> {
     #[doc = " Client must have been created with use conductor invoker set to true."]
     #[doc = ""]
     #[doc = " \n# Return\n 0 for success and -1 for error."]
-    #[doc = "# Safety"]
-    #[doc = "Use only for an agent-invoker client. No other conductor invocation may overlap or re-enter this call, including invocations made by native archive operations. The caller must coordinate every user of this native client."]
-    pub unsafe fn main_do_work(&self) -> Result<i32, AeronCError> {
+    pub fn main_do_work(&self) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -76722,9 +76663,7 @@ impl<S: ResourceStorage<aeron_t>> Aeron<S> {
     #[doc = "Call the Conductor Idle Strategy."]
     #[doc = ""]
     #[doc = "# Parameters\n \n - `work_count` to pass to idle strategy."]
-    #[doc = "# Safety"]
-    #[doc = "Use only for an agent-invoker client. No other conductor invocation may overlap or re-enter this call, including invocations made by native archive operations. The caller must coordinate every user of this native client."]
-    pub unsafe fn main_idle_strategy(&self, work_count: ::std::os::raw::c_int) -> () {
+    pub fn main_idle_strategy(&self, work_count: ::std::os::raw::c_int) -> () {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -81852,7 +81791,7 @@ impl AeronUriParams<CResource<aeron_uri_params_t>> {
 impl AeronUriParams {
     #[inline]
     #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "# Safety"]
     #[doc = "Raw pointer arguments must have the size, alignment, initialization and lifetime required by the native function. Writable pointers require exclusive access. Keep any retained pointers valid until native cleanup."]
     pub unsafe fn aeron_uri_find_param_value<'text>(
@@ -82378,10 +82317,10 @@ impl<S: ResourceStorage<aeron_uri_string_builder_t>> AeronUriStringBuilder<S> {
         }
     }
     #[inline]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Using it straight away, for example to log or copy it, is fine. Do not hold it across any call that can change this resource. Thread-local text must stay on its original thread, which must remain alive."]
+    #[doc = "# Lifetime"]
+    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_owned()` to keep a copy."]
-    pub unsafe fn get(&self, key: &std::ffi::CStr) -> &str {
+    pub fn get(&self, key: &std::ffi::CStr) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -83859,7 +83798,7 @@ impl<S: ResourceStorage<ifaddrs>> core::fmt::Debug for Ifaddrs<S> {
         }
         f.debug_struct(stringify!(Ifaddrs))
             .field("inner", &self.inner)
-            .field("ifa_name", &unsafe { self.ifa_name() })
+            .field("ifa_name", &self.ifa_name())
             .finish()
     }
 }
@@ -83916,10 +83855,10 @@ impl<S: ResourceStorage<ifaddrs>> Ifaddrs<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" Keep the backing allocation alive and unchanged for every use of"]
-    #[doc = r" the returned text. No setter, poll or other alias may invalidate it."]
-    pub unsafe fn ifa_name(&self) -> &str {
+    #[doc = r" # Lifetime"]
+    #[doc = r" The text points into native storage. Use it straight away, and do not"]
+    #[doc = r" hold it across a setter, poll or other call that can change it."]
+    pub fn ifa_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.ifa_name.is_null() {
             ""
         } else {

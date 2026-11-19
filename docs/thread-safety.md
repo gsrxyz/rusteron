@@ -14,8 +14,9 @@ local until reviewed.
 
 - Regular publications accept concurrent publishers from several threads.
 - Aeron allows one consumer per subscription or image and one writer per exclusive
-  publication. These handles, replay merges and persistent subscriptions have no
-  `Clone`, so each native object has one Rust owner.
+  publication. Subscriptions have no `Clone`. Images, exclusive publications, replay
+  merges and persistent subscriptions are cloneable and local, so their clones stay
+  on one thread.
 - `AeronSubscription` is `Send` but not `Sync`. Create it on one thread and move it to
   the thread that polls it. Exclusive publications and images stay local.
 - A retained image from `image_at_index` keeps the subscription's native object
@@ -28,11 +29,9 @@ local until reviewed.
 - Configure a client or driver context before passing it to native code. Retained
   clones of a context cannot change it afterwards. If client initialisation fails,
   the context can be changed and used again.
-- The background conductor needs no manual calls. `main_do_work` and
-  `main_idle_strategy` are unsafe. Prevent concurrent or recursive conductor calls,
-  including calls made inside native archive operations. An agent-invoker client is
-  bound to its start thread for archive setup and blocking helpers. Other threads can
-  still use its publication and registration APIs.
+- The background conductor needs no manual calls. With an agent invoker, call
+  `main_do_work` and `main_idle_strategy` from one thread at a time, as in Aeron Java
+  and C++. Other threads can still use the client's publication and registration APIs.
 - Getters that return `Ref` borrow their parent. A `Ref` has no `Clone`. Call
   `as_ref()` for another short-lived view. An archive's `aeron_owned()` or
   `retain_archive_context()` keeps the archive alive when a child must outlive the
@@ -42,29 +41,20 @@ local until reviewed.
   raw-pointer constructors. `FragmentAssembler` and `ControlledFragmentAssembler` are
   not cloneable and poll through `&mut self`, so one owner uses each assembler.
 
-<a id="re-entrant-calls"></a>
+<a id="nested-polls"></a>
 
-## Re-entrant calls
+## Nested polls
 
-Aeron C saves the subscriber position only when a poll returns, and the reserved
-value supplier of an exclusive publication runs before the term offset advances.
-A nested poll from a fragment callback, or a nested offer from a supplier, would be
-overwritten and deliver or write the same data twice. Aeron Java and C++ have the
-same behaviour and document these types as not thread safe.
+Rusteron does not check for nested polls, as Aeron Java and C++ do not. Polls and
+supplier offers take `&self`.
 
-Rusteron rejects these calls at compile time. These methods take `&mut self`:
-
-- `poll`, `controlled_poll` and `block_poll` on subscriptions
-- `poll`, `controlled_poll`, `bounded_poll`, `bounded_controlled_poll` and
-  `block_poll` on images
-- `poll` on replay merges and `poll` and `controlled_poll` on persistent subscriptions
-- `offer_raw`, `offer_with_reserved_value` and `offerv` on exclusive publications,
-  which take a reserved value supplier
-
-A callback that captures the same handle then fails with `E0499`. Plain `offer`,
-`try_claim` and `offer_parts` on an exclusive publication take no callback and keep
-`&self`. The Archive client needs no change because Aeron C rejects nested calls at
-run time. The borrow check has no runtime cost.
+Do not poll a subscription, image, replay merge or persistent subscription from its own
+fragment callback, and do not offer on an exclusive publication from its own reserved
+value supplier. Aeron C writes the new subscriber position back only after a poll
+finishes, and an exclusive publication moves its term offset only after the supplier
+returns. A nested call starts from the old position, so the same fragments are
+delivered twice or the same bytes are written twice. Archive client calls are safe to
+nest, because Aeron C returns an error for a nested Archive call.
 
 <a id="hot-path-behaviour"></a>
 
@@ -77,7 +67,7 @@ run time. The borrow check has no runtime cost.
 | `FragmentAssembler::new(callback)` | The assembler owns the callback. Read it between polls with `handler()` and `handler_mut()` | None |
 | `AeronFragmentClosureAssembler::new()` | Holds only the partial-message buffers. Each `poll` takes a new closure | None |
 | `poll(&mut *handler.lock(), limit)` on a `Handler` | Local `Rc<RefCell>`. Not `Send` or `Sync` | One borrow check per poll call, no mutex |
-| `SharedHandler::new_shared` | Mutex. `Send + Sync` when its state is `Send` | One mutex lock per callback when retained. Used for close, error and image callbacks, not the poll path |
+| `SharedHandler::new_shared` | Mutex. `Send + Sync` when its state is `Send` | One mutex lock per callback when retained, and one per `lock()`. Used for close, error and image callbacks, not the poll path. To check callback state on every poll, share an atomic with the callback instead of calling `lock()` ([example](client-guide.md#retained-callbacks)) |
 | `SharedHandler` holding a replacement slot | Mutex plus the slot's own locks | Three mutex locks and an `Arc` clone per non-empty callback |
 
 None of these allocate per call. `offer`, `offer_raw` and claim, copy and commit take no
@@ -128,9 +118,8 @@ context.set_error_handler(Some(callback.clone()))?;
 - Replace `Handler::with_fragment_assembler` with `FragmentAssembler::new`. Pass other
   synchronous callbacks as `&mut callback`.
 - Replace direct callback state access with `handler.lock()`.
-- Manual conductor calls need an `unsafe` block and coordination with every other
-  native user of that client. Prefer the background conductor when several threads
-  share a client.
+- Call manual conductor methods from one thread at a time. Prefer the background
+  conductor when several threads share a client.
 - Counter `addr()` returns a raw pointer. Use `addr_atomic()` for safe atomic loads and
   updates. `AeronCountersReader::addr_atomic` checks the counter id first.
 

@@ -28,8 +28,11 @@ ctx.set_error_handler(Some(|code: i32, msg: &str| eprintln!("aeron error {code}:
 # Ok(()) }
 ```
 
-Use the returned shared handler's `lock()` for synchronized state access. Another
-option is to capture shared application state:
+Use the returned shared handler's `lock()` for synchronized state access. Each
+`lock()` takes a mutex, which costs about 5 ns uncontended and waits if the callback
+is running. That is fine for setup and error paths. For a check that runs on every
+poll, such as "has the archive reported an error", count errors in an atomic that the
+callback and the poll loop share:
 
 ```rust,no_run
 # use rusteron_client::*;
@@ -37,14 +40,17 @@ option is to capture shared application state:
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-// Share the count between the conductor callback and the application thread.
+// Clone the Arc once at setup. The poll loop only loads the counter, so it never
+// touches the reference count or the handler's mutex
 let errors = Arc::new(AtomicUsize::new(0));
 let counted = errors.clone();
 ctx.set_error_handler(Some(move |_code: i32, _msg: &str| {
-    counted.fetch_add(1, Ordering::Relaxed);
+    counted.fetch_add(1, Ordering::Release);
 }))?;
-// ... later, from the application thread
-println!("{} errors", errors.load(Ordering::Relaxed));
+// ... in the poll loop, one atomic load
+if errors.load(Ordering::Acquire) > 0 {
+    // Cold path: take the handler's lock here if it also keeps the last message
+}
 # Ok(()) }
 ```
 
@@ -101,7 +107,7 @@ local state without allocating:
 
 ```rust,no_run
 # use rusteron_client::*;
-# fn snippet(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
+# fn snippet(subscription: &AeronSubscription) -> Result<(), AeronCError> {
 subscription.poll_fn(|buf: &[u8], header: &AeronHeader| {
     println!("received {} bytes", buf.len());
 }, 10)?;
@@ -116,7 +122,7 @@ borrow local state for that call only:
 
 ```rust,no_run
 # use rusteron_client::*;
-# fn snippet(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
+# fn snippet(subscription: &AeronSubscription) -> Result<(), AeronCError> {
 let mut bytes = 0;
 let mut assembler = AeronFragmentClosureAssembler::new()?;
 let fragments = assembler.poll(subscription, |msg, _header| bytes += msg.len() as u64, 10)?;
@@ -129,7 +135,7 @@ own state. Read that state between polls with `handler()`:
 
 ```rust,no_run
 # use rusteron_client::*;
-# fn snippet(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
+# fn snippet(subscription: &AeronSubscription) -> Result<(), AeronCError> {
 #[derive(Default)]
 struct Bytes(u64);
 
@@ -154,7 +160,7 @@ next poll:
 
 ```rust,no_run
 # use rusteron_client::*;
-# fn snippet(subscription: &mut AeronSubscription) -> Result<(), AeronCError> {
+# fn snippet(subscription: &AeronSubscription) -> Result<(), AeronCError> {
 use rusteron_client::bindings::aeron_controlled_fragment_handler_action_t::AERON_ACTION_CONTINUE;
 
 let mut assembler = ControlledFragmentAssembler::new(
@@ -190,8 +196,8 @@ owner drops. Several threads can offer on one regular publication at once.
 `AeronSubscription` is `Send` but not `Sync`, so one thread at a time can poll it.
 `AeronExclusivePublication` and `AeronImage` are neither `Send` nor `Sync`, so the
 compiler rejects moving them to another thread. Move the client into the thread
-instead and create the exclusive publication there. Polls take `&mut self`, see
-[re-entrant calls](thread-safety.md#re-entrant-calls).
+instead and create the exclusive publication there. Polls take `&mut self` to
+prevent [nested polls](thread-safety.md#nested-polls).
 
 ```rust,no_run
 use rusteron_client::*;
@@ -226,7 +232,7 @@ let producers: Vec<_> = (0..4u8)
 // The subscription is created on the thread that polls it
 let consumer_client = client.clone();
 let consumer = thread::spawn(move || -> Result<usize, AeronCError> {
-    let mut subscription = consumer_client
+    let subscription = consumer_client
         .async_add_subscription(c"aeron:ipc", 1001, Handlers::NONE, Handlers::NONE)?
         .poll_blocking(timeout)?;
     let mut received = 0;
@@ -332,7 +338,7 @@ immediately when work was done and backs off otherwise. For example:
 
 ```rust,no_run
 # use rusteron_client::{AeronFragmentHandlerCallback, AeronSubscription, AeronCError, Handler};
-# fn snippet<H: AeronFragmentHandlerCallback>(subscription: &mut AeronSubscription, mut handler: H) -> Result<(), AeronCError> {
+# fn snippet<H: AeronFragmentHandlerCallback>(subscription: &AeronSubscription, mut handler: H) -> Result<(), AeronCError> {
 use rusteron_client::{BackoffIdleStrategy, IdleStrategy};
 
 let mut idle = BackoffIdleStrategy::new(); // Aeron's default spins, yields, then sleeps.

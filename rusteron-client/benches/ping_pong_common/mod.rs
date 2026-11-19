@@ -47,8 +47,7 @@ pub fn run_pong(
     channels: &Channels,
     running: impl Fn() -> bool,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let (publication, mut subscription) =
-        connect(dir, (channels.ping, PING_STREAM_ID), (channels.pong, PONG_STREAM_ID))?;
+    let (publication, subscription) = connect(dir, (channels.ping, PING_STREAM_ID), (channels.pong, PONG_STREAM_ID))?;
     println!("PONG: ping publisher {:?} {PING_STREAM_ID}", channels.ping);
     println!("PONG: pong subscriber {:?} {PONG_STREAM_ID}", channels.pong);
 

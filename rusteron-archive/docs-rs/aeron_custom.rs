@@ -422,11 +422,7 @@ fn poll_destination_op_to_completion<C: std::fmt::Debug>(
     let deadline = std::time::Instant::now() + timeout;
     loop {
         if invoker {
-            client.inner.owner().bind_conductor_thread()?;
-            // SAFETY: the synchronous wait runs on the assigned conductor thread.
-            unsafe {
-                client.main_do_work()?;
-            }
+            client.main_do_work()?;
         }
         match result.aeron_subscription_async_destination_poll() {
             Ok(v) if v > 0 => {
@@ -468,10 +464,12 @@ impl AeronSubscription {
     /// polling reads nothing more, and its log buffer stays mapped. The image keeps the
     /// native subscription open, so [`Self::close`] waits for the image to drop
     ///
-    /// The borrow checker cannot see that the image and the subscription share a session
-    /// position. Do not poll a retained image inside a poll of its own subscription, and do
-    /// not keep polling it on this thread after the subscription moves to another thread.
-    /// Either one races on the image position and can deliver fragments twice
+    /// Each call returns a new handle, and every handle to the same image shares one position
+    /// with the subscription, which the borrow checker cannot see. Do not poll one handle
+    /// inside a poll of another handle to the same image or of its subscription, and do not
+    /// keep polling it on this thread after the subscription moves to another thread. Either
+    /// one races on the image position and can deliver fragments twice. Aeron Java and C++
+    /// do not check for this either
     ///
     /// The image is one publisher session: a publisher that reconnects with a new session
     /// is a new image, so poll the subscription, or fetch the new image, to follow it. To
@@ -1031,11 +1029,11 @@ impl Aeron {
 impl<S: ResourceStorage<aeron_buffer_claim_t>> AeronBufferClaim<S> {
     /// The claimed bytes, to write into. Empty if the claim holds no buffer, for example one
     /// from `new_zeroed_on_heap` or before a successful `try_claim`
-    /// # Safety
-    /// The publication and native claim must still be live. No other access may
-    /// overlap the returned mutable borrow. Prefer `AeronClaim` for safe access.
+    ///
+    /// As in Aeron Java and C++, the bytes stay valid only while the publication is open and
+    /// until the claim is committed or aborted. `AeronClaim` from `try_claim_owned` enforces this
     #[inline]
-    pub unsafe fn data_mut(&mut self) -> &mut [u8] {
+    pub fn data_mut(&mut self) -> &mut [u8] {
         if (unsafe { self.get_inner_ref() }).data.is_null() {
             return &mut [];
         }
@@ -1047,12 +1045,10 @@ impl<S: ResourceStorage<aeron_buffer_claim_t>> AeronBufferClaim<S> {
         }
     }
 
-    /// The frame header of the claim, or `None` if the claim holds no buffer
-    /// # Safety
-    /// The publication and native claim must still be live. No other access may
-    /// overlap the returned mutable borrow. Prefer `AeronClaim` for safe access.
+    /// The frame header of the claim, or `None` if the claim holds no buffer. Valid for as long
+    /// as [`Self::data_mut`]
     #[inline]
-    pub unsafe fn frame_header_mut(&mut self) -> Option<&mut aeron_header_values_frame_t> {
+    pub fn frame_header_mut(&mut self) -> Option<&mut aeron_header_values_frame_t> {
         if (unsafe { self.get_inner_ref() }).frame_header.is_null() {
             return None;
         }
@@ -1200,9 +1196,7 @@ fn reserved_callback<H: AeronReservedValueSupplierCallback, P: CallbackPolicy>(
 }
 
 macro_rules! impl_publication_methods {
-    // `$($supplier_mut)?` is `mut` when the native offer cannot be re-entered from its reserved
-    // value supplier, so the borrow checker rejects a nested offer on the same publication
-    ($ty:ident, $native:ty, $offer:ident, $offerv:ident, $try_claim:ident $(, $supplier_mut:tt)?) => {
+    ($ty:ident, $native:ty, $offer:ident, $offerv:ident, $try_claim:ident) => {
         impl<S: ResourceStorage<$native>> $ty<S> {
             /// Raw, branch-free variant of [`Self::offer`]: returns the new stream position, or a
             /// negative Aeron sentinel (see [`AeronOfferError::from_position`]).
@@ -1211,7 +1205,7 @@ macro_rules! impl_publication_methods {
             /// to avoid macro-hygiene name conflicts.
             #[inline]
             pub fn offer_raw<H: AeronReservedValueSupplierCallback>(
-                &$($supplier_mut)? self,
+                &self,
                 buffer: &[u8],
                 reserved_value_supplier: Option<&Handler<H, impl CallbackPolicy>>,
             ) -> i64 {
@@ -1252,7 +1246,7 @@ macro_rules! impl_publication_methods {
             /// [`Self::offer`] with a reserved-value supplier.
             #[inline]
             pub fn offer_with_reserved_value<H: AeronReservedValueSupplierCallback>(
-                &$($supplier_mut)? self,
+                &self,
                 buffer: &[u8],
                 reserved_value_supplier: Option<&Handler<H, impl CallbackPolicy>>,
             ) -> Result<i64, AeronOfferError> {
@@ -1349,8 +1343,7 @@ impl_publication_methods!(
     aeron_exclusive_publication_t,
     aeron_exclusive_publication_offer,
     aeron_exclusive_publication_offerv,
-    aeron_exclusive_publication_try_claim,
-    mut
+    aeron_exclusive_publication_try_claim
 );
 
 impl<S: ResourceStorage<aeron_publication_t>> AeronPublication<S> {
@@ -2046,7 +2039,7 @@ macro_rules! owned_assembler {
             #[inline]
             pub fn poll<S: ResourceStorage<$target_native>>(
                 &mut self,
-                source: &mut $target<S>,
+                source: &$target<S>,
                 fragment_limit: usize,
             ) -> Result<i32, AeronCError> {
                 source.$poll(self, fragment_limit)
@@ -2231,7 +2224,7 @@ impl AeronFragmentClosureAssembler {
     /// Poll a subscription and call `handler` with complete messages
     #[inline]
     pub fn poll<S: ResourceStorage<aeron_subscription_t>, F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>)>(
-        &mut self, subscription: &mut AeronSubscription<S>, handler: F, fragment_limit: usize,
+        &mut self, subscription: &AeronSubscription<S>, handler: F, fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
         subscription.poll(&mut self.with(handler), fragment_limit)
     }
@@ -2296,7 +2289,7 @@ impl AeronControlledFragmentClosureAssembler {
         S: ResourceStorage<aeron_subscription_t>,
         F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> aeron_controlled_fragment_handler_action_t,
     >(
-        &mut self, subscription: &mut AeronSubscription<S>, handler: F, fragment_limit: usize,
+        &mut self, subscription: &AeronSubscription<S>, handler: F, fragment_limit: usize,
     ) -> Result<i32, AeronCError> {
         subscription.controlled_poll(&mut self.with(handler), fragment_limit)
     }
@@ -2355,10 +2348,9 @@ impl<S: ResourceStorage<aeron_archive_context_t>> AeronArchiveContext<S> {
                 "archive context requires owning heap storage",
             ));
         };
-        let Some(client_owner) = aeron.inner.as_owned() else {
+        if aeron.inner.as_owned().is_none() {
             return Err(AeronCError::with_message(-1, "client requires owning heap storage"));
-        };
-        client_owner.bind_conductor_thread()?;
+        }
         let result = unsafe { aeron_archive_context_set_aeron(self.get_inner(), aeron.get_inner()) };
         if result < 0 {
             return Err(AeronCError::from_code(result));
@@ -2400,7 +2392,6 @@ impl<S: ResourceStorage<aeron_archive_persistent_subscription_context_t>> AeronA
             .inner
             .as_owned()
             .ok_or_else(|| AeronCError::with_message(-1, "client requires owning storage"))?;
-        client_owner.bind_conductor_thread()?;
         let result =
             unsafe { aeron_archive_persistent_subscription_context_set_aeron(self.get_inner(), aeron.get_inner()) };
         if result < 0 {
@@ -2410,7 +2401,9 @@ impl<S: ResourceStorage<aeron_archive_persistent_subscription_context_t>> AeronA
         Ok(result)
     }
 
-    /// Retain the archive context until the persistent subscription has closed.
+    /// Give the persistent subscription its own copy of `context`, kept until it closes. The
+    /// subscription writes its client into the context when it starts, so one context can be
+    /// reused for many subscriptions. Callbacks set on `context` are shared with the copy
     pub fn set_archive_context(&self, context: &AeronArchiveContext) -> Result<i32, AeronCError> {
         self.inner.check_configurable()?;
         let Some(owner) = self.inner.as_owned() else {
@@ -2423,13 +2416,20 @@ impl<S: ResourceStorage<aeron_archive_persistent_subscription_context_t>> AeronA
             .inner
             .as_owned()
             .ok_or_else(|| AeronCError::with_message(-1, "archive context requires owning storage"))?;
-        let result = unsafe {
-            aeron_archive_persistent_subscription_context_set_archive_context(self.get_inner(), context.get_inner())
-        };
+        let source = context.get_inner();
+        let copy = ResourceRef::new(ManagedCResource::<aeron_archive_context_t>::new(
+            move |copy| unsafe { aeron_archive_context_duplicate(copy, source) },
+            Some(Box::new(|copy| unsafe { aeron_archive_context_close(*copy) })),
+            false,
+        )?);
+        // The copy holds the same callback pointers, so it keeps their handlers alive too
+        copy.copy_dependencies_from(context_owner);
+        let result =
+            unsafe { aeron_archive_persistent_subscription_context_set_archive_context(self.get_inner(), copy.get()) };
         if result < 0 {
             return Err(AeronCError::from_code(result));
         }
-        owner.replace_callback_dependency("persistent_subscription_archive_context", Some(context_owner.clone()));
+        owner.replace_callback_dependency("persistent_subscription_archive_context", Some(copy));
         Ok(result)
     }
 }
@@ -2558,6 +2558,57 @@ impl AeronArchivePersistentSubscription {
 
     // `get_and_own_persistent_subscription_context` is intentionally omitted: `build`
     // already moves the context into Rust ownership, so a second transfer would double free
+
+    /// The error code of a failed subscription, or `None` while it has not failed. Copies the
+    /// failure message into `message`, reusing its capacity
+    pub fn failure_reason(&self, message: &mut String) -> Option<i32> {
+        let mut code = 0;
+        let mut text = std::ptr::null();
+        if !unsafe { aeron_archive_persistent_subscription_failure_reason(self.get_inner(), &mut code, &mut text) } {
+            return None;
+        }
+        message.clear();
+        if !text.is_null() {
+            // The message lives in the subscription and is copied before any other call
+            message.push_str(&unsafe { std::ffi::CStr::from_ptr(text) }.to_string_lossy());
+        }
+        Some(code)
+    }
+}
+
+impl AeronArchiveReplayMerge {
+    /// Create a replay merge that moves `subscription` from a replay of `recording_id` onto
+    /// the live stream. `subscription` must be a manual-control multi-destination subscription
+    ///
+    /// The merge takes the archive client because it reads the archive's control responses
+    /// until it finishes. Any other request on that archive meanwhile can take a response the
+    /// merge is waiting for and stall it until `merge_progress_timeout_ms`. Pass
+    /// `archive.clone()` only if you need the archive afterwards, and leave it unused until
+    /// the merge is dropped
+    pub fn new(
+        subscription: &AeronSubscription,
+        archive: AeronArchive,
+        replay_channel: &std::ffi::CStr,
+        replay_destination: &std::ffi::CStr,
+        live_destination: &std::ffi::CStr,
+        recording_id: i64,
+        start_position: i64,
+        epoch_clock: i64,
+        merge_progress_timeout_ms: i64,
+    ) -> Result<Self, AeronCError> {
+        // The merge keeps its own reference to the archive, so `archive` can drop here
+        Self::new_native(
+            subscription,
+            &archive,
+            replay_channel,
+            replay_destination,
+            live_destination,
+            recording_id,
+            start_position,
+            epoch_clock,
+            merge_progress_timeout_ms,
+        )
+    }
 }
 
 /// Fluent builder for [`AeronArchiveReplayParams`], starting from aeron's defaults

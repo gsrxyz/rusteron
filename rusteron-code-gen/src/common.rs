@@ -557,8 +557,6 @@ pub struct ManagedCResource<T: NativeResource> {
     dependencies: std::sync::Mutex<Vec<ResourceDependency<<T::Policy as ResourcePolicy>::Erased>>>,
     frozen: std::sync::atomic::AtomicBool,
     operation: std::sync::atomic::AtomicBool,
-    manual_conductor: bool,
-    conductor_thread: std::sync::OnceLock<std::thread::ThreadId>,
     started: std::sync::atomic::AtomicBool,
 }
 
@@ -605,8 +603,6 @@ impl<T: NativeResource> ManagedCResource<T> {
             dependencies: std::sync::Mutex::new(Vec::new()),
             frozen: std::sync::atomic::AtomicBool::new(false),
             operation: std::sync::atomic::AtomicBool::new(false),
-            manual_conductor: false,
-            conductor_thread: std::sync::OnceLock::new(),
             started: std::sync::atomic::AtomicBool::new(false),
         })
     }
@@ -804,26 +800,6 @@ impl<T: NativeResource> ManagedCResource<T> {
     pub(crate) fn check_not_frozen(&self) -> Result<(), AeronCError> {
         if self.frozen.load(std::sync::atomic::Ordering::Acquire) {
             return Err(AeronCError::with_message(-1, "context cannot be changed after use"));
-        }
-        Ok(())
-    }
-
-    pub(crate) fn with_manual_conductor(mut self, enabled: bool) -> Self {
-        self.manual_conductor = enabled;
-        self
-    }
-
-    /// Native archive calls can invoke the conductor without going through Rust.
-    /// Keep every safe native archive using this manual client on one thread.
-    pub(crate) fn bind_conductor_thread(&self) -> Result<(), AeronCError> {
-        if self.manual_conductor {
-            let current = std::thread::current().id();
-            if *self.conductor_thread.get_or_init(|| current) != current {
-                return Err(AeronCError::with_message(
-                    -1,
-                    "an agent-invoker client must be started and used by archives on the same thread",
-                ));
-            }
         }
         Ok(())
     }
