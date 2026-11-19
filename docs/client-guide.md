@@ -383,11 +383,11 @@ A few hand-written convenience helpers take `&str` and allocate on each call:
 `replay_channel`, and the replication params builder's `replication_channel` and
 `src_response_channel`. Call these during setup, outside the hot path.
 
-String getters on a handle are safe and return a `&str` into native storage with
-no copy. Aeron Java and C++ copy instead. A setter, poll or close can rewrite or
-free the text, even through another clone of the handle, so use it straight away.
-Use the `_owned` getter when you need a copy. Free functions that return native
-text stay `unsafe`, because no handle bounds the text. See [borrowed strings and allocations](migrating_0.2_to_0.3.md#borrowed-strings-and-allocations).
+Text getters that a setter, poll or close can change, such as `get_client_name()`,
+are `unsafe`. They return a `&str` into native storage with no copy, and the text
+can change even through another clone of the handle. Use it straight away and
+note why in a `// SAFETY:` comment, or call the `_owned` getter for a copy. Text
+fixed for the handle's life, such as publication `channel()`, stays safe. See [borrowed strings and allocations](migrating_0.2_to_0.3.md#borrowed-strings-and-allocations).
 
 Choose the allocation pattern for your use case:
 

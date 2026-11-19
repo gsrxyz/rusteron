@@ -19,7 +19,7 @@ explicit type annotations and low-level FFI access.
 | Cloning a recording descriptor poller | Keep one mutable owner. `poll()` takes `&mut self` and needs a consumer installed by `reset()` |
 | `close()` or `delete()` followed by reuse | These consume the owning handle. Use another owning clone if supported |
 | `From<*mut T>`, `From<native_struct>` or implicit native struct `Deref` | Use the documented unsafe constructors or explicit field getters |
-| Holding a configuration string across a setter | Use the `&str` straight away, or `_owned()` for a copy |
+| Holding a configuration string across a setter | Use the `unsafe` getter's `&str` straight away, or call `_owned()` for a copy |
 | Raw counter addresses used as references | Use `addr_atomic()` |
 | `find_recording` or `collect_recordings` predicates reading `d.stream_id` | Call the getters, e.g. `d.stream_id()`. The predicate sees the borrowed descriptor, and only matches are copied into a `RecordingDescriptor` |
 | `timestamp_offset_reserved("...")` | Use `media_rcv_timestamp_offset("reserved")`, `channel_rcv_timestamp_offset("reserved")` or `channel_snd_timestamp_offset("reserved")`. Aeron defines `reserved` as a value, not a key |
@@ -43,8 +43,8 @@ Use `rusteron-archive` instead if you need both transport and Archive APIs.
 let context = AeronArchiveContext::new()?;
 context.set_control_response_channel(c"aeron:ipc")?;
 
-// No allocation. Use the text before any setter can change it
-let channel = context.get_control_response_channel();
+// No allocation. SAFETY: no setter runs while `channel` is in use
+let channel = unsafe { context.get_control_response_channel() };
 assert_eq!(channel, "aeron:ipc");
 
 // One explicit copy. The snapshot stays valid after the context changes.
@@ -54,9 +54,8 @@ assert_eq!(saved, "aeron:ipc");
 # Ok(()) }
 ```
 
-Aeron Java and C++ copy text getters into a new string. Rusteron returns a `&str`
-that points into native storage instead, with no copy, and a setter can free or
-overwrite it. Use it straight away, or call `_owned` for a copy.
+Text getters that a setter can change are `unsafe`. The `&str` points into native
+storage with no copy. Use it straight away, or call `_owned` for a copy.
 
 Publishing, claiming, committing, direct polling and reading recording descriptor
 fields do not allocate on the Rust heap. Owned fragment assemblers allocate once
@@ -126,8 +125,7 @@ archive.close()?;
 
 // The client clone and the retained context outlive the archive
 let id = client.client_id();
-// Use the text straight away, before any setter on the context
-let request_channel = context.as_ref().get_control_request_channel().to_owned();
+let request_channel = context.as_ref().get_control_request_channel_owned();
 # let _ = (id, request_channel);
 # Ok(()) }
 ```
@@ -490,10 +488,9 @@ owner. `build()` returns an error for embedded NULs in string fields.
   cancelled async handles cannot expose a cached borrowed view.
 - Deleting a separately created `AeronArchiveProxy` leaves its Rust-owned
   publication open. It closes when its last owner is released.
-- String getters return borrowed `&str` without allocating. For replaceable text,
-  such as `get_control_request_channel()`, use the text before any setter, poll or
-  close changes it, or call `get_control_request_channel_owned()` for a copy.
-  Free functions that return native text, such as `errmsg()`, stay `unsafe`.
+- Text getters return borrowed `&str` without allocating. Replaceable text, such
+  as `get_control_request_channel()` or `errmsg()`, is `unsafe`. Use it before any
+  setter, poll or close changes it, or call the `_owned` getter for a copy.
 - Optional persistent-subscription counter getters return
   `Option<Ref<'_, AeronCounter>>`. Handle `None` for an unset counter. Raw setters
   and builder counter methods that transfer native ownership need `unsafe` and
@@ -645,9 +642,9 @@ cleanup rights. Prefer copying individual fields into Rust values. Copies of
 structs that contain only plain values stay safe.
 
 `Debug` shows safe fields and immutable queries, including a runner's `role_name`
-and `running` flag and publication constants. Replaceable text and opaque callback
-headers need explicit queries. `Debug` does not call unsafe getters or `_owned`
-getters.
+and `running` flag and publication constants. On a handle that cannot leave its
+thread, it also shows replaceable text. Shared handles and opaque callback headers
+need explicit queries.
 
 Generated methods and constructors that accept raw pointers need `unsafe`,
 including their closure variants. Internal resource constructors are private.

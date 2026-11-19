@@ -49,7 +49,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     context.set_dir(c"target/aeron")?;
     let driver = AeronDriver::new(&context)?;
     driver.start(true)?; // run the conductor duty cycle on this thread
-    println!("media driver running in {}", context.get_dir());
+    // SAFETY: printing copies the text before any setter can change it
+    println!("media driver running in {}", unsafe { context.get_dir() });
     loop {
         driver.main_idle_strategy(driver.main_do_work()?);
     }

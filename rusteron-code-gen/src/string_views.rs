@@ -111,9 +111,9 @@ mod tests {
         use quote::ToTokens;
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("bindings/archive.rs");
         let bindings = crate::parse_bindings_with_custom(&path, &[crate::CUSTOM_ARCHIVE_CODE]);
-        // Only the free function `errmsg` has no owner to bound its text, so only it is unsafe
+        // Unchecked text is unsafe, as a setter or close can free it. Text fixed for the handle's life stays safe
         for (native, name, safe, has_owned) in [
-            ("aeron_archive_context_t", "get_control_response_channel", true, true),
+            ("aeron_archive_context_t", "get_control_response_channel", false, true),
             ("aeron_archive_recording_descriptor_t", "original_channel", true, false),
             ("aeron_publication_t", "channel", true, false),
             ("aeron_t", "errmsg", false, true),
