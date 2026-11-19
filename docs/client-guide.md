@@ -296,6 +296,7 @@ subscription and publication. `examples/request_response.rs` shows this.
 ## Errors and offer results
 
 - Install a client error handler with `ctx.set_error_handler(Some(handler))` to receive asynchronous errors.
+- A publication error frame is borrowed during its callback. Call `frame.try_to_owned()` to keep it. Aeron allocates a copy only when you call this method. Read the full message with `error_message()` or use `error_message_bytes()` for the original bytes.
 - `offer()` and `try_claim()` return `Result<i64, AeronOfferError>`. `Ok` contains the new log position. Use `is_retryable()` to check the error. Retry after back pressure, an administrative action or a missing connection. A closed publication or an exceeded maximum position is a fatal error. Use an idle strategy between retries:
 
   ```rust,no_run

@@ -121,6 +121,9 @@ pub const AERON_ARCHIVE_RECORDING_EVENTS_CHANNEL_ENV_VAR: &[u8; 39] = b"AERON_AR
 pub const AERON_ARCHIVE_RECORDING_EVENTS_STREAM_ID_ENV_VAR: &[u8; 41] = b"AERON_ARCHIVE_RECORDING_EVENTS_STREAM_ID\0";
 pub const AERON_ARCHIVE_RECORDING_EVENTS_STREAM_ID_DEFAULT: u32 = 30;
 pub const AERON_ARCHIVE_CLIENT_NAME_ENV_VAR: &[u8; 26] = b"AERON_ARCHIVE_CLIENT_NAME\0";
+pub const AERON_ARCHIVE_MAJOR_VERSION: u32 = 1;
+pub const AERON_ARCHIVE_MINOR_VERSION: u32 = 11;
+pub const AERON_ARCHIVE_PATCH_VERSION: u32 = 0;
 pub const AERON_SPY_PREFIX: &[u8; 11] = b"aeron-spy:\0";
 pub const AERON_SPY_PREFIX_LEN: u32 = 10;
 pub const AERON_IPC_CHANNEL: &[u8; 10] = b"aeron:ipc\0";
@@ -5251,6 +5254,21 @@ unsafe extern "C" {
         error_message: *const ::std::os::raw::c_char,
     );
 }
+unsafe extern "C" {
+    pub fn aeron_archive_replay_params_copy(
+        dst: *mut aeron_archive_replay_params_t,
+        src: *mut aeron_archive_replay_params_t,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn aeron_archive_replay_params_is_bounded(params: *mut aeron_archive_replay_params_t) -> bool;
+}
+unsafe extern "C" {
+    pub fn aeron_archive_semantic_version() -> i32;
+}
+unsafe extern "C" {
+    pub fn aeron_archive_protocol_version_with_archive_id() -> i32;
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct aeron_uri_param_stct {
@@ -6800,22 +6818,3 @@ unsafe extern "C" {
     pub fn aeron_archive_client_version_patch() -> ::std::os::raw::c_int;
 }
 pub type __builtin_va_list = *mut ::std::os::raw::c_char;
-
-pub const AERON_ARCHIVE_MAJOR_VERSION: u32 = 1;
-pub const AERON_ARCHIVE_MINOR_VERSION: u32 = 11;
-pub const AERON_ARCHIVE_PATCH_VERSION: u32 = 0;
-unsafe extern "C" {
-    pub fn aeron_archive_replay_params_copy(
-        dst: *mut aeron_archive_replay_params_t,
-        src: *mut aeron_archive_replay_params_t,
-    ) -> ::std::os::raw::c_int;
-}
-unsafe extern "C" {
-    pub fn aeron_archive_replay_params_is_bounded(params: *mut aeron_archive_replay_params_t) -> bool;
-}
-unsafe extern "C" {
-    pub fn aeron_archive_semantic_version() -> i32;
-}
-unsafe extern "C" {
-    pub fn aeron_archive_protocol_version_with_archive_id() -> i32;
-}

@@ -2,6 +2,38 @@
 // generated `aeron_custom.rs` of rusteron-archive ONLY. Unlike the common custom file,
 // this one may reference archive-only types (AeronArchive, AeronArchiveContext, ...).
 
+impl<S: ResourceStorage<aeron_archive_credentials_supplier_t>> AeronArchiveCredentialsSupplier<S> {
+    /// Return the supplied credentials, or `None` if the supplier has none.
+    #[inline]
+    pub fn encoded_credentials(&self) -> Option<Ref<'_, AeronArchiveEncodedCredentials>> {
+        let result = unsafe { aeron_archive_credentials_supplier_encoded_credentials(self.get_inner()) };
+        #[cfg(feature = "log-c-bindings")]
+        log::info!("aeron_archive_credentials_supplier_encoded_credentials returned {result:?}");
+        std::ptr::NonNull::new(result).map(|ptr| unsafe { Ref::new(AeronArchiveEncodedCredentials::from_ptr(ptr.as_ptr())) })
+    }
+
+    /// Return credentials for the challenge, or `None` if the supplier has none.
+    #[inline]
+    pub fn on_challenge(
+        &self,
+        encoded_challenge: &AeronArchiveEncodedCredentials,
+    ) -> Option<Ref<'_, AeronArchiveEncodedCredentials>> {
+        let result =
+            unsafe { aeron_archive_credentials_supplier_on_challenge(self.get_inner(), encoded_challenge.get_inner()) };
+        #[cfg(feature = "log-c-bindings")]
+        log::info!("aeron_archive_credentials_supplier_on_challenge returned {result:?}");
+        std::ptr::NonNull::new(result).map(|ptr| unsafe { Ref::new(AeronArchiveEncodedCredentials::from_ptr(ptr.as_ptr())) })
+    }
+}
+
+impl<'a, S: ResourceStorage<aeron_archive_credentials_supplier_t>> Ref<'a, AeronArchiveCredentialsSupplier<S>> {
+    /// Return the supplied credentials, or `None` if the supplier has none.
+    #[inline]
+    pub fn encoded_credentials(&self) -> Option<Ref<'a, AeronArchiveEncodedCredentials>> {
+        self.value.encoded_credentials().map(|view| Ref::new(view.value))
+    }
+}
+
 impl<S: ResourceStorage<aeron_archive_context_t>> AeronArchiveContext<S> {
     /// Attach a client that Rust continues to own. Aeron Archive must not close it.
     pub fn set_aeron(&self, aeron: &Aeron) -> Result<i32, AeronCError> {
@@ -71,9 +103,8 @@ impl<S: ResourceStorage<aeron_archive_persistent_subscription_context_t>> AeronA
         Ok(result)
     }
 
-    /// Give the persistent subscription its own copy of `context`, kept until it closes. The
-    /// subscription writes its client into the context when it starts, so one context can be
-    /// reused for many subscriptions. Callbacks set on `context` are shared with the copy
+    /// Copy the Archive configuration for this subscription. The copy keeps the
+    /// source context and the callbacks installed at the time of the copy alive.
     pub fn set_archive_context(&self, context: &AeronArchiveContext) -> Result<i32, AeronCError> {
         self.inner.check_configurable()?;
         let Some(owner) = self.inner.as_owned() else {
@@ -86,13 +117,28 @@ impl<S: ResourceStorage<aeron_archive_persistent_subscription_context_t>> AeronA
             .inner
             .as_owned()
             .ok_or_else(|| AeronCError::with_message(-1, "archive context requires owning storage"))?;
-        let source = context.get_inner();
         let copy = ResourceRef::new(ManagedCResource::<aeron_archive_context_t>::new(
-            move |copy| unsafe { aeron_archive_context_duplicate(copy, source) },
+            |copy| unsafe {
+                let source = context.get_inner();
+                let result = aeron_archive_context_duplicate(copy, source);
+                if result >= 0 {
+                    // The duplicate must not close the source's native client.
+                    if (*source).owns_aeron_client {
+                        (**copy).owns_aeron_client = false;
+                        (**copy).aeron = std::ptr::null_mut();
+                    }
+                    // Aeron will allocate fresh state when it concludes the copy.
+                    if (*source).owns_idle_strategy {
+                        (**copy).idle_strategy_func = None;
+                        (**copy).idle_strategy_state = std::ptr::null_mut();
+                    }
+                }
+                result
+            },
             Some(Box::new(|copy| unsafe { aeron_archive_context_close(*copy) })),
             false,
         )?);
-        // The copy holds the same callback pointers, so it keeps their handlers alive too
+        copy.add_handle_dependency(context);
         copy.copy_dependencies_from(context_owner);
         let result =
             unsafe { aeron_archive_persistent_subscription_context_set_archive_context(self.get_inner(), copy.get()) };

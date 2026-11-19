@@ -1,3 +1,4 @@
+
 type aeron_client_registering_resource_t = aeron_client_registering_resource_stct;
 unsafe impl NativeResource for aeron_agent_runner_t {
     type Policy = LocalResource;
@@ -5337,64 +5338,6 @@ impl<S: ResourceStorage<aeron_archive_credentials_supplier_t>> AeronArchiveCrede
         unsafe { self.get_inner_ref() }.clientd.into()
     }
     #[inline]
-    #[track_caller]
-    pub fn encoded_credentials(&self) -> Ref<'_, AeronArchiveEncodedCredentials> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_credentials_supplier_encoded_credentials),
-                [concat!("supplier", ": ", stringify!(*mut aeron_archive_credentials_supplier_t)).to_string()]
-                    .join(", ")
-            );
-            let result = aeron_archive_credentials_supplier_encoded_credentials(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            Ref::new(unsafe {
-                AeronArchiveEncodedCredentials::from_ptr(
-                    std::ptr::NonNull::new(result as *mut _)
-                        .expect("native getter returned null")
-                        .as_ptr(),
-                )
-            })
-        }
-    }
-    #[inline]
-    #[track_caller]
-    pub fn on_challenge(
-        &self,
-        encoded_challenge: &AeronArchiveEncodedCredentials,
-    ) -> Ref<'_, AeronArchiveEncodedCredentials> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_credentials_supplier_on_challenge),
-                [
-                    concat!("supplier", ": ", stringify!(*mut aeron_archive_credentials_supplier_t)).to_string(),
-                    concat!(
-                        "encoded_challenge",
-                        ": ",
-                        stringify!(*mut aeron_archive_encoded_credentials_t)
-                    )
-                    .to_string()
-                ]
-                .join(", ")
-            );
-            let result =
-                aeron_archive_credentials_supplier_on_challenge(self.get_inner(), encoded_challenge.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            Ref::new(unsafe {
-                AeronArchiveEncodedCredentials::from_ptr(
-                    std::ptr::NonNull::new(result as *mut _)
-                        .expect("native getter returned null")
-                        .as_ptr(),
-                )
-            })
-        }
-    }
-    #[inline]
     #[doc = "# Safety"]
     #[doc = "This bypasses Rust ownership. Keep all retained pointers valid until native cleanup. Initializers require exclusive access and must not overwrite live native state or invalidate borrowed views. After raw removal or deletion, prevent all further access and Rust cleanup through every alias. Prefer the owning handle's constructor, close or cancel method."]
     pub unsafe fn on_free(&self, credentials: &AeronArchiveEncodedCredentials) -> () {
@@ -5448,14 +5391,6 @@ impl<S: ResourceStorage<aeron_archive_credentials_supplier_t>> AeronArchiveCrede
     #[doc = r" is alive. Shared wrappers also require coordination with other threads."]
     pub unsafe fn get_inner_ref(&self) -> &aeron_archive_credentials_supplier_t {
         unsafe { self.inner.get().as_ref() }.expect("native resource was released")
-    }
-}
-impl<'a, S: ResourceStorage<aeron_archive_credentials_supplier_t>> Ref<'a, AeronArchiveCredentialsSupplier<S>> {
-    #[inline]
-    #[must_use]
-    #[track_caller]
-    pub fn encoded_credentials(&self) -> Ref<'a, AeronArchiveEncodedCredentials> {
-        Ref::new(self.value.encoded_credentials().value)
     }
 }
 impl AeronArchiveCredentialsSupplier {
@@ -12017,6 +11952,32 @@ impl AeronArchive {
         }
     }
     #[inline]
+    pub fn semantic_version() -> i32 {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("{}({})", stringify!(aeron_archive_semantic_version), [""; 0].join(", "));
+            let result = aeron_archive_semantic_version();
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
+    pub fn protocol_version_with_archive_id() -> i32 {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_archive_protocol_version_with_archive_id),
+                [""; 0].join(", ")
+            );
+            let result = aeron_archive_protocol_version_with_archive_id();
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
+    }
+    #[inline]
     pub fn client_version_text() -> &'static str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -12109,32 +12070,6 @@ impl AeronArchive {
             } else {
                 return Ok(result);
             }
-        }
-    }
-    #[inline]
-    pub fn semantic_version() -> i32 {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("{}({})", stringify!(aeron_archive_semantic_version), [""; 0].join(", "));
-            let result = aeron_archive_semantic_version();
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
-    }
-    #[inline]
-    pub fn protocol_version_with_archive_id() -> i32 {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_archive_protocol_version_with_archive_id),
-                [""; 0].join(", ")
-            );
-            let result = aeron_archive_protocol_version_with_archive_id();
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
         }
     }
 }
@@ -31226,31 +31161,7 @@ impl<S: ResourceStorage<aeron_publication_error_values_t>> AeronPublicationError
         unsafe { self.inner.get().as_ref() }.expect("native resource was released")
     }
 }
-impl AeronPublicationErrorValues {
-    #[doc = r" Borrow a native pointer without taking ownership."]
-    #[doc = r" # Safety"]
-    #[doc = r" The pointer must be non-null. It and its parents must remain live for every use. Calls"]
-    #[doc = r" must follow Aeron's threading and aliasing rules."]
-    #[inline]
-    pub unsafe fn from_ptr(
-        ptr: *mut aeron_publication_error_values_t,
-    ) -> AeronPublicationErrorValues<Borrowed<aeron_publication_error_values_t>> {
-        AeronPublicationErrorValues {
-            inner: unsafe { Borrowed::new_unchecked(ptr) },
-        }
-    }
-    #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
-    #[inline]
-    pub unsafe fn from_native(
-        value: aeron_publication_error_values_t,
-    ) -> AeronPublicationErrorValues<Inline<aeron_publication_error_values_t>> {
-        AeronPublicationErrorValues {
-            inner: Inline::new(value),
-        }
-    }
-}
+impl AeronPublicationErrorValues {}
 impl<S: ResourceStorage<aeron_publication_error_values_t>> From<AeronPublicationErrorValues<S>>
     for *mut aeron_publication_error_values_t
 {
@@ -50964,3 +50875,4 @@ unsafe extern "C" fn aeron_agent_on_close_func_t_callback_for_once_closure_catch
         closure()
     })
 }
+

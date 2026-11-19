@@ -845,7 +845,6 @@ pub struct PersistentSubscriptionBuilder {
     ctx: AeronArchivePersistentSubscriptionContext,
     listener: Option<Box<dyn PersistentSubscriptionListener>>,
     aeron: Option<Aeron>,
-    archive_context: Option<AeronArchiveContext>,
 }
 
 impl PersistentSubscriptionBuilder {
@@ -855,7 +854,6 @@ impl PersistentSubscriptionBuilder {
             ctx: AeronArchivePersistentSubscriptionContext::new()?,
             listener: None,
             aeron: None,
-            archive_context: None,
         })
     }
 
@@ -887,9 +885,8 @@ impl PersistentSubscriptionBuilder {
     /// # Errors
     ///
     /// Returns the Aeron error if the context rejects the archive context.
-    pub fn archive_context(mut self, ctx: &AeronArchiveContext) -> Result<Self, AeronCError> {
+    pub fn archive_context(self, ctx: &AeronArchiveContext) -> Result<Self, AeronCError> {
         self.ctx.set_archive_context(ctx)?;
-        self.archive_context = Some(AeronArchiveContext::from_resource(ctx.inner.clone()));
         Ok(self)
     }
 
@@ -961,14 +958,14 @@ impl PersistentSubscriptionBuilder {
     /// }
     /// ```
     pub unsafe fn state_counter(self, counter: &AeronCounter) -> Result<Self, AeronCError> {
-        let previous = self
-            .ctx
-            .get_state_counter()
-            .map_or(std::ptr::null_mut(), |view| view.get_inner());
-        // SAFETY: the caller transfers native ownership under the contract above.
-        unsafe { self.ctx.set_state_counter(counter)? };
-        hand_over(previous, counter);
-        Ok(self)
+        // SAFETY: the caller transfers native ownership.
+        unsafe {
+            self.transfer_counter(
+                counter,
+                AeronArchivePersistentSubscriptionContext::get_state_counter,
+                AeronArchivePersistentSubscriptionContext::set_state_counter,
+            )
+        }
     }
 
     /// Counter holding the byte gap between replay and live when the live image is added.
@@ -977,14 +974,14 @@ impl PersistentSubscriptionBuilder {
     /// Do not use this counter or its aliases after this call. The builder and
     /// subscription own its native cleanup. Keep the counter's client alive.
     pub unsafe fn join_difference_counter(self, counter: &AeronCounter) -> Result<Self, AeronCError> {
-        let previous = self
-            .ctx
-            .get_join_difference_counter()
-            .map_or(std::ptr::null_mut(), |view| view.get_inner());
-        // SAFETY: the caller transfers native ownership under the contract above.
-        unsafe { self.ctx.set_join_difference_counter(counter)? };
-        hand_over(previous, counter);
-        Ok(self)
+        // SAFETY: the caller transfers native ownership.
+        unsafe {
+            self.transfer_counter(
+                counter,
+                AeronArchivePersistentSubscriptionContext::get_join_difference_counter,
+                AeronArchivePersistentSubscriptionContext::set_join_difference_counter,
+            )
+        }
     }
 
     /// Counter holding the number of times the PS has dropped off the live stream.
@@ -993,14 +990,14 @@ impl PersistentSubscriptionBuilder {
     /// Do not use this counter or its aliases after this call. The builder and
     /// subscription own its native cleanup. Keep the counter's client alive.
     pub unsafe fn live_left_counter(self, counter: &AeronCounter) -> Result<Self, AeronCError> {
-        let previous = self
-            .ctx
-            .get_live_left_counter()
-            .map_or(std::ptr::null_mut(), |view| view.get_inner());
-        // SAFETY: the caller transfers native ownership under the contract above.
-        unsafe { self.ctx.set_live_left_counter(counter)? };
-        hand_over(previous, counter);
-        Ok(self)
+        // SAFETY: the caller transfers native ownership.
+        unsafe {
+            self.transfer_counter(
+                counter,
+                AeronArchivePersistentSubscriptionContext::get_live_left_counter,
+                AeronArchivePersistentSubscriptionContext::set_live_left_counter,
+            )
+        }
     }
 
     /// Counter holding the number of times the PS has switched to the live stream.
@@ -1009,13 +1006,31 @@ impl PersistentSubscriptionBuilder {
     /// Do not use this counter or its aliases after this call. The builder and
     /// subscription own its native cleanup. Keep the counter's client alive.
     pub unsafe fn live_joined_counter(self, counter: &AeronCounter) -> Result<Self, AeronCError> {
-        let previous = self
-            .ctx
-            .get_live_joined_counter()
-            .map_or(std::ptr::null_mut(), |view| view.get_inner());
-        // SAFETY: the caller transfers native ownership under the contract above.
-        unsafe { self.ctx.set_live_joined_counter(counter)? };
-        hand_over(previous, counter);
+        // SAFETY: the caller transfers native ownership.
+        unsafe {
+            self.transfer_counter(
+                counter,
+                AeronArchivePersistentSubscriptionContext::get_live_joined_counter,
+                AeronArchivePersistentSubscriptionContext::set_live_joined_counter,
+            )
+        }
+    }
+
+    unsafe fn transfer_counter(
+        self,
+        counter: &AeronCounter,
+        get: fn(&AeronArchivePersistentSubscriptionContext) -> Option<Ref<'_, AeronCounter>>,
+        set: unsafe fn(&AeronArchivePersistentSubscriptionContext, &AeronCounter) -> Result<i32, AeronCError>,
+    ) -> Result<Self, AeronCError> {
+        let previous = get(&self.ctx).map_or(std::ptr::null_mut(), |view| view.get_inner());
+        unsafe { set(&self.ctx, counter)? };
+        if !previous.is_null() && previous != counter.get_inner() {
+            // The context owned the old counter but no longer holds it.
+            unsafe { aeron_counter_close(previous, None, std::ptr::null_mut()) };
+        }
+        if let Some(inner) = counter.inner.as_owned() {
+            inner.close_already_called.store(true, Ordering::SeqCst);
+        }
         Ok(self)
     }
 
@@ -1023,29 +1038,12 @@ impl PersistentSubscriptionBuilder {
     /// open until it closes.
     pub fn build(mut self) -> Result<AeronArchivePersistentSubscription, AeronCError> {
         let subscription = AeronArchivePersistentSubscription::create(self.ctx, self.listener.take())?;
-        // the subscription uses both until its C close, and they drop after it in this order
         if let Some(inner) = subscription.inner.as_owned() {
-            if let Some(context) = self.archive_context.take() {
-                inner.add_handle_dependency(&context);
-            }
             if let Some(aeron) = self.aeron.take() {
                 inner.add_handle_dependency(&aeron);
             }
         }
         Ok(subscription)
-    }
-}
-
-/// Leaves `counter` to the persistent subscription context, which closes every counter it
-/// holds, so the Rust handle does not close it a second time. The context no longer holds
-/// `previous`, the counter `counter` replaces, so that one is closed here.
-fn hand_over(previous: *mut aeron_counter_t, counter: &AeronCounter) {
-    if !previous.is_null() && previous != counter.get_inner() {
-        // SAFETY: the context held `previous`, so it is open, and nothing else closes it.
-        unsafe { aeron_counter_close(previous, None, std::ptr::null_mut()) };
-    }
-    if let Some(inner) = counter.inner.as_owned() {
-        inner.close_already_called.store(true, Ordering::SeqCst);
     }
 }
 

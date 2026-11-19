@@ -117,13 +117,9 @@ impl AeronDriverContext {
     /// On Linux, affinity validation failed or the cpuset could not be read.
     /// On other platforms this is a no-op, matching Aeron's standalone driver.
     pub fn apply_cgroup_cpuset_affinity(&self) -> Result<(), AeronCError> {
-        self.inner.check_configurable()?;
-        // SAFETY: the context is live, and the driver has not started reading it.
-        let result = unsafe { aeron_driver_validate_and_apply_affinity_configuration(self.get_inner()) };
-        if result < 0 {
-            return Err(AeronCError::from_code(result).capture_errmsg());
-        }
-        Ok(())
+        self.aeron_driver_validate_and_apply_affinity_configuration()
+            .map(|_| ())
+            .map_err(AeronCError::capture_errmsg)
     }
 
     /// Pins each driver agent thread, as it starts, to the CPU set for its role
@@ -549,6 +545,19 @@ mod tests {
     #[test]
     fn cgroup_cpuset_affinity_is_a_no_op_when_off() -> Result<(), AeronCError> {
         AeronDriverContext::new()?.apply_cgroup_cpuset_affinity()
+    }
+
+    #[test]
+    fn affinity_methods_reject_a_frozen_context() -> Result<(), AeronCError> {
+        let context = AeronDriverContext::new()?;
+        context.inner.as_owned().unwrap().freeze()?;
+        let generated = context
+            .aeron_driver_validate_and_apply_affinity_configuration()
+            .unwrap_err();
+        let helper = context.apply_cgroup_cpuset_affinity().unwrap_err();
+        assert_eq!(generated.message(), Some("context cannot be changed after use"));
+        assert_eq!(helper.message(), generated.message());
+        Ok(())
     }
 
     #[test]

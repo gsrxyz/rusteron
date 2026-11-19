@@ -154,6 +154,51 @@ fn archive_context_rejects_native_client_ownership() -> Result<(), AeronCError> 
 }
 
 #[test]
+fn credentials_supplier_without_callbacks_returns_none() -> Result<(), AeronCError> {
+    let context = AeronArchiveContext::new()?;
+    let supplier = context.credentials_supplier();
+    let challenge = AeronArchiveEncodedCredentials::new_zeroed_on_heap();
+    assert!(supplier.encoded_credentials().is_none());
+    assert!(supplier.on_challenge(&challenge).is_none());
+    Ok(())
+}
+
+#[test]
+fn persistent_subscription_copy_does_not_inherit_native_ownership() -> Result<(), Box<dyn std::error::Error>> {
+    use rusteron_media_driver::testing::EmbeddedDriver;
+
+    let driver = EmbeddedDriver::launch()?;
+    let source = AeronArchiveContext::new()?;
+    source.set_aeron_directory_name(&driver.dir().into_c_string())?;
+    source.set_control_request_channel(c"aeron:ipc")?;
+    source.set_control_response_channel(c"aeron:ipc")?;
+    source.conclude()?;
+    let source_owner = ResourceRef::downgrade(source.inner.as_owned().unwrap());
+    // Native conclusion creates both a client and a backoff idle strategy for this context.
+    assert!(source.get_owns_aeron_client());
+    assert!(unsafe { (*source.get_inner()).owns_idle_strategy });
+
+    let subscription_context = AeronArchivePersistentSubscriptionContext::new()?;
+    subscription_context.set_archive_context(&source)?;
+    let copy = subscription_context
+        .inner
+        .get_handle_dependency::<AeronArchiveContext>()
+        .unwrap();
+    assert!(!copy.get_owns_aeron_client());
+    let native_copy = unsafe { &*copy.get_inner() };
+    assert!(native_copy.aeron.is_null());
+    assert!(native_copy.idle_strategy_func.is_none());
+    assert!(native_copy.idle_strategy_state.is_null());
+
+    drop(source);
+    assert!(source_owner.upgrade().is_some());
+    drop(copy);
+    drop(subscription_context);
+    assert!(source_owner.upgrade().is_none());
+    Ok(())
+}
+
+#[test]
 fn archive_resource_errors_only_classify_storage_and_session_limits() {
     for (code, expected) in [
         (200, false),

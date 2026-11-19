@@ -8,6 +8,112 @@ pub static AERON_IPC_STREAM: &std::ffi::CStr = c"aeron:ipc";
 /// your own iovec array for larger gathers.
 pub const MAX_OFFER_PARTS: usize = 8;
 
+impl AeronPublicationErrorValues {
+    /// Borrow a publication error frame without taking ownership.
+    ///
+    /// # Safety
+    /// `ptr` must point to a complete Aeron error frame, including the message
+    /// storage required by `aeron_publication_error_values_copy`. The frame must
+    /// remain live and unchanged for every use of the returned view.
+    #[inline]
+    pub unsafe fn from_ptr(ptr: *mut aeron_publication_error_values_t) -> Self {
+        Self {
+            inner: unsafe { Borrowed::new_unchecked(ptr) },
+        }
+    }
+
+    /// Copy an empty-message error frame into inline storage.
+    ///
+    /// # Safety
+    /// `value.error_message_length` must be zero. Inline storage cannot hold
+    /// the trailing bytes that Aeron's copy function reads for a message.
+    #[inline]
+    pub unsafe fn from_native(
+        value: aeron_publication_error_values_t,
+    ) -> AeronPublicationErrorValues<Inline<aeron_publication_error_values_t>> {
+        AeronPublicationErrorValues::from_resource(Inline::new(value))
+    }
+
+    /// Copy this error frame and its full message so it can outlive the callback.
+    /// Aeron allocates the copy. Reading the borrowed frame does not allocate.
+    pub fn try_to_owned(&self) -> Result<AeronPublicationErrorValuesOwned, AeronCError> {
+        let ptr = ManagedCResource::initialise(|out| unsafe {
+            aeron_publication_error_values_copy(out, self.get_inner())
+        })?;
+        // The native copy owns the full frame and message.
+        Ok(AeronPublicationErrorValuesOwned(unsafe { Self::from_ptr(ptr) }))
+    }
+}
+
+/// A publication error frame copied by [`AeronPublicationErrorValues::try_to_owned`].
+pub struct AeronPublicationErrorValuesOwned(AeronPublicationErrorValuesRef);
+
+impl AeronPublicationErrorValuesOwned {
+    /// The full message as UTF-8. Invalid UTF-8 returns `"<invalid UTF-8>"`.
+    /// Use [`Self::error_message_bytes`] to read the original bytes.
+    pub fn error_message(&self) -> &str {
+        std::str::from_utf8(self.error_message_bytes()).unwrap_or("<invalid UTF-8>")
+    }
+
+    /// The full message bytes.
+    pub fn error_message_bytes(&self) -> &[u8] {
+        let ptr = self.0.get_inner();
+        // Aeron copied the trailing message. `error_message` marks its first byte.
+        unsafe {
+            std::slice::from_raw_parts(
+                std::ptr::addr_of!((*ptr).error_message).cast::<u8>(),
+                self.0.error_message_length() as usize,
+            )
+        }
+    }
+}
+
+impl std::fmt::Debug for AeronPublicationErrorValuesOwned {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AeronPublicationErrorValuesOwned")
+            .field("registration_id", &self.registration_id())
+            .field("session_id", &self.session_id())
+            .field("stream_id", &self.stream_id())
+            .field("error_code", &self.error_code())
+            .field("error_message", &self.error_message())
+            .finish()
+    }
+}
+
+impl std::fmt::Display for AeronPublicationErrorValuesOwned {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "publication error {} (registration {})",
+            self.error_code(),
+            self.registration_id()
+        )?;
+        let message = self.error_message();
+        if !message.is_empty() {
+            write!(f, ": {message}")?;
+        }
+        Ok(())
+    }
+}
+
+impl std::ops::Deref for AeronPublicationErrorValuesOwned {
+    type Target = AeronPublicationErrorValuesRef;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+// SAFETY: the copy holds immutable values and bytes. Aeron frees it with no thread affinity.
+unsafe impl Send for AeronPublicationErrorValuesOwned {}
+unsafe impl Sync for AeronPublicationErrorValuesOwned {}
+
+impl Drop for AeronPublicationErrorValuesOwned {
+    fn drop(&mut self) {
+        unsafe { aeron_publication_error_values_delete(self.0.get_inner()) };
+    }
+}
+
 // Threading policies and the shared-handle allowlist live in thread_safety.rs.
 
 /// High-level connection state of a publication or subscription.
@@ -2335,6 +2441,38 @@ impl<F: FnMut(&[u8], &AeronHeader<Borrowed<aeron_header_t>>) -> aeron_controlled
 // generated `aeron_custom.rs` of rusteron-archive ONLY. Unlike the common custom file,
 // this one may reference archive-only types (AeronArchive, AeronArchiveContext, ...).
 
+impl<S: ResourceStorage<aeron_archive_credentials_supplier_t>> AeronArchiveCredentialsSupplier<S> {
+    /// Return the supplied credentials, or `None` if the supplier has none.
+    #[inline]
+    pub fn encoded_credentials(&self) -> Option<Ref<'_, AeronArchiveEncodedCredentials>> {
+        let result = unsafe { aeron_archive_credentials_supplier_encoded_credentials(self.get_inner()) };
+        #[cfg(feature = "log-c-bindings")]
+        log::info!("aeron_archive_credentials_supplier_encoded_credentials returned {result:?}");
+        std::ptr::NonNull::new(result).map(|ptr| unsafe { Ref::new(AeronArchiveEncodedCredentials::from_ptr(ptr.as_ptr())) })
+    }
+
+    /// Return credentials for the challenge, or `None` if the supplier has none.
+    #[inline]
+    pub fn on_challenge(
+        &self,
+        encoded_challenge: &AeronArchiveEncodedCredentials,
+    ) -> Option<Ref<'_, AeronArchiveEncodedCredentials>> {
+        let result =
+            unsafe { aeron_archive_credentials_supplier_on_challenge(self.get_inner(), encoded_challenge.get_inner()) };
+        #[cfg(feature = "log-c-bindings")]
+        log::info!("aeron_archive_credentials_supplier_on_challenge returned {result:?}");
+        std::ptr::NonNull::new(result).map(|ptr| unsafe { Ref::new(AeronArchiveEncodedCredentials::from_ptr(ptr.as_ptr())) })
+    }
+}
+
+impl<'a, S: ResourceStorage<aeron_archive_credentials_supplier_t>> Ref<'a, AeronArchiveCredentialsSupplier<S>> {
+    /// Return the supplied credentials, or `None` if the supplier has none.
+    #[inline]
+    pub fn encoded_credentials(&self) -> Option<Ref<'a, AeronArchiveEncodedCredentials>> {
+        self.value.encoded_credentials().map(|view| Ref::new(view.value))
+    }
+}
+
 impl<S: ResourceStorage<aeron_archive_context_t>> AeronArchiveContext<S> {
     /// Attach a client that Rust continues to own. Aeron Archive must not close it.
     pub fn set_aeron(&self, aeron: &Aeron) -> Result<i32, AeronCError> {
@@ -2404,9 +2542,8 @@ impl<S: ResourceStorage<aeron_archive_persistent_subscription_context_t>> AeronA
         Ok(result)
     }
 
-    /// Give the persistent subscription its own copy of `context`, kept until it closes. The
-    /// subscription writes its client into the context when it starts, so one context can be
-    /// reused for many subscriptions. Callbacks set on `context` are shared with the copy
+    /// Copy the Archive configuration for this subscription. The copy keeps the
+    /// source context and the callbacks installed at the time of the copy alive.
     pub fn set_archive_context(&self, context: &AeronArchiveContext) -> Result<i32, AeronCError> {
         self.inner.check_configurable()?;
         let Some(owner) = self.inner.as_owned() else {
@@ -2419,13 +2556,28 @@ impl<S: ResourceStorage<aeron_archive_persistent_subscription_context_t>> AeronA
             .inner
             .as_owned()
             .ok_or_else(|| AeronCError::with_message(-1, "archive context requires owning storage"))?;
-        let source = context.get_inner();
         let copy = ResourceRef::new(ManagedCResource::<aeron_archive_context_t>::new(
-            move |copy| unsafe { aeron_archive_context_duplicate(copy, source) },
+            |copy| unsafe {
+                let source = context.get_inner();
+                let result = aeron_archive_context_duplicate(copy, source);
+                if result >= 0 {
+                    // The duplicate must not close the source's native client.
+                    if (*source).owns_aeron_client {
+                        (**copy).owns_aeron_client = false;
+                        (**copy).aeron = std::ptr::null_mut();
+                    }
+                    // Aeron will allocate fresh state when it concludes the copy.
+                    if (*source).owns_idle_strategy {
+                        (**copy).idle_strategy_func = None;
+                        (**copy).idle_strategy_state = std::ptr::null_mut();
+                    }
+                }
+                result
+            },
             Some(Box::new(|copy| unsafe { aeron_archive_context_close(*copy) })),
             false,
         )?);
-        // The copy holds the same callback pointers, so it keeps their handlers alive too
+        copy.add_handle_dependency(context);
         copy.copy_dependencies_from(context_owner);
         let result =
             unsafe { aeron_archive_persistent_subscription_context_set_archive_context(self.get_inner(), copy.get()) };

@@ -49,7 +49,7 @@ walkdir           = { workspace = true }
 [dev-dependencies]
 fd-lock     = { workspace = true }
 rusteron-code-gen = { workspace = true }
-rusteron-media-driver = { path = "../rusteron-media-driver" }
+rusteron-media-driver = { path = "../rusteron-media-driver", version = "=0.2.22" }
 serial_test = { workspace = true }
 
 [features]

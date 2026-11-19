@@ -1079,7 +1079,6 @@ impl CWrapper {
                 } else {
                     None
                 };
-                // C returns NULL for these types: a getter before its setter runs, or `load` when it fails
                 let nullable_child = crate::arg_classifier::is_c_owned_set_type(&method.return_type.c_type);
                 if let Some(child) = &borrowed_child {
                     if nullable_child {
@@ -1221,7 +1220,8 @@ impl CWrapper {
                         }
                     });
                 }
-                let set_closed = if ["aeron_context_t", "aeron_driver_context_t", "aeron_archive_context_t", "aeron_archive_persistent_subscription_context_t"].contains(&self.type_name.as_str()) && method.fn_name.contains("_set_") {
+                let set_closed = if (["aeron_context_t", "aeron_driver_context_t", "aeron_archive_context_t", "aeron_archive_persistent_subscription_context_t"].contains(&self.type_name.as_str()) && method.fn_name.contains("_set_"))
+                    || method.fn_name == "aeron_driver_validate_and_apply_affinity_configuration" {
                     if method.return_type.is_c_raw_int() { quote! { self.inner.check_configurable()?; } }
                     else { quote! { self.inner.check_configurable().expect("context cannot be changed after use"); } }
                 } else if method.fn_name == "aeron_start" {
@@ -4410,10 +4410,8 @@ pub fn generate_rust_code(
 
     let derive_clone = if handle_is_archive_context(&wrapper.type_name)
         || handle_is_single_owner(&wrapper.type_name)
-        || matches!(
-            wrapper.type_name.as_str(),
-            "aeron_archive_recording_descriptor_poller_t" | "aeron_archive_recording_subscription_descriptor_poller_t"
-        ) {
+        || crate::convenience::is_descriptor_poller(wrapper)
+    {
         quote! {}
     } else {
         quote! { #[derive(Clone)] }
@@ -4421,6 +4419,7 @@ pub fn generate_rust_code(
     let from_native = if !wrapper.opaque
         && !handle_has_stable_pointer(&wrapper.type_name)
         && !handle_is_archive_context(&wrapper.type_name)
+        && !wrapper.skipped_methods.contains("from_native")
     {
         quote! {
             /// Copy a native struct into inline storage.
@@ -4434,8 +4433,10 @@ pub fn generate_rust_code(
     } else {
         quote! {}
     };
-    let wrap_impls = quote! {
-        impl #class_name {
+    let from_ptr = if wrapper.skipped_methods.contains("from_ptr") {
+        quote! {}
+    } else {
+        quote! {
             /// Borrow a native pointer without taking ownership.
             /// # Safety
             /// The pointer must be non-null. It and its parents must remain live for every use. Calls
@@ -4444,6 +4445,11 @@ pub fn generate_rust_code(
             pub unsafe fn from_ptr(ptr: *mut #type_name) -> #class_name<Borrowed<#type_name>> {
                 #class_name { inner: unsafe { Borrowed::new_unchecked(ptr) },  }
             }
+        }
+    };
+    let wrap_impls = quote! {
+        impl #class_name {
+            #from_ptr
             #from_native
         }
     };

@@ -1,3 +1,4 @@
+
 type aeron_client_registering_resource_t = aeron_client_registering_resource_stct;
 unsafe impl NativeResource for addrinfo {
     type Policy = LocalResource;
@@ -30259,6 +30260,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     }
     #[inline]
     pub fn aeron_driver_validate_and_apply_affinity_configuration(&self) -> Result<i32, AeronCError> {
+        self.inner.check_configurable()?;
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -58510,31 +58512,7 @@ impl<S: ResourceStorage<aeron_publication_error_values_t>> AeronPublicationError
         unsafe { self.inner.get().as_ref() }.expect("native resource was released")
     }
 }
-impl AeronPublicationErrorValues {
-    #[doc = r" Borrow a native pointer without taking ownership."]
-    #[doc = r" # Safety"]
-    #[doc = r" The pointer must be non-null. It and its parents must remain live for every use. Calls"]
-    #[doc = r" must follow Aeron's threading and aliasing rules."]
-    #[inline]
-    pub unsafe fn from_ptr(
-        ptr: *mut aeron_publication_error_values_t,
-    ) -> AeronPublicationErrorValues<Borrowed<aeron_publication_error_values_t>> {
-        AeronPublicationErrorValues {
-            inner: unsafe { Borrowed::new_unchecked(ptr) },
-        }
-    }
-    #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
-    #[inline]
-    pub unsafe fn from_native(
-        value: aeron_publication_error_values_t,
-    ) -> AeronPublicationErrorValues<Inline<aeron_publication_error_values_t>> {
-        AeronPublicationErrorValues {
-            inner: Inline::new(value),
-        }
-    }
-}
+impl AeronPublicationErrorValues {}
 impl<S: ResourceStorage<aeron_publication_error_values_t>> From<AeronPublicationErrorValues<S>>
     for *mut aeron_publication_error_values_t
 {
@@ -104948,3 +104926,4 @@ unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback_for_
         closure(term_id.into(), term_offset.into(), length.into())
     })
 }
+

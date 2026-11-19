@@ -584,8 +584,14 @@ used `self` for both. The second pointer is now a separate argument. This fixes
 Media Driver channel-tag matching, IPv4 and IPv6 prefix comparisons, and
 socket-address comparisons. Pass the second handle at each affected call site. For
 example, `first.aeron_ipv4_does_prefix_match(&second, 24)` compares two IPv4
-addresses. IPv4 prefix utilities panic on lengths above 32, and IPv6 comparisons
-panic on lengths above 128, before calling C.
+addresses and returns `Result<bool, AeronCError>`. IPv4 prefix utilities return
+`Err` for lengths above 32. IPv6 comparisons return `Err` for lengths above 128.
+
+## Archive credentials
+
+`AeronArchiveCredentialsSupplier::encoded_credentials()` and `on_challenge()`
+return `Option<Ref<'_, AeronArchiveEncodedCredentials>>`. `None` means no
+callback is installed or the callback returned no credentials.
 
 ## Archive error codes
 

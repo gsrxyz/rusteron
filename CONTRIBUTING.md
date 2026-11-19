@@ -55,12 +55,12 @@ These doctests cover borrowed lifetimes, clone restrictions, thread traits and
 native access that requires `unsafe`. Run them with:
 
 ```bash
-cargo test -p rusteron-client -p rusteron-archive --features static --doc ownership_contracts
+cargo test -p rusteron-client -p rusteron-archive --features static --doc
 ```
 
-Add a doctest to the affected crate's `src/ownership_contracts.rs` when an API
+Add a doctest next to the affected API or in `src/ownership_contracts.rs` when a
 change should reject code that could cause undefined behaviour. Use `compile_fail`
-for rejected code and `no_run` for examples that need to compile without running.
+for rejected code and `no_run` for examples that only need to compile.
 
 ## Code style and commit tips
 

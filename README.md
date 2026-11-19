@@ -12,9 +12,9 @@ and manages resource ownership and callback lifetimes.
 
 ## Design goals
 
-- Be as safe as the Aeron Java and C++ clients, at the same cost. Rusteron adds a
-  check only when it costs nothing at run time, such as a lifetime or a borrow rule.
-  It does not add run-time validation, locks or copies that Java and C++ do not have
+- Match the safety and cost of the Aeron Java and C++ clients. Prefer compile-time
+  checks such as lifetimes and borrow rules. Avoid runtime validation, locks and
+  copies that those clients do not have.
 - Pass calls through to Aeron C. If Aeron C accepts an invalid argument or state,
   report it to [Aeron](https://github.com/real-logic/aeron/issues) so every client
   gets the fix, rather than adding a workaround here

@@ -2,6 +2,58 @@
 use super::*;
 
 #[test]
+fn publication_error_copy_keeps_the_full_frame_after_the_source_drops() {
+    #[repr(C)]
+    struct Frame {
+        prefix: aeron_publication_error_values_t,
+        trailing: [u8; 20],
+    }
+
+    for (message, text) in [
+        (b"".as_slice(), ""),
+        (b"publication rejected".as_slice(), "publication rejected"),
+        (b"rejected\0\xff".as_slice(), "<invalid UTF-8>"),
+    ] {
+        let owned = {
+            let mut frame = Frame {
+                prefix: aeron_publication_error_values_t {
+                    registration_id: 42,
+                    error_code: 3,
+                    error_message_length: message.len() as i32,
+                    ..Default::default()
+                },
+                trailing: [0; 20],
+            };
+            let ptr = std::ptr::from_mut(&mut frame).cast::<aeron_publication_error_values_t>();
+            // The frame has enough storage for the message and Aeron's full copy.
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    message.as_ptr(),
+                    std::ptr::addr_of_mut!((*ptr).error_message).cast::<u8>(),
+                    message.len(),
+                );
+                AeronPublicationErrorValues::from_ptr(ptr).try_to_owned().unwrap()
+            }
+        };
+        std::thread::spawn(move || {
+            assert_eq!(owned.registration_id(), 42);
+            assert_eq!(owned.error_code(), 3);
+            assert_eq!(owned.error_message_bytes(), message);
+            assert_eq!(owned.error_message(), text);
+            let display = owned.to_string();
+            if text.is_empty() {
+                assert_eq!(display, "publication error 3 (registration 42)");
+            } else {
+                assert_eq!(display, format!("publication error 3 (registration 42): {text}"));
+            }
+            assert!(format!("{owned:?}").contains(&format!("error_message: {text:?}")));
+        })
+        .join()
+        .unwrap();
+    }
+}
+
+#[test]
 fn rust_enum_names_use_the_native_types_without_conversion_or_allocation() {
     fn native_action(action: aeron_controlled_fragment_handler_action_t) -> u32 {
         action as u32

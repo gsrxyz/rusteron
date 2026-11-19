@@ -224,7 +224,7 @@ jobs:
       - name: Check ownership and lifetime compile contracts
         if: runner.os == 'Linux' && matrix.features == 'static'
         run: |
-          cargo test -p rusteron-client -p rusteron-archive --doc ${{ env.feature-flags }} ownership_contracts
+          cargo test -p rusteron-client -p rusteron-archive --doc ${{ env.feature-flags }}
 
       - name: Check usage and migration guide examples
         if: runner.os == 'Linux' && matrix.features == 'static'
