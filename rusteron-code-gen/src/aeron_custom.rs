@@ -274,6 +274,8 @@ impl<S: ResourceStorage<aeron_header_t>> AeronHeader<S> {
         if ptr.is_null() {
             None
         } else {
+            // SAFETY: image polls set the context to the image (aeron_image.c) and the fragment
+            // assembler copies it (aeron_fragment_assembler.h), so non-null is always an image
             Some(Ref::new(unsafe { AeronImage::from_ptr(ptr as *mut aeron_image_t) }))
         }
     }
@@ -1026,13 +1028,14 @@ impl Aeron {
 }
 
 impl<S: ResourceStorage<aeron_buffer_claim_t>> AeronBufferClaim<S> {
-    /// The claimed bytes, to write into. Empty if the claim holds no buffer, for example one
-    /// from `new_zeroed_on_heap` or before a successful `try_claim`
+    /// The claimed bytes, to write into. Empty before a successful `try_claim`
     ///
-    /// As in Aeron Java and C++, the bytes stay valid only while the publication is open and
-    /// until the claim is committed or aborted. `AeronClaim` from `try_claim_owned` enforces this
+    /// # Safety
+    /// Write the bytes before `commit` or `abort` and while the publication is open. After that
+    /// they belong to the term buffer again. `AeronClaim` from `try_claim_owned` enforces this
+    /// at compile time
     #[inline]
-    pub fn data_mut(&mut self) -> &mut [u8] {
+    pub fn data(&mut self) -> &mut [u8] {
         if (unsafe { self.get_inner_ref() }).data.is_null() {
             return &mut [];
         }
@@ -1045,7 +1048,7 @@ impl<S: ResourceStorage<aeron_buffer_claim_t>> AeronBufferClaim<S> {
     }
 
     /// The frame header of the claim, or `None` if the claim holds no buffer. Valid for as long
-    /// as [`Self::data_mut`]
+    /// as [`Self::data`]
     #[inline]
     pub fn frame_header_mut(&mut self) -> Option<&mut aeron_header_values_frame_t> {
         if (unsafe { self.get_inner_ref() }).frame_header.is_null() {

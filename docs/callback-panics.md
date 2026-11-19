@@ -17,7 +17,7 @@ for each C function:
 
 Notes:
 
-- Aeron C has no exception cleanup, so most callbacks cannot unwind through it. The poll functions in `UNWIND_POLL_FNS` (`rusteron-code-gen/src/generator.rs`) and their handler types use `extern "C-unwind"`. A panic skips the read-position commit, so the next poll redelivers the fragments. These poll functions add no `catch_unwind` or check to the poll loop.
+- Aeron C has no exception cleanup, so most callbacks cannot unwind through it. Subscription, image and replay merge fragment polls (`poll`, `controlled_poll`, `bounded_poll`, `block_poll`) are the exception. They save the read position only after the handler returns, so a panic unwinds straight through them. A panic skips the read-position commit, so the next poll redelivers the fragments. These poll functions add no `catch_unwind` or check to the poll loop.
 - For other callbacks the wrapper catches the panic, returns the value the callback type needs (`()`, `0`, null or `ABORT`) and raises the panic after C returns.
 - A retained callback has no waiting Rust caller. The wrapper logs the panic and drops that event.
 

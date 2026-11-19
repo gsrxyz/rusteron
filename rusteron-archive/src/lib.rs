@@ -430,28 +430,18 @@ impl AeronArchive {
         Ok(conductor + self.poll_for_recording_signals()?)
     }
 
-    /// Find the latest recording matching a predicate.
-    /// Returns the recording with the highest recording_id that matches the predicate.
+    /// Find the matching recording with the highest recording id. The predicate sees the borrowed
+    /// descriptor, so only matches are copied into a [`RecordingDescriptor`]
     pub fn find_recording<F>(&self, mut predicate: F) -> Result<Option<RecordingDescriptor>, AeronCError>
     where
-        F: FnMut(&RecordingDescriptor) -> bool,
+        F: FnMut(&AeronArchiveRecordingDescriptorRef) -> bool,
     {
-        // Find the latest matching recording by fetching all recordings in one call.
-        // Uses record_count=i32::MAX to fetch all available recordings.
-        let mut result = None;
+        let mut result: Option<RecordingDescriptor> = None;
         let mut count = 0;
         self.list_recordings_fn(&mut count, 0, i32::MAX, |desc| {
-            let descriptor = desc.to_owned();
-            if predicate(&descriptor) {
-                if result.is_none()
-                    || result
-                        .as_ref()
-                        .map(|r: &RecordingDescriptor| r.recording_id)
-                        .unwrap_or(0)
-                        < descriptor.recording_id
-                {
-                    result = Some(descriptor);
-                }
+            let newer = result.as_ref().is_none_or(|r| r.recording_id < desc.recording_id());
+            if newer && predicate(desc) {
+                result = Some(desc.to_owned());
             }
         })?;
         Ok(result)
@@ -459,22 +449,19 @@ impl AeronArchive {
 
     /// Find the latest recording for a given stream ID.
     pub fn find_recording_for_stream(&self, stream_id: i32) -> Result<Option<RecordingDescriptor>, AeronCError> {
-        self.find_recording(|desc| desc.stream_id == stream_id)
+        self.find_recording(|desc| desc.stream_id() == stream_id)
     }
 
-    /// Collect all recordings matching a predicate.
+    /// Collect all recordings matching a predicate. Only matches are copied
     pub fn collect_recordings<F>(&self, mut predicate: F) -> Result<Vec<RecordingDescriptor>, AeronCError>
     where
-        F: FnMut(&RecordingDescriptor) -> bool,
+        F: FnMut(&AeronArchiveRecordingDescriptorRef) -> bool,
     {
-        // Collect all matching recordings by fetching all recordings in one call.
-        // Uses record_count=i32::MAX to fetch all available recordings.
         let mut recordings = Vec::new();
         let mut count = 0;
         self.list_recordings_fn(&mut count, 0, i32::MAX, |desc| {
-            let descriptor = desc.to_owned();
-            if predicate(&descriptor) {
-                recordings.push(descriptor);
+            if predicate(desc) {
+                recordings.push(desc.to_owned());
             }
         })?;
         Ok(recordings)
@@ -495,10 +482,14 @@ impl<S: ResourceStorage<aeron_archive_recording_descriptor_t>> AeronArchiveRecor
             stop_timestamp: self.stop_timestamp(),
             position: stop_position.saturating_sub(start_position),
             recording_length: stop_position.saturating_sub(start_position),
-            control_session_id: self.control_session_id() as i32,
+            control_session_id: self.control_session_id(),
             correlation_id: self.correlation_id(),
             session_id: self.session_id(),
             stream_id: self.stream_id(),
+            initial_term_id: self.initial_term_id(),
+            segment_file_length: self.segment_file_length(),
+            term_buffer_length: self.term_buffer_length(),
+            mtu_length: self.mtu_length(),
             channel: self.stripped_channel().to_string(),
             source_identity: self.source_identity().to_string(),
             original_channel: self.original_channel().to_string(),
@@ -597,10 +588,14 @@ pub struct RecordingDescriptor {
     pub stop_timestamp: i64,
     pub position: i64,
     pub recording_length: i64,
-    pub control_session_id: i32,
+    pub control_session_id: i64,
     pub correlation_id: i64,
     pub session_id: i32,
     pub stream_id: i32,
+    pub initial_term_id: i32,
+    pub segment_file_length: i32,
+    pub term_buffer_length: i32,
+    pub mtu_length: i32,
     pub channel: String,
     pub source_identity: String,
     pub original_channel: String,

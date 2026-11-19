@@ -122,6 +122,9 @@ const NOT_RAW_LIFECYCLE_FNS: &[&str] = &["aeron_exclusive_publication_revoke_on_
 /// `get_*` forms are safe, the raw forms are `unsafe`
 const POINTER_OUTPUT_METHODS: &[&str] = &["constants", "buffers", "values", "get_buffers"];
 
+/// `(struct, field)` getters hand-written in aeron_custom.rs, so the generator must not emit them
+const CUSTOM_FIELD_GETTERS: &[(&str, &str)] = &[("aeron_buffer_claim_t", "data")];
+
 /// Why a generated method is `unsafe`, apart from returning unchecked text. Each reason adds
 /// its own `# Safety` section, so a new reason needs both a flag and a doc
 struct MethodUnsafety {
@@ -1096,12 +1099,11 @@ impl CWrapper {
 
                 let mut method_docs: Vec<TokenStream> = get_docs(&method.docs, wrappers, Some(&fn_arguments) );
                 let unsafety = MethodUnsafety::new(&self.type_name, method, wrappers, &fn_arguments);
-                // Free functions have no owner to bound the text, so they stay `unsafe`. Getters on a
-                // handle match Aeron Java and C++, which also hand out views of the native text
-                let method_unsafety = if unsafety.any() || (unchecked_text && !uses_self) { quote! { unsafe } } else { quote! {} };
+                // The `&str` borrows native storage that a setter, poll or close can free, even through
+                // another clone, so the caller must promise to use it straight away. Java and C++ copy instead
+                let method_unsafety = if unsafety.any() || unchecked_text { quote! { unsafe } } else { quote! {} };
                 if unchecked_text {
-                    let heading = if uses_self { "# Lifetime" } else { "# Safety" };
-                    method_docs.push(quote! { #[doc = #heading] });
+                    method_docs.push(quote! { #[doc = "# Safety"] });
                     method_docs.push(quote! { #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."] });
                     if crate::string_views::has_owned_method(&self.type_name, method) {
                         let owned_doc = format!("Use `{fn_name}_owned()` to keep a copy.");
@@ -1728,7 +1730,9 @@ impl CWrapper {
         self.fields
             .iter()
             .filter(|arg| {
-                !arg.name.starts_with("_") && !self.methods.iter().any(|m| m.struct_method_name.as_str() == arg.name)
+                !arg.name.starts_with("_")
+                    && !self.methods.iter().any(|m| m.struct_method_name.as_str() == arg.name)
+                    && !CUSTOM_FIELD_GETTERS.contains(&(self.type_name.as_str(), arg.name.as_str()))
             })
             .map(|arg| {
                 let field_name = &arg.name;
@@ -1806,9 +1810,9 @@ impl CWrapper {
                             == crate::string_views::StringView::Unchecked =>
                     {
                         (
-                            quote! {},
+                            quote! { unsafe },
                             quote! {
-                                /// # Lifetime
+                                /// # Safety
                                 /// The text points into native storage. Use it straight away, and do not
                                 /// hold it across a setter, poll or other call that can change it.
                             },
@@ -3458,6 +3462,10 @@ fn generate_debug_fields(
         return vec![];
     }
 
+    // Unchecked text getters are unsafe because the returned `&str` can outlive a later
+    // setter or poll. Formatting finishes before any such call can run on a local handle,
+    // so Debug may read them. Shared handles skip them, as another thread may write
+    let local = !handle_is_shared(&wrapper.type_name);
     let field_impl: syn::ItemImpl = syn::parse2(quote! { impl Placeholder { #(#fields)* } }).expect("generated fields");
     let getters: BTreeMap<_, _> = field_impl
         .items
@@ -3468,6 +3476,8 @@ fn generate_debug_fields(
                 let ident = &method.sig.ident;
                 if matches!(method.sig.safety, syn::Safety::Default) {
                     Some((ident.to_string(), quote! { self.#ident() }))
+                } else if local && method.sig.output.to_token_stream().to_string() == "-> & str" {
+                    Some((ident.to_string(), quote! { unsafe { self.#ident() } }))
                 } else {
                     None
                 }

@@ -5802,23 +5802,6 @@ impl<S: ResourceStorage<aeron_buffer_claim_t>> AeronBufferClaim<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" The stored pointer must be valid for the returned slice, and no"]
-    #[doc = r" other Rust or native access may overlap its mutable borrow."]
-    pub unsafe fn data(&self) -> &mut [u8] {
-        unsafe {
-            if unsafe { self.get_inner_ref() }.data.is_null() {
-                &mut [] as &mut [_]
-            } else {
-                std::slice::from_raw_parts_mut(
-                    unsafe { self.get_inner_ref() }.data,
-                    unsafe { self.get_inner_ref() }.length.try_into().unwrap(),
-                )
-            }
-        }
-    }
-    #[inline]
-    #[must_use]
     pub fn length(&self) -> usize {
         unsafe { self.get_inner_ref() }.length.into()
     }
@@ -7333,10 +7316,12 @@ impl<S: ResourceStorage<aeron_context_t>> core::fmt::Debug for AeronContext<S> {
         }
         f.debug_struct(stringify!(AeronContext))
             .field("inner", &self.inner)
-            .field("get_dir", &self.get_dir())
-            .field("get_idle_strategy_init_args", &self.get_idle_strategy_init_args())
-            .field("get_idle_strategy", &self.get_idle_strategy())
-            .field("get_client_name", &self.get_client_name())
+            .field("get_dir", &unsafe { self.get_dir() })
+            .field("get_idle_strategy_init_args", &unsafe {
+                self.get_idle_strategy_init_args()
+            })
+            .field("get_idle_strategy", &unsafe { self.get_idle_strategy() })
+            .field("get_client_name", &unsafe { self.get_client_name() })
             .finish()
     }
 }
@@ -7438,10 +7423,10 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Lifetime"]
+    #[doc = "# Safety"]
     #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_dir_owned()` to keep a copy."]
-    pub fn get_dir(&self) -> &str {
+    pub unsafe fn get_dir(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -7658,10 +7643,10 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Lifetime"]
+    #[doc = "# Safety"]
     #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_idle_strategy_init_args_owned()` to keep a copy."]
-    pub fn get_idle_strategy_init_args(&self) -> &str {
+    pub unsafe fn get_idle_strategy_init_args(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -7718,10 +7703,10 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Lifetime"]
+    #[doc = "# Safety"]
     #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_idle_strategy_owned()` to keep a copy."]
-    pub fn get_idle_strategy(&self) -> &str {
+    pub unsafe fn get_idle_strategy(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -7818,10 +7803,10 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = "# Lifetime"]
+    #[doc = "# Safety"]
     #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_client_name_owned()` to keep a copy."]
-    pub fn get_client_name(&self) -> &str {
+    pub unsafe fn get_client_name(&self) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -27962,10 +27947,10 @@ impl<S: ResourceStorage<aeron_uri_string_builder_t>> AeronUriStringBuilder<S> {
         }
     }
     #[inline]
-    #[doc = "# Lifetime"]
+    #[doc = "# Safety"]
     #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
     #[doc = "Use `get_owned()` to keep a copy."]
-    pub fn get(&self, key: &std::ffi::CStr) -> &str {
+    pub unsafe fn get(&self, key: &std::ffi::CStr) -> &str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(

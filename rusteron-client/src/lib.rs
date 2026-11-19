@@ -2419,7 +2419,7 @@ mod tests {
                 info!("created publisher");
                 let binding = "1".repeat(string_len);
                 let msg = binding.as_bytes();
-                let buffer = AeronBufferClaim::default();
+                let mut buffer = AeronBufferClaim::default();
                 loop {
                     if stop_publisher.load(Ordering::Acquire) || publisher.is_closed() {
                         break;
@@ -2433,12 +2433,8 @@ mod tests {
                             AeronCError::from_code(result as i32)
                         );
                     } else {
-                        // SAFETY: a successful claim gives this thread exclusive access
-                        // to the payload until it commits the claim below.
-                        unsafe {
-                            buffer.data().write_all(&msg).unwrap();
-                            buffer.commit().unwrap();
-                        }
+                        buffer.data().write_all(&msg).unwrap();
+                        buffer.commit().unwrap();
                     }
                 }
                 info!("stopping publisher thread");
@@ -4669,8 +4665,8 @@ mod tests {
     #[test]
     fn a_buffer_claim_with_no_buffer_has_no_data_and_no_header() {
         let mut claim = AeronBufferClaim::new_zeroed_on_heap();
-        assert!(unsafe { claim.data_mut() }.is_empty());
-        assert!(unsafe { claim.frame_header_mut() }.is_none());
+        assert!(claim.data().is_empty());
+        assert!(claim.frame_header_mut().is_none());
     }
 
     /// A reserved value set on a claim reaches the subscriber

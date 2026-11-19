@@ -96,6 +96,9 @@ use `poll_fn` with a stack closure. `Handlers::NONE` fills an unused callback sl
 Archive control errors use native numeric codes. Match on `error.code` or use
 `AeronArchiveErrorCode::from_native_code(code)` in an Archive error handler.
 `poll_for_error()` returns unsolicited errors with their typed code and full message.
+A blocking Archive request fails after the message timeout, 10 s by default
+(`AERON_ARCHIVE_MESSAGE_TIMEOUT`). Change it with
+`AeronArchiveContext::set_message_timeout(duration)`.
 
 ### Why replaced handlers stay alive
 
@@ -139,14 +142,17 @@ uses fewer locks when waiting for an active callback is acceptable.
 | Persistent subscription | `subscription.poll_fn(...)`; it drives its own Archive client |
 | Replay merge | `merge.poll_fn(...)`; do not also drain responses from its Archive client while merging |
 
-Manual conductor entry points require `unsafe` and coordination with every
-native caller. See the [duty-cycle guide](https://github.com/gsrxyz/rusteron/blob/main/docs/archive-guide.md#duty-cycle).
+Call the manual conductor entry points, such as `main_do_work()`, from one thread
+at a time. See the [duty-cycle guide](https://github.com/gsrxyz/rusteron/blob/main/docs/archive-guide.md#duty-cycle).
 
 ## Persistent subscriptions
 
 A persistent subscription replays recorded history, then joins the live stream.
 Create one with `PersistentSubscriptionBuilder::new_with_aeron(&context, &client)`.
 Poll it until it is live, and check `has_failed()` for terminal failures.
+`PersistentSubscriptionBuilder::new()` without a client makes the subscription
+create its own client, set it on the archive context and close it when the
+subscription closes. Do not use that archive context again afterwards.
 
 It reassembles fragments itself, so poll it with `ps.poll_fn(closure, limit)` or
 `ps.controlled_poll_fn(closure, limit)` and the closure gets whole messages. Do not

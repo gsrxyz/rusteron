@@ -311,7 +311,7 @@ fn measure_record(
         let stream = RECORD_STREAM + i as i32;
         let deadline = Instant::now() + Duration::from_secs(10);
         let id = loop {
-            if let Some(d) = archive.find_recording(|d| d.session_id == session && d.stream_id == stream)? {
+            if let Some(d) = archive.find_recording(|d| d.session_id() == session && d.stream_id() == stream)? {
                 break d.recording_id;
             }
             if Instant::now() > deadline {
@@ -409,7 +409,7 @@ fn replay(args: &[String]) -> Res<()> {
 
     let (_aeron, archive) = connect()?;
     let mut recordings =
-        archive.collect_recordings(|d| d.stop_position != NULL_POSITION && d.stop_position > d.start_position)?;
+        archive.collect_recordings(|d| d.stop_position() != NULL_POSITION && d.stop_position() > d.start_position())?;
     recordings.sort_by_key(|d| std::cmp::Reverse(d.stop_position - d.start_position));
     recordings.truncate(concurrency);
     if recordings.is_empty() {

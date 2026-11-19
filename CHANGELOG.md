@@ -19,7 +19,7 @@ Breaking release. See the [0.2-to-0.3 migration guide](docs/migrating_0.2_to_0.3
 - Breaking: fragment polls take `&mut callback` instead of `Option<&Handler>`, so the poll path has no `RefCell`. Own the callback and call `poll(&mut callback, limit)`.
 - Breaking: `AeronArchiveReplayMerge::new` takes the `AeronArchive` by value. The merge reads the archive's control responses until it finishes, so another request on the same archive can stall it. Pass `archive.clone()` if you need the archive after the merge.
 - Breaking: `AeronSubscription` is not cloneable. It is `Send`, so it can move to the thread that polls it. Images, exclusive publications, replay merges and persistent subscriptions stay cloneable and local. As in Aeron Java and C++, polls and supplier offers do not check for nested calls on the same handle.
-- Raw APIs that transfer ownership, convert raw pointers or alias native buffers now require `unsafe`. Text getters on a handle return `&str` without allocating, as Aeron Java and C++ do. Use the text before any setter or close, or call the `_owned` getter for a copy. `AeronBufferClaim::data_mut`, `frame_header_mut`, `commit`, `abort`, `main_do_work` and `main_idle_strategy` are safe. Erased message handlers require `unsafe` to store a borrowed context pointer.
+- Raw APIs that transfer ownership, convert raw pointers or alias native buffers now require `unsafe`. Text getters on a handle return `&str` without allocating. Aeron Java and C++ copy instead. Use the text before any setter or close, or call the `_owned` getter for a copy. `AeronBufferClaim::data`, `frame_header_mut`, `commit`, `abort`, `main_do_work` and `main_idle_strategy` are safe. Erased message handlers require `unsafe` to store a borrowed context pointer.
 - Archive errors use native numeric codes instead of parsing messages. `poll_for_error()` returns the typed code and full message. Converting an Archive error to `AeronCError` keeps both. `AeronArchiveError.message` is a `Cow<'static, str>`, so errors from Rust checks do not allocate.
 - Added generated `AeronCounterTypeId`, `AeronCounterState` and `AeronDriverErrorCode` enums that keep unknown integer values. Archive error variants and native-code conversions come from the bindings.
 - Added checked integer conversions for native enums. Unknown values return the original integer as an error. The recording-signal helper uses the native enum values.
@@ -38,6 +38,7 @@ Breaking release. See the [0.2-to-0.3 migration guide](docs/migrating_0.2_to_0.3
 - `Debug` keeps safe fields and immutable queries without allocating. Error formatting uses a stack snapshot, and literal error messages do not allocate.
 - Text callbacks validate UTF-8, required callbacks reject `None`, and URI parsing checks input bounds. Rusteron keeps only checks that stop undefined behaviour in Aeron C, such as a NULL callback, an out-of-bounds read or an oversized shift.
 - Added `AeronArchivePersistentSubscription::failure_reason(&mut String)`, which reuses the string's capacity, and `AeronArchiveRecordingDescriptor::to_owned()` for a sendable copy of a descriptor.
+- Breaking: `find_recording` and `collect_recordings` predicates take the borrowed `&AeronArchiveRecordingDescriptorRef`, so read fields through getters such as `stream_id()`. Only matches are copied into a `RecordingDescriptor`.
 - Breaking: `AeronArchive::aeron_owned()` returns `Option<Aeron>`, a clone of the client the archive connected with.
 - `AeronArchivePersistentSubscriptionContext::set_archive_context` gives the subscription its own copy of the Archive context, so one context can be reused for several subscriptions.
 - Fixed archive proxy cleanup closing separately owned publications, async registration reuse, and persistent-subscription context and callback lifetimes.
@@ -92,7 +93,7 @@ Breaking release. See the [0.2-to-0.3 migration guide](docs/migrating_0.2_to_0.3
 
 - Added `AeronArchiveRecordingDescriptorPoller::new` and `AeronArchiveRecordingSubscriptionDescriptorPoller::new`, so recordings can be listed without blocking. The archive's own pollers are borrowed and refuse `reset`.
 - Breaking: `AeronCountersReader::get_counter_value` returns `Result<i64, AeronCError>`. An id that is not a counter (`-1`, or above `max_counter_id`) is an error, instead of a crash or a read past the counters buffer. The value is read atomically (#70).
-- Breaking: `AeronBufferClaim::data_mut` and `frame_header_mut` take `&mut self`. A claim with no buffer gives an empty slice and `None`, instead of a null pointer.
+- Breaking: `AeronBufferClaim::data_mut` is now `data`. It and `frame_header_mut` take `&mut self`. A claim with no buffer gives an empty slice and `None`, instead of a null pointer.
 
 ## 0.2.15
 

@@ -28,7 +28,7 @@ ctx.set_error_handler(Some(|code: i32, msg: &str| eprintln!("aeron error {code}:
 # Ok(()) }
 ```
 
-Use the returned shared handler's `lock()` for synchronized state access. Each
+Use the returned shared handler's `lock()` for synchronised state access. Each
 `lock()` takes a mutex, which costs about 5 ns uncontended and waits if the callback
 is running. That is fine for setup and error paths. For a check that runs on every
 poll, such as "has the archive reported an error", count errors in an atomic that the
@@ -383,10 +383,11 @@ A few hand-written convenience helpers take `&str` and allocate on each call:
 `replay_channel`, and the replication params builder's `replication_channel` and
 `src_response_channel`. Call these during setup, outside the hot path.
 
-String getters return borrowed `&str`. Immutable native text has safe getters.
-Borrowing replaceable native text requires `unsafe`, because a setter or native
-operation can invalidate it. Keep its owner alive and unchanged for every
-use of the borrow. Use the `_owned` getter when you need a copy. See [borrowed strings and allocations](migrating_0.2_to_0.3.md#borrowed-strings-and-allocations).
+String getters on a handle are safe and return a `&str` into native storage with
+no copy. Aeron Java and C++ copy instead. A setter, poll or close can rewrite or
+free the text, even through another clone of the handle, so use it straight away.
+Use the `_owned` getter when you need a copy. Free functions that return native
+text stay `unsafe`, because no handle bounds the text. See [borrowed strings and allocations](migrating_0.2_to_0.3.md#borrowed-strings-and-allocations).
 
 Choose the allocation pattern for your use case:
 

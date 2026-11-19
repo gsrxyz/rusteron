@@ -461,6 +461,9 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
         // bindgen's own evaluator skips macros that call function-like macros, so constants
         // such as `AERON_DATA_HEADER_BEGIN_FLAG (UINT8_C(0x80))` would otherwise be dropped
         .clang_macro_fallback()
+        // its scratch files default to the crate dir, where parallel builds of this crate with
+        // different features overwrite each other's and silently drop constants
+        .clang_macro_fallback_build_dir(env::var("OUT_DIR").expect("cargo sets OUT_DIR"))
         .rustified_enum("aeron_.*_enum")
         .default_enum_style(EnumVariation::Rust { non_exhaustive: false })
         .derive_debug(true)

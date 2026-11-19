@@ -235,7 +235,7 @@ Each object is driven by its own call, once a cycle:
 
 | Object | Call | Notes |
 |---|---|---|
-| `Aeron` client | Nothing with its conductor thread (the default). Manual `main_do_work()` requires `unsafe` and coordination with all native users. | Archive operations can also invoke an agent-invoker conductor. |
+| `Aeron` client | Nothing with its conductor thread (the default). Call manual `main_do_work()` from one thread at a time. | Archive operations can also invoke an agent-invoker conductor. |
 | `AeronArchive` | `archive.do_work()` | Runs an agent-invoker client's conductor, then hands one recording signal to the context's consumer, or one archive error to its error handler. With a conductor thread only the second part is left, and it can be skipped if you use neither a signal consumer nor errors for requests no longer awaited, because blocking calls dispatch the signals they meet. |
 | Persistent subscription | `ps.poll_fn(..)` | Drives its own archive client. With the agent invoker every poll also runs the client's conductor, so many persistent subscriptions on one client should use its conductor thread. |
 | `AeronArchiveReplayMerge` | `merge.poll_fn(..)` | Until it has merged or failed, poll only the merge and leave its archive client alone. `archive.do_work()`, `poll_for_error` and blocking calls read the same responses, skip the merge's, and stall it until its progress timeout. Archive errors come back as `Err` from the merge's poll. |

@@ -142,7 +142,7 @@ fn timed(
 fn bench_offer(c: &mut Criterion) {
     let mut h = harness();
     let warmup_payload = [0xA5; 32];
-    let claim_buf = AeronBufferClaim::default();
+    let mut claim_buf = AeronBufferClaim::default();
     // read once, as a C caller holds its pointers
     let publication = h.publisher.get_inner();
     let claim = claim_buf.get_inner();
@@ -270,12 +270,8 @@ fn bench_offer(c: &mut Criterion) {
                 b.iter_custom(|iters| {
                     timed(&h.publisher, &mut h.subscription, iters, &payload, true, || {
                         if h.publisher.try_claim_raw(payload_len, &claim_buf) >= 0 {
-                            // SAFETY: this thread has exclusive access to the successful
-                            // claim's payload until commit.
-                            unsafe {
-                                claim_buf.data().copy_from_slice(black_box(&payload));
-                                claim_buf.commit().unwrap();
-                            }
+                            claim_buf.data().copy_from_slice(black_box(&payload));
+                            claim_buf.commit().unwrap();
                             true
                         } else {
                             false

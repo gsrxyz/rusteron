@@ -31,10 +31,7 @@ struct Client {
 impl Client {
     fn work(&self) -> Result<(), AeronCError> {
         if self.invoker {
-            // SAFETY: this benchmark runs its manual conductor on one thread.
-            unsafe {
-                self.aeron.main_do_work()?;
-            }
+            self.aeron.main_do_work()?;
         }
         Ok(())
     }

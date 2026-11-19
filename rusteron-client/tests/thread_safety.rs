@@ -773,8 +773,8 @@ fn typed_claims_map_errors_and_write_through_the_claimed_buffer() {
     let (publication, subscription) = pair(&client, 8702);
     let mut claim = AeronBufferClaim::default();
     assert!(publication.try_claim(4, &claim).unwrap() > 0);
-    assert_eq!(claim.data_mut().len(), 4);
-    claim.data_mut().copy_from_slice(b"ping");
+    assert_eq!(claim.data().len(), 4);
+    claim.data().copy_from_slice(b"ping");
     claim.frame_header_mut().expect("claimed frame header").reserved_value = 77;
     claim.commit().unwrap();
 

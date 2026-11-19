@@ -21,6 +21,7 @@ explicit type annotations and low-level FFI access.
 | `From<*mut T>`, `From<native_struct>` or implicit native struct `Deref` | Use the documented unsafe constructors or explicit field getters |
 | Holding a configuration string across a setter | Use the `&str` straight away, or `_owned()` for a copy |
 | Raw counter addresses used as references | Use `addr_atomic()` |
+| `find_recording` or `collect_recordings` predicates reading `d.stream_id` | Call the getters, e.g. `d.stream_id()`. The predicate sees the borrowed descriptor, and only matches are copied into a `RecordingDescriptor` |
 | `timestamp_offset_reserved("...")` | Use `media_rcv_timestamp_offset("reserved")`, `channel_rcv_timestamp_offset("reserved")` or `channel_snd_timestamp_offset("reserved")`. Aeron defines `reserved` as a value, not a key |
 | Exhaustive matches on public Rust enums | Add a fallback arm. The enums are `#[non_exhaustive]` |
 | Raw manual conductor calls | Call `main_do_work()` from one thread at a time, as in Aeron Java and C++ |
@@ -53,8 +54,9 @@ assert_eq!(saved, "aeron:ipc");
 # Ok(()) }
 ```
 
-As in Aeron Java and C++, the `&str` points into native storage, and a setter can
-free or overwrite it. Use it straight away, or call `_owned` for a copy.
+Aeron Java and C++ copy text getters into a new string. Rusteron returns a `&str`
+that points into native storage instead, with no copy, and a setter can free or
+overwrite it. Use it straight away, or call `_owned` for a copy.
 
 Publishing, claiming, committing, direct polling and reading recording descriptor
 fields do not allocate on the Rust heap. Owned fragment assemblers allocate once
@@ -193,15 +195,15 @@ Fragment assembly has three forms:
   `handler_mut()`.
 - `AeronImageFragmentAssembler` and `AeronImageControlledFragmentAssembler` keep
   their names. `new` takes the callback by value instead of a `Handler`, and
-  `poll(&mut image, limit)` polls with it. They poll one image with one buffer
+  `poll(&image, limit)` polls with it. They poll one image with one buffer
   allocated at creation.
 - `AeronFragmentClosureAssembler` and `AeronControlledFragmentClosureAssembler`
   keep their names but take a closure on each poll:
-  `poll(&mut subscription, closure, limit)`. The closure can borrow local state, so
+  `poll(&subscription, closure, limit)`. The closure can borrow local state, so
   the `ctx` argument and `fn` pointer are gone.
 
-Poll a subscription with `assembler.poll(&mut subscription, ...)` and an image with
-`image_assembler.poll(&mut image, ...)`. For any other poll target, pass the
+Poll a subscription with `assembler.poll(&subscription, ...)` and an image with
+`image_assembler.poll(&image, ...)`. For any other poll target, pass the
 assembler itself, or `&mut assembler.with(closure)` for the closure forms.
 
 A persistent subscription reassembles messages itself. If 0.2 code polled one
@@ -219,7 +221,7 @@ Choose callback storage by how C invokes it:
 | State kept in a `Handler` | `subscription.poll(&mut *handler.lock(), limit)` |
 | Retained callback that may run on a conductor | Owned setter, or `SharedHandler::new_shared(callback)` |
 | Fixed complete-message callback | `FragmentAssembler::new(callback)` |
-| New complete-message closure per poll | `AeronFragmentClosureAssembler::new()` with `poll(&mut subscription, closure, limit)` |
+| New complete-message closure per poll | `AeronFragmentClosureAssembler::new()` with `poll(&subscription, closure, limit)` |
 | Controlled complete-message callback | `ControlledFragmentAssembler::new(callback)` or `AeronControlledFragmentClosureAssembler::new()` |
 
 An owned setter picks the shared callback storage for you:
@@ -454,7 +456,7 @@ unfinished. `data()` needs mutable access, so mutable slices cannot overlap. The
 lifetime adds no runtime cost.
 
 The low-level `AeronBufferClaim` API needs `unsafe` to construct claims from
-external buffers. `data_mut()`, `commit()` and `abort()` are safe. As in Aeron Java
+external buffers. `data()`, `commit()` and `abort()` are safe. As in Aeron Java
 and C++, the bytes stay valid only until the claim is committed or aborted. The same applies to
 pointer-bearing wrappers such as `AeronMappedBuffer`. An unsafe constructor does
 not extend the backing buffer's lifetime.

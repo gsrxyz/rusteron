@@ -73,9 +73,15 @@ while !received {
 # Ok(()) }
 ```
 
-`poll_blocking` waits during setup. In an event loop, call the async
+`poll_blocking` busy-polls the calling thread until the registration completes. It
+keeps setup code and examples short. In an event loop, call the async
 registration's `poll()` yourself. See the
 [non-blocking publisher](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/non_blocking_publisher.rs).
+
+`Aeron::connect_default()` and `Aeron::connect_dir(dir)` build the context and
+client and start the conductor in one call. Build the `AeronContext` yourself to
+set an error handler, driver timeout or idle strategy. Without an error handler,
+Aeron C prints an asynchronous client error to stderr and exits the process.
 
 ## Errors and offer results
 
@@ -163,6 +169,11 @@ see the [handler lifetime guide](https://github.com/gsrxyz/rusteron/blob/main/do
 - Getters return lifetime-bound `Ref` views. These views cannot be cloned or outlive
   their parent. `as_ref()` creates another short borrow.
 - Contexts are configured before native initialisation. Later changes are rejected.
+- `close_with_handler(handler)` closes like `close(self)` and calls the handler
+  from the conductor once the close finishes.
+- `image_at_index(i)` and `image_by_session_id(id)` return a retained
+  `Option<AeronImage>`. It keeps reading after its publisher goes (`is_closed()`
+  turns true) and after the subscription handle drops, so drop the two in any order.
 - Raw-pointer construction, native struct references and forced cleanup require
   `unsafe` and the documented caller guarantees.
 
@@ -199,6 +210,13 @@ See the [poll-loop guide](https://github.com/gsrxyz/rusteron/blob/main/docs/clie
 | [Request/response](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/request_response.rs) | Response channels |
 | [File transfer](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/file_transfer.rs) | Chunking and reassembly |
 | [Driver stats](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/driver_stats.rs) | Counters and error logs |
+| [Basic publisher](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/basic_publisher.rs) and [subscriber](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/basic_subscriber.rs) | Ports of Aeron's `BasicPublisher` and `BasicSubscriber` |
+| [Streaming rate](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/streaming_rate.rs) | Streaming publisher and rate-reporting subscriber |
+| [Ping/pong](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/embedded_ping_pong.rs) | Round-trip latency histogram, as in Aeron's `cping` and `cpong` |
+| [C ping/pong workload](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/aeron_ping_pong.rs) | The `cping`/`cpong` workload for comparing with Aeron C |
+| [Exclusive IPC throughput](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/embedded_exclusive_ipc_throughput.rs) | Exclusive publication throughput over IPC |
+| [Retained images](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/retained_images.rs) | Keeping and polling an image beyond one poll |
+| [Multi-destination subscription](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/examples/multi_destination_subscription.rs) | Manual MDS |
 
 ## Documentation and guides
 

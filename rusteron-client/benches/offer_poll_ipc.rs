@@ -68,13 +68,15 @@ fn offer_poll(c: &mut Criterion) {
     let driver = AeronDriverContext::new().unwrap();
     driver.set_dir_delete_on_start(true).unwrap();
     driver.set_dir_delete_on_shutdown(true).unwrap();
+    // SAFETY: `format!` copies the old directory before `set_dir` replaces it
     driver
-        .set_dir(&format!("{}bench-offer-poll", driver.get_dir()).into_c_string())
+        .set_dir(&format!("{}bench-offer-poll", unsafe { driver.get_dir() }).into_c_string())
         .unwrap();
     let (stop, handle) = AeronDriver::launch_embedded(driver.clone(), false);
 
     let ctx = AeronContext::new().unwrap();
-    ctx.set_dir(&driver.get_dir().into_c_string()).unwrap();
+    // SAFETY: `into_c_string` copies the directory straight away
+    ctx.set_dir(&unsafe { driver.get_dir() }.into_c_string()).unwrap();
     let aeron = Aeron::new(&ctx).unwrap();
     aeron.start().unwrap();
     let timeout = Duration::from_secs(5);

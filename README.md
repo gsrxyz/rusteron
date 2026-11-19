@@ -20,6 +20,9 @@ and manages resource ownership and callback lifetimes.
   gets the fix, rather than adding a workaround here
 - Document the rules Aeron leaves to the caller, such as not polling an image from
   inside a poll on the same image
+- Keep Aeron's names, so Aeron's own documentation applies. Applications still
+  follow Aeron's ownership, thread-safety and polling rules. To check whether an
+  issue is in a wrapper, reproduce it against the C API
 
 ## Sponsored by GSR
 
@@ -64,33 +67,56 @@ rusteron-client = { version = "0.3", features = ["static"] }
 Linux also needs the native link dependencies listed in [BUILD.md](BUILD.md).
 Replace `rusteron-client` with another crate as needed.
 
-With a Media Driver running, connect and create a publication:
+This example launches an embedded Media Driver, then publishes and receives one
+message. The embedded driver comes from `rusteron-media-driver`. In production, run
+the driver as its own process and connect with `Aeron::connect_dir(dir)`.
 
-```rust,no_run
+```rust
 use rusteron_client::*;
+use rusteron_media_driver::testing::EmbeddedDriver;
 use std::time::Duration;
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
+let driver = EmbeddedDriver::launch()?;
 let context = AeronContext::new()?;
+context.set_dir(&driver.dir().into_c_string())?;
 context.set_error_handler(Some(AeronErrorHandlerLogger))?;
 let client = Aeron::new(&context)?;
 client.start()?;
 
+let timeout = Duration::from_secs(5);
+let subscription = client
+    .async_add_subscription(c"aeron:ipc", 123, Handlers::NONE, Handlers::NONE)?
+    .poll_blocking(timeout)?;
 let publication = client
     .async_add_publication(c"aeron:ipc", 123)?
-    .poll_blocking(Duration::from_secs(5))?;
+    .poll_blocking(timeout)?;
 
-match publication.offer(b"hello") {
-    Ok(position) => println!("published at {position}"),
-    Err(error) if error.is_retryable() => { /* retry in the next duty cycle */ }
-    Err(error) => return Err(error.into()),
+let mut idle = BackoffIdleStrategy::new();
+loop {
+    match publication.offer(b"hello") {
+        Ok(position) => break println!("published at {position}"),
+        Err(error) if error.is_retryable() => idle.idle(0), // not connected yet or back pressure
+        Err(error) => return Err(error.into()),
+    }
 }
+
+let mut received = None;
+while received.is_none() {
+    let fragments = subscription.poll_fn(|message, _header| received = Some(message.to_vec()), 10)?;
+    idle.idle(fragments);
+}
+assert_eq!(received.as_deref(), Some(&b"hello"[..]));
 # Ok(()) }
 ```
 
-`poll_blocking` waits for registration during setup. In an event loop, call the
-async registration's `poll()` yourself. See the [client quick start](rusteron-client/README.md#minimal-pubsub)
-for both publishing and receiving.
+Without `set_error_handler`, Aeron C's default handler prints an asynchronous
+client error to stderr and exits the process.
+
+`poll_blocking` busy-polls the calling thread until the registration completes.
+It keeps setup code and examples short. In an event loop, call the async
+registration's `poll()` yourself. See the
+[non-blocking publisher](rusteron-client/examples/non_blocking_publisher.rs).
 
 ## Ownership and threading
 
