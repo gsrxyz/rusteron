@@ -1,6 +1,6 @@
 [package]
 name = "rusteron-archive"
-version = "0.2.22"
+version = "0.3.0"
 edition = "2024"
 authors = ["GSR devs <dev@gsr.io>"]
 license = "MIT OR Apache-2.0"
@@ -49,7 +49,7 @@ walkdir           = { workspace = true }
 [dev-dependencies]
 fd-lock     = { workspace = true }
 rusteron-code-gen = { workspace = true }
-rusteron-media-driver = { path = "../rusteron-media-driver", version = "=0.2.22" }
+rusteron-media-driver = { path = "../rusteron-media-driver", version = "=0.3.0" }
 serial_test = { workspace = true }
 
 [features]
