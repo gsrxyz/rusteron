@@ -47,6 +47,8 @@ use rusteron_media_driver::*;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let context = AeronDriverContext::new()?;
     context.set_dir(c"target/aeron")?;
+    // Native enum setters take the Rust names directly
+    context.set_threading_mode(AeronThreadingMode::Shared)?;
     let driver = AeronDriver::new(&context)?;
     driver.start(true)?; // run the conductor duty cycle on this thread
     // SAFETY: printing copies the text before any setter can change it
