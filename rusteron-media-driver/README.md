@@ -109,8 +109,8 @@ maximum send batch is 64 messages.
 
 ## Building C against Aeron's headers
 
-Some driver extensions are C compiled against Aeron's own headers, such as a custom UDP
-transport (for example kernel bypass with DPDK or ef_vi). It fills in Aeron's
+Some driver extensions are C compiled against Aeron's own headers. The main one is a custom UDP
+transport, such as kernel bypass with DPDK or ef_vi. It fills in Aeron's
 `aeron_udp_channel_transport_bindings_t` and is installed with
 `AeronDriverContext::set_udp_channel_transport_bindings`. That C must see the headers of the
 Aeron this crate builds, and they exist only in this crate's vendored Aeron sources. The

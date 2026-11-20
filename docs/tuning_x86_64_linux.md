@@ -10,7 +10,7 @@ Apply these first:
 - `AERON_TERM_BUFFER_SPARSE_FILE=false` (driver) and `AERON_CLIENT_PRE_TOUCH_MAPPED_MEMORY=true` (clients). Without them, first access to a new publication's log causes page faults.
 - `AERON_DIR` on 2 MiB `hugetlbfs` with `AERON_FILE_PAGE_SIZE=2097152`.
 - `noop` idle strategy for the driver's sender and receiver.
-- Pin every busy-spinning thread to its own core. Keep everything else (interrupts, the driver's conductor, the clients' other threads) on a housekeeping CPU.
+- Pin every busy-spinning thread to its own core. Keep everything else on a housekeeping CPU: interrupts, the driver's conductor and the clients' other threads.
 
 ## Settings
 
@@ -71,7 +71,7 @@ To find stalls and loss:
 - tuned's [`network-latency` profile](https://github.com/redhat-performance/tuned/blob/master/profiles/network-latency/tuned.conf) adds `rcupdate.rcu_normal_after_boot=1`, `rcutree.nohz_full_patience_delay=1000` and `kernel.timer_migration=0`. Its [`cpu-partitioning` profile](https://github.com/redhat-performance/tuned/blob/master/profiles/cpu-partitioning/tuned.conf) also moves the writeback workqueue (`/sys/bus/workqueue/devices/writeback/cpumask`) to the housekeeping CPUs.
 - The kernel's [CPU isolation guide](https://docs.kernel.org/admin-guide/cpu-isolation.html) prefers cpuset isolated partitions, which you can change at run time, to `isolcpus`.
 - If any firewall rule loads conntrack, add a `notrack` rule at raw priority to keep Aeron's packets out of it ([nftables wiki](https://wiki.nftables.org/wiki-nftables/index.php/Setting_packet_connection_tracking_metainformation)).
-- Azure: after host maintenance, run `az ppg show --include-colocation-status` ([co-location](https://learn.microsoft.com/en-us/azure/virtual-machines/co-location)). A VM moved out of alignment needs a full deallocate and start.
+- On Azure, after host maintenance, run `az ppg show --include-colocation-status` ([co-location](https://learn.microsoft.com/en-us/azure/virtual-machines/co-location)). A VM moved out of alignment needs a full deallocate and start.
 
 ### AWS
 
@@ -87,7 +87,7 @@ On Azure VMs the C-state options do nothing, because the guest has no cpuidle dr
 
 ## Archive disks
 
-Based on a Java Archive recording 1 KiB messages from up to 16 streams ([details](https://github.com/gsrxyz/rusteron/blob/main/BENCHMARKS.md#java-archive-on-disk-under-load-two-d8ds_v6-2026-10-10)).
+These points are based on a Java Archive recording 1 KiB messages from up to 16 streams ([details](https://github.com/gsrxyz/rusteron/blob/main/BENCHMARKS.md#java-archive-on-disk-under-load-two-d8ds_v6-2026-10-10)).
 
 - Size the disk for sustained throughput. At file sync level 0 (the default) the archive writes into the page cache, which absorbs bursts. The disk needs the average write rate plus replay reads.
 - Cloud disks share one budget between reads and writes. Recordings are sequential, so IOPS limits rarely matter.

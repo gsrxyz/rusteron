@@ -12,7 +12,7 @@ See the [client README](../rusteron-client/README.md) for setup and a first exam
 The client accepts retained and synchronous callbacks.
 
 **The poll path uses no `Rc`, `Arc`, `RefCell` or `Mutex`.** `poll(&mut callback, limit)`,
-`poll_fn` and the owned assemblers pass a plain `&mut` to your callback to Aeron C as
+`poll_fn` and the owned assemblers pass Aeron C a plain `&mut` to your callback as
 `clientd`. For each fragment, the trampoline casts `clientd` back to `&mut F` and calls
 it. Rusteron adds no lock, borrow check, reference count or allocation per fragment or
 per poll. `Handler` (`Rc<RefCell<T>>`) and `SharedHandler` (`Arc<Mutex<T>>`) exist only for
@@ -103,8 +103,8 @@ and [callback docs](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archiv
 
 Wrapper arguments such as `&AeronHeader`, `&AeronImageRef` and
 `&AeronArchiveRecordingDescriptorRef` are valid for the call only. Aeron may
-free or reuse the struct once the callback returns, and the compiler stops you
-keeping the references. Copy the fields you need, such
+free or reuse the struct once the callback returns, so the compiler rejects code
+that keeps the references. Copy the fields you need, such
 as `d.recording_id()` or `d.original_channel().to_owned()`. Borrowed wrappers
 have no `Clone` and no safe conversion from raw pointers or native structs.
 `unsafe from_ptr()` needs a lifetime guarantee from you.
@@ -166,8 +166,8 @@ To poll an image or use a bounded poll, pass `&mut assembler` for the fixed
 form, or `&mut assembler.with(closure)` for the closure form.
 
 For controlled polling, use `ControlledFragmentAssembler` or
-`AeronControlledFragmentClosureAssembler` with a callback that returns an Aeron action. `ABORT` leaves the last fragment available for the
-next poll:
+`AeronControlledFragmentClosureAssembler` with a callback that returns an Aeron action. `ABORT` leaves the last fragment
+available for the next poll:
 
 ```rust,no_run
 # use rusteron_client::*;
@@ -294,7 +294,7 @@ context's `set_socket_tos` sets the default for channels without `so-tos`.
 linger timeout. It is separate from publication `linger`.
 
 Use `ipc()`, `udp(endpoint)` or `udp_control(control, ControlMode)` to create a builder.
-It also has about 50 typed setters, including `session_id`, `mtu_length`,
+The builder also has about 50 typed setters, including `session_id`, `mtu_length`,
 `term_length`, `fc`, `gtag` and `reliable`. See
 `examples/multi_destination_subscription.rs` and `examples/request_response.rs`.
 
@@ -315,7 +315,7 @@ subscription and publication. `examples/request_response.rs` shows this.
   # fn snippet(publication: &AeronPublication, msg: &[u8], idle: &mut BackoffIdleStrategy) -> Result<(), Box<dyn std::error::Error>> {
   match publication.offer(msg) {
       Ok(_) => idle.reset(),
-      Err(e) if e.is_retryable() => idle.idle(0), // no work done: back off, then retry
+      Err(e) if e.is_retryable() => idle.idle(0), // no work done, so back off and retry
       Err(e) => return Err(e.into()),             // publication gone
   }
   # Ok(()) }
@@ -353,7 +353,7 @@ immediately when work was done and backs off otherwise. For example:
 # fn snippet<H: AeronFragmentHandlerCallback>(subscription: &AeronSubscription, mut handler: H) -> Result<(), AeronCError> {
 use rusteron_client::{BackoffIdleStrategy, IdleStrategy};
 
-let mut idle = BackoffIdleStrategy::new(); // Aeron's default spins, yields, then sleeps.
+let mut idle = BackoffIdleStrategy::new(); // Aeron's default spins, yields, then sleeps
 loop {
     let fragments = subscription.poll(&mut handler, 10)?;
     if fragments == 0 { /* break when done */ }
@@ -373,8 +373,8 @@ Available strategies are [`BusySpinIdleStrategy`], [`YieldingIdleStrategy`],
 `SleepingIdleStrategy` sleeps for a fixed interval, and
 `BackoffIdleStrategy` progresses through spinning, yielding and sleeping.
 
-`BackoffIdleStrategy` is the default. It uses Aeron's C and Java backoff:
-10 spins, 20 yields, then parks from 1 µs to 1 ms.
+`BackoffIdleStrategy` is the default. It uses Aeron's C and Java backoff, which is 10 spins, 20 yields, then parks
+from 1 µs to 1 ms.
 Set the conductor's idle strategy on the context with
 `ctx.set_idle_strategy_kind(AeronIdleStrategyKind::Backoff)?`.
 This also sets the matching initialisation arguments. The media driver's
@@ -399,17 +399,17 @@ Text getters that a setter, poll or close can change, such as `get_client_name()
 are `unsafe`. They return a `&str` into native storage with no copy, and the text
 can change even through another clone of the handle. Use it straight away and
 note why in a `// SAFETY:` comment, or call the `_owned` getter for a copy. Text
-fixed for the handle's life, such as publication `channel()`, stays safe. See [borrowed strings and allocations](migrating_0.2_to_0.3.md#borrowed-strings-and-allocations).
+fixed for the handle's life, such as publication `channel()`, stays safe. See [borrowed strings](migrating_0.2_to_0.3.md#borrowed-strings).
 
 Choose the allocation pattern for your use case:
 
 ```rust,no_run
 # use rusteron_client::*;
 # fn snippet(aeron: &Aeron, port: u16, endpoint: &str, reconnect_attempts: usize) -> Result<(), AeronCError> {
-// 1. Constant channels: c"..." literals are compile-time &'static CStr, zero runtime cost.
+// 1. Constant channels: c"..." literals are compile-time &'static CStr, zero runtime cost
 aeron.async_add_publication(c"aeron:ipc", 10)?;
 
-// 2. Format a dynamic URI into one CString allocation with cformat!.
+// 2. Format a dynamic URI into one CString allocation with cformat!
 let uri = cformat!("aeron:udp?endpoint=localhost:{port}");
 aeron.async_add_publication(&uri, 10)?;
 
@@ -430,12 +430,12 @@ C sources with `-fsanitize=address`. It detects use-after-free and
 double-free errors across the FFI boundary. For example:
 
 ```bash
-# macOS: stable rustc; Apple's ASan runtime is linked automatically, it just needs to be
-# on the loader path:
+# macOS uses stable rustc. Apple's ASan runtime links automatically and must be
+# on the loader path
 export DYLD_LIBRARY_PATH="$(clang -print-resource-dir)/lib/darwin"
 ASAN_OPTIONS=detect_leaks=0 cargo test --features rusteron-client/sanitize-address
 
-# Linux: nightly also instruments the Rust side:
+# Linux uses nightly, which also instruments the Rust side
 RUSTFLAGS="-Zsanitizer=address" cargo +nightly test -Zbuild-std \
   --target x86_64-unknown-linux-gnu --features rusteron-client/sanitize-address
 ```

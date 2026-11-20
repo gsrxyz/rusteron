@@ -1897,6 +1897,7 @@ mod tests {
     /// `from_code` + `Clone` must stay allocation-free so retry loops that keep
     /// failing on `-1` don't tax the hot path. Message capture is opt-in.
     #[test]
+    #[cfg_attr(feature = "backtrace", ignore = "backtrace allocates on each AeronCError")]
     #[serial]
     fn repeated_c_errors_are_allocation_free() {
         crate::test_alloc::assert_no_heap_allocation(|| {
@@ -3600,6 +3601,7 @@ mod tests {
         /// Verifies that it receives all published messages without
         /// allocations on the hot path.
         #[test]
+        #[cfg_attr(feature = "log-c-bindings", ignore = "log-c-bindings allocates on each C call")]
         #[serial]
         fn poll_fn_receives_all_messages_no_alloc() -> Result<(), Box<dyn error::Error>> {
             rusteron_code_gen::test_logger::init(log::LevelFilter::Info);

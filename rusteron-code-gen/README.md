@@ -28,8 +28,8 @@ accessors from native getter and setter pairs, and destination helpers from the
 native operations of each handle. URI method names come from native string
 constants with the `AERON_URI_`, `AERON_URI_STRING_BUILDER_` or `AERON_UDP_CHANNEL_`
 prefix and the `_KEY` suffix. The generator strips these parts and lower-cases the
-rest. Explicit rules keep the boolean, numeric, enum and nanosecond value types;
-other keys accept `&str`. New keys get methods when the bindings are regenerated,
+rest. Explicit rules keep the boolean, numeric, enum and nanosecond value types.
+Other keys accept `&str`. New keys get methods when the bindings are regenerated,
 with no runtime lookup. Constants that define values, such as `reserved`, get no
 setters. One Archive descriptor-poller template retains callbacks and rejects
 borrowed pollers.
@@ -78,8 +78,8 @@ conversions run only when called, so they add no work to polling or publishing.
 The same generator adds Rust names such as
 `AeronControlledFragmentHandlerAction::Continue` and `AeronThreadingMode::Shared`.
 It strips C type suffixes and the shared constant prefix. Each Rust type name
-re-exports the native enum, and each value name is an associated constant of the
-native enum type, so both pass directly to existing methods and callbacks.
+re-exports the native enum. Each value name is an associated constant of the
+native enum type. Both pass directly to existing methods and callbacks.
 
 The Archive includes `aeron_archive_replay_params.h` for `copy_from` and
 `is_bounded`, and `aeron_archive_configuration.h` for protocol-version queries.

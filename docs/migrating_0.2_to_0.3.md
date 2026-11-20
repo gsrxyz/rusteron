@@ -47,7 +47,7 @@ context.set_control_response_channel(c"aeron:ipc")?;
 let channel = unsafe { context.get_control_response_channel() };
 assert_eq!(channel, "aeron:ipc");
 
-// One explicit copy. The snapshot stays valid after the context changes.
+// One explicit copy. The snapshot stays valid after the context changes
 let saved = context.get_control_response_channel_owned();
 context.set_control_response_channel(c"aeron:udp?endpoint=localhost:8010")?;
 assert_eq!(saved, "aeron:ipc");
@@ -129,14 +129,14 @@ flowchart LR
   O3 -.->|setup and close only| M3["Rust heap: Arc counts and ManagedCResource, 104 B"]
 ```
 
-The table covers the most used handles. Sizes are in bytes on arm64, and the
-total is the handle, plus the Rust owner block, plus the C struct. Native buffers
-such as term logs are not included. A 0.2 handle is as large as its largest enum
-variant, so types whose C struct bindgen can see carry that struct inline even
-when they hold a heap pointer. The pointer read columns are the path `get_inner()`
-executes on arm64 to reach the native pointer, read from the release disassembly
-of 0.2.22 without `multi-threaded`, and of 0.3. Loads include the read of the
-handle itself.
+The table covers the most used handles. Sizes are in bytes on arm64. The total
+is the handle, plus the Rust owner block, plus the C struct. Native buffers such
+as term logs are not included. A 0.2 handle is as large as its largest enum
+variant. Types whose C struct bindgen can see therefore carry that struct inline,
+even when they hold a heap pointer. The pointer read columns show the path
+`get_inner()` executes on arm64 to reach the native pointer. They come from the
+release disassembly of 0.2.22 without `multi-threaded` and of 0.3. Loads include
+the read of the handle itself.
 
 In both versions Aeron C allocates the native publication, subscription, image
 and counter structs, for example when an async add completes. `OwnedOnHeap` in
@@ -193,8 +193,8 @@ cross-thread close and dependency changes. Those fields are only read on setup
 and close. Header values and constants stay inline on the stack, with no `Arc`
 or allocation.
 
-Query results cost the same or less than in 0.2. Criterion, ns per call on Apple
-M4 Max:
+Query results cost the same or less than in 0.2. The table shows Criterion
+results in ns per call on Apple M4 Max.
 
 | Call | 0.2.10 | 0.2.22 | 0.3 |
 | --- | ---: | ---: | ---: |
@@ -292,7 +292,7 @@ to use `SharedHandler`, and [callback panics](callback-panics.md) for panic
 handling.
 
 **The poll path uses no `Rc`, `Arc`, `RefCell` or `Mutex`.** `poll(&mut callback, limit)`,
-`poll_fn` and the owned assemblers pass a plain `&mut` to your callback to Aeron C as
+`poll_fn` and the owned assemblers pass a plain `&mut` to your callback into Aeron C as
 `clientd`. For each fragment, the trampoline casts `clientd` back to `&mut F` and calls
 it. Rusteron adds no lock, borrow check, reference count or allocation per fragment or
 per poll. `Handler` (`Rc<RefCell<T>>`) and `SharedHandler` (`Arc<Mutex<T>>`) exist only for
@@ -553,8 +553,8 @@ assembler and any partial messages.
 
 Handlers no longer dereference to callback state.
 
-- Local `Handler::lock()` returns a mutable `RefCell` guard and `borrow()` a read
-  guard. Both check borrowing on the current thread, with no mutex or atomic
+- Local `Handler::lock()` returns a mutable `RefCell` guard and `borrow()` returns
+  a read guard. Both check borrowing on the current thread, with no mutex or atomic
   operation. Use them for retained callbacks only, never for poll state.
 - `SharedHandler::lock()` takes a mutex. A retained shared callback takes the same
   mutex when invoked, so contention can delay either side. Keep guards short.
@@ -899,9 +899,9 @@ The reusable claim was 48 instructions in 0.3 before `CResource` cached the
 pointer of Rust-allocated values. Each access to the claim then took two loads,
 the second Acquire, with a null check. It is now one load.
 
-Criterion, ns per call over IPC, the mean of two runs per version in rotated
-order. C rows call the native function directly. Publish rows come from the
-`offer_claim_poll` bench:
+The table shows Criterion results in ns per call over IPC, as the mean of two
+runs per version in rotated order. C rows call the native function directly.
+Publish rows come from the `offer_claim_poll` bench.
 
 | Workload | 0.2.10 | 0.2.22 | 0.3 |
 | --- | ---: | ---: | ---: |
@@ -959,7 +959,7 @@ The reusable claim was 75 instructions in 0.3 before the pointer cache. The
 p50 / p99 timings below were measured before that change. The cross-language
 LTO run further down includes it, but has no run without it to compare.
 
-EC2 m6i.xlarge, a shared VM. The table shows p50 / p99 in ns. Per-call rows are
+These runs used an EC2 m6i.xlarge, a shared VM. The table shows p50 / p99 in ns. Per-call rows are
 averages of 1,000-call batches, and each poll call reads 10 messages. Each
 workload ran 10 to 20 times for 30 s, rotating the version order. Most
 differences are within the spread between runs.
@@ -982,7 +982,8 @@ differences are within the spread between runs.
 | IPC round trip 32 B | 325 / 410 | 323 / 414 | 322 / 408 |
 | UDP localhost round trip 32 B | 10,919 / 24,319 | 10,935 / 24,559 | 10,935 / 24,303 |
 
-IPC throughput, million messages per second, median of the runs:
+The table shows IPC throughput in million messages per second, as the median of
+the runs.
 
 | Payload | 0.2.10 | 0.2.22 | 0.3 |
 | --- | ---: | ---: | ---: |
@@ -991,8 +992,8 @@ IPC throughput, million messages per second, median of the runs:
 
 ### Cross-language LTO on x86-64
 
-The same Xeon VM, on the current 0.3 code, with Aeron C built three ways: GCC (the
-default), Clang 22 without LTO, and Clang 22 with
+This run used the same Xeon VM and the current 0.3 code. Aeron C was built three
+ways: GCC, which is the default, Clang 22 without LTO, and Clang 22 with
 [cross-language LTO](cross-language-lto.md). Each build ran 12 times in rotated
 order, with short Criterion runs. The table shows the median in ns and a 95%
 bootstrap interval for the paired gain against the GCC build. Only rows whose
@@ -1007,9 +1008,9 @@ between runs.
 | `offer` 1 KiB | 137.32 | 130.55 | 122.72 | 12.5% [2, 20] |
 
 LTO inlined `aeron_buffer_claim_commit` and `aeron_publication_constants` at
-every call site. `aeron_publication_offer` (LLVM cost 755 to 880) and
-`aeron_publication_try_claim` (690 to 780) stayed calls, over the hot call
-site threshold of 525. LLVM also judged `aeron_subscription_poll` and
+every call site. `aeron_publication_offer` had an LLVM cost of 755 to 880 and
+`aeron_publication_try_claim` 690 to 780. Both stayed calls, because they were
+over the hot call site threshold of 525. LLVM also judged `aeron_subscription_poll` and
 `aeron_image_poll` too costly to inline in this bench. No inliner flags such as
 `-locally-hot-callsite-threshold` were set. The owned claim's `commit` is already an inline
 Rust store in every build, so LTO cannot change it. A reusable

@@ -158,6 +158,7 @@ fn error_formatting_and_reentrant_message_reads_do_not_allocate() {
 }
 
 #[test]
+#[cfg_attr(feature = "backtrace", ignore = "backtrace allocates on each AeronCError")]
 fn literal_error_messages_and_their_clones_do_not_allocate() {
     crate::test_alloc::assert_no_heap_allocation(|| {
         let error = AeronCError::with_message(-1, "invalid counter id");
@@ -168,6 +169,7 @@ fn literal_error_messages_and_their_clones_do_not_allocate() {
 }
 
 #[test]
+#[cfg_attr(feature = "backtrace", ignore = "backtrace allocates on each AeronCError")]
 fn owned_error_messages_keep_their_original_allocation() {
     let message = String::from("saved native error");
     let pointer = message.as_ptr();

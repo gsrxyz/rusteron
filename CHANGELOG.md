@@ -47,7 +47,7 @@ Breaking release. See the [0.2-to-0.3 migration guide](docs/migrating_0.2_to_0.3
   - Added checked integer conversions for native enums. Unknown values return the original integer as an error. The recording-signal helper uses the native enum values.
   - Added Rust names for native enums, such as `AeronControlledFragmentHandlerAction::Continue` and `AeronThreadingMode::Shared`.
   - System counter IDs come from native constants. Replaced the `DummyLast` variant with the counters Aeron defines at IDs 40 through 45.
-  - URI setters come from native key constants. Removed `timestamp_offset_reserved()`; use `"reserved"` as the value of a timestamp offset setter.
+  - URI setters come from native key constants. Removed `timestamp_offset_reserved()`. Use `"reserved"` as the value of a timestamp offset setter.
   - Added native replay-parameter copying, bounded-replay checks and Archive protocol-version queries. Methods with multiple pointers to the same native type now generate separate source and destination arguments.
 - Performance
   - Improved claim, polling and counter lookup paths.

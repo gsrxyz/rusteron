@@ -124,7 +124,7 @@ for retry loops and reserved values.
 | No optional callback | `Handlers::NONE` |
 
 **The poll path uses no `Rc`, `Arc`, `RefCell` or `Mutex`.** `poll(&mut callback, limit)`,
-`poll_fn` and the owned assemblers pass a plain `&mut` to your callback to Aeron C as
+`poll_fn` and the owned assemblers pass Aeron C a plain `&mut` to your callback as
 `clientd`. For each fragment, the trampoline casts `clientd` back to `&mut F` and calls
 it. Rusteron adds no lock, borrow check, reference count or allocation per fragment or
 per poll. `Handler` (`Rc<RefCell<T>>`) and `SharedHandler` (`Arc<Mutex<T>>`) exist only for
@@ -135,12 +135,12 @@ message.
 On latency-sensitive receive threads, use `poll(&mut callback, limit)`,
 `poll_fn` or an owned assembler. Local `Handler::lock()` and `borrow()` use `RefCell`
 borrow checks, with no mutex or atomic operation. Polls never take a `Handler`.
-`SharedHandler::lock()` takes a
-mutex and can wait for an active callback, and shared callbacks take it when invoked.
-See [synchronisation costs](https://github.com/gsrxyz/rusteron/blob/main/docs/thread-safety.md#hot-path-behaviour).
+`SharedHandler::lock()` takes a mutex and can wait for an active callback.
+Shared callbacks take the same mutex when invoked. See [synchronisation costs](https://github.com/gsrxyz/rusteron/blob/main/docs/thread-safety.md#hot-path-behaviour).
 
 Create an assembler once and reuse it. `AeronFragmentClosureAssembler` takes a new
-closure on each poll; `FragmentAssembler::new(callback)` owns one fixed callback:
+closure on each poll, and `FragmentAssembler::new(callback)` owns one fixed callback.
+This example uses the closure assembler:
 
 ```rust,no_run
 # use rusteron_client::*;
@@ -180,8 +180,9 @@ see the [handler lifetime guide](https://github.com/gsrxyz/rusteron/blob/main/do
 - `close_with_handler(handler)` closes like `close(self)` and calls the handler
   from the conductor once the close finishes.
 - `image_at_index(i)` and `image_by_session_id(id)` return a retained
-  `Option<AeronImage>`. It keeps reading after its publisher goes (`is_closed()`
-  turns true) and after the subscription handle drops, so drop the two in any order.
+  `Option<AeronImage>`. It keeps reading after its publisher goes away, when
+  `is_closed()` turns true, and after the subscription handle drops. Drop the two in
+  any order.
 - Raw-pointer construction, native struct references and forced cleanup require
   `unsafe` and the documented caller guarantees.
 
@@ -198,12 +199,12 @@ See [channel examples](https://github.com/gsrxyz/rusteron/blob/main/docs/client-
 
 ## Idle strategies
 
-Call `idle.idle(work_count)` after a polling cycle. `BackoffIdleStrategy` progresses
+Call `idle.idle(work_count)` after a polling cycle. `BackoffIdleStrategy` moves
 through spinning, yielding and sleeping. `BusySpinIdleStrategy`,
 `YieldingIdleStrategy`, `SleepingIdleStrategy` and `NoOpIdleStrategy` support other
 workloads. Use these strategies in retry and poll loops instead of direct CPU
-pause hints. Keep one instance per loop or thread; reset backoff after a successful
-operation when idling only on retries. Match the strategy and CPU placement when
+pause hints. Keep one instance per loop or thread. When idling only on retries, reset
+backoff after a successful operation. Match the strategy and CPU placement when
 comparing benchmarks.
 
 See the [poll-loop guide](https://github.com/gsrxyz/rusteron/blob/main/docs/client-guide.md#idle-strategies).

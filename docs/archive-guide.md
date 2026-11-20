@@ -23,7 +23,7 @@ the `Rc`.
 Native fragment assemblers and callback-only structs such as
 `AeronArchiveRecordingDescriptor` are also not cloneable. See
 [Callback arguments are borrowed](https://github.com/gsrxyz/rusteron/blob/main/rusteron-client/README.md#callback-arguments-are-borrowed).
-For plain data structs, `.clone_struct()` makes a shallow copy; it is `unsafe`
+For plain data structs, `.clone_struct()` makes a shallow copy. It is `unsafe`
 when the struct holds pointers such as strings.
 
 ### Resource management
@@ -33,7 +33,7 @@ Owning constructors and completed asynchronous registrations clean up native
 resources. A borrowed getter does not create an independent native owner.
 
 `archive.get_archive_context()`, the pollers and other getters return a `Ref`, which
-borrows the archive. The compiler stops you dropping or closing the archive while
+borrows the archive. The compiler rejects dropping or closing the archive while
 you still use the result. Retained-callback setters and new archive connections
 need an owning context and reject a borrowed one. See
 [the migration guide](migrating_0.2_to_0.3.md#archive-ownership-and-strings).
@@ -110,7 +110,7 @@ let replacement: ErrorCallback = Box::new(|code, message| {
     eprintln!("second: {code}: {message}");
 });
 let previous = std::mem::replace(&mut *handler.lock(), replacement);
-drop(previous); // Drop captured values after releasing the handler lock.
+drop(previous); // Drop captured values after releasing the handler lock
 # Ok(()) }
 ```
 
@@ -150,7 +150,7 @@ Archive connections share the slot, so they also use the new callback.
 Captures must be owned and safe to move between threads. Calls to the same callback
 run one at a time. A callback can replace or clear itself, but calling itself again
 deadlocks. A non-empty slot takes two internal mutex locks and clones an `Arc` per
-call. Called through a retained handler, it adds the handler's own lock, for three.
+call. Called through a retained handler, it adds the handler's own lock, which makes three.
 
 The [runnable example](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/examples/replaceable_error_handler.rs)
 needs no archive server:
@@ -284,7 +284,7 @@ use rusteron_archive::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-// `archive` is a connected AeronArchive; record + publish history first, then resolve recording_id.
+// `archive` is a connected AeronArchive. Record and publish history first, then resolve recording_id
 let live_channel = "aeron:ipc";
 let stream_id = 1001;
 
@@ -302,15 +302,15 @@ let mut ps = PersistentSubscriptionBuilder::new_with_aeron(&archive_context, &ae
     .live_stream_id(stream_id)?
     .replay_channel("aeron:udp?endpoint=localhost:0")?  // scratch channel for the replay
     .replay_stream_id(stream_id + 1)?
-    .start_from_beginning()?            // replay from the start (or .start_from_live())
+    .start_from_beginning()?            // replay from the start, or use .start_from_live()
     .recording_id(recording_id)?        // which recording to replay
     .listener(MyListener { live_joined: live_joined.clone() })?
     .build()?;
 
-// Drive it: replay runs, then it joins live. `ps.poll_fn()` drives its own archive
-// client, so it needs nothing from `archive` (a control loop still calls
-// `archive.do_work()` each cycle; see Duty Cycle). Check `has_failed()` each
-// iteration (terminal failure) and stop once `is_live()`.
+// Replay runs first, then the subscription joins live. `ps.poll_fn()` drives its own
+// archive client, so it needs nothing from `archive`. A control loop still calls
+// `archive.do_work()` each cycle, see Duty cycle. Check `has_failed()` each
+// iteration for terminal failure and stop once `is_live()`
 while !ps.is_live() {
     if ps.has_failed() {
         return Err(format!("persistent subscription failed: {:?}", ps.get_failure_reason()).into());
@@ -337,7 +337,7 @@ A persistent subscription reassembles fragments itself, so your handler receives
 # use rusteron_archive::*;
 # fn snippet(ps: &mut AeronArchivePersistentSubscription) -> Result<(), AeronCError> {
 loop {
-    // handler receives whole messages; no assembler needed
+    // handler receives whole messages, so no assembler is needed
     ps.poll_fn(|buf, _hdr| { /* handle reassembled message */ }, 100)?;
 }
 # }

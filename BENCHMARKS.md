@@ -56,7 +56,7 @@ Match the message size, publication type, retry and idle behaviour, warmup, meas
 
 # Intel D8s_v6 pair on Azure (2026-10-09)
 
-Two Azure `Standard_D8s_v6` VMs in one proximity placement group in North Central US. Each VM has an Intel Xeon Platinum 8573C (4 cores with 2 SMT threads each), 32 GiB of RAM and accelerated networking through a MANA NIC. Software: Debian 13 with Linux 7.2.6 from `trixie-backports`, Aeron 1.52.2 and rustc 1.95.0. UDP measurements use the network between the VMs.
+Two Azure `Standard_D8s_v6` VMs in one proximity placement group in North Central US. Each VM has an Intel Xeon Platinum 8573C (4 cores with 2 SMT threads each), 32 GiB of RAM and accelerated networking through a MANA NIC. The software is Debian 13 with Linux 7.2.6 from `trixie-backports`, Aeron 1.52.2 and rustc 1.95.0. UDP measurements use the network between the VMs.
 
 The archive-on-disk measurements use two `Standard_D8ds_v6` VMs in West US 3 (2026-10-10).
 
@@ -132,8 +132,8 @@ Variants:
 | tuned-nomit, busy_read             | 5    | 31.01 (30.86 to 31.05) | 34.05 (33.82 to 34.62) | 36.83 (36.54 to 38.40) | 49.89 (41.47 to 57.53)    | 406.78 (57.85 to 509.69)   |
 | tuned-nomit, IRQs on receiver core | 5    | 32.99 (32.75 to 33.09) | 35.71 (34.91 to 36.64) | 39.62 (39.36 to 41.28) | 49.25 (48.06 to 49.76)    | 72.51 (67.20 to 79.36)     |
 
-- Busy polling (`busy_read`) on isolated cores, against dedicated without it: p50 fell from about 38 to 31 µs and p99.99 from about 157 to 44 to 50 µs. On the stock kernel the ranges overlap.
-- NIC IRQs on the receiver core: with isolation, p99.99 fell to 49 to 57 µs. In the tuned states the max was the lowest, 72 to 74 µs, against 172 to 523 µs for dedicated alone. Its p99.99 and max ranges overlap with busy polling.
+- On isolated cores, busy polling (`busy_read`) cut p50 from about 38 to 31 µs and p99.99 from about 157 to 44 to 50 µs, against dedicated without it. On the stock kernel the ranges overlap.
+- With the NIC IRQs on the receiver core and isolation, p99.99 fell to 49 to 57 µs. In the tuned states the max was the lowest, 72 to 74 µs, against 172 to 523 µs for dedicated alone. The p99.99 and max ranges overlap with those of busy polling.
 - The tuned state cut the dedicated driver's p50 from 38.6 to 34.9 µs. `mitigations=off` cut it to 33.9 µs and its p99.99 from 156 to 121 µs.
 - SHARED, SHARED_NETWORK and dedicated drivers were within about 2 µs of each other at p50 in every state.
 - Socket buffer size had no effect on round-trip latency.
@@ -154,7 +154,7 @@ Two `Standard_D8ds_v6` in one placement group in West US 3, isolated, with the s
 | busy_read and IRQs on receiver core | 5    | 39.0 (38.7 to 40.1) | 46.3 (45.4 to 46.5) | 57.4 (50.3 to 63.3) | 75.0 (61.1 to 78.5)    | 176.0 (164.7 to 182.7)    |
 
 - Compare within this pair only. From p50 to p99.99 its figures were 5 to 30 µs above the North Central US pair's, and its max was hundreds of µs higher. The pairs differ in region, VM size and day.
-- Busy polling and IRQs on the receiver core together gained nothing over either alone. p50 matched the IRQs variant, with busy_read alone the lowest. p99.99 matched both. Max matched the IRQs variant's 0.18 ms, against busy_read's 0.70 ms.
+- Busy polling and IRQs on the receiver core together gained nothing over either alone. p50 matched the IRQs variant, and busy_read alone was the lowest. p99.99 matched both. Max matched the IRQs variant's 0.18 ms, against busy_read's 0.70 ms.
 - In this pair, busy_read and IRQs on the receiver core cut p50 by 8.1 and 6.6 µs, and p99.99 by more than half.
 - Throughput (2 MiB windows): SHARED_NETWORK gave 11.15 (10.82 to 11.43) M msgs/s, the same as dedicated at 11.22 (10.94 to 11.35). SHARED gave 9.86 (9.48 to 10.38), 12% less.
 
@@ -181,9 +181,9 @@ The West US 3 pair above, isolated, plus a third VM, a `Standard_D8s_v6` in Nort
 
 - Loss. A share of the UDP packets arriving from the peer is dropped on both hosts in nftables' input hook (`numgen random`), so neither end is told, as with loss on the wire.
 - Settings. Both drivers dedicated, with pinned `noop` sender and receiver and 2 MiB windows.
-- Throughput. 32-byte messages for 8 s, reading the publisher's driver counters (AeronStat) and both hosts' drop counts.
+- Throughput. Each run sent 32-byte messages for 8 s. It read the publisher's driver counters (AeronStat) and both hosts' drop counts.
 - Round trips. One 32-byte message in flight. Across regions they ran for 60 s, about 1,100 round trips, so p99.9 and above are not given there.
-- Reps. 3 in the same zone and 2 across regions. Ranges are given where reps differed. Cells without a range are medians, or the mean of two; across regions the max lists both reps.
+- Reps. The same zone had 3 reps and the cross-region runs had 2. Ranges are given where reps differed. Cells without a range are medians, or the mean of two; across regions the max lists both reps.
 
 | link, loss           | throughput (M msgs/s)     | round trip p50 | p99     | p99.9   | max           | per throughput run: data packets lost, NAKs received, retransmits sent |
 | -------------------- | ------------------------- | -------------- | ------- | ------- | ------------- | ---------------------------------------------------------------------- |
@@ -195,8 +195,8 @@ The West US 3 pair above, isolated, plus a third VM, a `Standard_D8s_v6` in Nort
 | across regions, 1%   | 0.04 (0.04 to 0.04), 1 MB/s  | 53.0 ms        | 208 ms  |         | 208, 362 ms   | 130, 6,107, 714                                                        |
 
 - Every lost data packet was NAKed and retransmitted, so loss cost time, not data.
-- In the same zone, each lost packet caused about one NAK and one retransmission. Across regions, each caused about 50 NAKs and 6 retransmissions. The receiver repeats its NAK until the repair arrives, and the sender ignores a repeat for only 10 ms after it retransmits (`AERON_RETRANSMIT_UNICAST_LINGER`), a fifth of the 53 ms round trip.
-- A lost ping or echo costs about 100 ms. In a ping-pong nothing follows the lost packet, so the receiver notices the gap only at the sender's next heartbeat. The C driver sends one after 100 ms without data (`AERON_NETWORK_PUBLICATION_HEARTBEAT_TIMEOUT_NS`, a compile-time constant). At 0.1% loss that put p99.9 at 102 ms, and at 1% p99. A continuous stream does not wait like this, as the next packet shows the gap.
+- In the same zone, each lost packet caused about one NAK and one retransmission. Across regions, each caused about 50 NAKs and 6 retransmissions. The receiver repeats its NAK until the repair arrives. The sender ignores a repeat for only 10 ms after it retransmits (`AERON_RETRANSMIT_UNICAST_LINGER`), a fifth of the 53 ms round trip.
+- A lost ping or echo costs about 100 ms. In a ping-pong nothing follows the lost packet, so the receiver notices the gap only at the sender's next heartbeat. The C driver sends one after 100 ms without data (`AERON_NETWORK_PUBLICATION_HEARTBEAT_TIMEOUT_NS`, a compile-time constant). At 0.1% loss that put p99.9 at 102 ms, and at 1% loss it put p99 there. A continuous stream does not wait like this, because the next packet shows the gap.
 - Throughput fell a third at 0.1% loss and 91% at 1%. A receiver status message every 1 ms instead of 200 (`AERON_RCV_STATUS_MESSAGE_TIMEOUT=1000000`) changed nothing (7.58 and 0.99 M msgs/s). The cause is not identified.
 - Across regions, the window limits throughput on a link without packet loss. 2 MiB over a 53 ms round trip gave 18 MB/s, under half the 40 MB/s that window allows per round trip.
 
@@ -324,7 +324,7 @@ The VM caps its network disks together at 12,800 IOPS and 424 MB/s.
 | Premium SSD v2 400 | 365 / 128   | 365 / 141   | 178 / 155                                 |
 
 - Each replay read back a whole recording of 1.1 to 1.3 GB. The 16 replays on intel-b's 400 MB/s disk completed only 5 within 120 s.
-- Replays slowed while recording used all the disk's throughput. On local NVMe they fell from about 1 GB/s to 67 to 246 MB/s; on intel-a none of the 4 finished within 50 s.
+- Replays slowed while recording used all the disk's throughput. On local NVMe they fell from about 1 GB/s to 67 to 246 MB/s. On intel-a none of the 4 finished within 50 s.
 - The first replayed fragment arrived 230 to 290 ms after the request in nearly every run, whatever the disk.
 
 ### Recording across hosts (publishers on intel-a, the archive on intel-b, UDP, MB/s)
@@ -340,7 +340,7 @@ The VM caps its network disks together at 12,800 IOPS and 424 MB/s.
 
 ### Round trip across the hosts under recording load (West US 3 pair, isolated, µs)
 
-West US 3 pair, isolated, with the archive on intel-b's NVMe. Four streams recorded across the hosts at a fixed share of their measured maximum (486 MB/s) while the round trip ran. One run each.
+This used the West US 3 pair, isolated, with the archive on intel-b's NVMe. Four streams were recorded across the hosts at a fixed share of their measured maximum (486 MB/s) while the round trip ran. Each case ran once.
 
 The layout differs from the round-trip tables above, so compare only the rows here with each other:
 
@@ -420,7 +420,7 @@ The host settings' sources are listed under [Tuning on x86-64 Linux](https://git
   - The options were `nosmt idle=poll rcu_nocb_poll nowatchdog nmi_watchdog=0 nosoftlockup skew_tick=1 transparent_hugepage=never audit=0`.
   - They cut the UDP p50 from 38.6 to 34.9 µs, and left IPC unchanged.
   - With `idle=poll`, an idle CPU spins instead of entering a C-state.
-  - [untested] On AWS instance types that let the guest control C-states, AWS's `intel_idle.max_cstate=1 processor.max_cstate=1` is the milder alternative. Use one or the other (README: [On AWS](./README.md#tuning-on-x86-64-linux)).
+  - [untested] On AWS instance types that let the guest control C-states, AWS's `intel_idle.max_cstate=1 processor.max_cstate=1` is the milder alternative. Use one or the other (see [AWS](docs/tuning_x86_64_linux.md#aws)).
 - [host] Archive nodes. `vm.dirty_bytes` and `vm.dirty_background_bytes` (see the archive section) are node-wide too.
 
 Applying the node settings. None of the settings above can go in a pod spec. `net.core.busy_read` isn't a namespaced sysctl, so `securityContext.sysctls` can't set it, and [Kubernetes](https://kubernetes.io/docs/tasks/administer-cluster/sysctl-cluster/) allows no `net.*` sysctls with `hostNetwork`. [untested] by platform:
@@ -607,7 +607,7 @@ Publish and receive, ns per operation (Linux; header reads in place in all three
 | Aeron C built by clang 22, no LTO | 6.55    | 6.41                   | 1.65                |
 | clang 22, cross-language LTO      | 5.81    | 5.56                   | 0.99                |
 
-On Linux the whole `poll` path inlines: `aeron_subscription_poll`, `aeron_image_poll`, the fragment trampoline and the closure become one loop with no indirect call per fragment. `commit` inlines (LLVM cost 10). `try_claim` inlines only when called from one place (see [Inlining every publish call](#inlining-every-publish-call)). `offer` stays a call because it is too large for LLVM's inliner, and about half of its gain comes from building Aeron with clang rather than gcc. On the Mac only the claim path inlined (`offer` 6.16 to 5.85 ns, `try_claim` + `commit` 5.75 to 5.29 ns, `poll` unchanged). macOS is not supported for cross-language LTO (see below).
+On Linux the whole `poll` path inlines: `aeron_subscription_poll`, `aeron_image_poll`, the fragment trampoline and the closure become one loop with no indirect call per fragment. `commit` inlines (LLVM cost 10). `try_claim` inlines only when called from one place (see [Inlining every publish call](#inlining-every-publish-call)). `offer` stays a call because it is too large for LLVM's inliner. About half of its gain comes from building Aeron with clang rather than gcc. On the Mac only the claim path inlined (`offer` 6.16 to 5.85 ns, `try_claim` + `commit` 5.75 to 5.29 ns, `poll` unchanged). macOS is not supported for cross-language LTO (see below).
 
 These results are from the arm64 VM. On an x86-64 Xeon VM at 0.3, with no inliner flags, `aeron_subscription_poll` and `aeron_image_poll` stayed calls and `poll` per fragment did not change beyond the spread between runs. LTO did inline `commit` and `aeron_publication_constants` there, and `publication.get_constants()` went from 19.98 to 6.59 ns. See [Cross-language LTO on x86-64](docs/migrating_0.2_to_0.3.md#cross-language-lto-on-x86-64).
 
@@ -619,7 +619,7 @@ A release build with cross-language LTO takes 87 s against 39 s on the Mac, and 
 
 ### Inlining every publish call
 
-LLVM inlines a call when the callee's cost is below a threshold: 250 at `-O3`, or 525 for a call it estimates as hot (run at least 60 times as often as its function's entry, typically inside a loop). A callee with a single call site in the whole program gets a 15000 bonus, so an application that calls the publish functions from several places does not get it. LLVM's remarks (`-Clink-arg=-Wl,--opt-remarks-filename,remarks.yaml -Clink-arg=-Wl,--opt-remarks-passes,inline`) give, on the Linux VM, for the timed loops:
+LLVM inlines a call when the callee's cost is below a threshold. The threshold is 250 at `-O3`, or 525 for a call it estimates as hot (run at least 60 times as often as its function's entry, typically inside a loop). A callee with a single call site in the whole program gets a 15000 bonus, so an application that calls the publish functions from several places does not get it. LLVM's remarks (`-Clink-arg=-Wl,--opt-remarks-filename,remarks.yaml -Clink-arg=-Wl,--opt-remarks-passes,inline`) give, on the Linux VM, for the timed loops:
 
 | Function                                       | LLVM cost     | Inlined at the default (525) | With `-locally-hot-callsite-threshold=3000` |
 | ---------------------------------------------- | ------------- | ---------------------------- | ------------------------------------------- |
@@ -644,7 +644,7 @@ Raising the general threshold does not work. `-inline-threshold=325` left the lo
 | `try_claim` + `commit`            | 5.89  | 5.62               | 5.41                        |
 | `poll` per fragment               | 1.61  | 1.62               | 0.97                        |
 
-The build with the flag used a threshold of 1200; 3000 gave the same code and timings. 3000 is LLVM's own threshold for profiled hot call sites and leaves room for Aeron's functions to grow. The binary's text grows by 16 KB. On the Linux VM, `offer` went from 5.95 to 5.67 ns and `try_claim` + `commit` from 5.85 to 5.46 ns, with `poll` unchanged at 1.0 ns. The exclusive publication took 18 to 23 ns per operation there in every build, so the VM numbers cannot show its gain.
+The build with the flag used a threshold of 1200. A threshold of 3000 gave the same code and timings. 3000 is LLVM's own threshold for profiled hot call sites and leaves room for Aeron's functions to grow. The binary's text grows by 16 KB. On the Linux VM, `offer` went from 5.95 to 5.67 ns and `try_claim` + `commit` from 5.85 to 5.46 ns, with `poll` unchanged at 1.0 ns. The exclusive publication took 18 to 23 ns per operation there in every build, so the VM numbers cannot show its gain.
 
 ### Turning on cross-language LTO (Linux)
 
@@ -738,7 +738,7 @@ No effect inside an Azure Hyper-V guest, or not used in Aeron's path:
 - Interrupt coalescing (`ethtool -C`): MANA has no coalescing control. On AWS, [AWS recommends](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ena-improve-network-latency-linux.html) turning the ENA NIC's off for latency (`ethtool -C <interface> adaptive-rx off rx-usecs 0 tx-usecs 0`); not measured here.
 - GRO and LRO: plain UDP sockets are never merged.
 - `net.core.busy_poll`: Aeron's receiver calls `recvmmsg` directly, never `poll`, so only `busy_read` matters.
-- Limiting C-states (`intel_idle.max_cstate`, `processor.max_cstate`): the Hyper-V guest has no cpuidle driver, so there are no C-states to limit; `idle=poll` keeps idle CPUs spinning instead. `haltpoll` needs KVM. On AWS instance types that let the guest control C-states, [AWS recommends](https://docs.aws.amazon.com/linux/al2/ug/processor_state_control.html) `intel_idle.max_cstate=1 processor.max_cstate=1`; not measured here.
+- Limiting C-states (`intel_idle.max_cstate`, `processor.max_cstate`): the Hyper-V guest has no cpuidle driver, so there are no C-states to limit; `idle=poll` keeps idle CPUs spinning instead. `haltpoll` needs KVM. On AWS instance types that let the guest control C-states, [AWS recommends](https://docs.aws.amazon.com/linux/al2/ug/processor_state_control.html) `intel_idle.max_cstate=1 processor.max_cstate=1`. This was not measured here.
 - `tsc=reliable`: Hyper-V already marks the TSC reliable, and `tsc` was the clock source.
 - `mlockall`: there is no swap, and Aeron's memory is pre-touched.
 

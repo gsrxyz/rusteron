@@ -23,7 +23,7 @@ Notes:
 
 Edge cases:
 
-- Only the first caught panic on a thread is kept until it is raised; a later one is reported by the panic hook and dropped.
+- Only the first caught panic on a thread is kept until it is raised. A later one is reported by the panic hook and dropped.
 - A caught panic is raised at the next resume point on the same thread. If you drive the image fragment assemblers through the raw bindings, or wrap an assembler in your own handler type, the panic waits until the next call that raises a caught panic. The same applies to a persistent subscription listener when the persistent `poll` is given no fragment handler.
 - With `use_conductor_agent_invoker`, conductor callbacks run inside your `invoke` call, but are still logged rather than raised.
 - For raw bindings, declare poll handlers as `unsafe extern "C-unwind" fn`. The compiler rejects `extern "C"` handlers for these poll functions. Other raw callbacks must not panic because Rust aborts at the `extern "C"` boundary.

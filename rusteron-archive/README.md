@@ -16,8 +16,8 @@ It is developed under the GSR GitHub organisation. We welcome contributions, fee
 
 ## Installation
 
-The Archive crate includes the transport APIs;
-you do not need a separate `rusteron-client` dependency.
+The Archive crate includes the transport APIs,
+so you do not need a separate `rusteron-client` dependency.
 
 ```toml
 [dependencies]
@@ -58,7 +58,7 @@ println!("connected with transport client {client_id}");
 
 The archive retains the supplied client. Dropping your original client handle
 does not invalidate the connection. Use the original owning client when creating
-publications or subscriptions; `archive.aeron()` is a borrowed view.
+publications or subscriptions. `archive.aeron()` is a borrowed view.
 
 ## Typical workflow
 
@@ -96,13 +96,13 @@ use `poll_fn` with a stack closure. `Handlers::NONE` fills an unused callback sl
 Archive control errors use native numeric codes. Match on `error.code` or use
 `AeronArchiveErrorCode::from_native_code(code)` in an Archive error handler.
 `poll_for_error()` returns unsolicited errors with their typed code and full message.
-A blocking Archive request fails after the message timeout, 10 s by default
-(`AERON_ARCHIVE_MESSAGE_TIMEOUT`). Change it with
+A blocking Archive request fails after the message timeout, 10 s by default.
+The setting is `AERON_ARCHIVE_MESSAGE_TIMEOUT`. Change it with
 `AeronArchiveContext::set_message_timeout(duration)`.
 
 ### Why replaced handlers stay alive
 
-A connection keeps the handlers that its context held when connection started.
+A connection keeps the handlers that its context held when the connection started.
 Replacing an unused context handler releases it, but does not change an existing
 connection. Configure an owning context before connecting. See
 [handler ownership](https://github.com/gsrxyz/rusteron/blob/main/docs/archive-guide.md#why-replaced-handlers-stay-alive).
@@ -110,7 +110,7 @@ connection. Configure an owning context before connecting. See
 ### Changing a callback without registering another handler
 
 For simple updates, keep the setter's returned `SharedHandler` and use
-`handler.lock()`. This acquires a mutex shared with callback invocations; keep
+`handler.lock()`. This acquires a mutex shared with callback invocations, so keep
 updates short. Transport `poll_fn` and owned assemblers use direct Rust borrowing
 without a callback mutex. See
 [synchronisation costs](https://github.com/gsrxyz/rusteron/blob/main/docs/thread-safety.md#hot-path-behaviour).
@@ -155,8 +155,8 @@ create its own client, set it on the archive context and close it when the
 subscription closes. Do not use that archive context again afterwards.
 
 It reassembles fragments itself, so poll it with `ps.poll_fn(closure, limit)` or
-`ps.controlled_poll_fn(closure, limit)` and the closure gets whole messages. Do not
-wrap it in a fragment assembler. That still works, for example
+`ps.controlled_poll_fn(closure, limit)`. The closure gets whole messages. Do not
+wrap it in a fragment assembler. Wrapping still works, for example
 `ps.poll(&mut assembler.with(closure), limit)`, but it only adds a call per message.
 See the [complete guide](https://github.com/gsrxyz/rusteron/blob/main/docs/archive-guide.md#persistent-subscriptions)
 for the builder, listener and failure handling.

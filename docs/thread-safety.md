@@ -61,7 +61,7 @@ nest, because Aeron C returns an error for a nested Archive call.
 ## Callbacks
 
 **The poll path uses no `Rc`, `Arc`, `RefCell` or `Mutex`.** `poll(&mut callback, limit)`,
-`poll_fn` and the owned assemblers pass a plain `&mut` to your callback to Aeron C as
+`poll_fn` and the owned assemblers pass Aeron C a plain `&mut` to your callback as
 `clientd`. For each fragment, the trampoline casts `clientd` back to `&mut F` and calls
 it. Rusteron adds no lock, borrow check, reference count or allocation per fragment or
 per poll. `Handler` (`Rc<RefCell<T>>`) and `SharedHandler` (`Arc<Mutex<T>>`) exist only for
@@ -144,7 +144,7 @@ let callback = SharedHandler::new_shared(|code: i32, message: &str| {
     eprintln!("Aeron {code}: {message}");
 });
 context.set_error_handler(Some(callback.clone()))?;
-// Register callbacks before Aeron::new(&context).
+// Register callbacks before Aeron::new(&context)
 ```
 
 ## Migration from 0.2

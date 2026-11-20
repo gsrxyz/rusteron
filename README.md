@@ -17,12 +17,12 @@ and manages resource ownership and callback lifetimes.
   copies that those clients do not have.
 - Pass calls through to Aeron C. If Aeron C accepts an invalid argument or state,
   report it to [Aeron](https://github.com/real-logic/aeron/issues) so every client
-  gets the fix, rather than adding a workaround here
+  gets the fix, rather than adding a workaround here.
 - Document the rules Aeron leaves to the caller, such as not polling an image from
-  inside a poll on the same image
+  inside a poll on the same image.
 - Keep Aeron's names, so Aeron's own documentation applies. Applications still
   follow Aeron's ownership, thread-safety and polling rules. To check whether an
-  issue is in a wrapper, reproduce it against the C API
+  issue is in a wrapper, reproduce it against the C API.
 
 ## Sponsored by GSR
 
@@ -147,7 +147,7 @@ See [owning and borrowed handles](docs/migrating_0.2_to_0.3.md#owning-and-borrow
 | Register a callback that may run on the conductor | Pass an owned callback to its setter, or use `SharedHandler::new_shared(callback)` |
 
 **The poll path uses no `Rc`, `Arc`, `RefCell` or `Mutex`.** `poll(&mut callback, limit)`,
-`poll_fn` and the owned assemblers pass a plain `&mut` to your callback to Aeron C as
+`poll_fn` and the owned assemblers pass Aeron C a plain `&mut` to your callback as
 `clientd`. For each fragment, the trampoline casts `clientd` back to `&mut F` and calls
 it. Rusteron adds no lock, borrow check, reference count or allocation per fragment or
 per poll. `Handler` (`Rc<RefCell<T>>`) and `SharedHandler` (`Arc<Mutex<T>>`) exist only for
@@ -161,7 +161,7 @@ does not unregister it. See the [client callback guide](docs/client-guide.md#han
 ### Panics in callbacks
 
 Synchronous polls return panics to the polling caller. Retained callbacks log
-panics and continue. Message redelivery depends on the callback type; see
+panics and continue. Message redelivery depends on the callback type. See
 [callback panics](docs/callback-panics.md) before relying on recovery behaviour.
 
 ## Examples
