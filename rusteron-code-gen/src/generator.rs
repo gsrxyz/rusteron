@@ -3184,8 +3184,8 @@ pub fn generate_handlers(handler: &mut CHandler, bindings: &CBinding) -> TokenSt
     };
 
     let slot_type_name = format_ident!("{}Slot", snake_to_pascal_case(&handler.type_name));
-    // Fragment polls take an exclusive callback directly. Do not let a Handler
-    // silently add shared-state checks to that API; pass `&mut *handler.lock()` instead
+    // Fragment polls take an exclusive callback directly. Handler does not implement the
+    // poll callback traits, so no RefCell or Mutex can reach the poll path
     let shared_handler_impl = if unwind {
         quote! {}
     } else {

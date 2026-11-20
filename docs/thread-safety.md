@@ -101,17 +101,41 @@ Notes:
   that makes them `!Send`. No `Rc` exists at run time. The callback is boxed once in
   `new()`, and C keeps that stable pointer for every poll.
 
-To poll with one local callback, borrow it once before the loop:
+To poll with a reusable callback, own it on the polling thread and read its fields
+between polls:
 
 ```rust,ignore
-let mut callback = handler.lock();
+let mut callback = MyCallback::default();
 loop {
-    subscription.poll(&mut *callback, 64)?;
+    subscription.poll(&mut callback, 64)?;
 }
 ```
 
-Other clones of the handler cannot reach its state until the guard drops. For
-reassembly, use the owned `FragmentAssembler`.
+For reassembly, use the owned `FragmentAssembler`.
+
+<a id="where-handler-lock-runs"></a>
+
+### Where `Handler::lock` runs
+
+`Handler::lock()` is `RefCell::borrow_mut` for a local `Handler` and `Mutex::lock`
+for a `SharedHandler`. Rusteron calls it only from the trampolines of methods that
+take a `&Handler`, and no poll method takes one. `Handler` does not implement
+`AeronFragmentHandlerCallback`, `AeronControlledFragmentHandlerCallback` or
+`AeronBlockHandlerCallback`, so passing one to a poll does not compile. The
+trampolines that would lock a `Handler` for those callbacks exist in the generated
+code but have no call sites.
+
+| Methods that take a `&Handler` | When the lock runs | On the hot path |
+| --- | --- | --- |
+| Image handlers of `add_subscription` and `async_add_subscription`, `AeronAvailableCounterPair::new`, `AeronUnavailableCounterPair::new`, `AeronCloseClientPair::new`, context callback setters | Once per conductor event, such as an image becoming available, a counter being added or the client closing | No. Once per event, not per message |
+| `foreach_counter`, `error_log_read`, `loss_reporter_read`, `AeronLossReporter::read`, `parse_params` | Once per item during that call | No. Diagnostic and setup calls |
+| Archive `list_recording`, `list_recordings`, `list_recordings_for_uri`, `list_recording_subscriptions`, `AeronArchiveRecordingDescriptorPoller::reset` | Once per descriptor | No. Control requests |
+| `offer_raw`, `offer_with_reserved_value` and `offerv` with `Some(&handler)` | Once per fragment written, when Aeron C asks for the reserved value | Only if you pass `Some`. `offer(buf)` and `try_claim` pass none. `offerv_fn` takes a plain `&mut` closure |
+| `unsafe AeronAgentRunner::aeron_agent_init` | `on_start` once, `idle_strategy_func` once per duty cycle | The idle strategy runs every duty cycle. Rusteron itself never calls `aeron_agent_init` |
+
+Your own code can also call `lock()` to read or replace retained callback state.
+Do that outside the poll loop. To check that state on every poll, share an atomic
+with the callback instead.
 
 To register a retained callback:
 
@@ -129,7 +153,7 @@ context.set_error_handler(Some(callback.clone()))?;
 - Replace retained `Handler::new(...)` callbacks with `SharedHandler::new_shared(...)`.
 - Replace `Handler::with_fragment_assembler` with `FragmentAssembler::new`. Pass other
   synchronous callbacks as `&mut callback`.
-- Replace direct callback state access with `handler.lock()`.
+- Read retained callback state with `handler.lock()`, outside the poll loop.
 - Call manual conductor methods from one thread at a time. Prefer the background
   conductor when several threads share a client.
 - Counter `addr()` returns a raw pointer. Use `addr_atomic()` for safe atomic loads and

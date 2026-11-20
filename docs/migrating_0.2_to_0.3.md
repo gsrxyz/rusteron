@@ -132,8 +132,10 @@ The table covers the most used handles. Sizes are in bytes on arm64, and the
 total is the handle, plus the Rust owner block, plus the C struct. Native buffers
 such as term logs are not included. A 0.2 handle is as large as its largest enum
 variant, so types whose C struct bindgen can see carry that struct inline even
-when they hold a heap pointer. The pointer read column counts the arm64
-instructions that `get_inner()` compiles to.
+when they hold a heap pointer. The pointer read columns are the path `get_inner()`
+executes on arm64 to reach the native pointer, read from the release disassembly
+of 0.2.22 without `multi-threaded`, and of 0.3. Loads include the read of the
+handle itself.
 
 In both versions Aeron C allocates the native publication, subscription, image
 and counter structs, for example when an async add completes. `OwnedOnHeap` in
@@ -143,37 +145,37 @@ struct. 0.2 builds `OwnedOnHeap` for every handle that `poll()` on an async add
 returns, and for `image_at_index`. Query results such as `get_constants()` and
 `get_values()` were `OwnedOnStack` copies.
 
-| 0.2 type and variant | 0.3 type | Handle | Rust heap | C struct | Total | Pointer read |
-| --- | --- | ---: | ---: | ---: | ---: | --- |
-| `Aeron`, `OwnedOnHeap` | `Aeron<LiveCResource<aeron_t>>` | 32 → 16 | 72 → 104 | 728 | 832 → 848 | 9 with 2 branches → 1 load |
-| `AeronContext`, `OwnedOnHeap` | `AeronContext<CResource<aeron_context_t>>` | 16 → 8 | 72 → 104 | 4,520 | 4,608 → 4,632 | 9 → 2 loads |
-| `AeronPublication`, `OwnedOnHeap` | `AeronPublication<LiveCResource<aeron_publication_t>>` | 16 → 16 | 72 → 104 | 168 | 256 → 288 | 9 → 1 load |
-| `AeronExclusivePublication`, `OwnedOnHeap` | `AeronExclusivePublication<LiveCResource<aeron_exclusive_publication_t>>` | 16 → 16 | 72 → 104 | 320 | 408 → 440 | 9 → 1 load |
-| `AeronSubscription`, `OwnedOnHeap` | `AeronSubscription<LiveCResource<aeron_subscription_t>>` | 16 → 16 | 72 → 104 | 368 | 456 → 488 | 9 → 1 load |
-| `AeronImage` from `image_at_index`, `OwnedOnHeap` | `AeronImage<LiveCResource<aeron_image_t>>` | 16 → 16 | 72 → 104 | 160 | 248 → 280 | 9 → 1 load |
-| `AeronCounter`, `OwnedOnHeap` | `AeronCounter<LiveCResource<aeron_counter_t>>` | 16 → 16 | 72 → 104 | 88 | 176 → 208 | 9 → 1 load |
-| Callback `AeronHeader`, `Borrowed` | `AeronHeader<Borrowed<aeron_header_t>>` | 16 → 8 | none | owned by C | 16 → 8 | 9 → 1 load |
-| Borrowed publication or image, `Borrowed` | `AeronPublicationRef`, `AeronImageRef` | 16 → 8 | none | owned by the parent | 16 → 8 | 9 → 1 load |
-| `AeronHeaderValues` from `get_values`, `OwnedOnStack` | `AeronHeaderValues<Inline<aeron_header_values_t>>` | 48 → 44 | none | inline | 48 → 44 | 11 with 2 branches → none |
-| `AeronPublicationConstants` from `get_constants`, `OwnedOnStack` | `AeronPublicationConstants<ScopedInline<'_, aeron_publication_constants_t>>` | 96 → 88 | none | inline | 96 → 88 | 9 → none |
-| `AeronBufferClaim::default()`, `OwnedOnHeap` | `AeronBufferClaim<CResource<aeron_buffer_claim_t>>` | 32 → 8 | 72 → 104 | 24 | 128 → 136 | 9 → 2 loads |
-| `AeronAsyncAddSubscription`, `OwnedOnHeap` | `AeronAsyncAddSubscription<CResource<aeron_async_add_subscription_t>>` | 16 → 8 | 72 → 104 | 176 | 264 → 288 | 9 → 2 loads and a null check |
-| `AeronUriStringBuilder`, `OwnedOnHeap` | `AeronUriStringBuilder<CResource<aeron_uri_string_builder_t>>` | 64 → 8 | 72 → 104 | 56 | 192 → 168 | 9 → 2 loads |
-| `AeronArchive`, `OwnedOnHeap` | `AeronArchive<CResource<aeron_archive_t>>` | 160 → 8 | 72 → 104 | 152 | 384 → 264 | 9 → 2 loads |
-| `AeronArchiveContext`, `OwnedOnHeap` | `AeronArchiveContext<CResource<aeron_archive_context_t>>` | 4,432 → 8 | 72 → 104 | 4,424 | 8,928 → 4,536 | 9 → 2 loads |
-| `AeronArchiveReplayParams`, `OwnedOnHeap` | `AeronArchiveReplayParams<CResource<aeron_archive_replay_params_t>>` | 48 → 8 | 72 → 104 | 40 | 160 → 152 | 9 → 2 loads |
-| Listing `AeronArchiveRecordingDescriptor`, `Borrowed` | `AeronArchiveRecordingDescriptor<Borrowed<aeron_archive_recording_descriptor_t>>` | 136 → 8 | none | owned by C | 136 → 8 | 9 → 1 load |
+| 0.2 type and variant | 0.3 type | Handle | Rust heap | C struct | Total | Pointer read in 0.2.x | Pointer read in 0.3.x |
+| --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| `Aeron`, `OwnedOnHeap` | `Aeron<LiveCResource<aeron_t>>` | 32 → 16 | 72 → 104 | 728 | 832 → 848 | 3 loads, 1 branch | 1 load |
+| `AeronContext`, `OwnedOnHeap` | `AeronContext<CResource<aeron_context_t>>` | 16 → 8 | 72 → 104 | 4,520 | 4,608 → 4,632 | 3 loads, 1 branch | 2 loads, the second Acquire |
+| `AeronPublication`, `OwnedOnHeap` | `AeronPublication<LiveCResource<aeron_publication_t>>` | 16 → 16 | 72 → 104 | 168 | 256 → 288 | 3 loads, 1 branch | 1 load |
+| `AeronExclusivePublication`, `OwnedOnHeap` | `AeronExclusivePublication<LiveCResource<aeron_exclusive_publication_t>>` | 16 → 16 | 72 → 104 | 320 | 408 → 440 | 3 loads, 1 branch | 1 load |
+| `AeronSubscription`, `OwnedOnHeap` | `AeronSubscription<LiveCResource<aeron_subscription_t>>` | 16 → 16 | 72 → 104 | 368 | 456 → 488 | 3 loads, 1 branch | 1 load |
+| `AeronImage` from `image_at_index`, `OwnedOnHeap` | `AeronImage<LiveCResource<aeron_image_t>>` | 16 → 16 | 72 → 104 | 160 | 248 → 280 | 3 loads, 1 branch | 1 load |
+| `AeronCounter`, `OwnedOnHeap` | `AeronCounter<LiveCResource<aeron_counter_t>>` | 16 → 16 | 72 → 104 | 88 | 176 → 208 | 3 loads, 1 branch | 1 load |
+| Callback `AeronHeader`, `Borrowed` | `AeronHeader<Borrowed<aeron_header_t>>` | 16 → 8 | none | owned by C | 16 → 8 | 2 loads, 2 branches | 1 load |
+| Borrowed publication or image, `Borrowed` | `AeronPublicationRef`, `AeronImageRef` | 16 → 8 | none | owned by the parent | 16 → 8 | 2 loads, 2 branches | 1 load |
+| `AeronHeaderValues` from `get_values`, `OwnedOnStack` | `AeronHeaderValues<Inline<aeron_header_values_t>>` | 48 → 44 | none | inline | 48 → 44 | 1 load, 2 branches | no load |
+| `AeronPublicationConstants` from `get_constants`, `OwnedOnStack` | `AeronPublicationConstants<ScopedInline<'_, aeron_publication_constants_t>>` | 96 → 88 | none | inline | 96 → 88 | 1 load, 2 branches | no load |
+| `AeronBufferClaim::default()`, `OwnedOnHeap` | `AeronBufferClaim<CResource<aeron_buffer_claim_t>>` | 32 → 8 | 72 → 104 | 24 | 128 → 136 | 3 loads, 1 branch | 2 loads, the second Acquire |
+| `AeronAsyncAddSubscription`, `OwnedOnHeap` | `AeronAsyncAddSubscription<CResource<aeron_async_add_subscription_t>>` | 16 → 8 | 72 → 104 | 176 | 264 → 288 | 3 loads, 1 branch | 2 loads, the second Acquire |
+| `AeronUriStringBuilder`, `OwnedOnHeap` | `AeronUriStringBuilder<CResource<aeron_uri_string_builder_t>>` | 64 → 8 | 72 → 104 | 56 | 192 → 168 | 3 loads, 1 branch | 2 loads, the second Acquire |
+| `AeronArchive`, `OwnedOnHeap` | `AeronArchive<CResource<aeron_archive_t>>` | 160 → 8 | 72 → 104 | 152 | 384 → 264 | 3 loads, 1 branch | 2 loads, the second Acquire |
+| `AeronArchiveContext`, `OwnedOnHeap` | `AeronArchiveContext<CResource<aeron_archive_context_t>>` | 4,432 → 8 | 72 → 104 | 4,424 | 8,928 → 4,536 | 3 loads, 1 branch | 2 loads, the second Acquire |
+| `AeronArchiveReplayParams`, `OwnedOnHeap` | `AeronArchiveReplayParams<CResource<aeron_archive_replay_params_t>>` | 48 → 8 | 72 → 104 | 40 | 160 → 152 | 3 loads, 1 branch | 2 loads, the second Acquire |
+| Listing `AeronArchiveRecordingDescriptor`, `Borrowed` | `AeronArchiveRecordingDescriptor<Borrowed<aeron_archive_recording_descriptor_t>>` | 136 → 8 | none | owned by C | 136 → 8 | 2 loads, 2 branches | 1 load |
 
 What the pointer read does in each version:
 
 | Storage | Where the native object lives | Steps to reach it |
 | --- | --- | --- |
-| 0.2 `OwnedOnHeap` | C heap, owned by an `Rc` block on the Rust heap | Load the tag, branch twice, load the `Rc` pointer, load the native pointer from `ManagedCResource` |
-| 0.2 `Borrowed` | Owned elsewhere | Load the tag, branch twice, load the pointer |
-| 0.2 `OwnedOnStack` | Inline in the handle | Load the tag, branch twice, take the address |
-| 0.3 `LiveCResource` | C heap, owned by an `Arc` block on the Rust heap | Load the native pointer cached in the handle |
-| 0.3 `CResource` | C heap, owned by an `Arc` block on the Rust heap | Load the `Arc` pointer, then an Acquire load of the native pointer. A plain load on x86-64 |
-| 0.3 `Borrowed` | Owned elsewhere | Load the pointer |
+| 0.2 `OwnedOnHeap` | C heap, owned by an `Rc` block on the Rust heap | Load the tag, branch once, load the `Rc` pointer, load the native pointer from `ManagedCResource`. 3 loads, the last depends on the second |
+| 0.2 `Borrowed` | Owned elsewhere | Load the tag, branch twice, load the pointer. 2 loads |
+| 0.2 `OwnedOnStack` | Inline in the handle | Load the tag, branch twice, take the address. 1 load |
+| 0.3 `LiveCResource` | C heap, owned by an `Arc` block on the Rust heap | Load the native pointer cached in the handle. 1 load, no branch |
+| 0.3 `CResource` | C heap, owned by an `Arc` block on the Rust heap | Load the `Arc` pointer, then an Acquire load of the native pointer, `ldapur` on arm64 and a plain `mov` on x86-64. 2 loads, no branch, no fence |
+| 0.3 `Borrowed` | Owned elsewhere | Load the pointer. 1 load, no branch |
 | 0.3 `Inline`, `ScopedInline` | Inline in the handle, on the stack | Take the address. No load |
 
 Publications, subscriptions, images, counters and the client are `LiveCResource`,
@@ -552,7 +554,8 @@ Handlers no longer dereference to callback state.
 
 Release a state guard before invoking the same handler through C. A local handler
 rejects the second borrow and a shared handler deadlocks on its own mutex. See
-[synchronization costs](thread-safety.md#hot-path-behaviour).
+[synchronisation costs](thread-safety.md#hot-path-behaviour) and
+[where `Handler::lock` runs](thread-safety.md#where-handler-lock-runs).
 
 For a simple polling loop, a closure assembler avoids shared callback storage.
 The closure borrows local variables for the poll call only:
