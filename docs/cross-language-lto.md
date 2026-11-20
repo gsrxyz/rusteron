@@ -13,10 +13,15 @@ client's C code gave no consistent gain over `x86-64` or `x86-64-v3` on IPC.
 
 ## Cross-language LTO on Linux
 
-A static build lets LLVM inline Aeron's C into its Rust callers. This can remove
-foreign-function and indirect callback calls for `try_claim` and fragment
-handlers. Enable cross-language LTO in the final binary. Rusteron's build
-settings do not apply to crates that depend on it.
+A static build lets LLVM inline Aeron's C into its Rust callers. Small
+functions such as `aeron_buffer_claim_commit` and `aeron_publication_constants`
+inline at every call site. `offer`, `try_claim` and `poll` inline only when
+LLVM judges the call site hot and cheap enough, which depends on the caller.
+On an x86-64 Xeon VM they all stayed calls in one bench, while on an arm64 VM
+`poll` inlined. See [Cross-language LTO on x86-64](migrating_0.2_to_0.3.md#cross-language-lto-on-x86-64)
+and [BENCHMARKS.md](https://github.com/gsrxyz/rusteron/blob/main/BENCHMARKS.md#hot-paths-in-place-header-reads-and-cross-language-lto-2026-10-11)
+for the measurements. Enable cross-language LTO in the final binary. Rusteron's
+build settings do not apply to crates that depend on it.
 
 1. Install clang, lld and llvm-ar with the same LLVM major version as rustc.
    `rustc -vV` prints the LLVM version. For LLVM 22, [apt.llvm.org](https://apt.llvm.org) provides these commands:

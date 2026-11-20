@@ -609,6 +609,8 @@ Publish and receive, ns per operation (Linux; header reads in place in all three
 
 On Linux the whole `poll` path inlines: `aeron_subscription_poll`, `aeron_image_poll`, the fragment trampoline and the closure become one loop with no indirect call per fragment. `commit` inlines (LLVM cost 10). `try_claim` inlines only when called from one place (see [Inlining every publish call](#inlining-every-publish-call)). `offer` stays a call because it is too large for LLVM's inliner, and about half of its gain comes from building Aeron with clang rather than gcc. On the Mac only the claim path inlined (`offer` 6.16 to 5.85 ns, `try_claim` + `commit` 5.75 to 5.29 ns, `poll` unchanged). macOS is not supported for cross-language LTO (see below).
 
+These results are from the arm64 VM. On an x86-64 Xeon VM at 0.3, with no inliner flags, `aeron_subscription_poll` and `aeron_image_poll` stayed calls and `poll` per fragment did not change beyond the spread between runs. LTO did inline `commit` and `aeron_publication_constants` there, and `publication.get_constants()` went from 19.98 to 6.59 ns. See [Cross-language LTO on x86-64](docs/migrating_0.2_to_0.3.md#cross-language-lto-on-x86-64).
+
 Rust `lto = "thin"` against `"fat"`, `panic = "abort"` and C `-flto=thin` beside Rust's fat LTO made no difference beyond noise on the Mac.
 
 The generated `get_constants` and `get_values` getters let Aeron fill uninitialised memory instead of zeroing the struct first, as Aeron writes every field on success. On the Mac, `publication.get_constants()` takes 8.20 ns, down from 10.62, and `subscription.get_constants()` 5.26 ns, down from 6.09. Neither is called per message.

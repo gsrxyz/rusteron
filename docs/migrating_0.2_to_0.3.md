@@ -101,6 +101,7 @@ flowchart LR
   subgraph v03["0.3: storage is a type parameter"]
     P3["AeronPublication#lt;S#gt;"] -->|default| L["LiveCResource: native pointer and Arc owner"]
     P3 --> C["CResource: Arc owner"]
+    P3 -->|Rust-allocated values| CV["CResource: Arc owner and cached pointer"]
     P3 --> I["Inline#lt;T#gt;: value, not cloneable"]
     P3 -->|AeronPublicationRef| B3["Borrowed: NonNull pointer, not cloneable"]
   end
@@ -158,7 +159,7 @@ returns, and for `image_at_index`. Query results such as `get_constants()` and
 | Borrowed publication or image, `Borrowed` | `AeronPublicationRef`, `AeronImageRef` | 16 → 8 | none | owned by the parent | 16 → 8 | 2 loads, 2 branches | 1 load |
 | `AeronHeaderValues` from `get_values`, `OwnedOnStack` | `AeronHeaderValues<Inline<aeron_header_values_t>>` | 48 → 44 | none | inline | 48 → 44 | 1 load, 2 branches | no load |
 | `AeronPublicationConstants` from `get_constants`, `OwnedOnStack` | `AeronPublicationConstants<ScopedInline<'_, aeron_publication_constants_t>>` | 96 → 88 | none | inline | 96 → 88 | 1 load, 2 branches | no load |
-| `AeronBufferClaim::default()`, `OwnedOnHeap` | `AeronBufferClaim<CResource<aeron_buffer_claim_t>>` | 32 → 8 | 72 → 104 | 24 | 128 → 136 | 3 loads, 1 branch | 2 loads, the second Acquire |
+| `AeronBufferClaim::default()`, `OwnedOnHeap` | `AeronBufferClaim<CResource<aeron_buffer_claim_t>>` | 32 → 16 | 72 → 104 | 24 | 128 → 144 | 3 loads, 1 branch | 1 load |
 | `AeronAsyncAddSubscription`, `OwnedOnHeap` | `AeronAsyncAddSubscription<CResource<aeron_async_add_subscription_t>>` | 16 → 8 | 72 → 104 | 176 | 264 → 288 | 3 loads, 1 branch | 2 loads, the second Acquire |
 | `AeronUriStringBuilder`, `OwnedOnHeap` | `AeronUriStringBuilder<CResource<aeron_uri_string_builder_t>>` | 64 → 8 | 72 → 104 | 56 | 192 → 168 | 3 loads, 1 branch | 2 loads, the second Acquire |
 | `AeronArchive`, `OwnedOnHeap` | `AeronArchive<CResource<aeron_archive_t>>` | 160 → 8 | 72 → 104 | 152 | 384 → 264 | 3 loads, 1 branch | 2 loads, the second Acquire |
@@ -175,11 +176,18 @@ What the pointer read does in each version:
 | 0.2 `OwnedOnStack` | Inline in the handle | Load the tag, branch twice, take the address. 1 load |
 | 0.3 `LiveCResource` | C heap, owned by an `Arc` block on the Rust heap | Load the native pointer cached in the handle. 1 load, no branch |
 | 0.3 `CResource` | C heap, owned by an `Arc` block on the Rust heap | Load the `Arc` pointer, then an Acquire load of the native pointer, `ldapur` on arm64 and a plain `mov` on x86-64. 2 loads, no branch, no fence |
+| 0.3 `CResource` of a Rust-allocated value | Rust heap, in a `Box` owned by the `Arc` block | Load the native pointer cached in the handle. 1 load, no branch |
 | 0.3 `Borrowed` | Owned elsewhere | Load the pointer. 1 load, no branch |
 | 0.3 `Inline`, `ScopedInline` | Inline in the handle, on the stack | Take the address. No load |
 
 Publications, subscriptions, images, counters and the client are `LiveCResource`,
-so offer, claim and poll read one pointer with no branch. The `Arc` block is 32 B
+so offer, claim and poll read one pointer with no branch. A `CResource` also
+caches the pointer when Rust allocated the value and Aeron C has no constructor
+or destructor for the type, such as `AeronBufferClaim::default()`. Native calls
+can write into that value but cannot free or move it, so the address is fixed
+until the last owner drops. The generator turns the cache off if a later Aeron
+version adds an `_init`, `_close`, `_delete`, `_destroy` or `_free` function for
+the type. The `Arc` block is 32 B
 larger than the 0.2 `Rc` block because it holds atomics and mutexes for
 cross-thread close and dependency changes. Those fields are only read on setup
 and close. Header values and constants stay inline on the stack, with no `Arc`
@@ -190,12 +198,12 @@ M4 Max:
 
 | Call | 0.2.10 | 0.2.22 | 0.3 |
 | --- | ---: | ---: | ---: |
-| publication `get_constants` | 10.68 | 8.25 | 8.04 |
-| exclusive publication `get_constants` | 10.81 | 8.19 | 8.11 |
-| subscription `get_constants` | 6.21 | 5.42 | 5.23 |
-| image `get_constants` | 9.18 | 7.69 | 7.49 |
-| poll per fragment, header `get_values` | 5.85 | 3.44 | 3.34 |
-| poll per fragment, no header read | 1.62 | 1.68 | 1.59 |
+| publication `get_constants` | 10.38 | 7.90 | 7.77 |
+| exclusive publication `get_constants` | 10.50 | 7.98 | 7.94 |
+| subscription `get_constants` | 5.95 | 5.22 | 5.06 |
+| image `get_constants` | 8.93 | 7.48 | 7.39 |
+| poll per fragment, header `get_values` | 5.74 | 3.37 | 3.27 |
+| poll per fragment, no header read | 1.57 | 1.57 | 1.57 |
 
 A borrowed view is a bare pointer with no `Clone`, so the borrow checker stops it
 from outliving its owner. A 0.2 `Borrowed` variant could be cloned into code
@@ -299,7 +307,7 @@ This is what each hot-path call does:
 | `subscription.poll_fn(closure, limit)` | One pointer load, then `aeron_subscription_poll` with `&mut closure` as `clientd` | The trampoline casts `clientd` back to `&mut F` and calls it. No lock, borrow check or reference count |
 | `subscription.poll(&mut callback, limit)` | Same, with `&mut callback` as `clientd` | Same |
 | Fragment assembler `poll` | Same, with the assembler as `clientd` | The assembler calls your closure through a plain `&mut`. No lock |
-| `offer`, `try_claim`, `position` on a publication | One pointer load from `LiveCResource`, then the C call | Not applicable |
+| `offer`, `try_claim`, `position` on a publication | One pointer load from `LiveCResource`, then the C call. `try_claim` with a reusable `AeronBufferClaim::default()` adds one load of the claim pointer cached in its handle | Not applicable |
 | `get_constants`, `header.get_values()` | Copy into an inline struct on the stack | No allocation or `Arc` |
 
 `Handler<T>` and `SharedHandler<T>` hold callbacks that C keeps after the call
@@ -313,7 +321,8 @@ What a method call does to reach the native pointer:
 | Storage | Types | Per call |
 | --- | --- | --- |
 | `LiveCResource` | `Aeron`, publications, subscriptions, images, counters | A plain load of the pointer cached in the handle at creation. No atomic, fence or `Arc` access |
-| `CResource` | Contexts, Archive handles, async operations, URI builder, default buffer claim | A plain load of the `Arc` pointer, then an Acquire load of the native pointer. That is a plain `mov` on x86-64 and one `ldapur` on arm64, with no separate fence or lock. 0.2 used a `Cell` read here, or the same Acquire load with `multi-threaded` |
+| `CResource` of a Rust-allocated value | `AeronBufferClaim::default()`, `AeronIovec`, counter pairs, URI params and other plain structs that Aeron C neither creates nor frees | A plain load of the pointer cached in the handle at creation. The handle is 16 B instead of 8 B |
+| `CResource` | Contexts, Archive handles, async operations, URI builder | A plain load of the `Arc` pointer, then an Acquire load of the native pointer. That is a plain `mov` on x86-64 and one `ldapur` on arm64, with no separate fence or lock. 0.2 used a `Cell` read here, or the same Acquire load with `multi-threaded` |
 | `Borrowed` | Callback `AeronHeader`, `...Ref` views, recording descriptors | A plain load |
 | `Inline`, `ScopedInline` | `get_values()` and `get_constants()` results | The address of the value. No load |
 
@@ -870,40 +879,85 @@ Every version below used Aeron 1.54.2 and Rust 1.98.1. Lower is better.
 
 ### Apple M4 Max (arm64)
 
-Instructions per call, counted in the compiled wrapper:
+Instructions per call, counted in the compiled wrapper. The owned claim is
+`try_claim_owned`, copy and `commit`. The reusable claim is `try_claim_raw` into a
+reused `AeronBufferClaim::default()`, copy and `commit`. Static counts include
+cold error paths, so a lower count does not always mean a faster call.
 
 | Call | 0.2.10 | 0.2.22 | 0.3 |
 | --- | ---: | ---: | ---: |
-| `offer` | 31 | 30 | 21 |
-| exclusive `offer` | 31 | 30 | 21 |
-| `try_claim`, copy, `commit` | 216 | 58 | 40 |
+| `offer` | 30 | 30 | 21 |
+| exclusive `offer` | 30 | 30 | 21 |
+| owned claim, copy, `commit` | 195 | 60 | 42 |
+| reusable claim, copy, `commit` | 97 | 97 | 40 |
 | `poll_fn` | 31 | 31 | 24 |
 | poll with a reusable callback | 29 | 29 | 21 |
 | `image.poll` | 29 | 29 | 21 |
 | `position()` | 9 | 9 | 2 |
 
-Criterion `offer_claim_poll` bench, ns per call over IPC. C rows call the native
-function directly. 0.2.10 copies the header for each fragment, which is why its
-header reads cost more.
+The reusable claim was 48 instructions in 0.3 before `CResource` cached the
+pointer of Rust-allocated values. Each access to the claim then took two loads,
+the second Acquire, with a null check. It is now one load.
+
+Criterion, ns per call over IPC, the mean of two runs per version in rotated
+order. C rows call the native function directly. Publish rows come from the
+`offer_claim_poll` bench:
 
 | Workload | 0.2.10 | 0.2.22 | 0.3 |
 | --- | ---: | ---: | ---: |
-| C `offer` 32 B | 5.92 | 5.87 | 5.88 |
-| `offer` 32 B | 6.35 | 6.13 | 6.02 |
-| C claim, copy, commit 32 B | 6.11 | 6.19 | 6.15 |
-| claim, copy, commit 32 B | 8.96 | 7.00 | 5.43 |
-| claim, copy, commit 256 B | 13.23 | 11.54 | 9.21 |
-| claim, commit 256 B | 33.24 | 27.72 | 22.76 |
-| `offer` 1 KiB | 22.68 | 22.95 | 21.90 |
-| C poll, per fragment | 1.59 | 1.59 | 1.59 |
-| `poll_fn`, per fragment | 1.58 | 1.58 | 1.58 |
-| `poll_fn` with 4 header reads | 15.12 | 2.20 | 2.21 |
-| reusable callback, per fragment | 1.59 | 1.59 | 1.58 |
-| empty poll | 4.50 | 4.57 | 4.59 |
-| fragment assembler, per message | 2.36 | 2.49 | 2.36 |
-| publication `get_constants` | 10.09 | 8.08 | 7.97 |
+| C `offer` 32 B | 5.89 | 5.82 | 5.85 |
+| `offer` 32 B | 6.51 | 6.12 | 6.04 |
+| `offer` 1 KiB | 22.25 | 22.87 | 22.11 |
+| C claim, copy, commit 32 B | 6.06 | 6.39 | 6.12 |
+| owned claim, copy, commit 32 B | 8.86 | 7.02 | 5.40 |
+| reusable claim, copy, commit 32 B | 6.72 | 7.02 | 5.96 |
+| owned claim, copy, commit 256 B | 12.80 | 11.68 | 9.31 |
+| reusable claim, copy, commit 256 B | 10.14 | 10.03 | 9.65 |
+| owned claim, commit 32 B | 6.75 | 5.86 | 4.75 |
+| reusable claim, commit 32 B | 5.23 | 5.26 | 5.21 |
+
+Before the pointer cache, 0.3 took 6.96 ns for the reusable claim, copy and
+commit at 32 B. The owned claim and `offer` did not change.
+
+Receive rows come from the `hot_path` bench, with the exclusive publication
+for comparison. 0.2.10 copies the header for each fragment, which is why its
+header reads cost more:
+
+| Workload | 0.2.10 | 0.2.22 | 0.3 |
+| --- | ---: | ---: | ---: |
+| C poll, per fragment | 1.57 | 1.58 | 1.59 |
+| `poll_fn`, per fragment | 1.58 | 1.59 | 1.59 |
+| `poll_fn` with 1 header read | 4.73 | 1.72 | 1.71 |
+| `poll_fn` with 4 header reads | 15.29 | 2.24 | 2.16 |
+| reusable callback, per fragment | 1.58 | 1.59 | 1.59 |
+| empty poll | 4.54 | 4.63 | 4.56 |
+| fragment assembler, per message | 2.35 | 2.50 | 2.36 |
+| exclusive `offer` 32 B | 5.72 | 5.77 | 5.76 |
+| exclusive reusable claim, commit 32 B | 5.08 | 5.04 | 5.08 |
+
+Without the copy, the reusable claim and commit at 32 B went from 5.55 to
+5.21 ns in `offer_claim_poll`, and from 5.76 to 5.68 ns in `hot_path`, which is
+within the spread between runs there.
 
 ### Intel Xeon Platinum 8375C (x86-64)
+
+Instructions per call, counted the same way as on arm64, with fat LTO and one
+codegen unit:
+
+| Call | 0.2.10 | 0.2.22 | 0.3 |
+| --- | ---: | ---: | ---: |
+| `offer` | 35 | 35 | 25 |
+| exclusive `offer` | 35 | 35 | 26 |
+| owned claim, copy, `commit` | 110 | 87 | 43 |
+| reusable claim, copy, `commit` | 123 | 123 | 62 |
+| `poll_fn` | 32 | 32 | 19 |
+| poll with a reusable callback | 30 | 30 | 15 |
+| `image.poll` | 30 | 30 | 15 |
+| `position()` | 11 | 11 | 2 |
+
+The reusable claim was 75 instructions in 0.3 before the pointer cache. The
+p50 / p99 timings below were measured before that change. The cross-language
+LTO run further down includes it, but has no run without it to compare.
 
 EC2 m6i.xlarge, a shared VM. The table shows p50 / p99 in ns. Per-call rows are
 averages of 1,000-call batches, and each poll call reads 10 messages. Each
@@ -934,3 +988,30 @@ IPC throughput, million messages per second, median of the runs:
 | --- | ---: | ---: | ---: |
 | 32 B | 21.7 | 21.2 | 21.9 |
 | 256 B | 16.0 | 15.7 | 15.8 |
+
+### Cross-language LTO on x86-64
+
+The same Xeon VM, on the current 0.3 code, with Aeron C built three ways: GCC (the
+default), Clang 22 without LTO, and Clang 22 with
+[cross-language LTO](cross-language-lto.md). Each build ran 12 times in rotated
+order, with short Criterion runs. The table shows the median in ns and a 95%
+bootstrap interval for the paired gain against the GCC build. Only rows whose
+interval excludes zero are shown. Every other workload, including `poll`, the
+`AeronBufferClaim` claims and `offer` 32 B, moved by less than the spread
+between runs.
+
+| Workload | GCC | Clang, no LTO | Clang, LTO | Gain against GCC |
+| --- | ---: | ---: | ---: | ---: |
+| publication `get_constants` | 19.98 | 20.53 | 6.59 | 67% [63, 73] |
+| C claim, copy, commit 32 B | 47.62 | 52.35 | 35.28 | 24% [9, 44] |
+| `offer` 1 KiB | 137.32 | 130.55 | 122.72 | 12.5% [2, 20] |
+
+LTO inlined `aeron_buffer_claim_commit` and `aeron_publication_constants` at
+every call site. `aeron_publication_offer` (LLVM cost 755 to 880) and
+`aeron_publication_try_claim` (690 to 780) stayed calls, over the hot call
+site threshold of 525. LLVM also judged `aeron_subscription_poll` and
+`aeron_image_poll` too costly to inline in this bench. No inliner flags such as
+`-locally-hot-callsite-threshold` were set. The owned claim's `commit` is already an inline
+Rust store in every build, so LTO cannot change it. A reusable
+`AeronBufferClaim` calls the native `commit`, which LTO inlined, but its timings
+did not change beyond the spread.

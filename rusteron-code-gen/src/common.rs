@@ -599,9 +599,11 @@ impl<Owner: Clone, T> Clone for OwnedWithReference<Owner, T> {
 /// The closure calls the C close function, such as `aeron_close`. Reference-counted
 /// dependencies keep parent resources open until their children drop.
 // Performance: these fields are off the hot path. Publications, subscriptions,
-// counters and the client use `LiveCResource`, which caches the pointer, so
-// offer and poll never read them. `CResource` handles such as `AeronImage` pay
-// one Acquire load per `get()`, a plain load on x86-64 and `ldar` on aarch64.
+// images, counters and the client use `LiveCResource`, which caches the pointer,
+// so offer and poll never read them. A `CResource` of a Rust-allocated value,
+// such as `AeronBufferClaim::default()`, caches the pointer too. Other
+// `CResource` handles, such as contexts, pay one Acquire load per `get()`, a
+// plain load on x86-64 and `ldapur` on aarch64
 // The mutexes, `OnceLock` and flags only run on start, close, dependency changes
 // and blocking waits
 #[allow(dead_code)]
