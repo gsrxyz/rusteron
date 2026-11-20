@@ -83,17 +83,24 @@ impl CopyDependencies<SharedResource> for LocalResource {
 /// A shared policy requires that the native allocation can be retained and closed
 /// from any thread. All safe constructors must use this policy's checked dependency
 /// and cleanup storage. This does not make concurrent native method calls safe.
-pub unsafe trait NativeResource: 'static {
+/// `CachedPointer` additionally requires that native calls cannot release or
+/// replace the allocation while an owning handle remains alive.
+pub unsafe trait NativeResource: Sized + 'static {
     type Policy: ResourcePolicy;
+    /// How an owning handle reads its native pointer. Cached pointers are only
+    /// valid when native calls cannot release or replace the allocation.
+    type Pointer: ResourcePointer<Self>;
 }
 
 #[cfg(test)]
 unsafe impl NativeResource for i32 {
     type Policy = LocalResource;
+    type Pointer = ReloadPointer;
 }
 #[cfg(test)]
 unsafe impl NativeResource for u8 {
     type Policy = LocalResource;
+    type Pointer = ReloadPointer;
 }
 
 pub type CleanupBox<T> = <<T as NativeResource>::Policy as ResourcePolicy>::Cleanup<T>;
@@ -119,6 +126,51 @@ pub(crate) trait OwnedResourceHandle: ResourceHandleExt {
 mod resource_sealed {
     pub trait Storage {}
     pub trait Handle {}
+    pub trait Pointer {}
+}
+
+/// Pointer access selected by the generator, independently of ownership policy.
+#[doc(hidden)]
+pub trait ResourcePointer<T: NativeResource>: resource_sealed::Pointer + Clone {
+    fn new(owner: &ManagedCResource<T>) -> Self;
+    fn get(&self, owner: &ManagedCResource<T>) -> *mut T;
+}
+
+/// Native operations can invalidate this allocation, so read shared state.
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct ReloadPointer;
+impl resource_sealed::Pointer for ReloadPointer {}
+impl<T: NativeResource> ResourcePointer<T> for ReloadPointer {
+    #[inline]
+    fn new(_: &ManagedCResource<T>) -> Self {
+        Self
+    }
+    #[inline(always)]
+    fn get(&self, owner: &ManagedCResource<T>) -> *mut T {
+        owner.get()
+    }
+}
+
+/// Rust owns the boxed value until the last owner drops; its address is stable.
+#[doc(hidden)]
+pub struct CachedPointer<T>(std::ptr::NonNull<T>);
+impl<T> Clone for CachedPointer<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self(self.0)
+    }
+}
+impl<T> resource_sealed::Pointer for CachedPointer<T> {}
+impl<T: NativeResource> ResourcePointer<T> for CachedPointer<T> {
+    #[inline]
+    fn new(owner: &ManagedCResource<T>) -> Self {
+        Self(std::ptr::NonNull::new(owner.get()).expect("cached value requires a native allocation"))
+    }
+    #[inline(always)]
+    fn get(&self, _: &ManagedCResource<T>) -> *mut T {
+        self.0.as_ptr()
+    }
 }
 
 /// Concrete storage for a generated native handle. Calls are statically dispatched.
@@ -251,12 +303,18 @@ pub(crate) trait ResourceStorageExt<T: NativeResource>: ResourceStorage<T> {
 impl<T: NativeResource, S: ResourceStorage<T>> ResourceStorageExt<T> for S {}
 
 /// Shared ownership of a native allocation. Clone retains the allocation; it
-/// never copies the native object. This is one pointer wide.
-pub struct CResource<T: NativeResource>(ResourceRef<ManagedCResource<T>>, std::marker::PhantomData<*mut ()>);
+/// never copies the native object. Rust-owned values cache one additional pointer;
+/// resources that native calls can invalidate retain the shared pointer load.
+pub struct CResource<T: NativeResource>(
+    ResourceRef<ManagedCResource<T>>,
+    T::Pointer,
+    std::marker::PhantomData<*mut ()>,
+);
 impl<T: NativeResource> CResource<T> {
     #[inline]
     pub(crate) fn new(owner: ResourceRef<ManagedCResource<T>>) -> Self {
-        Self(owner, std::marker::PhantomData)
+        let pointer = T::Pointer::new(&owner);
+        Self(owner, pointer, std::marker::PhantomData)
     }
     #[inline]
     #[allow(dead_code)]
@@ -271,20 +329,20 @@ impl<T: NativeResource> CResource<T> {
             true,
         )
         .unwrap_or_else(|_| unreachable!("Box allocation returned null"));
-        Self(ResourceRef::new(resource), std::marker::PhantomData)
+        Self::new(ResourceRef::new(resource))
     }
 }
 impl<T: NativeResource> Clone for CResource<T> {
     #[inline]
     fn clone(&self) -> Self {
-        Self(self.0.clone(), std::marker::PhantomData)
+        Self(self.0.clone(), self.1.clone(), std::marker::PhantomData)
     }
 }
 impl<T: NativeResource> resource_sealed::Storage for CResource<T> {}
 impl<T: NativeResource> ResourceStorage<T> for CResource<T> {
     #[inline(always)]
     fn get(&self) -> *mut T {
-        self.0.get()
+        self.1.get(&self.0)
     }
     #[inline(always)]
     fn as_owned(&self) -> Option<&ResourceRef<ManagedCResource<T>>> {
@@ -2261,6 +2319,7 @@ mod threading_tests {
     // These tests check owner storage and cleanup without calling C methods.
     unsafe impl NativeResource for Native {
         type Policy = SharedResource;
+        type Pointer = ReloadPointer;
     }
 
     fn owner(cleanup: impl FnMut(*mut *mut Native) -> i32 + Send + 'static) -> Arc<ManagedCResource<Native>> {
@@ -2525,6 +2584,28 @@ mod typed_storage_tests {
         let moved = Box::new(second);
         assert_eq!(moved.get(), ptr);
         assert_eq!(unsafe { *moved.get() }, 31);
+    }
+
+    #[test]
+    fn cached_value_keeps_one_allocation_alive_across_moves_and_clones() {
+        struct Value(u8);
+        unsafe impl NativeResource for Value {
+            type Policy = LocalResource;
+            type Pointer = CachedPointer<Self>;
+        }
+        let first = CResource::owned_value(Value(31));
+        assert_eq!(std::mem::size_of_val(&first), 2 * std::mem::size_of::<usize>());
+        let allocation = Arc::downgrade(&first.0);
+        let pointer = first.get();
+        let second = Box::new(first.clone());
+        drop(first);
+        assert!(allocation.upgrade().is_some());
+        assert_eq!(pointer, second.get());
+        // Native calls can change the value without changing its allocation.
+        unsafe { (*pointer).0 = 42 };
+        assert_eq!(unsafe { (*second.get()).0 }, 42);
+        drop(second);
+        assert!(allocation.upgrade().is_none());
     }
 
     #[test]

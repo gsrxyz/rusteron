@@ -2,6 +2,7 @@
 type aeron_client_registering_resource_t = aeron_client_registering_resource_stct;
 unsafe impl NativeResource for aeron_agent_runner_t {
     type Policy = LocalResource;
+    type Pointer = ReloadPointer;
 }
 #[derive(Clone)]
 pub struct AeronAgentRunner<S: ResourceStorage<aeron_agent_runner_t> = CResource<aeron_agent_runner_t>> {
@@ -524,16 +525,23 @@ impl CopyDependencies<SharedResource> for LocalResource {
 #[doc = " A shared policy requires that the native allocation can be retained and closed"]
 #[doc = " from any thread. All safe constructors must use this policy's checked dependency"]
 #[doc = " and cleanup storage. This does not make concurrent native method calls safe."]
-pub unsafe trait NativeResource: 'static {
+#[doc = " `CachedPointer` additionally requires that native calls cannot release or"]
+#[doc = " replace the allocation while an owning handle remains alive."]
+pub unsafe trait NativeResource: Sized + 'static {
     type Policy: ResourcePolicy;
+    #[doc = " How an owning handle reads its native pointer. Cached pointers are only"]
+    #[doc = " valid when native calls cannot release or replace the allocation."]
+    type Pointer: ResourcePointer<Self>;
 }
 #[cfg(test)]
 unsafe impl NativeResource for i32 {
     type Policy = LocalResource;
+    type Pointer = ReloadPointer;
 }
 #[cfg(test)]
 unsafe impl NativeResource for u8 {
     type Policy = LocalResource;
+    type Pointer = ReloadPointer;
 }
 pub type CleanupBox<T> = <<T as NativeResource>::Policy as ResourcePolicy>::Cleanup<T>;
 #[doc = " Access used by generated handles. Implementations are sealed to this crate."]
@@ -556,6 +564,48 @@ pub(crate) trait OwnedResourceHandle: ResourceHandleExt {
 mod resource_sealed {
     pub trait Storage {}
     pub trait Handle {}
+    pub trait Pointer {}
+}
+#[doc = " Pointer access selected by the generator, independently of ownership policy."]
+#[doc(hidden)]
+pub trait ResourcePointer<T: NativeResource>: resource_sealed::Pointer + Clone {
+    fn new(owner: &ManagedCResource<T>) -> Self;
+    fn get(&self, owner: &ManagedCResource<T>) -> *mut T;
+}
+#[doc = " Native operations can invalidate this allocation, so read shared state."]
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct ReloadPointer;
+impl resource_sealed::Pointer for ReloadPointer {}
+impl<T: NativeResource> ResourcePointer<T> for ReloadPointer {
+    #[inline]
+    fn new(_: &ManagedCResource<T>) -> Self {
+        Self
+    }
+    #[inline(always)]
+    fn get(&self, owner: &ManagedCResource<T>) -> *mut T {
+        owner.get()
+    }
+}
+#[doc = " Rust owns the boxed value until the last owner drops; its address is stable."]
+#[doc(hidden)]
+pub struct CachedPointer<T>(std::ptr::NonNull<T>);
+impl<T> Clone for CachedPointer<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self(self.0)
+    }
+}
+impl<T> resource_sealed::Pointer for CachedPointer<T> {}
+impl<T: NativeResource> ResourcePointer<T> for CachedPointer<T> {
+    #[inline]
+    fn new(owner: &ManagedCResource<T>) -> Self {
+        Self(std::ptr::NonNull::new(owner.get()).expect("cached value requires a native allocation"))
+    }
+    #[inline(always)]
+    fn get(&self, _: &ManagedCResource<T>) -> *mut T {
+        self.0.as_ptr()
+    }
 }
 #[doc = " Concrete storage for a generated native handle. Calls are statically dispatched."]
 #[doc(hidden)]
@@ -675,12 +725,18 @@ pub(crate) trait ResourceStorageExt<T: NativeResource>: ResourceStorage<T> {
 }
 impl<T: NativeResource, S: ResourceStorage<T>> ResourceStorageExt<T> for S {}
 #[doc = " Shared ownership of a native allocation. Clone retains the allocation; it"]
-#[doc = " never copies the native object. This is one pointer wide."]
-pub struct CResource<T: NativeResource>(ResourceRef<ManagedCResource<T>>, std::marker::PhantomData<*mut ()>);
+#[doc = " never copies the native object. Rust-owned values cache one additional pointer;"]
+#[doc = " resources that native calls can invalidate retain the shared pointer load."]
+pub struct CResource<T: NativeResource>(
+    ResourceRef<ManagedCResource<T>>,
+    T::Pointer,
+    std::marker::PhantomData<*mut ()>,
+);
 impl<T: NativeResource> CResource<T> {
     #[inline]
     pub(crate) fn new(owner: ResourceRef<ManagedCResource<T>>) -> Self {
-        Self(owner, std::marker::PhantomData)
+        let pointer = T::Pointer::new(&owner);
+        Self(owner, pointer, std::marker::PhantomData)
     }
     #[inline]
     #[allow(dead_code)]
@@ -694,20 +750,20 @@ impl<T: NativeResource> CResource<T> {
             true,
         )
         .unwrap_or_else(|_| unreachable!("Box allocation returned null"));
-        Self(ResourceRef::new(resource), std::marker::PhantomData)
+        Self::new(ResourceRef::new(resource))
     }
 }
 impl<T: NativeResource> Clone for CResource<T> {
     #[inline]
     fn clone(&self) -> Self {
-        Self(self.0.clone(), std::marker::PhantomData)
+        Self(self.0.clone(), self.1.clone(), std::marker::PhantomData)
     }
 }
 impl<T: NativeResource> resource_sealed::Storage for CResource<T> {}
 impl<T: NativeResource> ResourceStorage<T> for CResource<T> {
     #[inline(always)]
     fn get(&self) -> *mut T {
-        self.0.get()
+        self.1.get(&self.0)
     }
     #[inline(always)]
     fn as_owned(&self) -> Option<&ResourceRef<ManagedCResource<T>>> {
@@ -2476,6 +2532,7 @@ mod threading_tests {
     struct Native;
     unsafe impl NativeResource for Native {
         type Policy = SharedResource;
+        type Pointer = ReloadPointer;
     }
     fn owner(cleanup: impl FnMut(*mut *mut Native) -> i32 + Send + 'static) -> Arc<ManagedCResource<Native>> {
         Arc::new(
@@ -2728,6 +2785,26 @@ mod typed_storage_tests {
         assert_eq!(unsafe { *moved.get() }, 31);
     }
     #[test]
+    fn cached_value_keeps_one_allocation_alive_across_moves_and_clones() {
+        struct Value(u8);
+        unsafe impl NativeResource for Value {
+            type Policy = LocalResource;
+            type Pointer = CachedPointer<Self>;
+        }
+        let first = CResource::owned_value(Value(31));
+        assert_eq!(std::mem::size_of_val(&first), 2 * std::mem::size_of::<usize>());
+        let allocation = Arc::downgrade(&first.0);
+        let pointer = first.get();
+        let second = Box::new(first.clone());
+        drop(first);
+        assert!(allocation.upgrade().is_some());
+        assert_eq!(pointer, second.get());
+        unsafe { (*pointer).0 = 42 };
+        assert_eq!(unsafe { (*second.get()).0 }, 42);
+        drop(second);
+        assert!(allocation.upgrade().is_none());
+    }
+    #[test]
     fn checked_owner_observes_native_async_release() {
         let first = CResource::owned_value(31_u8);
         let second = first.clone();
@@ -2751,6 +2828,7 @@ mod typed_storage_tests {
 }
 unsafe impl NativeResource for aeron_archive_recording_position_key_layout_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronArchiveRecordingPositionKeyLayout<
@@ -3015,6 +3093,7 @@ mod aeron_archive_recording_position_key_layout_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_async_add_counter_t {
     type Policy = SharedResource;
+    type Pointer = ReloadPointer;
 }
 #[derive(Clone)]
 pub struct AeronAsyncAddCounter<S: ResourceStorage<aeron_async_add_counter_t> = CResource<aeron_async_add_counter_t>> {
@@ -5685,6 +5764,7 @@ impl<S: ResourceStorage<aeron_async_get_next_available_session_id_t>> From<&Aero
 }
 unsafe impl NativeResource for aeron_buffer_claim_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[doc = "Structure used to hold information for a try_claim function call."]
 #[derive(Clone)]
@@ -6130,6 +6210,7 @@ mod aeron_client_registering_resource_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_cnc_constants_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronCncConstants<S: ResourceStorage<aeron_cnc_constants_t> = CResource<aeron_cnc_constants_t>> {
@@ -6425,6 +6506,7 @@ mod aeron_cnc_constants_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_cnc_metadata_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronCncMetadata<S: ResourceStorage<aeron_cnc_metadata_t> = CResource<aeron_cnc_metadata_t>> {
@@ -6727,6 +6809,7 @@ mod aeron_cnc_metadata_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_cnc_t {
     type Policy = LocalResource;
+    type Pointer = ReloadPointer;
 }
 #[derive(Clone)]
 pub struct AeronCnc<S: ResourceStorage<aeron_cnc_t> = CResource<aeron_cnc_t>> {
@@ -7273,6 +7356,7 @@ impl<S: ResourceStorage<aeron_cnc_t>> From<&AeronCnc<S>> for *mut aeron_cnc_t {
 }
 unsafe impl NativeResource for aeron_context_t {
     type Policy = SharedResource;
+    type Pointer = ReloadPointer;
 }
 #[derive(Clone)]
 pub struct AeronContext<S: ResourceStorage<aeron_context_t> = CResource<aeron_context_t>> {
@@ -8832,6 +8916,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
 }
 unsafe impl NativeResource for aeron_counter_constants_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[doc = "Configuration for a counter that does not change during its lifetime."]
 #[derive(Clone)]
@@ -9072,6 +9157,7 @@ mod aeron_counter_constants_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_counter_metadata_descriptor_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronCounterMetadataDescriptor<
@@ -9349,6 +9435,7 @@ mod aeron_counter_metadata_descriptor_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_counter_t {
     type Policy = SharedResource;
+    type Pointer = ReloadPointer;
 }
 unsafe impl<S: ResourceStorage<aeron_counter_t> + SharedStorage<aeron_counter_t>> Send for AeronCounter<S> {}
 unsafe impl<S: ResourceStorage<aeron_counter_t> + SharedStorage<aeron_counter_t>> Sync for AeronCounter<S> {}
@@ -9611,6 +9698,7 @@ impl AeronCounter {
 }
 unsafe impl NativeResource for aeron_counter_value_descriptor_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronCounterValueDescriptor<
@@ -9877,6 +9965,7 @@ mod aeron_counter_value_descriptor_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_counters_reader_buffers_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronCountersReaderBuffers<
@@ -10142,6 +10231,7 @@ mod aeron_counters_reader_buffers_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_counters_reader_t {
     type Policy = SharedResource;
+    type Pointer = ReloadPointer;
 }
 unsafe impl<S: ResourceStorage<aeron_counters_reader_t> + SharedStorage<aeron_counters_reader_t>> Send
     for AeronCountersReader<S>
@@ -10749,6 +10839,7 @@ impl<S: ResourceStorage<aeron_counters_reader_t>> From<&AeronCountersReader<S>> 
 }
 unsafe impl NativeResource for aeron_data_header_as_longs_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronDataHeaderAsLongs<
@@ -10979,6 +11070,7 @@ mod aeron_data_header_as_longs_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_data_header_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronDataHeader<S: ResourceStorage<aeron_data_header_t> = CResource<aeron_data_header_t>> {
@@ -11242,6 +11334,7 @@ mod aeron_data_header_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_error_header_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronErrorHeader<S: ResourceStorage<aeron_error_header_t> = CResource<aeron_error_header_t>> {
@@ -11513,6 +11606,7 @@ mod aeron_error_header_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_exclusive_publication_t {
     type Policy = SharedResource;
+    type Pointer = ReloadPointer;
 }
 #[derive(Clone)]
 pub struct AeronExclusivePublication<
@@ -12249,6 +12343,7 @@ impl AeronExclusivePublication {
 }
 unsafe impl NativeResource for aeron_frame_header_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronFrameHeader<S: ResourceStorage<aeron_frame_header_t> = CResource<aeron_frame_header_t>> {
@@ -12489,6 +12584,7 @@ mod aeron_frame_header_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_header_t {
     type Policy = LocalResource;
+    type Pointer = ReloadPointer;
 }
 #[derive(Clone)]
 pub struct AeronHeader<S: ResourceStorage<aeron_header_t> = Borrowed<aeron_header_t>> {
@@ -12757,6 +12853,7 @@ mod aeron_header_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_header_values_frame_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronHeaderValuesFrame<
@@ -13052,6 +13149,7 @@ mod aeron_header_values_frame_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_header_values_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronHeaderValues<S: ResourceStorage<aeron_header_values_t> = CResource<aeron_header_values_t>> {
@@ -13291,6 +13389,7 @@ mod aeron_header_values_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_idle_strategy_t {
     type Policy = LocalResource;
+    type Pointer = ReloadPointer;
 }
 #[derive(Clone)]
 pub struct AeronIdleStrategy<S: ResourceStorage<aeron_idle_strategy_t> = CResource<aeron_idle_strategy_t>> {
@@ -13569,6 +13668,7 @@ impl<S: ResourceStorage<aeron_idle_strategy_t>> From<AeronIdleStrategy<S>> for a
 }
 unsafe impl NativeResource for aeron_image_constants_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[doc = "Configuration for an image that does not change during it's lifetime."]
 #[derive(Clone)]
@@ -13891,6 +13991,7 @@ mod aeron_image_constants_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_image_t {
     type Policy = LocalResource;
+    type Pointer = ReloadPointer;
 }
 #[derive(Clone)]
 pub struct AeronImage<S: ResourceStorage<aeron_image_t> = LiveCResource<aeron_image_t>> {
@@ -14838,6 +14939,7 @@ impl<S: ResourceStorage<aeron_image_t>> From<&AeronImage<S>> for *mut aeron_imag
 }
 unsafe impl NativeResource for aeron_iovec_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronIovec<S: ResourceStorage<aeron_iovec_t> = CResource<aeron_iovec_t>> {
@@ -15069,6 +15171,7 @@ mod aeron_iovec_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_ipc_channel_params_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronIpcChannelParams<S: ResourceStorage<aeron_ipc_channel_params_t> = CResource<aeron_ipc_channel_params_t>>
@@ -15353,6 +15456,7 @@ mod aeron_ipc_channel_params_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_log_buffer_t {
     type Policy = LocalResource;
+    type Pointer = ReloadPointer;
 }
 #[derive(Clone)]
 pub struct AeronLogBuffer<S: ResourceStorage<aeron_log_buffer_t> = CResource<aeron_log_buffer_t>> {
@@ -15508,6 +15612,7 @@ mod aeron_log_buffer_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_logbuffer_metadata_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronLogbufferMetadata<
@@ -16049,6 +16154,7 @@ mod aeron_logbuffer_metadata_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_loss_reporter_entry_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronLossReporterEntry<
@@ -16322,6 +16428,7 @@ mod aeron_loss_reporter_entry_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_loss_reporter_t {
     type Policy = LocalResource;
+    type Pointer = ReloadPointer;
 }
 #[derive(Clone)]
 pub struct AeronLossReporter<S: ResourceStorage<aeron_loss_reporter_t> = CResource<aeron_loss_reporter_t>> {
@@ -16778,6 +16885,7 @@ mod aeron_loss_reporter_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_mapped_buffer_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronMappedBuffer<S: ResourceStorage<aeron_mapped_buffer_t> = CResource<aeron_mapped_buffer_t>> {
@@ -17018,6 +17126,7 @@ mod aeron_mapped_buffer_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_mapped_file_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronMappedFile<S: ResourceStorage<aeron_mapped_file_t> = CResource<aeron_mapped_file_t>> {
@@ -17348,6 +17457,7 @@ mod aeron_mapped_file_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_mapped_raw_log_t {
     type Policy = LocalResource;
+    type Pointer = ReloadPointer;
 }
 #[derive(Clone)]
 pub struct AeronMappedRawLog<S: ResourceStorage<aeron_mapped_raw_log_t> = CResource<aeron_mapped_raw_log_t>> {
@@ -17684,6 +17794,7 @@ mod aeron_mapped_raw_log_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_nak_header_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronNakHeader<S: ResourceStorage<aeron_nak_header_t> = CResource<aeron_nak_header_t>> {
@@ -17947,6 +18058,7 @@ mod aeron_nak_header_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_on_available_counter_pair_t {
     type Policy = SharedResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronAvailableCounterPair<
@@ -18200,6 +18312,7 @@ mod aeron_on_available_counter_pair_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_on_close_client_pair_t {
     type Policy = SharedResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronCloseClientPair<
@@ -18449,6 +18562,7 @@ mod aeron_on_close_client_pair_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_on_unavailable_counter_pair_t {
     type Policy = SharedResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronUnavailableCounterPair<
@@ -18708,6 +18822,7 @@ mod aeron_on_unavailable_counter_pair_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_option_header_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronOptionHeader<S: ResourceStorage<aeron_option_header_t> = CResource<aeron_option_header_t>> {
@@ -18936,6 +19051,7 @@ mod aeron_option_header_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_per_thread_error_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronPerThreadError<S: ResourceStorage<aeron_per_thread_error_t> = CResource<aeron_per_thread_error_t>> {
@@ -19178,6 +19294,7 @@ mod aeron_per_thread_error_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_publication_constants_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[doc = "Configuration for a publication that does not change during it's lifetime."]
 #[derive(Clone)]
@@ -19518,6 +19635,7 @@ mod aeron_publication_constants_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_publication_error_values_t {
     type Policy = LocalResource;
+    type Pointer = ReloadPointer;
 }
 #[derive(Clone)]
 pub struct AeronPublicationErrorValues<
@@ -19757,6 +19875,7 @@ impl<S: ResourceStorage<aeron_publication_error_values_t>> From<AeronPublication
 }
 unsafe impl NativeResource for aeron_publication_t {
     type Policy = SharedResource;
+    type Pointer = ReloadPointer;
 }
 unsafe impl<S: ResourceStorage<aeron_publication_t> + SharedStorage<aeron_publication_t>> Send for AeronPublication<S> {}
 unsafe impl<S: ResourceStorage<aeron_publication_t> + SharedStorage<aeron_publication_t>> Sync for AeronPublication<S> {}
@@ -20428,6 +20547,7 @@ impl AeronPublication {
 }
 unsafe impl NativeResource for aeron_resolution_header_ipv4_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronResolutionHeaderIpv4<
@@ -20685,6 +20805,7 @@ mod aeron_resolution_header_ipv4_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_resolution_header_ipv6_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronResolutionHeaderIpv6<
@@ -20942,6 +21063,7 @@ mod aeron_resolution_header_ipv6_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_resolution_header_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronResolutionHeader<S: ResourceStorage<aeron_resolution_header_t> = CResource<aeron_resolution_header_t>> {
@@ -21186,6 +21308,7 @@ mod aeron_resolution_header_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_response_setup_header_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronResponseSetupHeader<
@@ -21445,6 +21568,7 @@ mod aeron_response_setup_header_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_rttm_header_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronRttmHeader<S: ResourceStorage<aeron_rttm_header_t> = CResource<aeron_rttm_header_t>> {
@@ -21708,6 +21832,7 @@ mod aeron_rttm_header_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_setup_header_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronSetupHeader<S: ResourceStorage<aeron_setup_header_t> = CResource<aeron_setup_header_t>> {
@@ -21995,6 +22120,7 @@ mod aeron_setup_header_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_status_message_header_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronStatusMessageHeader<
@@ -22295,6 +22421,7 @@ mod aeron_status_message_header_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_status_message_optional_header_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronStatusMessageOptionalHeader<
@@ -22538,6 +22665,7 @@ mod aeron_status_message_optional_header_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_str_to_ptr_hash_map_key_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronStrToPtrHashMapKey<
@@ -22793,6 +22921,7 @@ mod aeron_str_to_ptr_hash_map_key_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_str_to_ptr_hash_map_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronStrToPtrHashMap<
@@ -23081,6 +23210,7 @@ mod aeron_str_to_ptr_hash_map_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_subscription_constants_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronSubscriptionConstants<
@@ -23363,6 +23493,7 @@ mod aeron_subscription_constants_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_subscription_t {
     type Policy = SharedResource;
+    type Pointer = ReloadPointer;
 }
 unsafe impl Send for AeronSubscription<LiveCResource<aeron_subscription_t>> {}
 pub struct AeronSubscription<S: ResourceStorage<aeron_subscription_t> = LiveCResource<aeron_subscription_t>> {
@@ -24284,6 +24415,7 @@ impl AeronSubscription {
 }
 unsafe impl NativeResource for aeron_t {
     type Policy = SharedResource;
+    type Pointer = ReloadPointer;
 }
 unsafe impl<S: ResourceStorage<aeron_t> + SharedStorage<aeron_t>> Send for Aeron<S> {}
 unsafe impl<S: ResourceStorage<aeron_t> + SharedStorage<aeron_t>> Sync for Aeron<S> {}
@@ -26681,6 +26813,7 @@ impl Aeron {
 }
 unsafe impl NativeResource for aeron_udp_channel_params_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronUdpChannelParams<S: ResourceStorage<aeron_udp_channel_params_t> = CResource<aeron_udp_channel_params_t>>
@@ -27029,6 +27162,7 @@ mod aeron_udp_channel_params_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_uri_param_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronUriParam<S: ResourceStorage<aeron_uri_param_t> = CResource<aeron_uri_param_t>> {
@@ -27273,6 +27407,7 @@ mod aeron_uri_param_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_uri_params_t {
     type Policy = LocalResource;
+    type Pointer = CachedPointer<Self>;
 }
 #[derive(Clone)]
 pub struct AeronUriParams<S: ResourceStorage<aeron_uri_params_t> = CResource<aeron_uri_params_t>> {
@@ -27735,6 +27870,7 @@ mod aeron_uri_params_t_allocation_tests {
 }
 unsafe impl NativeResource for aeron_uri_string_builder_t {
     type Policy = LocalResource;
+    type Pointer = ReloadPointer;
 }
 #[derive(Clone)]
 pub struct AeronUriStringBuilder<S: ResourceStorage<aeron_uri_string_builder_t> = CResource<aeron_uri_string_builder_t>>
@@ -28445,6 +28581,7 @@ impl AeronUriStringBuilder {
 }
 unsafe impl NativeResource for aeron_uri_t {
     type Policy = LocalResource;
+    type Pointer = ReloadPointer;
 }
 #[derive(Clone)]
 pub struct AeronUri<S: ResourceStorage<aeron_uri_t> = CResource<aeron_uri_t>> {

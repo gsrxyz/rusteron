@@ -2401,6 +2401,21 @@ impl CWrapper {
         no_init_method && !self.fields.iter().any(|arg| arg.name.starts_with("_")) && !self.fields.is_empty()
     }
 
+    /// Only generated Rust allocations qualify. Native constructors, cleanup,
+    /// and consuming polls must continue observing the owner's shared pointer.
+    fn caches_owned_value_pointer(&self) -> bool {
+        !self.opaque
+            && self.has_default_method()
+            && !self.methods.iter().any(|method| {
+                method.fn_name.contains("_init")
+                    || ["_close", "_delete", "_destroy", "_free"]
+                        .iter()
+                        .any(|suffix| method.fn_name.ends_with(suffix))
+            })
+            && !handle_is_consumed_by_poll(&self.type_name)
+            && !handle_has_stable_pointer(&self.type_name)
+    }
+
     fn generate_allocation_test(&self, wrappers: &BTreeMap<String, CWrapper>) -> TokenStream {
         let class_name = format_ident!("{}", self.class_name);
 
@@ -2474,6 +2489,48 @@ impl CWrapper {
                     #(#tests)*
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod pointer_storage_tests {
+    use super::*;
+
+    #[test]
+    fn only_rust_owned_values_cache_their_pointer() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bindings/client.rs");
+        let bindings = crate::parse_bindings(&path);
+        assert!(bindings.wrappers["aeron_buffer_claim_t"].caches_owned_value_pointer());
+        for name in [
+            "aeron_context_t",
+            "aeron_t",
+            "aeron_async_add_publication_t",
+            "aeron_publication_t",
+        ] {
+            assert!(!bindings.wrappers[name].caches_owned_value_pointer(), "{name}");
+        }
+        // An upstream constructor or destructor must automatically turn caching off.
+        for name in [
+            "aeron_value_init",
+            "aeron_value_close",
+            "aeron_value_delete",
+            "aeron_value_destroy",
+            "aeron_value_free",
+        ] {
+            let mut value = bindings.wrappers["aeron_buffer_claim_t"].clone();
+            value.methods.push(Method {
+                fn_name: name.into(),
+                struct_method_name: name.into(),
+                return_type: Arg {
+                    name: String::new(),
+                    c_type: "i32".into(),
+                    processing: ArgProcessing::Default,
+                },
+                arguments: vec![],
+                docs: BTreeSet::new(),
+            });
+            assert!(!value.caches_owned_value_pointer(), "{name}");
         }
     }
 }
@@ -4476,8 +4533,19 @@ pub fn generate_rust_code(
         quote! { LocalResource }
     };
     let emits_policy = aliases.iter().all(|w| w.type_name >= wrapper.type_name);
+    let pointer_storage =
+        if wrapper.caches_owned_value_pointer() && aliases.iter().all(|alias| alias.caches_owned_value_pointer()) {
+            quote! { CachedPointer<Self> }
+        } else {
+            quote! { ReloadPointer }
+        };
     let native_policy = if emits_policy {
-        quote! { unsafe impl NativeResource for #type_name { type Policy = #policy; } }
+        quote! {
+            unsafe impl NativeResource for #type_name {
+                type Policy = #policy;
+                type Pointer = #pointer_storage;
+            }
+        }
     } else {
         quote! {}
     };
