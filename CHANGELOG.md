@@ -4,7 +4,7 @@ Main changes, newest first, grouped by published crate version. Release-only
 commits, build logs, and changes later reverted or superseded are omitted.
 Early history predating the available release tags is grouped separately.
 
-## 0.3.0, unreleased
+## 0.3.0
 
 Breaking release. See the [0.2-to-0.3 migration guide](docs/migrating_0.2_to_0.3.md).
 
