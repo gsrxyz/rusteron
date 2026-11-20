@@ -280,6 +280,29 @@ fn hot_path(c: &mut Criterion) {
     g.bench_function("subscription_get_constants", |b| {
         b.iter(|| black_box(h.subscription.get_constants()))
     });
+    g.bench_function("exclusive_publication_get_constants", |b| {
+        b.iter(|| black_box(h.exclusive.get_constants()))
+    });
+    let image = h.subscription.image_at_index(0).expect("subscription has an image");
+    g.bench_function("image_get_constants", |b| b.iter(|| black_box(image.get_constants())));
+    drop(image);
+    // Compare with `poll_per_fragment` to get the cost of copying the header values
+    let mut values_read = 0i64;
+    g.bench_function("poll_per_fragment_header_get_values", |b| {
+        b.iter_custom(|iters| {
+            h.time_poll(iters, |subscription, limit| {
+                subscription
+                    .poll_fn(
+                        |_, header| {
+                            values_read += header.get_values().expect("header values").frame().term_offset() as i64
+                        },
+                        limit,
+                    )
+                    .expect("poll") as usize
+            })
+        })
+    });
+    black_box(values_read);
     let mut received = 0u64;
     // The callback work and fragment limits match. Only callback ownership differs.
     let mut direct = ByteCounter::default();

@@ -1573,8 +1573,8 @@ pub struct NativePollCallback<'a, F> {
 #[doc = " `Handler<T>` stays on its thread and uses `RefCell` to check mutable borrows, with no"]
 #[doc = " mutex or atomic operation. [`SharedHandler<T>`] uses a mutex and is `Send + Sync` when"]
 #[doc = " `T: Send`. It takes that mutex on each callback and can wait for another thread holding"]
-#[doc = " it. Use [`Self::lock`] to inspect or change callback state. To poll with state held in"]
-#[doc = " a `Handler`, pass `&mut *handler.lock()`: one borrow check per poll call."]
+#[doc = " it. Use [`Self::lock`] to inspect or change callback state. Keep poll state in the"]
+#[doc = " callback passed to `poll` or in an owned assembler, not in a `Handler`"]
 pub struct Handler<T, P: CallbackPolicy = LocalCallback> {
     inner: P::Owner<T>,
 }
@@ -1634,8 +1634,7 @@ impl<T, P: CallbackPolicy> Handler<T, P> {
     #[doc = " acquires a mutex and may wait for a callback or another state guard."]
     #[doc = " Neither form clones the handler or allocates memory to acquire the guard."]
     #[doc = ""]
-    #[doc = " Polls never call this. `poll(&mut *handler.lock(), limit)` in your own code holds one"]
-    #[doc = " guard for the whole poll"]
+    #[doc = " Polls never call this"]
     #[inline]
     pub fn lock(&self) -> P::Guard<'_, T> {
         P::lock(&self.inner)
@@ -45141,7 +45140,6 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" Borrows the callback exclusively until this call returns."]
     #[doc = r" This method uses no callback allocation, reference count,"]
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
-    #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn poll<AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback>(
         &self,
         handler: &mut AeronFragmentHandlerHandlerImpl,
@@ -45254,7 +45252,6 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" Borrows the callback exclusively until this call returns."]
     #[doc = r" This method uses no callback allocation, reference count,"]
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
-    #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn controlled_poll<AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback>(
         &self,
         handler: &mut AeronControlledFragmentHandlerHandlerImpl,
@@ -45375,7 +45372,6 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" Borrows the callback exclusively until this call returns."]
     #[doc = r" This method uses no callback allocation, reference count,"]
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
-    #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn bounded_poll<AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback>(
         &self,
         handler: &mut AeronFragmentHandlerHandlerImpl,
@@ -45498,7 +45494,6 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" Borrows the callback exclusively until this call returns."]
     #[doc = r" This method uses no callback allocation, reference count,"]
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
-    #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn bounded_controlled_poll<
         AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback,
     >(
@@ -45632,7 +45627,6 @@ impl<S: ResourceStorage<aeron_image_t>> AeronImage<S> {
     #[doc = r" Borrows the callback exclusively until this call returns."]
     #[doc = r" This method uses no callback allocation, reference count,"]
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
-    #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn block_poll<AeronBlockHandlerHandlerImpl: AeronBlockHandlerCallback>(
         &self,
         handler: &mut AeronBlockHandlerHandlerImpl,
@@ -72571,7 +72565,6 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = r" Borrows the callback exclusively until this call returns."]
     #[doc = r" This method uses no callback allocation, reference count,"]
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
-    #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn poll<AeronFragmentHandlerHandlerImpl: AeronFragmentHandlerCallback>(
         &self,
         handler: &mut AeronFragmentHandlerHandlerImpl,
@@ -72690,7 +72683,6 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = r" Borrows the callback exclusively until this call returns."]
     #[doc = r" This method uses no callback allocation, reference count,"]
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
-    #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn controlled_poll<AeronControlledFragmentHandlerHandlerImpl: AeronControlledFragmentHandlerCallback>(
         &self,
         handler: &mut AeronControlledFragmentHandlerHandlerImpl,
@@ -72813,7 +72805,6 @@ impl<S: ResourceStorage<aeron_subscription_t>> AeronSubscription<S> {
     #[doc = r" Borrows the callback exclusively until this call returns."]
     #[doc = r" This method uses no callback allocation, reference count,"]
     #[doc = r" runtime borrow check or mutex. The callback can borrow local state."]
-    #[doc = r" To poll with a `Handler`, pass `&mut *handler.lock()`"]
     pub fn block_poll<AeronBlockHandlerHandlerImpl: AeronBlockHandlerCallback>(
         &self,
         handler: &mut AeronBlockHandlerHandlerImpl,

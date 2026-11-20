@@ -119,15 +119,23 @@ for retry loops and reserved values.
 | Raw fragments, with a stack closure | `subscription.poll_fn(callback, fragment_limit)` |
 | Complete messages | `FragmentAssembler::new(callback)` |
 | Controlled message delivery | `ControlledFragmentAssembler::new(callback)` |
-| Shared local callback state | `Handler::new(callback)`; read through `borrow()` or `lock()` |
+| Callback state shared with code outside the poll loop | `Handler::new(callback)`; read through `borrow()` or `lock()`. Not used by polls |
 | Conductor callback | Owned callback setter, or `SharedHandler::new_shared(callback)` |
 | No optional callback | `Handlers::NONE` |
 
+**The poll path uses no `Rc`, `Arc`, `RefCell` or `Mutex`.** `poll(&mut callback, limit)`,
+`poll_fn` and the owned assemblers pass a plain `&mut` to your callback to Aeron C as
+`clientd`. For each fragment, the trampoline casts `clientd` back to `&mut F` and calls
+it. Rusteron adds no lock, borrow check, reference count or allocation per fragment or
+per poll. `Handler` (`Rc<RefCell<T>>`) and `SharedHandler` (`Arc<Mutex<T>>`) exist only for
+callbacks that C keeps after the call returns, such as error, available image,
+unavailable image and close handlers. The conductor calls those on events, not per
+message.
+
 On latency-sensitive receive threads, use `poll(&mut callback, limit)`,
-`poll_fn` or an owned assembler. These borrow the callback through Rust's type
-system and take no guard. Local `Handler::lock()` and `borrow()` use `RefCell`
-borrow checks, with no mutex or atomic operation. Polls never take a `Handler`;
-pass `&mut *handler.lock()` to poll with its state. `SharedHandler::lock()` takes a
+`poll_fn` or an owned assembler. Local `Handler::lock()` and `borrow()` use `RefCell`
+borrow checks, with no mutex or atomic operation. Polls never take a `Handler`.
+`SharedHandler::lock()` takes a
 mutex and can wait for an active callback, and shared callbacks take it when invoked.
 See [synchronisation costs](https://github.com/gsrxyz/rusteron/blob/main/docs/thread-safety.md#hot-path-behaviour).
 

@@ -11,6 +11,17 @@ See the [client README](../rusteron-client/README.md) for setup and a first exam
 
 The client accepts retained and synchronous callbacks.
 
+**The poll path uses no `Rc`, `Arc`, `RefCell` or `Mutex`.** `poll(&mut callback, limit)`,
+`poll_fn` and the owned assemblers pass a plain `&mut` to your callback to Aeron C as
+`clientd`. For each fragment, the trampoline casts `clientd` back to `&mut F` and calls
+it. Rusteron adds no lock, borrow check, reference count or allocation per fragment or
+per poll. `Handler` (`Rc<RefCell<T>>`) and `SharedHandler` (`Arc<Mutex<T>>`) exist only for
+callbacks that C keeps after the call returns, such as error, available image,
+unavailable image and close handlers. The conductor calls those on events, not per
+message.
+
+See [callback costs](thread-safety.md#hot-path-behaviour) for each API.
+
 ### Retained callbacks
 
 The C client stores these and can invoke them later from the conductor thread.

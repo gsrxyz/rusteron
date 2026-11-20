@@ -143,8 +143,17 @@ See [owning and borrowed handles](docs/migrating_0.2_to_0.3.md#owning-and-borrow
 | --- | --- |
 | Poll fragments with local state | `subscription.poll_fn(closure, limit)` |
 | Receive complete messages | `FragmentAssembler::new(callback)` for a fixed callback, or `AeronFragmentClosureAssembler::new()` for a closure per poll, then `assembler.poll(...)` |
-| Share a local callback | `Handler::new(callback)` |
+| Share callback state outside the poll loop | `Handler::new(callback)`. Not used by polls |
 | Register a callback that may run on the conductor | Pass an owned callback to its setter, or use `SharedHandler::new_shared(callback)` |
+
+**The poll path uses no `Rc`, `Arc`, `RefCell` or `Mutex`.** `poll(&mut callback, limit)`,
+`poll_fn` and the owned assemblers pass a plain `&mut` to your callback to Aeron C as
+`clientd`. For each fragment, the trampoline casts `clientd` back to `&mut F` and calls
+it. Rusteron adds no lock, borrow check, reference count or allocation per fragment or
+per poll. `Handler` (`Rc<RefCell<T>>`) and `SharedHandler` (`Arc<Mutex<T>>`) exist only for
+callbacks that C keeps after the call returns, such as error, available image,
+unavailable image and close handlers. The conductor calls those on events, not per
+message.
 
 Registered callbacks remain alive while C can call them. Dropping your handler
 does not unregister it. See the [client callback guide](docs/client-guide.md#handlers-and-callbacks).

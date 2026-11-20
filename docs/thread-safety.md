@@ -60,13 +60,22 @@ nest, because Aeron C returns an error for a nested Archive call.
 
 ## Callbacks
 
+**The poll path uses no `Rc`, `Arc`, `RefCell` or `Mutex`.** `poll(&mut callback, limit)`,
+`poll_fn` and the owned assemblers pass a plain `&mut` to your callback to Aeron C as
+`clientd`. For each fragment, the trampoline casts `clientd` back to `&mut F` and calls
+it. Rusteron adds no lock, borrow check, reference count or allocation per fragment or
+per poll. `Handler` (`Rc<RefCell<T>>`) and `SharedHandler` (`Arc<Mutex<T>>`) exist only for
+callbacks that C keeps after the call returns, such as error, available image,
+unavailable image and close handlers. The conductor calls those on events, not per
+message.
+
 | API | State storage | Synchronisation per call |
 | --- | --- | --- |
 | `poll(&mut callback, limit)` | Your local callback | None. Exclusive Rust borrow |
 | `poll_fn` and other synchronous `_fn` methods | A stack closure | None |
 | `FragmentAssembler::new(callback)` | The assembler owns the callback. Read it between polls with `handler()` and `handler_mut()` | None |
 | `AeronFragmentClosureAssembler::new()` | Holds only the partial-message buffers. Each `poll` takes a new closure | None |
-| `poll(&mut *handler.lock(), limit)` on a `Handler` | Local `Rc<RefCell>`. Not `Send` or `Sync` | One borrow check per poll call, no mutex |
+| Local `Handler::new` | `Rc<RefCell>`. Not `Send` or `Sync` | One borrow check per `lock()`. Not accepted by any poll method |
 | `SharedHandler::new_shared` | Mutex. `Send + Sync` when its state is `Send` | One mutex lock per callback when retained, and one per `lock()`. Used for close, error and image callbacks, not the poll path. To check callback state on every poll, share an atomic with the callback instead of calling `lock()` ([example](client-guide.md#retained-callbacks)) |
 | `SharedHandler` holding a replacement slot | Mutex plus the slot's own locks | Three mutex locks and an `Arc` clone per non-empty callback |
 
@@ -88,6 +97,9 @@ Notes:
 - For a latency-sensitive receive loop, keep state on the polling thread and use
   `poll_fn` or an owned assembler.
 - `Handler` has no `Deref` to callback state. `get_mut()` is unsafe.
+- The owned assemblers contain `PhantomData<Rc<()>>`. This is a zero-sized marker
+  that makes them `!Send`. No `Rc` exists at run time. The callback is boxed once in
+  `new()`, and C keeps that stable pointer for every poll.
 
 To poll with one local callback, borrow it once before the loop:
 

@@ -1205,7 +1205,6 @@ impl CWrapper {
                         /// Borrows the callback exclusively until this call returns.
                         /// This method uses no callback allocation, reference count,
                         /// runtime borrow check or mutex. The callback can borrow local state.
-                        /// To poll with a `Handler`, pass `&mut *handler.lock()`
                         pub #method_unsafety fn #name<#(#generics),*>(#possible_self #(#arguments),*) -> #return_type {
                             #(#preludes)*
                             #[cfg(feature = "log-c-bindings")]

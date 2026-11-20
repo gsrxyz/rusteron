@@ -84,6 +84,121 @@ The `CResource` enum and its variants are removed. Storage is chosen at compile
 time, with no runtime tag check. Shared heap owners use `Arc`, so cloning or
 dropping an owner updates a reference count.
 
+### Storage in 0.2 and 0.3
+
+In 0.2 every handle held a `CResource` enum. Each call matched on the variant to
+find the native pointer. In 0.3 the storage is a type parameter, so the compiler
+picks the variant and inlines the pointer read.
+
+```mermaid
+flowchart LR
+  subgraph v02["0.2: storage picked at run time"]
+    P2["AeronPublication"] --> E["CResource#lt;T#gt; enum"]
+    E -->|match on every call| H["OwnedOnHeap: Rc#lt;ManagedCResource#gt;"]
+    E -->|match on every call| S["OwnedOnStack: T"]
+    E -->|match on every call| B2["Borrowed: *mut T, cloneable"]
+  end
+  subgraph v03["0.3: storage is a type parameter"]
+    P3["AeronPublication#lt;S#gt;"] -->|default| L["LiveCResource: native pointer and Arc owner"]
+    P3 --> C["CResource: Arc owner"]
+    P3 --> I["Inline#lt;T#gt;: value, not cloneable"]
+    P3 -->|AeronPublicationRef| B3["Borrowed: NonNull pointer, not cloneable"]
+  end
+```
+
+An owning publication is 16 B in both versions, but reaching the native pointer
+differs. 0.2 checks the tag, follows the `Rc` and reads the pointer stored in
+`ManagedCResource`. 0.3 keeps the native pointer in the handle, so it is one load.
+The `Arc` owner is only used to clone, close and drop.
+
+```mermaid
+flowchart LR
+  subgraph h02["0.2 AeronPublication, 16 B"]
+    T2["tag"]
+    R2["Rc pointer"]
+  end
+  R2 --> M2["Rust heap: Rc counts and ManagedCResource, 72 B"]
+  M2 -->|resource| N2["C heap: aeron_publication_t, 168 B"]
+
+  subgraph h03["0.3 AeronPublication, 16 B"]
+    P3["native pointer"]
+    O3["Arc pointer"]
+  end
+  P3 --> N3["C heap: aeron_publication_t, 168 B"]
+  O3 -.->|setup and close only| M3["Rust heap: Arc counts and ManagedCResource, 104 B"]
+```
+
+The table covers the most used handles. Sizes are in bytes on arm64, and the
+total is the handle, plus the Rust owner block, plus the C struct. Native buffers
+such as term logs are not included. A 0.2 handle is as large as its largest enum
+variant, so types whose C struct bindgen can see carry that struct inline even
+when they hold a heap pointer. The pointer read column counts the arm64
+instructions that `get_inner()` compiles to.
+
+In both versions Aeron C allocates the native publication, subscription, image
+and counter structs, for example when an async add completes. `OwnedOnHeap` in
+0.2 and `CResource` or `LiveCResource` in 0.3 name the Rust owner block that
+holds that C pointer and runs cleanup. They do not mean Rust allocated the C
+struct. 0.2 builds `OwnedOnHeap` for every handle that `poll()` on an async add
+returns, and for `image_at_index`. Query results such as `get_constants()` and
+`get_values()` were `OwnedOnStack` copies.
+
+| 0.2 type and variant | 0.3 type | Handle | Rust heap | C struct | Total | Pointer read |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| `Aeron`, `OwnedOnHeap` | `Aeron<LiveCResource<aeron_t>>` | 32 → 16 | 72 → 104 | 728 | 832 → 848 | 9 with 2 branches → 1 load |
+| `AeronContext`, `OwnedOnHeap` | `AeronContext<CResource<aeron_context_t>>` | 16 → 8 | 72 → 104 | 4,520 | 4,608 → 4,632 | 9 → 2 loads |
+| `AeronPublication`, `OwnedOnHeap` | `AeronPublication<LiveCResource<aeron_publication_t>>` | 16 → 16 | 72 → 104 | 168 | 256 → 288 | 9 → 1 load |
+| `AeronExclusivePublication`, `OwnedOnHeap` | `AeronExclusivePublication<LiveCResource<aeron_exclusive_publication_t>>` | 16 → 16 | 72 → 104 | 320 | 408 → 440 | 9 → 1 load |
+| `AeronSubscription`, `OwnedOnHeap` | `AeronSubscription<LiveCResource<aeron_subscription_t>>` | 16 → 16 | 72 → 104 | 368 | 456 → 488 | 9 → 1 load |
+| `AeronImage` from `image_at_index`, `OwnedOnHeap` | `AeronImage<LiveCResource<aeron_image_t>>` | 16 → 16 | 72 → 104 | 160 | 248 → 280 | 9 → 1 load |
+| `AeronCounter`, `OwnedOnHeap` | `AeronCounter<LiveCResource<aeron_counter_t>>` | 16 → 16 | 72 → 104 | 88 | 176 → 208 | 9 → 1 load |
+| Callback `AeronHeader`, `Borrowed` | `AeronHeader<Borrowed<aeron_header_t>>` | 16 → 8 | none | owned by C | 16 → 8 | 9 → 1 load |
+| Borrowed publication or image, `Borrowed` | `AeronPublicationRef`, `AeronImageRef` | 16 → 8 | none | owned by the parent | 16 → 8 | 9 → 1 load |
+| `AeronHeaderValues` from `get_values`, `OwnedOnStack` | `AeronHeaderValues<Inline<aeron_header_values_t>>` | 48 → 44 | none | inline | 48 → 44 | 11 with 2 branches → none |
+| `AeronPublicationConstants` from `get_constants`, `OwnedOnStack` | `AeronPublicationConstants<ScopedInline<'_, aeron_publication_constants_t>>` | 96 → 88 | none | inline | 96 → 88 | 9 → none |
+| `AeronBufferClaim::default()`, `OwnedOnHeap` | `AeronBufferClaim<CResource<aeron_buffer_claim_t>>` | 32 → 8 | 72 → 104 | 24 | 128 → 136 | 9 → 2 loads |
+| `AeronAsyncAddSubscription`, `OwnedOnHeap` | `AeronAsyncAddSubscription<CResource<aeron_async_add_subscription_t>>` | 16 → 8 | 72 → 104 | 176 | 264 → 288 | 9 → 2 loads and a null check |
+| `AeronUriStringBuilder`, `OwnedOnHeap` | `AeronUriStringBuilder<CResource<aeron_uri_string_builder_t>>` | 64 → 8 | 72 → 104 | 56 | 192 → 168 | 9 → 2 loads |
+| `AeronArchive`, `OwnedOnHeap` | `AeronArchive<CResource<aeron_archive_t>>` | 160 → 8 | 72 → 104 | 152 | 384 → 264 | 9 → 2 loads |
+| `AeronArchiveContext`, `OwnedOnHeap` | `AeronArchiveContext<CResource<aeron_archive_context_t>>` | 4,432 → 8 | 72 → 104 | 4,424 | 8,928 → 4,536 | 9 → 2 loads |
+| `AeronArchiveReplayParams`, `OwnedOnHeap` | `AeronArchiveReplayParams<CResource<aeron_archive_replay_params_t>>` | 48 → 8 | 72 → 104 | 40 | 160 → 152 | 9 → 2 loads |
+| Listing `AeronArchiveRecordingDescriptor`, `Borrowed` | `AeronArchiveRecordingDescriptor<Borrowed<aeron_archive_recording_descriptor_t>>` | 136 → 8 | none | owned by C | 136 → 8 | 9 → 1 load |
+
+What the pointer read does in each version:
+
+| Storage | Where the native object lives | Steps to reach it |
+| --- | --- | --- |
+| 0.2 `OwnedOnHeap` | C heap, owned by an `Rc` block on the Rust heap | Load the tag, branch twice, load the `Rc` pointer, load the native pointer from `ManagedCResource` |
+| 0.2 `Borrowed` | Owned elsewhere | Load the tag, branch twice, load the pointer |
+| 0.2 `OwnedOnStack` | Inline in the handle | Load the tag, branch twice, take the address |
+| 0.3 `LiveCResource` | C heap, owned by an `Arc` block on the Rust heap | Load the native pointer cached in the handle |
+| 0.3 `CResource` | C heap, owned by an `Arc` block on the Rust heap | Load the `Arc` pointer, then an Acquire load of the native pointer. A plain load on x86-64 |
+| 0.3 `Borrowed` | Owned elsewhere | Load the pointer |
+| 0.3 `Inline`, `ScopedInline` | Inline in the handle, on the stack | Take the address. No load |
+
+Publications, subscriptions, images, counters and the client are `LiveCResource`,
+so offer, claim and poll read one pointer with no branch. The `Arc` block is 32 B
+larger than the 0.2 `Rc` block because it holds atomics and mutexes for
+cross-thread close and dependency changes. Those fields are only read on setup
+and close. Header values and constants stay inline on the stack, with no `Arc`
+or allocation.
+
+Query results cost the same or less than in 0.2. Criterion, ns per call on Apple
+M4 Max:
+
+| Call | 0.2.10 | 0.2.22 | 0.3 |
+| --- | ---: | ---: | ---: |
+| publication `get_constants` | 10.68 | 8.25 | 8.04 |
+| exclusive publication `get_constants` | 10.81 | 8.19 | 8.11 |
+| subscription `get_constants` | 6.21 | 5.42 | 5.23 |
+| image `get_constants` | 9.18 | 7.69 | 7.49 |
+| poll per fragment, header `get_values` | 5.85 | 3.44 | 3.34 |
+| poll per fragment, no header read | 1.62 | 1.68 | 1.59 |
+
+A borrowed view is a bare pointer with no `Clone`, so the borrow checker stops it
+from outliving its owner. A 0.2 `Borrowed` variant could be cloned into code
+that outlived the native object.
+
 ### Accept any storage type
 
 Use a generic parameter when a function needs the same methods on owning and
@@ -152,6 +267,62 @@ calls bypass these rules. Follow their safety contracts.
 
 Remove `multi-threaded` from Cargo features. It no longer exists.
 
+| Area | 0.2 | 0.3 |
+| --- | --- | --- |
+| Thread traits | One `multi-threaded` feature made every handle `Send` and `Sync` | Each type follows the Aeron C contract for that object. See the table below |
+| Owner reference count | `Rc`, or `Arc` with `multi-threaded` | `Arc`. Only clone and drop touch the count |
+| Owner bookkeeping | `Cell` and `UnsafeCell`, or `Mutex` with `multi-threaded` | Atomics and `Mutex`, used only on create, clone, drop, close and dependency changes. Never on offer, claim or poll |
+| Retained callback handler | `Handler<T>` was an `Arc<UnsafeCell<T>>`, `Send` for any `T: Send`, with no borrow check | Split in two. `Handler<T>` is local (`Rc<RefCell<T>>`). `SharedHandler<T>` is `Arc<Mutex<T>>`. Both are only for callbacks C keeps, such as error, image and close handlers. Polls never use them |
+| Poll callbacks | `poll(Some(&Handler<T>), limit)`, through the `Arc` | `poll(&mut callback, limit)` or `poll_fn(closure, limit)`. A plain `&mut` goes to C. No `Rc`, `Arc`, `RefCell` or `Mutex` |
+| Retained dependencies | Any value | Local owners keep local values. Shared owners keep only `Send + Sync` values |
+
+See [callbacks and fragment assembly](#callbacks-and-fragment-assembly) for the
+poll changes, [retained callbacks](client-guide.md#retained-callbacks) for when
+to use `SharedHandler`, and [callback panics](callback-panics.md) for panic
+handling.
+
+**The poll path uses no `Rc`, `Arc`, `RefCell` or `Mutex`.** `poll(&mut callback, limit)`,
+`poll_fn` and the owned assemblers pass a plain `&mut` to your callback to Aeron C as
+`clientd`. For each fragment, the trampoline casts `clientd` back to `&mut F` and calls
+it. Rusteron adds no lock, borrow check, reference count or allocation per fragment or
+per poll. `Handler` (`Rc<RefCell<T>>`) and `SharedHandler` (`Arc<Mutex<T>>`) exist only for
+callbacks that C keeps after the call returns, such as error, available image,
+unavailable image and close handlers. The conductor calls those on events, not per
+message.
+
+This is what each hot-path call does:
+
+| Call | Per call | Per fragment |
+| --- | --- | --- |
+| `subscription.poll_fn(closure, limit)` | One pointer load, then `aeron_subscription_poll` with `&mut closure` as `clientd` | The trampoline casts `clientd` back to `&mut F` and calls it. No lock, borrow check or reference count |
+| `subscription.poll(&mut callback, limit)` | Same, with `&mut callback` as `clientd` | Same |
+| Fragment assembler `poll` | Same, with the assembler as `clientd` | The assembler calls your closure through a plain `&mut`. No lock |
+| `offer`, `try_claim`, `position` on a publication | One pointer load from `LiveCResource`, then the C call | Not applicable |
+| `get_constants`, `header.get_values()` | Copy into an inline struct on the stack | No allocation or `Arc` |
+
+`Handler<T>` and `SharedHandler<T>` hold callbacks that C keeps after the call
+returns, such as error, available image, unavailable image and close handlers.
+The conductor calls those on events, not per message. Poll methods do not
+accept a `Handler`. The owner `Mutex` and atomics are touched only on create,
+clone, drop, close and dependency changes.
+
+What a method call does to reach the native pointer:
+
+| Storage | Types | Per call |
+| --- | --- | --- |
+| `LiveCResource` | `Aeron`, publications, subscriptions, images, counters | A plain load of the pointer cached in the handle at creation. No atomic, fence or `Arc` access |
+| `CResource` | Contexts, Archive handles, async operations, URI builder, default buffer claim | A plain load of the `Arc` pointer, then an Acquire load of the native pointer. That is a plain `mov` on x86-64 and one `ldapur` on arm64, with no separate fence or lock. 0.2 used a `Cell` read here, or the same Acquire load with `multi-threaded` |
+| `Borrowed` | Callback `AeronHeader`, `...Ref` views, recording descriptors | A plain load |
+| `Inline`, `ScopedInline` | `get_values()` and `get_constants()` results | The address of the value. No load |
+
+One send path accepts a `Handler`. `offer_raw(buffer, Some(&handler))` and
+`offerv(iov, count, Some(&handler))` take a reserved value supplier, which C
+calls during the offer. Its trampoline takes `borrow_mut()` on a local `Handler`
+or the mutex on a `SharedHandler` each time. `offer(buffer)`, `try_claim` and
+`offer_raw(buffer, None)` pass no supplier and touch no handler. For a reserved
+value on the hot path, use `offerv_fn(iov, count, closure)`, which passes the
+closure as a plain `&mut` like `poll_fn`.
+
 Default owning handle types:
 
 | Handle | Send | Sync |
@@ -216,7 +387,6 @@ Choose callback storage by how C invokes it:
 | --- | --- |
 | Reusable fragment callback | `subscription.poll(&mut callback, limit)` |
 | Synchronous closure | `subscription.poll_fn(closure, limit)` |
-| State kept in a `Handler` | `subscription.poll(&mut *handler.lock(), limit)` |
 | Retained callback that may run on a conductor | Owned setter, or `SharedHandler::new_shared(callback)` |
 | Fixed complete-message callback | `FragmentAssembler::new(callback)` |
 | New complete-message closure per poll | `AeronFragmentClosureAssembler::new()` with `poll(&subscription, closure, limit)` |
@@ -238,9 +408,8 @@ context.set_error_handler(Some(|code: i32, message: &str| {
 They allocate nothing and do no borrow check or mutex lock. `Handler` does not
 implement the fragment callback traits, and no poll takes one. Replace 0.2's
 `poll(Some(&handler), limit)` by owning the callback and calling
-`poll(&mut callback, limit)`. If the state must stay in a `Handler`,
-`poll(&mut *handler.lock(), limit)` works but adds that `RefCell` check (or
-mutex for a `SharedHandler`) once per poll call.
+`poll(&mut callback, limit)`. Keep poll state in the callback itself, or in an
+owned assembler, and read it between polls.
 
 ### Reusable fragment callbacks
 
@@ -375,7 +544,7 @@ Handlers no longer dereference to callback state.
 
 - Local `Handler::lock()` returns a mutable `RefCell` guard and `borrow()` a read
   guard. Both check borrowing on the current thread, with no mutex or atomic
-  operation. `poll(&mut *handler.lock(), limit)` holds one guard across the whole poll.
+  operation. Use them for retained callbacks only, never for poll state.
 - `SharedHandler::lock()` takes a mutex. A retained shared callback takes the same
   mutex when invoked, so contention can delay either side. Keep guards short.
 - `poll(&mut callback, limit)`, `poll_fn` and the owned assemblers use plain Rust
@@ -691,3 +860,74 @@ Use the checked `Duration` helpers where available, including
 `AeronContext::set_driver_timeout`, the resource-linger and idle-sleep helpers,
 `AeronArchiveContext::set_message_timeout`, and the URI `*_duration` setters. Raw
 methods keep unit suffixes such as `_ns` or `_ms`.
+
+## Performance compared with 0.2
+
+Every version below used Aeron 1.54.2 and Rust 1.98.1. Lower is better.
+
+### Apple M4 Max (arm64)
+
+Instructions per call, counted in the compiled wrapper:
+
+| Call | 0.2.10 | 0.2.22 | 0.3 |
+| --- | ---: | ---: | ---: |
+| `offer` | 31 | 30 | 21 |
+| exclusive `offer` | 31 | 30 | 21 |
+| `try_claim`, copy, `commit` | 216 | 58 | 40 |
+| `poll_fn` | 31 | 31 | 24 |
+| poll with a reusable callback | 29 | 29 | 21 |
+| `image.poll` | 29 | 29 | 21 |
+| `position()` | 9 | 9 | 2 |
+
+Criterion `offer_claim_poll` bench, ns per call over IPC. C rows call the native
+function directly. 0.2.10 copies the header for each fragment, which is why its
+header reads cost more.
+
+| Workload | 0.2.10 | 0.2.22 | 0.3 |
+| --- | ---: | ---: | ---: |
+| C `offer` 32 B | 5.92 | 5.87 | 5.88 |
+| `offer` 32 B | 6.35 | 6.13 | 6.02 |
+| C claim, copy, commit 32 B | 6.11 | 6.19 | 6.15 |
+| claim, copy, commit 32 B | 8.96 | 7.00 | 5.43 |
+| claim, copy, commit 256 B | 13.23 | 11.54 | 9.21 |
+| claim, commit 256 B | 33.24 | 27.72 | 22.76 |
+| `offer` 1 KiB | 22.68 | 22.95 | 21.90 |
+| C poll, per fragment | 1.59 | 1.59 | 1.59 |
+| `poll_fn`, per fragment | 1.58 | 1.58 | 1.58 |
+| `poll_fn` with 4 header reads | 15.12 | 2.20 | 2.21 |
+| reusable callback, per fragment | 1.59 | 1.59 | 1.58 |
+| empty poll | 4.50 | 4.57 | 4.59 |
+| fragment assembler, per message | 2.36 | 2.49 | 2.36 |
+| publication `get_constants` | 10.09 | 8.08 | 7.97 |
+
+### Intel Xeon Platinum 8375C (x86-64)
+
+EC2 m6i.xlarge, a shared VM. The table shows p50 / p99 in ns. Per-call rows are
+averages of 1,000-call batches, and each poll call reads 10 messages. Each
+workload ran 10 to 20 times for 30 s, rotating the version order. Most
+differences are within the spread between runs.
+
+| Workload | 0.2.10 | 0.2.22 | 0.3 |
+| --- | --- | --- | --- |
+| `offer` 32 B | 41.0 / 88.3 | 40.8 / 89.2 | 43.4 / 92.7 |
+| `offer` 1 KiB | 131 / 216 | 132 / 218 | 131 / 216 |
+| exclusive `offer` 32 B | 17.6 / 40.9 | 18.0 / 42.2 | 16.7 / 40.2 |
+| claim, copy, commit 32 B | 44.6 / 87.3 | 41.1 / 90.1 | 40.5 / 81.9 |
+| claim, copy, commit 256 B | 60.3 / 106 | 60.3 / 107 | 57.3 / 104 |
+| claim, commit 32 B | 38.6 / 91.8 | 37.4 / 85.3 | 35.8 / 78.7 |
+| C `offer` 32 B | 39.0 / 84.6 | 42.5 / 92.7 | 39.3 / 82.4 |
+| `poll_fn` | 73.7 / 186 | 75.9 / 190 | 74.4 / 195 |
+| reusable callback | 75.8 / 188 | 73.0 / 181 | 79.6 / 187 |
+| `image.poll` | 76.9 / 182 | 77.7 / 181 | 75.1 / 183 |
+| fragment assembler 32 B | 97.8 / 254 | 96.3 / 248 | 94.7 / 226 |
+| empty poll | 12.1 / 38.6 | 12.1 / 38.8 | 11.0 / 36.2 |
+| `position()` | 1.74 / 3.49 | 1.45 / 3.49 | 2.08 / 2.40 |
+| IPC round trip 32 B | 325 / 410 | 323 / 414 | 322 / 408 |
+| UDP localhost round trip 32 B | 10,919 / 24,319 | 10,935 / 24,559 | 10,935 / 24,303 |
+
+IPC throughput, million messages per second, median of the runs:
+
+| Payload | 0.2.10 | 0.2.22 | 0.3 |
+| --- | ---: | ---: | ---: |
+| 32 B | 21.7 | 21.2 | 21.9 |
+| 256 B | 16.0 | 15.7 | 15.8 |

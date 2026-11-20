@@ -1396,8 +1396,8 @@ pub struct NativePollCallback<'a, F> {
 /// `Handler<T>` stays on its thread and uses `RefCell` to check mutable borrows, with no
 /// mutex or atomic operation. [`SharedHandler<T>`] uses a mutex and is `Send + Sync` when
 /// `T: Send`. It takes that mutex on each callback and can wait for another thread holding
-/// it. Use [`Self::lock`] to inspect or change callback state. To poll with state held in
-/// a `Handler`, pass `&mut *handler.lock()`: one borrow check per poll call.
+/// it. Use [`Self::lock`] to inspect or change callback state. Keep poll state in the
+/// callback passed to `poll` or in an owned assembler, not in a `Handler`
 pub struct Handler<T, P: CallbackPolicy = LocalCallback> {
     inner: P::Owner<T>,
 }
@@ -1464,8 +1464,7 @@ impl<T, P: CallbackPolicy> Handler<T, P> {
     /// acquires a mutex and may wait for a callback or another state guard.
     /// Neither form clones the handler or allocates memory to acquire the guard.
     ///
-    /// Polls never call this. `poll(&mut *handler.lock(), limit)` in your own code holds one
-    /// guard for the whole poll
+    /// Polls never call this
     #[inline]
     pub fn lock(&self) -> P::Guard<'_, T> {
         P::lock(&self.inner)
