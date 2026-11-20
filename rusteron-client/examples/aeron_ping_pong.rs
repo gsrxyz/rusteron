@@ -4,12 +4,11 @@
 
 mod benchmark_support;
 
-use benchmark_support::{MessageCounts, StopOnDrop, print_histogram};
+use benchmark_support::{MessageCounts, print_histogram, spawn_peer};
 use hdrhistogram::Histogram;
 use rusteron_client::*;
 use rusteron_media_driver::testing::EmbeddedDriver;
 use std::error::Error;
-use std::hint::spin_loop;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -37,17 +36,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         counts.warmup, counts.measured
     );
     let running = Arc::new(AtomicBool::new(true));
-    let pong = {
-        let running = running.clone();
-        let dir = dir.clone();
-        thread::Builder::new().name("pong".into()).spawn(move || {
-            let _stop = StopOnDrop(&running);
-            run_pong(&running, &dir).expect("pong failed");
-        })?
-    };
+    let pong_dir = dir.clone();
+    let pong = spawn_peer("pong", running.clone(), move |running| run_pong(running, &pong_dir))?;
     let result = run_ping(&running, &dir, &counts);
     running.store(false, Ordering::Release);
-    pong.join().map_err(|_| "pong thread panicked")?;
+    // A pong failure is reported first, as it is what made ping stop early
+    pong.join()
+        .map_err(|_| "pong thread panicked")?
+        .map_err(|error| format!("pong: {error}"))?;
     let histogram = result?;
     if histogram.len() != counts.measured as u64 {
         return Err(format!("expected {} RTT samples, got {}", counts.measured, histogram.len()).into());
@@ -79,27 +75,6 @@ fn image(subscription: &AeronSubscription, running: &AtomicBool) -> Result<Aeron
     }
 }
 
-// Use the same single-image C assembler as cping/cpong. The delegate panic
-// must resume only after the assembler has finished updating its state
-struct ImageAssembler(AeronImageFragmentAssembler);
-
-impl AeronFragmentHandlerCallback for ImageAssembler {
-    const RESUMES_CAUGHT_PANIC: bool = true;
-
-    fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], header: &AeronHeader) {
-        // SAFETY: poll lends a valid buffer/header for this call; this assembler
-        // and its retained delegate outlive the poll and stay on this thread
-        unsafe {
-            bindings::aeron_image_fragment_assembler_handler(
-                self.0.get_inner().cast(),
-                buffer.as_ptr(),
-                buffer.len(),
-                header.get_inner(),
-            );
-        }
-    }
-}
-
 fn run_pong(running: &Arc<AtomicBool>, dir: &str) -> Result<(), Box<dyn Error>> {
     let client = client(dir)?;
     let subscription = client
@@ -109,15 +84,13 @@ fn run_pong(running: &Arc<AtomicBool>, dir: &str) -> Result<(), Box<dyn Error>> 
         .async_add_exclusive_publication(PONG_CHANNEL, PONG_STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
     let image = image(&subscription, running)?;
-    let handler = Handler::new(Echo {
+    let mut assembler = AeronImageFragmentAssembler::new(Echo {
         publication,
         running: running.clone(),
-    });
-    let assembler = Handler::new(ImageAssembler(AeronImageFragmentAssembler::new(Some(&handler))?));
+    })?;
+    let mut idle = BusySpinIdleStrategy::new();
     while running.load(Ordering::Acquire) {
-        if image.poll(Some(&assembler), FRAGMENT_COUNT_LIMIT)? == 0 {
-            spin_loop();
-        }
+        idle.idle(assembler.poll(&image, FRAGMENT_COUNT_LIMIT)?);
     }
     Ok(())
 }
@@ -129,6 +102,7 @@ struct Echo {
 
 impl AeronFragmentHandlerCallback for Echo {
     fn handle_aeron_fragment_handler(&mut self, buffer: &[u8], _: &AeronHeader) {
+        let mut idle = BusySpinIdleStrategy::new();
         loop {
             match self.publication.offer(buffer) {
                 Ok(_) => break,
@@ -136,7 +110,7 @@ impl AeronFragmentHandlerCallback for Echo {
                     if !self.running.load(Ordering::Acquire) {
                         break;
                     }
-                    spin_loop();
+                    idle.idle(0);
                 }
                 Err(e) => panic!("echo failed: {e}"),
             }
@@ -169,20 +143,16 @@ fn run_ping(running: &AtomicBool, dir: &str, counts: &MessageCounts) -> Result<H
         .async_add_exclusive_publication(PING_CHANNEL, PING_STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
     let image = image(&subscription, running)?;
-    let handler = Handler::new(Measure {
+    let mut assembler = AeronImageFragmentAssembler::new(Measure {
         histogram: Histogram::new_with_bounds(1, 10_000_000_000, 3)?,
         received: 0,
-    });
-    let assembler = Handler::new(ImageAssembler(AeronImageFragmentAssembler::new(Some(&handler))?));
+    })?;
     let mut buffer = [0u8; MESSAGE_LENGTH];
+    let mut idle = BusySpinIdleStrategy::new();
     for count in [counts.warmup, counts.measured] {
-        // SAFETY: the callbacks run synchronously on this thread, only inside
-        // image.poll below. There are no outstanding references to the state
-        unsafe {
-            let state = handler.get_mut();
-            state.histogram.reset();
-            state.received = 0;
-        }
+        let state = assembler.handler_mut();
+        state.histogram.reset();
+        state.received = 0;
         for expected in 1..=count {
             loop {
                 // cping refreshes the timestamp on every offer attempt
@@ -199,17 +169,15 @@ fn run_ping(running: &AtomicBool, dir: &str, counts: &MessageCounts) -> Result<H
             }
             loop {
                 // The synchronous poll callback updates this count
-                if handler.received >= expected {
+                if assembler.handler().received >= expected {
                     break;
                 }
                 if !running.load(Ordering::Acquire) {
                     return Err("pong stopped".into());
                 }
-                if image.poll(Some(&assembler), FRAGMENT_COUNT_LIMIT)? == 0 {
-                    spin_loop();
-                }
+                idle.idle(assembler.poll(&image, FRAGMENT_COUNT_LIMIT)?);
             }
         }
     }
-    Ok(handler.histogram.clone())
+    Ok(assembler.handler().histogram.clone())
 }

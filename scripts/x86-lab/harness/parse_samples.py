@@ -44,7 +44,8 @@ def java_tput(text):
 
 
 def rust_tput(text):
-    return [float(n.replace(",", "")) for n in re.findall(r"Throughput: ([\d,]+) msgs/sec", text)]
+    return [float((old or new).replace(",", "")) for old, new in
+            re.findall(r"Throughput: ([\d,]+) msgs/sec|rate: (\d+) msg/s", text)]
 
 
 def main():

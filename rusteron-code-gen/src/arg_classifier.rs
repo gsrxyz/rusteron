@@ -9,8 +9,9 @@ use crate::generator::{
     is_sync_handler_type,
 };
 use crate::snake_to_pascal_case;
+use crate::thread_safety::owner_is_shared;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::{ToTokens, format_ident, quote};
 use std::collections::BTreeMap;
 use syn::{Type, parse_str};
 
@@ -40,6 +41,7 @@ pub enum ArgRole {
 }
 
 /// One argument, classified once, with every emission fragment precomputed.
+#[derive(Clone)]
 pub struct ClassifiedArg {
     pub kind: ArgRole,
     /// `name: Type` in the generated signature (None: not part of the signature).
@@ -53,6 +55,8 @@ pub struct ClassifiedArg {
     /// Statement(s) emitted before the FFI call (e.g. the `IntoCStr` shadow for
     /// C-string args so the `Cow` outlives the call).
     pub prelude: Option<TokenStream>,
+    /// Storage borrowed for the complete synchronous call, excluding `_fn` calls.
+    pub handler_prelude: Option<TokenStream>,
     /// `_fn` variant fragments (sync handlers swap Handler for a stack closure).
     pub once_signature: Option<TokenStream>,
     pub once_call: Option<TokenStream>,
@@ -62,6 +66,7 @@ pub struct ClassifiedArg {
     pub once_resume: Option<TokenStream>,
 }
 
+#[derive(Clone)]
 pub struct ClassifiedMethodArgs {
     pub uses_self: bool,
     pub args: Vec<ClassifiedArg>,
@@ -72,6 +77,61 @@ pub struct ClassifiedMethodArgs {
 }
 
 impl ClassifiedMethodArgs {
+    /// Poll callbacks finish before C returns. An exclusive Rust borrow is
+    /// sufficient; this form does not need shared callback storage or a guard.
+    pub fn exclusive_poll(&self, method: &Method) -> Option<Self> {
+        if !self.once_capable || !method.struct_method_name.ends_with("poll") {
+            return None;
+        }
+        let mut direct = self.clone();
+        let mut found = false;
+        for (original, arg) in method.arguments.iter().zip(&mut direct.args) {
+            if arg.kind != ArgRole::HandlerSync {
+                continue;
+            }
+            let ArgProcessing::Handler(parts) = &original.processing else {
+                unreachable!()
+            };
+            let handler = &parts[0];
+            if !UNWIND_HANDLER_TYPES.contains(&handler.c_type.as_str()) {
+                return None;
+            }
+            found = true;
+            let name = original.as_ident();
+            let ty = format_ident!("{}HandlerImpl", snake_to_pascal_case(&handler.c_type));
+            let callback_trait = format_ident!("{}Callback", snake_to_pascal_case(&handler.c_type));
+            let unwinds = UNWIND_POLL_FNS.contains(&method.fn_name.as_str());
+            let suffix = if unwinds { "_unwind" } else { "_catch" };
+            let shim = format_ident!("{}_callback_for_borrowed_handler{}", handler.c_type, suffix);
+            arg.signature = Some(quote! { #name: &mut #ty });
+            arg.generic = Some(quote! { #ty: #callback_trait });
+            arg.prelude = None;
+            arg.handler_prelude = None;
+            arg.call = Some(quote! { Some(#shim::<#ty>), #name as *mut #ty as *mut std::os::raw::c_void });
+            arg.resume = Some(if unwinds {
+                quote! { if #ty::RESUMES_CAUGHT_PANIC { resume_caught_panic(); } }
+            } else {
+                quote! { resume_caught_panic(); }
+            });
+            // Native assemblers can bypass the Rust fragment trampoline.
+            if unwinds && NATIVE_ASSEMBLER_HANDLER_TYPES.contains(&handler.c_type.as_str()) {
+                let callback = format_ident!("{}_callback", original.name);
+                let clientd = format_ident!("{}_clientd", original.name);
+                let native_type = handler.as_type();
+                arg.handler_prelude = Some(quote! {
+                    let (#callback, #clientd): (#native_type, *mut std::os::raw::c_void) =
+                        if let Some(native) = #name.native_poll_callback() {
+                            (native.callback, native.clientd)
+                        } else {
+                            (Some(#shim::<#ty>), #name as *mut #ty as *mut _)
+                        };
+                });
+                arg.call = Some(quote! { #callback, #clientd });
+            }
+        }
+        found.then_some(direct)
+    }
+
     pub fn signatures(&self) -> Vec<TokenStream> {
         self.args.iter().filter_map(|a| a.signature.clone()).collect()
     }
@@ -98,7 +158,11 @@ impl ClassifiedMethodArgs {
 
     /// Statements emitted before the FFI call (e.g. `IntoCStr` shadows).
     pub fn preludes(&self) -> Vec<TokenStream> {
-        self.args.iter().filter_map(|a| a.prelude.clone()).collect()
+        self.args
+            .iter()
+            .flat_map(|a| [a.prelude.clone(), a.handler_prelude.clone()])
+            .flatten()
+            .collect()
     }
 
     pub fn once_signatures(&self) -> Vec<TokenStream> {
@@ -171,7 +235,7 @@ pub fn classify_method_args(
                 wrappers,
                 closure_handlers,
                 &owned_retained,
-                &method.fn_name,
+                method,
                 &mut uses_self,
             )
         })
@@ -182,7 +246,7 @@ pub fn classify_method_args(
             let name = arg.as_ident();
             let keep_alive = quote! {
                 if let Some(__inner) = self.inner.as_owned() {
-                    __inner.add_dependency(#name.clone());
+                    __inner.add_handle_dependency(#name);
                 }
             };
             // keep it only if C accepted it (void setters cannot fail)
@@ -191,19 +255,21 @@ pub fn classify_method_args(
             } else {
                 keep_alive
             });
-            // A borrowed `self` (e.g. from `get_archive_context()`) cannot keep `arg` alive, so
-            // return an error before calling C
-            // TODO: void setters cannot return an error, so on a borrowed `self` the caller
-            // must keep `arg` alive
+            // Both allocations need stable, retained owners. Cloning a stack
+            // wrapper would copy its contents, leaving C with the original address.
+            let msg = format!(
+                "{}: both this wrapper and `{}` require owning heap storage so the retained pointer stays valid",
+                method.fn_name, arg.name
+            );
             if method.return_type.is_c_raw_int() {
-                let msg = format!(
-                    "{}: this wrapper is borrowed, so it cannot keep `{}` alive; call it on the wrapper that owns the C object",
-                    method.fn_name, arg.name
-                );
                 classified.prelude = Some(quote! {
-                    if self.inner.as_owned().is_none() {
+                    if self.inner.as_owned().is_none() || #name.resource().as_owned().is_none() {
                         return Err(AeronCError::with_message(-1, #msg));
                     }
+                });
+            } else {
+                classified.prelude = Some(quote! {
+                    assert!(self.inner.as_owned().is_some() && #name.resource().as_owned().is_some(), #msg);
                 });
             }
         }
@@ -217,14 +283,28 @@ pub fn classify_method_args(
     }
 }
 
-// not ideal to have these constants but these are exceptions to the rule
-/// Types a C setter takes ownership of. C frees them, so `self` must not keep them too
+// exceptions to the general ownership rule
+/// Handlers a native fragment assembler can stand in for. A poll then passes the
+/// assembler's own C callback and skips the Rust trampoline
+const NATIVE_ASSEMBLER_HANDLER_TYPES: &[&str] = &["aeron_fragment_handler_t", "aeron_controlled_fragment_handler_t"];
+
+/// Types a C setter takes ownership of. C frees them, so `self` must not keep them too.
+/// The generator also derives from this list that their setters are `unsafe` and their
+/// getters return `Option`, as C holds NULL until the setter runs
 const C_OWNED_SET_TYPES: &[&str] = &["aeron_counter_t", "aeron_udp_channel_interceptor_bindings_t"];
+
+pub(crate) fn is_c_owned_set_type(c_type: &str) -> bool {
+    C_OWNED_SET_TYPES.iter().any(|t| c_type.ends_with(t))
+}
 
 /// Whether a C setter keeps a pointer to `arg` without owning it (e.g.
 /// aeron_archive_context_set_aeron). If so, `self` must keep `arg` alive
 fn setter_borrows_arg(method: &Method, arg: &Arg) -> bool {
-    method.fn_name.contains("_set_") && !C_OWNED_SET_TYPES.iter().any(|t| arg.c_type.ends_with(t))
+    method.fn_name.contains("_set_") && !is_c_owned_set_type(&arg.c_type)
+}
+
+fn own_archive_callback_setter(name: &str) -> bool {
+    name.starts_with("aeron_archive_context_set_")
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -234,9 +314,10 @@ fn classify_arg(
     wrappers: &BTreeMap<String, CWrapper>,
     closure_handlers: &[CHandler],
     owned_retained: &Option<Arg>,
-    fn_name: &str,
+    method: &Method,
     uses_self: &mut bool,
 ) -> ClassifiedArg {
+    let fn_name = method.fn_name.as_str();
     let none = ClassifiedArg {
         kind: ArgRole::Absorbed,
         signature: None,
@@ -244,6 +325,7 @@ fn classify_arg(
         generic: None,
         registration: None,
         prelude: None,
+        handler_prelude: None,
         once_signature: None,
         once_call: None,
         once_generic: None,
@@ -259,7 +341,7 @@ fn classify_arg(
     };
     if let Some(matching_wrapper) = wrappers.get(pointee) {
         let name = arg.as_ident();
-        if arg.c_type.ends_with(own_type_name) && matching_wrapper.type_name == own_type_name {
+        if !*uses_self && arg.c_type.ends_with(own_type_name) && matching_wrapper.type_name == own_type_name {
             *uses_self = true;
             return ClassifiedArg {
                 kind: ArgRole::SelfPointer,
@@ -267,7 +349,22 @@ fn classify_arg(
                 ..none
             };
         }
-        let arg_type = ReturnType::new(arg.clone(), wrappers.clone()).get_new_return_type(false, true);
+        // These functions only borrow their output or image for this call.
+        // Constructors and retaining setters still require an owning handle.
+        let borrows_for_copy = fn_name.ends_with("_copy")
+            && !matching_wrapper.opaque
+            && !matching_wrapper.borrows_native_storage(wrappers);
+        let arg_type = if ["_constants", "_buffers", "_values", "_image_retain", "_image_release"]
+            .iter()
+            .any(|suffix| fn_name.ends_with(suffix))
+            || borrows_for_copy
+        {
+            let class = format_ident!("{}", matching_wrapper.class_name);
+            let native = format_ident!("{}", matching_wrapper.type_name);
+            quote! { &#class<impl ResourceStorage<#native>> }
+        } else {
+            ReturnType::new(arg.clone(), wrappers.clone()).get_new_return_type(false, true)
+        };
         return ClassifiedArg {
             kind: ArgRole::WrapperPointer,
             signature: if arg_type.is_empty() {
@@ -290,6 +387,7 @@ fn classify_arg(
                 closure_handlers,
                 owned_retained,
                 fn_name,
+                owner_is_shared(own_type_name),
                 none,
             );
         }
@@ -303,6 +401,7 @@ fn classify_arg(
     let rt = ReturnType::new(arg.clone(), wrappers.clone());
     let arg_type = rt.get_new_return_type(false, true);
     let call = rt.handle_rs_to_c_return(quote! { #name }, false);
+    let prefix_limit = prefix_limit(fn_name, &arg.name);
     ClassifiedArg {
         kind: ArgRole::Plain,
         signature: if arg_type.is_empty() {
@@ -311,8 +410,25 @@ fn classify_arg(
             Some(quote! { #name: #arg_type })
         },
         call: if call.is_empty() { None } else { Some(quote! { #call }) },
-        generic: rt.method_generics_for_where(false),
+        generic: rt.method_generics_for_where(false, false),
+        prelude: prefix_limit.map(|limit| {
+            quote! {
+                if #name > #limit {
+                    return Err(AeronCError::with_message(-1, "prefix length exceeds the address width"));
+                }
+            }
+        }),
         ..none
+    }
+}
+
+/// Native netmask construction shifts by the address width minus the prefix length, so a
+/// wider prefix is rejected before C can shift out of range. These methods return `Result`
+pub(crate) fn prefix_limit(fn_name: &str, arg_name: &str) -> Option<usize> {
+    match (fn_name, arg_name) {
+        ("aeron_ipv4_does_prefix_match" | "aeron_ipv4_netmask_from_prefixlen", "prefixlen") => Some(32),
+        ("aeron_ipv6_does_prefix_match" | "aeron_ipv6_netmask_from_prefixlen", "prefixlen") => Some(128),
+        _ => None,
     }
 }
 
@@ -324,6 +440,7 @@ fn classify_handler_arg(
     closure_handlers: &[CHandler],
     owned_retained: &Option<Arg>,
     fn_name: &str,
+    shared_owner: bool,
     none: ClassifiedArg,
 ) -> ClassifiedArg {
     let handler = handler_client.first().unwrap();
@@ -367,9 +484,33 @@ fn classify_handler_arg(
         ..none
     };
     let is_owned = owned_retained.as_ref().map(|o| o.name == arg.name).unwrap_or(false);
-    let rt = ReturnType::new(arg.clone(), wrappers.clone());
+    let local_callbacks = !is_owned && (sync || !shared_owner);
+    let rt = ReturnType::new(arg.clone(), wrappers.clone()).with_local_callbacks(local_callbacks);
+    let policy = if local_callbacks {
+        let p = format_ident!("{}Policy", new_type.to_token_stream().to_string());
+        quote! { #p }
+    } else {
+        quote! { SharedCallback }
+    };
 
     if is_owned {
+        let registration = if own_archive_callback_setter(fn_name) {
+            quote! {
+                if result >= 0 {
+                    self.inner.as_owned().unwrap().replace_handler_dependency(#fn_name, #name.clone());
+                }
+            }
+        } else {
+            quote! {
+                if result >= 0 {
+                    if let Some(__handler) = &#name {
+                        if let Some(__inner) = self.inner.as_owned() {
+                            __inner.add_dependency(__handler.clone());
+                        }
+                    }
+                }
+            }
+        };
         // owned setter: Option<T> in, prelude heap-allocates, registration keeps it alive
         return ClassifiedArg {
             kind: ArgRole::HandlerRetainedOwned,
@@ -379,20 +520,14 @@ fn classify_handler_arg(
                     let callback: #handler_type = if #raw_name.is_null() {
                         None
                     } else {
-                        Some(#shim::<#new_type>)
+                        Some(#shim::<#new_type, #policy>)
                     };
                     callback
                 },
                 #raw_name
             }),
-            generic: rt.method_generics_for_where(false),
-            registration: Some(quote! {
-                if let Some(__handler) = &#name {
-                    if let Some(__inner) = self.inner.as_owned() {
-                        __inner.add_dependency(__handler.clone());
-                    }
-                }
-            }),
+            generic: rt.method_generics_for_where(false, shared_owner),
+            registration: Some(registration),
             ..none
         };
     }
@@ -403,13 +538,48 @@ fn classify_handler_arg(
             let callback: #handler_type = if #name.is_none() {
                 None
             } else {
-                Some(#shim::<#new_type>)
+                Some(#shim::<#new_type, #policy>)
             };
             callback
         },
         #name.map(|m| m.as_raw()).unwrap_or_else(|| std::ptr::null_mut())
     };
     if sync {
+        // Poll callbacks finish before C returns. Hold one checked mutable borrow
+        // for the whole poll instead of checking it again for every fragment.
+        let state = format_ident!("{}_state", arg.name);
+        let direct_shim = format_ident!("{}_callback_for_borrowed_handler{}", handler.c_type, suffix);
+        let (call, handler_prelude) = if unwinds && NATIVE_ASSEMBLER_HANDLER_TYPES.contains(&handler.c_type.as_str()) {
+            let callback = format_ident!("{}_callback", arg.name);
+            let clientd = format_ident!("{}_clientd", arg.name);
+            (
+                quote! { #callback, #clientd },
+                Some(quote! {
+                    let mut #state = #name.map(Handler::lock);
+                    let (#callback, #clientd): (#handler_type, *mut std::os::raw::c_void) =
+                        if let Some(state) = #state.as_mut() {
+                            if let Some(native) = state.native_poll_callback() {
+                                (native.callback, native.clientd)
+                            } else {
+                                (Some(#direct_shim::<#new_type>), &mut **state as *mut #new_type as *mut _)
+                            }
+                        } else { (None, std::ptr::null_mut()) };
+                }),
+            )
+        } else if unwinds {
+            (
+                quote! {
+                    { let callback: #handler_type = if #state.is_some() {
+                        Some(#direct_shim::<#new_type>)
+                    } else { None }; callback },
+                    #state.as_mut().map(|state| &mut **state as *mut #new_type as *mut std::os::raw::c_void)
+                        .unwrap_or(std::ptr::null_mut())
+                },
+                Some(quote! { let mut #state = #name.map(Handler::lock); }),
+            )
+        } else {
+            (borrow_call, None)
+        };
         // the `_fn` variant swaps the Handler for a stack closure with the matching
         // FnMut signature (from the handler's CHandler definition)
         let fn_mut_sig = closure_handlers
@@ -417,11 +587,33 @@ fn classify_handler_arg(
             .find(|c| c.type_name == handler.c_type)
             .map(|c| c.fn_mut_signature.clone())
             .unwrap_or_else(|| quote! { FnMut() -> () });
+        // Other native readers invoke the callback without a null check.
+        // Publication suppliers are optional; native message polls already
+        // reject null handlers. Neither path needs another Rust check.
+        let required = !matches!(
+            handler.c_type.as_str(),
+            "aeron_fragment_handler_t"
+                | "aeron_controlled_fragment_handler_t"
+                | "aeron_block_handler_t"
+                | "aeron_reserved_value_supplier_t"
+        );
+        // A required callback is not an `Option`, so a missing one fails to compile.
+        // Rewrapping lets the shared call path stay `Option`-based
+        let (signature, prelude) = if required {
+            (
+                quote! { #name: &Handler<#new_type, #policy> },
+                Some(quote! { let #name = Some(#name); }),
+            )
+        } else {
+            (quote! { #name: Option<&Handler<#new_type, #policy>> }, None)
+        };
         ClassifiedArg {
             kind: ArgRole::HandlerSync,
-            signature: Some(quote! { #name: Option<&Handler<#new_type>> }),
-            call: Some(borrow_call),
-            generic: rt.method_generics_for_where(false),
+            signature: Some(signature),
+            call: Some(call),
+            prelude,
+            handler_prelude,
+            generic: rt.method_generics_for_where(false, shared_owner),
             once_signature: Some(quote! { mut #name: #new_type }),
             once_call: Some(quote! {
                 Some(#once_shim::<#new_type>),
@@ -433,10 +625,10 @@ fn classify_handler_arg(
     } else {
         ClassifiedArg {
             kind: ArgRole::HandlerRetainedBorrowed,
-            signature: Some(quote! { #name: Option<&Handler<#new_type>> }),
+            signature: Some(quote! { #name: Option<&Handler<#new_type, #policy>> }),
             call: Some(borrow_call),
             // registered as a dependency, so always 'static
-            generic: rt.method_generics_for_where(true),
+            generic: rt.method_generics_for_where(true, shared_owner),
             registration: Some(quote! {
                 if let Some(__handler) = #name {
                     if let Some(__inner) = self.inner.as_owned() {
@@ -475,6 +667,82 @@ mod tests {
             arguments: args,
             docs: Default::default(),
         }
+    }
+
+    #[test]
+    fn copy_uses_the_destination_as_self_and_keeps_the_source_argument() {
+        let wrapper = CWrapper {
+            type_name: "aeron_value_t".into(),
+            class_name: "AeronValue".into(),
+            ..Default::default()
+        };
+        let mut wrappers = BTreeMap::from([("aeron_value_t".into(), wrapper)]);
+        let method = method(
+            "copy",
+            ":: std :: os :: raw :: c_int",
+            vec![
+                arg("dst", "* mut aeron_value_t", ArgProcessing::Default),
+                arg("src", "* mut aeron_value_t", ArgProcessing::Default),
+            ],
+        );
+        let classified = classify_method_args(&method, "aeron_value_t", &wrappers, &[]);
+        assert_eq!(classified.args[0].kind, ArgRole::SelfPointer);
+        assert_eq!(classified.args[1].kind, ArgRole::WrapperPointer);
+        assert_eq!(
+            classified.calls().iter().map(ToString::to_string).collect::<Vec<_>>(),
+            ["self . get_inner ()", "src . get_inner ()",]
+        );
+        assert_eq!(
+            classified.signatures()[0].to_string(),
+            quote! { src: &AeronValue<impl ResourceStorage<aeron_value_t>> }.to_string()
+        );
+        assert!(classified.registrations().is_empty());
+        assert!(classified.preludes().is_empty());
+        // Copying pointers does not make their targets independent of the source.
+        wrappers
+            .get_mut("aeron_value_t")
+            .unwrap()
+            .fields
+            .push(arg("data", "* mut u8", ArgProcessing::Default));
+        let classified = classify_method_args(&method, "aeron_value_t", &wrappers, &[]);
+        assert_eq!(
+            classified.signatures()[0].to_string(),
+            quote! { src: &AeronValue }.to_string()
+        );
+    }
+
+    #[test]
+    fn native_prefix_operations_check_their_address_width() {
+        for (native, limit) in [
+            ("aeron_ipv4_does_prefix_match", 32usize),
+            ("aeron_ipv4_netmask_from_prefixlen", 32),
+            ("aeron_ipv6_does_prefix_match", 128),
+            ("aeron_ipv6_netmask_from_prefixlen", 128),
+        ] {
+            let mut method = method(
+                "prefix",
+                "bool",
+                vec![arg("prefixlen", "usize", ArgProcessing::Default)],
+            );
+            method.fn_name = native.into();
+            let classified = classify_method_args(&method, "aeron_t", &BTreeMap::new(), &[]);
+            let expected = quote! {
+                if prefixlen > #limit {
+                    return Err(AeronCError::with_message(-1, "prefix length exceeds the address width"));
+                }
+            };
+            assert_eq!(classified.preludes()[0].to_string(), expected.to_string());
+        }
+        let method = method(
+            "unrelated",
+            "bool",
+            vec![arg("prefixlen", "usize", ArgProcessing::Default)],
+        );
+        assert!(
+            classify_method_args(&method, "aeron_t", &BTreeMap::new(), &[])
+                .preludes()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -667,7 +935,7 @@ mod tests {
             quote! {
                 if result >= 0 {
                     if let Some(__inner) = self.inner.as_owned() {
-                        __inner.add_dependency(aeron.clone());
+                        __inner.add_handle_dependency(aeron);
                     }
                 }
             }
@@ -676,7 +944,7 @@ mod tests {
         // a borrowed context cannot keep the client, so set_aeron refuses before calling C
         let guard = &preludes_by_fn["aeron_archive_context_set_aeron"];
         assert!(
-            guard.contains(&quote! { if self.inner.as_owned().is_none() }.to_string()) && guard.contains("borrowed"),
+            guard.contains("as_owned") && guard.contains("owning heap storage"),
             "{guard}"
         );
         // C frees the counter, so the context must not keep it, nor refuse a borrowed self

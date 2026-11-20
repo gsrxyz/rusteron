@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("seeded 10 historical messages");
 
     // 2. Resolve the recording id (wait for the recorder to flush what we published).
-    let session_id = publication.get_constants()?.session_id;
+    let session_id = publication.get_constants()?.session_id();
     let counters = aeron.counters_reader();
     let counter_id = find_counter_id_by_session_in_archive_blocking(
         &counters,

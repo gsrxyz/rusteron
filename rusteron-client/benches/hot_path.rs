@@ -6,8 +6,8 @@
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use rusteron_client::bindings::{
-    aeron_exclusive_publication_offerv, aeron_exclusive_publication_t, aeron_header_t, aeron_iovec_t,
-    aeron_subscription_poll,
+    aeron_controlled_fragment_handler_action_t, aeron_exclusive_publication_offerv, aeron_exclusive_publication_t,
+    aeron_header_t, aeron_iovec_t, aeron_subscription_poll,
 };
 use rusteron_client::*;
 use rusteron_media_driver::testing::EmbeddedDriver;
@@ -22,6 +22,27 @@ const PAYLOAD_LEN: usize = 32;
 // a 32-byte payload takes a 64-byte frame
 const FRAME_LEN: i64 = 64;
 const BATCH: u64 = 1024;
+
+#[derive(Default)]
+struct ByteCounter(u64);
+
+impl AeronFragmentHandlerCallback for ByteCounter {
+    #[inline]
+    fn handle_aeron_fragment_handler(&mut self, message: &[u8], _: &AeronHeader) {
+        self.0 += message.len() as u64;
+    }
+}
+impl AeronControlledFragmentHandlerCallback for ByteCounter {
+    #[inline]
+    fn handle_aeron_controlled_fragment_handler(
+        &mut self,
+        message: &[u8],
+        _: &AeronHeader,
+    ) -> aeron_controlled_fragment_handler_action_t {
+        self.0 += message.len() as u64;
+        aeron_controlled_fragment_handler_action_t::AERON_ACTION_CONTINUE
+    }
+}
 
 struct Harness {
     publisher: AeronPublication,
@@ -75,7 +96,7 @@ fn harness() -> Harness {
 /// Aeron C function a second call site, as a real application has: under LTO, LLVM inlines a
 /// function called from one site only almost regardless of its size, which would flatter the
 /// timed loops.
-fn warm_up(h: &Harness) {
+fn warm_up(h: &mut Harness) {
     let _ = h.publisher.offer(&h.payload);
     if h.publisher.try_claim_raw(PAYLOAD_LEN, &h.claim) >= 0 {
         let _ = h.claim.commit();
@@ -111,7 +132,7 @@ fn offerv(publication: *mut aeron_exclusive_publication_t, payload: &[u8]) -> i6
 trait Lane {
     fn position(&self) -> i64;
     fn position_limit(&self) -> i64;
-    fn subscription(&self) -> &AeronSubscription;
+    fn subscription(&mut self) -> &mut AeronSubscription;
 
     fn wait_for_window(&self, batch: u64) {
         while self.position_limit() - self.position() < batch as i64 * FRAME_LEN {
@@ -120,7 +141,7 @@ trait Lane {
     }
 
     /// Times `iters` publishes in batches, draining between batches untimed.
-    fn time_publish(&self, iters: u64, mut publish: impl FnMut()) -> Duration {
+    fn time_publish(&mut self, iters: u64, mut publish: impl FnMut()) -> Duration {
         let mut elapsed = Duration::ZERO;
         let mut left = iters;
         while left > 0 {
@@ -144,50 +165,49 @@ trait Lane {
     }
 }
 
-struct Concurrent<'a>(&'a Harness);
-struct Exclusive<'a>(&'a Harness);
+// Each lane borrows only its own fields, so a publish closure can still share the rest of the harness
+struct Concurrent<'a>(&'a AeronPublication, &'a mut AeronSubscription);
+struct Exclusive<'a>(&'a AeronExclusivePublication, &'a mut AeronSubscription);
 
 impl Lane for Concurrent<'_> {
     fn position(&self) -> i64 {
-        self.0.publisher.position()
+        self.0.position()
     }
     fn position_limit(&self) -> i64 {
-        self.0.publisher.position_limit()
+        self.0.position_limit()
     }
-    fn subscription(&self) -> &AeronSubscription {
-        &self.0.subscription
+    fn subscription(&mut self) -> &mut AeronSubscription {
+        self.1
     }
 }
 
 impl Lane for Exclusive<'_> {
     fn position(&self) -> i64 {
-        self.0.exclusive.position()
+        self.0.position()
     }
     fn position_limit(&self) -> i64 {
-        self.0.exclusive.position_limit()
+        self.0.position_limit()
     }
-    // the exclusive lane drains its own subscription, which clippy misreads as the wrong field
-    #[allow(clippy::misnamed_getters)]
-    fn subscription(&self) -> &AeronSubscription {
-        &self.0.exclusive_subscription
+    fn subscription(&mut self) -> &mut AeronSubscription {
+        self.1
     }
 }
 
 impl Harness {
     /// Publishes batches untimed and times polling every fragment back with `poll`.
-    fn time_poll(&self, iters: u64, mut poll: impl FnMut(usize) -> usize) -> Duration {
+    fn time_poll(&mut self, iters: u64, mut poll: impl FnMut(&mut AeronSubscription, usize) -> usize) -> Duration {
         let mut elapsed = Duration::ZERO;
         let mut left = iters;
         while left > 0 {
             let batch = left.min(BATCH);
-            Concurrent(self).wait_for_window(batch);
+            Concurrent(&self.publisher, &mut self.subscription).wait_for_window(batch);
             for _ in 0..batch {
                 while self.publisher.offer(&self.payload).is_err() {}
             }
             let mut read = 0;
             let start = Instant::now();
             while read < batch as usize {
-                read += poll(batch as usize - read);
+                read += poll(&mut self.subscription, batch as usize - read);
             }
             elapsed += start.elapsed();
             left -= batch;
@@ -207,11 +227,12 @@ unsafe extern "C-unwind" fn c_count(
 }
 
 fn hot_path(c: &mut Criterion) {
-    let h = harness();
-    warm_up(&h);
+    let mut h = harness();
+    warm_up(&mut h);
     let mut g = c.benchmark_group("hot_path");
 
-    let (concurrent, exclusive) = (Concurrent(&h), Exclusive(&h));
+    let mut concurrent = Concurrent(&h.publisher, &mut h.subscription);
+    let mut exclusive = Exclusive(&h.exclusive, &mut h.exclusive_subscription);
     g.bench_function("offer_32b", |b| {
         b.iter_custom(|iters| {
             concurrent.time_publish(iters, || {
@@ -259,11 +280,59 @@ fn hot_path(c: &mut Criterion) {
     g.bench_function("subscription_get_constants", |b| {
         b.iter(|| black_box(h.subscription.get_constants()))
     });
+    g.bench_function("exclusive_publication_get_constants", |b| {
+        b.iter(|| black_box(h.exclusive.get_constants()))
+    });
+    let image = h.subscription.image_at_index(0).expect("subscription has an image");
+    g.bench_function("image_get_constants", |b| b.iter(|| black_box(image.get_constants())));
+    drop(image);
+    // Compare with `poll_per_fragment` to get the cost of copying the header values
+    let mut values_read = 0i64;
+    g.bench_function("poll_per_fragment_header_get_values", |b| {
+        b.iter_custom(|iters| {
+            h.time_poll(iters, |subscription, limit| {
+                subscription
+                    .poll_fn(
+                        |_, header| {
+                            values_read += header.get_values().expect("header values").frame().term_offset() as i64
+                        },
+                        limit,
+                    )
+                    .expect("poll") as usize
+            })
+        })
+    });
+    black_box(values_read);
     let mut received = 0u64;
+    // The callback work and fragment limits match. Only callback ownership differs.
+    let mut direct = ByteCounter::default();
+    g.bench_function("poll_callback_per_fragment", |b| {
+        b.iter_custom(|iters| {
+            h.time_poll(iters, |subscription, limit| {
+                subscription.poll(&mut direct, limit).expect("poll") as usize
+            })
+        })
+    });
+    black_box(direct.0);
+    let shared = Handler::new(ByteCounter::default());
+    g.bench_function("poll_handler_lock_per_fragment", |b| {
+        b.iter_custom(|iters| {
+            h.time_poll(iters, |subscription, limit| {
+                subscription.poll(&mut *shared.lock(), limit).expect("poll") as usize
+            })
+        })
+    });
+    black_box(shared.borrow().0);
+    g.bench_function("poll_callback_empty", |b| {
+        b.iter(|| black_box(h.subscription.poll(&mut direct, 32).expect("poll")))
+    });
+    g.bench_function("poll_handler_lock_empty", |b| {
+        b.iter(|| black_box(h.subscription.poll(&mut *shared.lock(), 32).expect("poll")))
+    });
     let c_subscription = h.subscription.get_inner();
     g.bench_function("c_poll_per_fragment", |b| {
         b.iter_custom(|iters| {
-            h.time_poll(iters, |limit| {
+            h.time_poll(iters, |_, limit| {
                 // SAFETY: the subscription outlives the bench; the handler only writes `received`.
                 let n = unsafe {
                     aeron_subscription_poll(c_subscription, Some(c_count), (&raw mut received).cast(), limit)
@@ -274,8 +343,8 @@ fn hot_path(c: &mut Criterion) {
     });
     g.bench_function("poll_per_fragment", |b| {
         b.iter_custom(|iters| {
-            h.time_poll(iters, |limit| {
-                h.subscription
+            h.time_poll(iters, |subscription, limit| {
+                subscription
                     .poll_fn(|msg, _| received += msg.len() as u64, limit)
                     .expect("poll") as usize
             })
@@ -283,8 +352,8 @@ fn hot_path(c: &mut Criterion) {
     });
     g.bench_function("poll_per_fragment_1_header_read", |b| {
         b.iter_custom(|iters| {
-            h.time_poll(iters, |limit| {
-                h.subscription
+            h.time_poll(iters, |subscription, limit| {
+                subscription
                     .poll_fn(
                         |msg, header| {
                             received += msg.len() as u64;
@@ -298,8 +367,8 @@ fn hot_path(c: &mut Criterion) {
     });
     g.bench_function("poll_per_fragment_4_header_reads", |b| {
         b.iter_custom(|iters| {
-            h.time_poll(iters, |limit| {
-                h.subscription
+            h.time_poll(iters, |subscription, limit| {
+                subscription
                     .poll_fn(
                         |msg, header| {
                             received += msg.len() as u64;
@@ -307,6 +376,52 @@ fn hot_path(c: &mut Criterion) {
                             black_box(header.stream_id());
                             black_box(header.term_id());
                             black_box(header.reserved_value());
+                        },
+                        limit,
+                    )
+                    .expect("poll") as usize
+            })
+        })
+    });
+    // Each 32-byte message is one fragment, so this measures the assembler wrapper cost
+    let mut fixed = FragmentAssembler::new(ByteCounter::default()).expect("assembler");
+    g.bench_function("assembler_struct_per_message", |b| {
+        b.iter_custom(|iters| {
+            h.time_poll(iters, |subscription, limit| {
+                fixed.poll(subscription, limit).expect("poll") as usize
+            })
+        })
+    });
+    black_box(fixed.handler().0);
+    let mut closures = AeronFragmentClosureAssembler::new().expect("assembler");
+    g.bench_function("assembler_closure_per_message", |b| {
+        b.iter_custom(|iters| {
+            h.time_poll(iters, |subscription, limit| {
+                closures
+                    .poll(subscription, |msg, _| received += msg.len() as u64, limit)
+                    .expect("poll") as usize
+            })
+        })
+    });
+    let mut controlled = ControlledFragmentAssembler::new(ByteCounter::default()).expect("assembler");
+    g.bench_function("controlled_assembler_struct_per_message", |b| {
+        b.iter_custom(|iters| {
+            h.time_poll(iters, |subscription, limit| {
+                controlled.poll(subscription, limit).expect("poll") as usize
+            })
+        })
+    });
+    black_box(controlled.handler().0);
+    let mut controlled_closures = AeronControlledFragmentClosureAssembler::new().expect("assembler");
+    g.bench_function("controlled_assembler_closure_per_message", |b| {
+        b.iter_custom(|iters| {
+            h.time_poll(iters, |subscription, limit| {
+                controlled_closures
+                    .poll(
+                        subscription,
+                        |msg, _| {
+                            received += msg.len() as u64;
+                            aeron_controlled_fragment_handler_action_t::AERON_ACTION_CONTINUE
                         },
                         limit,
                     )

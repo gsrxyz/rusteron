@@ -1,9 +1,8 @@
-//! # Non-blocking publisher (the production pattern)
+//! # Non-blocking publisher
 //!
-//! Companion to [`basic_publisher`], showing the **non-blocking** way to add a
-//! publication. Every other example uses [`Aeron::add_publication`] / [`poll_blocking`] for
-//! brevity. Those block the calling thread in a busy-poll loop, which is fine for a short
-//! example but **not** what you want in production.
+//! Companion to [`basic_publisher`]. Adds a publication without blocking the thread.
+//! The other examples use [`Aeron::add_publication`] / [`poll_blocking`], which busy-poll
+//! until the publication is ready and stall the calling thread.
 //!
 //! This example drives the async poller's [`poll()`](AeronAsyncAddPublication::poll) from a
 //! hand-written loop, interleaving other work while the publication comes up. The same shape
@@ -46,6 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // other things while the driver sets up the publication.
     let poller = aeron.async_add_publication(CHANNEL, STREAM_ID)?;
     let deadline = Instant::now() + Duration::from_secs(5);
+    let mut idle = BackoffIdleStrategy::new();
     let publication = loop {
         if let Some(publication) = poller.poll()? {
             break publication;
@@ -55,22 +55,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         // While the publication is coming up we can service other work instead of blocking,
         // such as other subscriptions, timers, a duty cycle or telemetry
-        do_other_work();
+        idle.idle(do_other_work());
     };
     println!("publishing to {} on stream id {STREAM_ID}", CHANNEL.to_str()?);
 
     // Publication duty cycle
     let mut count: u64 = 0;
+    idle.reset();
     while running.load(Ordering::SeqCst) {
         let mut buf = MESSAGE.to_vec();
         buf.extend_from_slice(count.to_string().as_bytes());
-        match publication.offer(&buf) {
-            Ok(_pos) => count += 1,
-            Err(e) if e.is_retryable() => std::hint::spin_loop(),
+        let work_count = match publication.offer(&buf) {
+            Ok(_pos) => {
+                count += 1;
+                1
+            }
+            Err(e) if e.is_retryable() => 0,
             Err(e) => return Err(format!("publication gone: {e}").into()),
-        }
+        };
         // Interleave the non-publication work with the publish loop.
-        do_other_work();
+        idle.idle(work_count + do_other_work());
         std::thread::sleep(Duration::from_millis(100));
     }
 
@@ -81,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Placeholder for whatever else your application does, such as servicing other
-/// subscriptions, timers or telemetry. In a real app this is your main duty cycle
-fn do_other_work() {
-    std::hint::spin_loop();
+/// subscriptions, timers or telemetry. Return the number of work items processed.
+fn do_other_work() -> i32 {
+    0
 }

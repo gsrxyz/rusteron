@@ -38,13 +38,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("publishing to {} on stream id {STREAM_ID}", CHANNEL.to_str()?);
 
     let mut count: u64 = 0;
+    let mut idle = BackoffIdleStrategy::new();
     while running.load(Ordering::SeqCst) {
         let mut buf = MESSAGE.to_vec();
         buf.extend_from_slice(count.to_string().as_bytes());
         // offer() returns Ok(position) or a typed AeronOfferError.
         match publication.offer(&buf) {
-            Ok(_pos) => count += 1,
-            Err(e) if e.is_retryable() => std::hint::spin_loop(),
+            Ok(_pos) => {
+                count += 1;
+                idle.reset();
+            }
+            Err(e) if e.is_retryable() => idle.idle(0),
             Err(e) => return Err(format!("publication gone: {e}").into()),
         }
         std::thread::sleep(Duration::from_millis(100));

@@ -13,7 +13,6 @@
 
 use rusteron_client::*;
 use std::ffi::{CStr, CString};
-use std::hint::spin_loop;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -88,13 +87,12 @@ fn measure(subscription: &AeronSubscription, seconds: usize) -> Vec<f64> {
     let mut window_start = Instant::now();
     let warmup_end = window_start + Duration::from_secs(1);
     let mut warming = true;
+    let mut idle = BusySpinIdleStrategy::new();
     while samples.len() < seconds {
         let fragments = subscription
             .poll_fn(|_message, _header| count += 1, FRAGMENT_COUNT_LIMIT)
             .unwrap();
-        if fragments == 0 {
-            spin_loop();
-        }
+        idle.idle(fragments);
         let now = Instant::now();
         if warming {
             if now >= warmup_end {
@@ -132,10 +130,11 @@ fn publish(running: &AtomicBool, channel: &CStr, cpu: Option<usize>) {
     wait_until("subscriber", 30, || publication.is_connected());
     pin(cpu);
     let message = [0u8; MESSAGE_LENGTH];
+    let mut idle = BusySpinIdleStrategy::new();
     while running.load(Ordering::Relaxed) {
         match publication.offer(&message) {
             Ok(_) => {}
-            Err(e) if e.is_retryable() => spin_loop(),
+            Err(e) if e.is_retryable() => idle.idle(0),
             Err(e) => panic!("offer: {e:?}"),
         }
     }

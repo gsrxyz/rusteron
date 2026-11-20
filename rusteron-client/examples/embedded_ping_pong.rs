@@ -12,7 +12,7 @@
 
 mod benchmark_support;
 
-use benchmark_support::{MessageCounts, StopOnDrop, print_histogram};
+use benchmark_support::{MessageCounts, print_histogram, spawn_peer};
 use hdrhistogram::Histogram;
 use rusteron_client::*;
 use rusteron_media_driver::testing::EmbeddedDriver;
@@ -44,18 +44,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         counts.warmup, counts.measured
     );
     let running = Arc::new(AtomicBool::new(true));
-    let pong = {
-        let running = running.clone();
-        let dir = dir.clone();
-        thread::Builder::new().name("pong".into()).spawn(move || {
-            let _stop = StopOnDrop(&running);
-            run_pong(&running, &dir).expect("pong failed");
-        })?
-    };
+    let pong_dir = dir.clone();
+    let pong = spawn_peer("pong", running.clone(), move |running| run_pong(running, &pong_dir))?;
     thread::sleep(Duration::from_millis(500));
     let result = run_ping(&running, &dir, &counts);
     running.store(false, Ordering::Release);
-    pong.join().map_err(|_| "pong thread panicked")?;
+    // A pong failure is reported first, as it is what made ping stop early
+    pong.join()
+        .map_err(|_| "pong thread panicked")?
+        .map_err(|error| format!("pong: {error}"))?;
     let histogram = result?;
     if histogram.len() != counts.measured as u64 {
         return Err(format!("expected {} RTT samples, got {}", counts.measured, histogram.len()).into());
@@ -74,15 +71,15 @@ fn client(dir: &str) -> Result<Aeron, AeronCError> {
     Ok(client)
 }
 
+/// Checks for a subscriber every 10 ms, up to 500 times
 fn connected(publication: &AeronPublication) -> Result<(), Box<dyn Error>> {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !publication.is_connected() && Instant::now() < deadline {
+    for _ in 0..500 {
+        if publication.is_connected() {
+            return Ok(());
+        }
         thread::sleep(Duration::from_millis(10));
     }
-    if !publication.is_connected() {
-        return Err("publisher failed to connect".into());
-    }
-    Ok(())
+    Err("no subscriber joined the publication within 5 seconds".into())
 }
 
 fn run_pong(running: &AtomicBool, dir: &str) -> Result<(), Box<dyn Error>> {
@@ -101,8 +98,9 @@ fn run_pong(running: &AtomicBool, dir: &str) -> Result<(), Box<dyn Error>> {
                     claim.data().copy_from_slice(data);
                     claim.commit().expect("claim commit failed");
                 });
-                if !sent(result) {
-                    while !sent(publication.offer(data)) && running.load(Ordering::Acquire) {}
+                // A failed echo panics, and `spawn_peer` turns that into the pong error
+                if !accepted(result).expect("echo failed") {
+                    while running.load(Ordering::Acquire) && !accepted(publication.offer(data)).expect("echo failed") {}
                 }
             },
             FRAGMENT_COUNT_LIMIT,
@@ -143,29 +141,30 @@ fn round_trip(
     histogram: &mut Histogram<u64>,
 ) -> Result<(), Box<dyn Error>> {
     buffer[..8].copy_from_slice(&nanos().to_le_bytes());
-    while !sent(publication.offer(buffer)) {
+    while !accepted(publication.offer(buffer))? {
         if !running.load(Ordering::Acquire) {
             return Err("pong stopped".into());
         }
     }
-    let mut received = false;
-    while !received {
-        if !running.load(Ordering::Acquire) {
-            return Err("pong stopped".into());
-        }
-        subscription.poll_fn(
+    // Pong sends one reply per ping, so the first poll that returns a fragment ends the trip
+    loop {
+        let replies = subscription.poll_fn(
             |reply, _| {
-                let sent = i64::from_le_bytes(reply[..8].try_into().expect("timestamp"));
-                let rtt = nanos() - sent;
+                let stamped = i64::from_le_bytes(reply[..8].try_into().expect("timestamp"));
+                let rtt = nanos() - stamped;
                 if rtt >= 0 {
                     histogram.record(rtt as u64).expect("RTT histogram overflow");
                 }
-                received = true;
             },
             FRAGMENT_COUNT_LIMIT,
         )?;
+        if replies > 0 {
+            return Ok(());
+        }
+        if !running.load(Ordering::Acquire) {
+            return Err("pong stopped".into());
+        }
     }
-    Ok(())
 }
 
 fn nanos() -> i64 {
@@ -174,10 +173,9 @@ fn nanos() -> i64 {
     EPOCH.get_or_init(Instant::now).elapsed().as_nanos() as i64
 }
 
-fn sent<T>(result: Result<T, AeronOfferError>) -> bool {
-    match result {
-        Ok(_) => true,
-        Err(e) if e.is_retryable() => false,
-        Err(e) => panic!("offer failed: {e}"),
-    }
+/// `Ok(false)` means Aeron asked for a retry, for example under back pressure
+fn accepted<T>(result: Result<T, AeronOfferError>) -> Result<bool, AeronOfferError> {
+    result
+        .map(|_| true)
+        .or_else(|error| if error.is_retryable() { Ok(false) } else { Err(error) })
 }

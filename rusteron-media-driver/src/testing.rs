@@ -2,9 +2,9 @@
 //!
 //! The driver stops and joins on `Drop`, so teardown order lives in one place.
 
-use crate::{Aeron, AeronCError, AeronDriver, AeronDriverContext, IntoCString};
+use crate::{AeronCError, AeronDriver, AeronDriverContext, IntoCString};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 
 /// An embedded media driver running on a background thread, with a unique directory,
@@ -14,7 +14,7 @@ use std::thread::JoinHandle;
 /// # use rusteron_media_driver::testing::EmbeddedDriver;
 /// let driver = EmbeddedDriver::launch().unwrap();
 /// // connect clients against driver.dir() ...
-/// // driver stops + joins when it goes out of scope
+/// // driver stops and joins when it goes out of scope
 /// ```
 pub struct EmbeddedDriver {
     dir: String,
@@ -37,9 +37,15 @@ impl EmbeddedDriver {
         let context = AeronDriverContext::new()?;
         context.set_dir_delete_on_shutdown(true)?;
         context.set_dir_delete_on_start(true)?;
-        context.set_dir(&format!("{}{}", context.get_dir(), Aeron::nano_clock()).into_c_string())?;
+        // The clock alone repeats when parallel tests launch in the same tick, and delete-on-start
+        // would then remove another driver's directory. The pid and counter keep each one unique
+        static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+        let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
+        // SAFETY: the text is copied before set_dir changes this local context
+        let dir = format!("{}{}-{id}", unsafe { context.get_dir() }, std::process::id());
+        context.set_dir(&dir.into_c_string())?;
         configure(&context)?;
-        let dir = context.get_dir().to_string();
+        let dir = context.get_dir_owned();
         let (stop, handle) = AeronDriver::launch_embedded(context.clone(), false);
         Ok(Self {
             dir,
@@ -94,7 +100,7 @@ mod tests {
         let driver = EmbeddedDriver::launch().unwrap();
         assert!(!driver.dir().is_empty());
         let dir = driver.dir().to_string();
-        drop(driver); // stops + joins; dir deleted on shutdown
+        drop(driver); // stops, joins and deletes the dir
         assert!(!std::path::Path::new(&dir).join("cnc.dat").exists());
     }
 

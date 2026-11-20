@@ -7,56 +7,27 @@ it as a standalone process or embed it in a Rust application.
 > For production deployments, we recommend the Aeron Java or C media driver.
 > The embedded version here is best suited to integration tests and lightweight environments.
 
----
-
 ## Sponsored by GSR
 
 Rusteron is sponsored and maintained by [GSR](https://www.gsr.io), a global leader in algorithmic trading and market making in digital assets.
-
 Rusteron has been running in production in GSR's low-latency trading system since the beginning of 2025. It is mature and battle tested.
-
 It is developed under the GSR GitHub organisation. We welcome contributions, feedback and discussion. To integrate or contribute, open an issue or reach out directly.
 
----
+[Installation](#installation) · [Examples](#usage-examples) ·
+[UDP tuning](#udp-polling-and-send-batches) ·
+[Migration to 0.3](https://github.com/gsrxyz/rusteron/blob/main/docs/migrating_0.2_to_0.3.md)
 
 ## Installation
 
-To use `rusteron-media-driver`, add the appropriate dependency to your `Cargo.toml`:
-
-<details>
-<summary>Dynamic</summary>
+For a static build:
 
 ```toml
 [dependencies]
-rusteron-media-driver = "0.2"
+rusteron-media-driver = { version = "0.3", features = ["static"] }
 ```
 
-</details>
-
-<details>
-<summary>Static</summary>
-
-```toml
-[dependencies]
-rusteron-media-driver = { version = "0.2", features = ["static"] }
-```
-
-</details>
-
-<details>
-<summary>Static with precompiled C libs (macOS / Linux)</summary>
-
-```toml
-[dependencies]
-rusteron-media-driver = { version = "0.2", features = ["static", "precompile"] }
-```
-
-```toml
-[dependencies]
-rusteron-media-driver = { version = "0.2", features = ["static", "precompile-rustls"] }
-```
-
-</details>
+Use default features for dynamic linking. Add `precompile` or `precompile-rustls`
+alongside `static` to use prebuilt C libraries on macOS and Linux.
 
 The default source build compiles the Aeron C libraries. Dynamic builds also need
 those shared libraries available at runtime; `static` embeds them in the binary.
@@ -66,12 +37,8 @@ See [BUILD.md](https://github.com/gsrxyz/rusteron/blob/main/BUILD.md) for prereq
 
 ## Usage examples
 
-Use `AeronErrorHandlerSlot` to replace callbacks without registering again.
-Old callbacks are freed after their last call. See the
-[example](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/examples/replaceable_error_handler.rs).
-
 <details>
-<summary>Standard Media Driver</summary>
+<summary>Standalone media driver</summary>
 
 ```rust,no_run
 // A standalone media driver; `cargo run -p rusteron-media-driver --bin media_driver` ships the same.
@@ -80,9 +47,12 @@ use rusteron_media_driver::*;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let context = AeronDriverContext::new()?;
     context.set_dir(c"target/aeron")?;
+    // Native enum setters take the Rust names directly
+    context.set_threading_mode(AeronThreadingMode::Shared)?;
     let driver = AeronDriver::new(&context)?;
     driver.start(true)?; // run the conductor duty cycle on this thread
-    println!("media driver running in {}", context.get_dir());
+    // SAFETY: printing copies the text before any setter can change it
+    println!("media driver running in {}", unsafe { context.get_dir() });
     loop {
         driver.main_idle_strategy(driver.main_do_work()?);
     }
@@ -92,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 </details>
 
 <details>
-<summary>Embedded Media Driver</summary>
+<summary>Embedded media driver</summary>
 
 ```rust
 // Embeds the media driver in this process: unique directory, stopped and joined on drop.
@@ -109,7 +79,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-For a caller-built `AeronDriverContext`, `AeronDriver::launch_embedded_guard(ctx, false)` is the RAII form (stops and joins on drop).
+For a caller-built `AeronDriverContext`, use
+`AeronDriver::launch_embedded_guard(ctx, false)` to stop and join the driver on drop.
 
 </details>
 
@@ -133,21 +104,20 @@ context.set_network_publication_max_messages_per_send(4)?;
 ```
 
 The socket poll limit defaults to 4. A send batch must fit within
-`sender_io_vector_capacity`. Driver initialization rejects a larger batch. The
+`sender_io_vector_capacity`. Driver initialisation rejects a larger batch. The
 maximum send batch is 64 messages.
 
 ---
 
 ## Building C against Aeron's headers
 
-Some driver extensions are C compiled against Aeron's own headers. The main one is a custom
-UDP transport, such as kernel bypass with DPDK or ef_vi. It fills in Aeron's
+Some driver extensions are C compiled against Aeron's own headers. The main one is a custom UDP
+transport, such as kernel bypass with DPDK or ef_vi. It fills in Aeron's
 `aeron_udp_channel_transport_bindings_t` and is installed with
 `AeronDriverContext::set_udp_channel_transport_bindings`. That C must see the headers of the
-Aeron this crate builds, or the structs it fills in will not match the driver's, and those
-headers exist only in this crate's vendored Aeron sources. So the crate declares
-`links = "aeron_driver"`, and Cargo hands their paths to the build script of every crate that
-depends on it directly:
+Aeron this crate builds, and they exist only in this crate's vendored Aeron sources. The
+crate declares `links = "aeron_driver"`, so Cargo passes their paths to the build script of
+every crate that depends on it directly:
 
 | Variable | Directory |
 |---|---|
@@ -167,10 +137,10 @@ fn main() {
 }
 ```
 
-Cargo allows one package per `links` name in a build. Two
-semver-incompatible versions of `rusteron-media-driver` cannot share a dependency graph. The
-workspace crate [`links-test`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-media-driver/links-test) compiles a C file against these paths, to check that these
-header paths work.
+Cargo allows one package per `links` name in a build, so two semver-incompatible versions
+of `rusteron-media-driver` cannot share a dependency graph. The workspace crate
+[`links-test`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-media-driver/links-test)
+compiles a C file against these paths.
 
 <a id="contributing--license"></a>
 
@@ -181,7 +151,7 @@ Dual-licensed under MIT or Apache-2.0.
 
 ---
 
-## Acknowledgments
+## Acknowledgements
 
 Special thanks to:
 

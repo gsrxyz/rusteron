@@ -54,8 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let publisher = {
         let running = running.clone();
         let dir = driver.dir().to_string();
-        // the publisher thread has its own client: without `multi-threaded` a handle stays
-        // on the thread whose client created it
+        // This publisher uses its own client on the sending thread.
         std::thread::spawn(move || -> Result<(), AeronCError> {
             let aeron = Aeron::connect_dir(&dir)?;
             // offer() reports NotConnected until the image links; the loop below retries it
@@ -78,21 +77,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
     };
 
-    // use Handler::new instead if messages never exceed the MTU
-    let (assembler, counter) = Handler::with_fragment_assembler(Counter { count: 0, bad: 0 })?;
+    // For messages under the MTU, poll_fn receives fragments without an assembler.
+    let mut assembler = FragmentAssembler::new(Counter { count: 0, bad: 0 })?;
     let mut idle = BackoffIdleStrategy::new();
     loop {
-        idle.idle(subscription.poll(Some(&assembler), 10)?);
-        if counter.count >= MESSAGES {
+        idle.idle(assembler.poll(&subscription, 10)?);
+        if assembler.handler().count >= MESSAGES {
             break;
         }
     }
 
     running.store(false, Ordering::Release);
     publisher.join().map_err(|_| "publisher thread panicked")??;
-    if counter.bad > 0 {
-        return Err(format!("{} corrupt messages", counter.bad).into());
+    if assembler.handler().bad > 0 {
+        return Err(format!("{} corrupt messages", assembler.handler().bad).into());
     }
-    println!("received {} messages", counter.count);
+    println!("received {} messages", assembler.handler().count);
     Ok(())
 }

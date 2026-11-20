@@ -56,6 +56,15 @@ OVERALL_EXIT=0
 
 for BIN in $BINARIES; do
   BIN_NAME=$(basename "$BIN")
+
+  # The code generator's tests are pure Rust and call no C, so memcheck finds nothing there.
+  # Parsing the full bindings under valgrind takes longer than the per-binary timeout
+  case "$BIN_NAME" in
+    rusteron_code_gen-*)
+      echo "=== Skipping $BIN_NAME: no native code"
+      continue
+      ;;
+  esac
   echo "======================================================"
   echo "=== Valgrind: $BIN_NAME"
   echo "======================================================"

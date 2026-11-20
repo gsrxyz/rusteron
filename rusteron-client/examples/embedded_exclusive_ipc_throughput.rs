@@ -28,13 +28,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         let running = running.clone();
         let dir = dir.clone();
         thread::Builder::new().name("publisher".into()).spawn(move || {
-            let _stop = StopOnDrop(&running);
-            publish(&running, &dir).expect("publisher failed");
+            let outcome = publish(&running, &dir).map_err(|error| error.to_string());
+            // A failed publisher stops the subscriber as well as Ctrl-C does
+            running.store(false, Ordering::Release);
+            outcome
         })?
     };
     let result = subscribe(&running, &dir);
     running.store(false, Ordering::Release);
-    publisher.join().map_err(|_| "publisher thread panicked")?;
+    publisher
+        .join()
+        .map_err(|_| "publisher thread panicked")?
+        .map_err(|error| format!("publisher: {error}"))?;
     result
 }
 
@@ -52,12 +57,15 @@ fn publish(running: &AtomicBool, dir: &str) -> Result<(), Box<dyn Error>> {
     let publication = client
         .async_add_exclusive_publication(AERON_IPC_STREAM, STREAM_ID)?
         .poll_blocking(Duration::from_secs(5))?;
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !publication.is_connected() && Instant::now() < deadline {
+    // Offers before the subscriber joins would count as back pressure. Check every 10 ms, up
+    // to 500 times
+    let mut checks = 0;
+    while !publication.is_connected() {
+        checks += 1;
+        if checks > 500 {
+            return Err("no subscriber joined the publication within 5 seconds".into());
+        }
         thread::sleep(Duration::from_millis(10));
-    }
-    if !publication.is_connected() {
-        return Err("publication failed to connect".into());
     }
 
     let buffer = [0u8; MESSAGE_LENGTH];
@@ -95,22 +103,11 @@ fn subscribe(running: &AtomicBool, dir: &str) -> Result<(), Box<dyn Error>> {
         subscription.poll_fn(|_, _| messages += 1, FRAGMENT_COUNT_LIMIT)?;
         if messages >= BURST_LENGTH && start.elapsed() >= Duration::from_secs(1) {
             let rate = messages as f64 / start.elapsed().as_secs_f64();
-            println!(
-                "Throughput: {:.0} msgs/sec, {:.0} bytes/sec",
-                rate,
-                rate * MESSAGE_LENGTH as f64
-            );
+            let megabytes = rate * MESSAGE_LENGTH as f64 / 1e6;
+            println!("rate: {rate:.0} msg/s ({megabytes:.1} MB/s)");
             messages = 0;
             start = Instant::now();
         }
     }
     Ok(())
-}
-
-struct StopOnDrop<'a>(&'a AtomicBool);
-
-impl Drop for StopOnDrop<'_> {
-    fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
-    }
 }

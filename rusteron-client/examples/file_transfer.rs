@@ -99,10 +99,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // `offer_parts` copies the parts straight into the term buffer: no per-message Vec to concatenate them.
     let offer = |publication: &AeronPublication, parts: &[&[u8]]| -> Result<(), AeronOfferError> {
         let deadline = Instant::now() + Duration::from_secs(10);
+        let mut idle = BackoffIdleStrategy::new();
         loop {
             match publication.offer_parts(parts) {
                 Ok(_) => return Ok(()),
-                Err(e) if e.is_retryable() && Instant::now() < deadline => std::hint::spin_loop(),
+                Err(e) if e.is_retryable() && Instant::now() < deadline => idle.idle(0),
                 Err(e) => return Err(e),
             }
         }
@@ -127,13 +128,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         offset = end;
 
         // drain the subscription as we go (single process; a real receiver is remote)
-        assembler.poll(&subscription, &mut receiver, on_message, 64)?;
+        assembler.poll(&subscription, |buf, hdr| on_message(&mut receiver, buf, hdr), 64)?;
     }
 
     // drain the tail until every byte has arrived
     let deadline = Instant::now() + Duration::from_secs(10);
     while receiver.received < FILE_SIZE as u64 && Instant::now() < deadline {
-        if assembler.poll(&subscription, &mut receiver, on_message, 64)? == 0 {
+        if assembler.poll(&subscription, |buf, hdr| on_message(&mut receiver, buf, hdr), 64)? == 0 {
             sleep(Duration::from_millis(1));
         }
     }

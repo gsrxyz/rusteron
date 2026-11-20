@@ -50,7 +50,7 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y uuid-dev libbsd-dev
           cargo test --doc
-          cargo test --doc -p rusteron-client --features multi-threaded
+          cargo test --doc -p rusteron-client --features static
 
   memory-check:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
@@ -171,7 +171,7 @@ jobs:
       matrix:
 #        os: [ubuntu-latest, macos-latest, windows-latest]
         os: [ubuntu-22.04, ubuntu-22.04-arm, macos-latest]
-        features: [default, static, multi-threaded]
+        features: [default, static]
         rust-version: ["stable"]
 
     env:
@@ -220,6 +220,29 @@ jobs:
       - name: Test
         run: |
           cargo test --workspace --all --all-targets ${{ env.feature-flags }} -- --nocapture
+
+      - name: Check ownership and lifetime compile contracts
+        if: runner.os == 'Linux' && matrix.features == 'static'
+        run: |
+          cargo test -p rusteron-client -p rusteron-archive --doc ${{ env.feature-flags }}
+
+      - name: Check usage and migration guide examples
+        if: runner.os == 'Linux' && matrix.features == 'static'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          dependencies = Path('target/debug/deps')
+          externs = []
+          for crate in ('rusteron_client', 'rusteron_archive'):
+              library = max(dependencies.glob(f'lib{crate}-*.rlib'), key=lambda p: p.stat().st_mtime)
+              externs.extend(['--extern', f'{crate}={library}'])
+          for guide in ('client-guide.md', 'archive-guide.md', 'migrating_0.2_to_0.3.md'):
+              subprocess.run(['rustdoc', '--edition', '2024', '--test', f'docs/{guide}',
+                              '-L', f'dependency={dependencies}', *externs], check=True)
+          PY
 
       - name: Lifecycle leak check (strict-lifecycle)
         # Re-run the client lib tests with the strict-lifecycle feature on, so

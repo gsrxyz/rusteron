@@ -24,7 +24,6 @@
 use rusteron_archive::*;
 use std::error::Error;
 use std::ffi::{CStr, CString};
-use std::hint::spin_loop;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering::*};
 use std::sync::mpsc;
@@ -248,7 +247,7 @@ fn publish(
         .async_add_exclusive_publication(channel, stream)
         .and_then(|p| p.poll_blocking(Duration::from_secs(30)))
         .unwrap_or_else(|e| panic!("stream {stream}: add publication: {e}"));
-    let _ = sessions.send((i, publication.get_constants().expect("constants").session_id));
+    let _ = sessions.send((i, publication.get_constants().expect("constants").session_id()));
     wait_until(&format!("the archive to connect to stream {stream}"), 30, || {
         publication.is_connected() || !shared.running.load(Acquire)
     });
@@ -261,13 +260,14 @@ fn publish(
     let interval = Duration::from_nanos(1_000_000_000 / rate.max(1));
     let (mut sent, mut retries, mut missed) = (0u64, 0u64, 0u64);
     let mut next = Instant::now();
+    let mut idle = BusySpinIdleStrategy::new();
     'run: while shared.running.load(Relaxed) {
         if rate > 0 {
             while Instant::now() < next {
                 if !shared.running.load(Relaxed) {
                     break 'run;
                 }
-                spin_loop();
+                idle.idle(0);
             }
         }
         loop {
@@ -279,7 +279,7 @@ fn publish(
                     if !shared.running.load(Relaxed) {
                         break 'run;
                     }
-                    spin_loop();
+                    idle.idle(0);
                 }
                 Err(e) => panic!("stream {stream}: offer failed after {sent} messages: {e}"),
             }
@@ -311,7 +311,7 @@ fn measure_record(
         let stream = RECORD_STREAM + i as i32;
         let deadline = Instant::now() + Duration::from_secs(10);
         let id = loop {
-            if let Some(d) = archive.find_recording(|d| d.session_id == session && d.stream_id == stream)? {
+            if let Some(d) = archive.find_recording(|d| d.session_id() == session && d.stream_id() == stream)? {
                 break d.recording_id;
             }
             if Instant::now() > deadline {
@@ -409,7 +409,7 @@ fn replay(args: &[String]) -> Res<()> {
 
     let (_aeron, archive) = connect()?;
     let mut recordings =
-        archive.collect_recordings(|d| d.stop_position != NULL_POSITION && d.stop_position > d.start_position)?;
+        archive.collect_recordings(|d| d.stop_position() != NULL_POSITION && d.stop_position() > d.start_position())?;
     recordings.sort_by_key(|d| std::cmp::Reverse(d.stop_position - d.start_position));
     recordings.truncate(concurrency);
     if recordings.is_empty() {
@@ -463,10 +463,11 @@ fn consume(
     });
     let session = stats.session.load(Relaxed) as i32;
     let (mut bytes, mut image) = (0u64, None);
+    let mut idle = BusySpinIdleStrategy::new();
     while shared.running.load(Relaxed) {
         let Some(image) = image.as_ref() else {
             image = subscription.image_by_session_id(session);
-            spin_loop();
+            idle.idle(0);
             continue;
         };
         let fragments = image
@@ -481,7 +482,7 @@ fn consume(
             stats.done.store(true, Release);
             return;
         } else {
-            spin_loop();
+            idle.idle(0);
         }
     }
 }

@@ -57,14 +57,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // the image callback runs on the client conductor thread, so it only queues the new client
             let new_clients: Arc<Mutex<Vec<(i32, i64)>>> = Arc::default();
             let on_image_clients = new_clients.clone();
-            let image_handler = Handler::new(move |_subscription: &AeronSubscription, image: &AeronImage| {
-                if let Ok(constants) = image.get_constants() {
-                    on_image_clients
-                        .lock()
-                        .unwrap()
-                        .push((constants.session_id(), constants.correlation_id()));
-                }
-            });
+            let image_handler =
+                SharedHandler::new_shared(move |_subscription: &AeronSubscriptionRef, image: &AeronImageRef| {
+                    if let Ok(constants) = image.get_constants() {
+                        on_image_clients
+                            .lock()
+                            .unwrap()
+                            .push((constants.session_id(), constants.correlation_id()));
+                    }
+                });
             let server_subscription = aeron
                 .async_add_subscription(
                     &cformat!("{request_channel}"),

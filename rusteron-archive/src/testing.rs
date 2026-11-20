@@ -18,8 +18,7 @@ pub(crate) fn running_under_valgrind() -> bool {
     std::env::var_os("RUSTERON_VALGRIND").is_some()
 }
 
-/// Return a `Duration` scaled by 3× when running under Valgrind: the same
-/// multiplier the client crate uses for driver / liveness timeouts.
+/// Returns `base_secs` as a `Duration`, scaled by 3 under Valgrind, the multiplier the client crate uses for driver and liveness timeouts.
 pub(crate) fn valgrind_timeout(base_secs: u64) -> Duration {
     if running_under_valgrind() {
         Duration::from_secs(base_secs.saturating_mul(3))
@@ -157,7 +156,7 @@ impl EmbeddedArchiveMediaDriverProcess {
                                 };
                             }
                         }
-                        error!("aeron error: {}", Aeron::errmsg());
+                        Aeron::with_errmsg(|message| error!("aeron error: {}", message));
                     }
                 }
             }
@@ -386,10 +385,8 @@ impl Drop for EmbeddedArchiveMediaDriverProcess {
 
 /// True if a `java` executable is resolvable on `PATH`.
 ///
-/// The embedded archive media driver is a Java process, so the
-/// persistent-subscription tests use this to **skip themselves** when Java
-/// isn't installed, instead of being blanket `#[ignore]`d. With Java present
-/// they run normally under `cargo test`; without it they no-op and pass.
+/// The embedded archive media driver is a Java process. Tests that need it
+/// skip themselves when Java is absent instead of being `#[ignore]`d.
 pub fn java_available() -> bool {
     Command::new("java")
         .arg("-version")
@@ -414,7 +411,6 @@ macro_rules! skip_unless_java {
 
 pub fn set_panic_hook() {
     panic::set_hook(Box::new(|info| {
-        // Get the backtrace
         let backtrace = Backtrace::force_capture();
         error!("Stack trace: {backtrace:#?}");
 
@@ -455,7 +451,7 @@ pub fn find_unused_udp_port(start: u16) -> Option<u16> {
 /// Waits for a recording counter in any archive. Prefer
 /// [`find_counter_id_by_session_in_archive_blocking`] when an Archive client is available.
 pub fn find_counter_id_by_session_blocking(
-    counters_reader: &crate::AeronCountersReader,
+    counters_reader: &crate::AeronCountersReader<impl crate::ResourceStorage<crate::bindings::aeron_counters_reader_t>>,
     session_id: i32,
     wait: Duration,
 ) -> Result<i32, crate::AeronCError> {
@@ -467,7 +463,7 @@ pub fn find_counter_id_by_session_blocking(
 /// Waits for the recording counter belonging to `archive_id` (Aeron 1.54+).
 /// A session may be recorded by multiple Archives sharing the same Media Driver.
 pub fn find_counter_id_by_session_in_archive_blocking(
-    counters_reader: &crate::AeronCountersReader,
+    counters_reader: &crate::AeronCountersReader<impl crate::ResourceStorage<crate::bindings::aeron_counters_reader_t>>,
     session_id: i32,
     archive_id: i64,
     wait: Duration,

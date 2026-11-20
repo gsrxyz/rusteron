@@ -76,17 +76,35 @@ pub fn parse_bindings_with_custom(out: &PathBuf, extra_custom_code: &[&str]) -> 
     }
 
     let mut bindings = CBinding {
+        enums: items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Enum(item) => crate::native_enums::parse(item),
+                _ => None,
+            })
+            .collect(),
+        constants: items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Const(constant) => Some(Arg {
+                    name: constant.ident.to_string(),
+                    c_type: constant.ty.to_token_stream().to_string(),
+                    processing: ArgProcessing::Default,
+                }),
+                _ => None,
+            })
+            .collect(),
         wrappers: wrappers
             .into_iter()
             .filter(|(_, wrapper)| {
-                // these are from media driver and do not follow convention
+                // media driver types, which do not follow the naming convention
                 ![
                     "aeron_thread",
                     "aeron_command",
                     "aeron_executor",
                     "aeron_name_resolver",
-                    "aeron_udp_channel_transport", // this one I have issues with handlers
-                    "aeron_udp_transport",         // this one I have issues with handlers
+                    "aeron_udp_channel_transport", // handlers unsupported
+                    "aeron_udp_transport",         // handlers unsupported
                 ]
                 .iter()
                 .any(|&filter| wrapper.type_name.starts_with(filter))
@@ -247,6 +265,7 @@ fn process_type(wrappers: &mut BTreeMap<String, CWrapper>, handlers: &mut Vec<CH
             .entry(type_name.clone())
             .or_insert(CWrapper {
                 class_name,
+                native_type: ty.ty.to_token_stream().to_string(),
                 without_name: type_name[..type_name.len() - 2].to_string(),
                 type_name,
                 ..Default::default()
@@ -368,6 +387,7 @@ fn process_struct(wrappers: &mut BTreeMap<String, CWrapper>, s: &ItemStruct, han
         .collect();
 
     let w = wrappers.entry(type_name.to_string()).or_insert(CWrapper {
+        native_type: s.ident.to_string(),
         class_name,
         without_name: type_name[..type_name.len() - 2].to_string(),
         type_name,
@@ -550,7 +570,7 @@ mod tests {
         assert!(bindings.handlers.len() > 1);
     }
 
-    /// `(buffer, frame_length)` must merge into one slice; old heuristic missed `frame_length`.
+    /// `(buffer, frame_length)` must merge into one slice.
     #[test]
     fn reserved_value_supplier_buffer_merges_with_frame_length() {
         if running_under_valgrind() {

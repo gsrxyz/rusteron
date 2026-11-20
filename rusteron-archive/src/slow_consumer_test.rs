@@ -1,10 +1,8 @@
 #[cfg(test)]
 mod tests {
-    //! Slow Consumer Replay Tests
+    //! Slow consumer replay tests, marked `#[ignore]` so `cargo test` skips them.
     //!
-    //! These tests are marked with `#[ignore]` and will not run during normal `cargo test`.
-    //!
-    //! To run these tests explicitly:
+    //! To run them:
     //! ```bash
     //! # Run all ignored tests
     //! cargo test --package rusteron-archive --lib --features "precompile static" -- --ignored
@@ -47,7 +45,7 @@ mod tests {
             Aeron,
             AeronArchiveContext,
             EmbeddedArchiveMediaDriverProcess,
-            Handler<ErrorCount>,
+            SharedHandler<ErrorCount>,
         ),
         Box<dyn Error>,
     > {
@@ -76,7 +74,7 @@ mod tests {
         aeron_context.set_dir(&aeron_dir.into_c_string())?;
         aeron_context.set_client_name(&format!("test-{}", aeron_dir_suffix).into_c_string())?;
 
-        let error_handler = Handler::new(ErrorCount::default());
+        let error_handler = SharedHandler::new_shared(ErrorCount::default());
         aeron_context.set_error_handler(Some(error_handler.clone()))?;
 
         // Use inner closure so we can call release() on any error path after handler is created
@@ -116,7 +114,6 @@ mod tests {
 
         EmbeddedArchiveMediaDriverProcess::kill_all_java_processes().ok();
 
-        // 1. Start Archive/Publisher Driver
         let (aeron_archive, archive_context, media_driver_archive, archive_error_handler) =
             start_aeron_archive_with_config("archive", 8000)?;
 
@@ -125,7 +122,6 @@ mod tests {
             .poll_blocking(Duration::from_secs(30))
             .expect("failed to connect to archive");
 
-        // 2. Start Subscriber Driver
         let (aeron_subscriber, _subscriber_archive_context, _media_driver_subscriber, subscriber_error_handler) =
             start_aeron_archive_with_config("subscriber", 9000)?;
 
@@ -145,14 +141,12 @@ mod tests {
         };
         let stream_id = 1001;
 
-        // Start recording on Archive Driver
         let subscription_id =
             archive.start_recording(&channel.clone().into_c_string(), stream_id, source_location, true)?;
         info!("Started recording subscription_id={}", subscription_id);
 
-        // Publisher thread, flooding the archive driver with its own client (without
-        // `multi-threaded` a publication stays on the thread whose client created it); it
-        // sends its session id once the recording has connected
+        // The publisher uses its own client and sends its session id once the
+        // recording has connected.
         let running = Arc::new(AtomicBool::new(true));
         let running_clone = running.clone();
         let (session_tx, session_rx) = std::sync::mpsc::channel();
@@ -169,7 +163,7 @@ mod tests {
             }
             assert!(publication.is_connected());
             session_tx
-                .send(publication.get_constants().expect("constants").session_id)
+                .send(publication.get_constants().expect("constants").session_id())
                 .expect("session id");
 
             let mut seq = 0u64;
@@ -186,12 +180,11 @@ mod tests {
                 if seq % 1_000_000 == 0 {
                     info!("Published {} messages", seq);
                 }
-                // No sleep to flood the buffer
+                // No sleep, to flood the buffer
             }
             seq
         });
 
-        // Find recording id
         let session_id = session_rx.recv_timeout(Duration::from_secs(10))?;
         let counters_reader = aeron_archive.counters_reader();
         let mut counter_id = -1;
@@ -205,7 +198,6 @@ mod tests {
         let recording_id = RecordingPos::get_recording_id(&counters_reader, counter_id)?;
         info!("Recording ID: {}", recording_id);
 
-        // Wait a bit for some data to be recorded
         sleep(Duration::from_secs(2));
 
         // Start Replay with length = -1 (follow mode)
@@ -213,10 +205,9 @@ mod tests {
         let replay_stream_id = 1002;
         let replay_params = AeronArchiveReplayParams::new(0, i32::MAX, 0, replay_length, 0, 0)?;
 
-        // 3. Create Subscription on Subscriber Driver with localhost:0
         let subscription_channel_template = "aeron:udp?endpoint=localhost:0";
-        let avail_image_handler = Handler::new(AeronAvailableImageLogger);
-        let unavail_image_handler = Handler::new(AeronUnavailableImageLogger);
+        let avail_image_handler = SharedHandler::new_shared(AeronAvailableImageLogger);
+        let unavail_image_handler = SharedHandler::new_shared(AeronUnavailableImageLogger);
         let subscription = aeron_subscriber
             .async_add_subscription(
                 &subscription_channel_template.into_c_string(),
@@ -226,13 +217,11 @@ mod tests {
             )?
             .poll_blocking(Duration::from_secs(5))?;
 
-        // 4. Resolve the port
         let mut buffer = [0u8; 4096];
         let len = subscription.try_resolve_channel_endpoint_port(&mut buffer)?;
         let resolved_channel = String::from_utf8_lossy(&buffer[..len as usize]).to_string();
         info!("Resolved subscription channel: {}", resolved_channel);
 
-        // 5. Start Replay on Archive Driver pointing to the resolved Subscriber port
         let replay_session_id = archive.start_replay(
             recording_id,
             &resolved_channel.into_c_string(),
@@ -241,7 +230,6 @@ mod tests {
         )?;
         info!("Started replay session_id={}", replay_session_id);
 
-        // Consumer loop
         let expected_seq = 0u64;
         let start_check = Instant::now();
         let test_duration = Duration::from_secs(60);
@@ -262,7 +250,6 @@ mod tests {
                     self.expected_seq += 1;
                 }
 
-                // Simulate slow processing
                 sleep(Duration::from_millis(500));
             }
         }
@@ -275,9 +262,9 @@ mod tests {
 
         info!("Starting slow consumer loop");
         while start_check.elapsed() < test_duration {
-            let _fragments = subscription.poll(Some(&handler_box), 1)?;
+            let _fragments = subscription.poll(&mut *handler_box.lock(), 1)?;
 
-            if handler_box.gaps > 0 {
+            if handler_box.borrow().gaps > 0 {
                 break;
             }
         }
@@ -285,7 +272,7 @@ mod tests {
         running.store(false, Ordering::Release);
         let published_count = publisher_thread.join().unwrap();
 
-        if handler_box.gaps > 0 {
+        if handler_box.borrow().gaps > 0 {
             panic!("Test failed: Sequence gaps detected!");
         }
 
@@ -294,11 +281,12 @@ mod tests {
             "Published count {} is not > 1,000,000",
             published_count
         );
-        assert!(handler_box.expected_seq > 0, "No messages received");
+        assert!(handler_box.borrow().expected_seq > 0, "No messages received");
 
         info!(
             "Test passed: No sequence gaps detected. Published: {}, Received: {}",
-            published_count, handler_box.expected_seq
+            published_count,
+            handler_box.borrow().expected_seq
         );
         drop(archive);
         drop(aeron_archive);

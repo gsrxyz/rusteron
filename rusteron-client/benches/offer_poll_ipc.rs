@@ -12,7 +12,7 @@ use rusteron_client::bindings::{
 use rusteron_client::*;
 use rusteron_media_driver::{AeronDriver, AeronDriverContext};
 use std::ffi::c_void;
-use std::hint::{black_box, spin_loop};
+use std::hint::black_box;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
@@ -21,10 +21,11 @@ const STREAM_ID: i32 = 7002;
 /// Retries only what a later offer can fix, as a real publisher would.
 #[inline]
 fn offer(publication: &AeronExclusivePublication, payload: &[u8]) {
+    let mut idle = BusySpinIdleStrategy::new();
     loop {
         match publication.offer(black_box(payload)) {
             Ok(_) => return,
-            Err(e) if e.is_retryable() => spin_loop(),
+            Err(e) if e.is_retryable() => idle.idle(0),
             Err(e) => panic!("offer failed: {e}"),
         }
     }
@@ -33,6 +34,7 @@ fn offer(publication: &AeronExclusivePublication, payload: &[u8]) {
 /// The C-side twin of [`offer`]: retries the retryable sentinels (-1 to -3).
 #[inline]
 fn c_offer(publication: *mut aeron_exclusive_publication_t, payload: &[u8]) {
+    let mut idle = BusySpinIdleStrategy::new();
     loop {
         // SAFETY: the publication outlives the bench and the payload outlives the call.
         let position = unsafe {
@@ -46,7 +48,7 @@ fn c_offer(publication: *mut aeron_exclusive_publication_t, payload: &[u8]) {
         };
         match position {
             0.. => return,
-            -3..=-1 => spin_loop(),
+            -3..=-1 => idle.idle(0),
             _ => panic!("offer failed: {position}"),
         }
     }
@@ -66,13 +68,15 @@ fn offer_poll(c: &mut Criterion) {
     let driver = AeronDriverContext::new().unwrap();
     driver.set_dir_delete_on_start(true).unwrap();
     driver.set_dir_delete_on_shutdown(true).unwrap();
+    // SAFETY: `format!` copies the old directory before `set_dir` replaces it
     driver
-        .set_dir(&format!("{}bench-offer-poll", driver.get_dir()).into_c_string())
+        .set_dir(&format!("{}bench-offer-poll", unsafe { driver.get_dir() }).into_c_string())
         .unwrap();
     let (stop, handle) = AeronDriver::launch_embedded(driver.clone(), false);
 
     let ctx = AeronContext::new().unwrap();
-    ctx.set_dir(&driver.get_dir().into_c_string()).unwrap();
+    // SAFETY: `into_c_string` copies the directory straight away
+    ctx.set_dir(&unsafe { driver.get_dir() }.into_c_string()).unwrap();
     let aeron = Aeron::new(&ctx).unwrap();
     aeron.start().unwrap();
     let timeout = Duration::from_secs(5);
@@ -98,6 +102,8 @@ fn offer_poll(c: &mut Criterion) {
 
     let payload = [7u8; 32];
     let mut received = 0u64;
+    // Use the same idle policy for the Rust and direct C benchmark arms.
+    let mut idle = BusySpinIdleStrategy::new();
     let mut g = c.benchmark_group("offer_poll_ipc_32b");
     g.bench_function("subscription", |b| {
         b.iter(|| {
@@ -107,7 +113,7 @@ fn offer_poll(c: &mut Criterion) {
                 .expect("poll")
                 == 0
             {
-                spin_loop();
+                idle.idle(0);
             }
         })
     });
@@ -120,7 +126,7 @@ fn offer_poll(c: &mut Criterion) {
                     aeron_subscription_poll(c_subscription, Some(count_bytes), (&raw mut received).cast(), 1)
                 };
                 match fragments {
-                    0 => spin_loop(),
+                    0 => idle.idle(0),
                     1.. => break,
                     _ => panic!("poll failed: {fragments}"),
                 }
@@ -135,7 +141,7 @@ fn offer_poll(c: &mut Criterion) {
                 .expect("poll")
                 == 0
             {
-                spin_loop();
+                idle.idle(0);
             }
         })
     });
@@ -146,7 +152,7 @@ fn offer_poll(c: &mut Criterion) {
                 // SAFETY: the retained image outlives the bench; the handler only writes `received`.
                 let fragments = unsafe { aeron_image_poll(c_image, Some(count_bytes), (&raw mut received).cast(), 1) };
                 match fragments {
-                    0 => spin_loop(),
+                    0 => idle.idle(0),
                     1.. => break,
                     _ => panic!("poll failed: {fragments}"),
                 }

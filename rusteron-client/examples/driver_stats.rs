@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cnc = AeronCnc::open(&cformat!("{dir}"))?;
     println!(
         "CnC version {}; driver heartbeat age {} ms",
-        cnc.get_constants()?.cnc_version,
+        cnc.get_constants()?.cnc_version(),
         {
             let now = Aeron::epoch_clock();
             now - cnc.get_to_driver_heartbeat_ms()?

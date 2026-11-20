@@ -12,12 +12,11 @@
 //!    as an `AeronArchiveError` (match on `e.code`); errors for requests no longer
 //!    awaited arrive later on the control channel, so drain them each cycle with
 //!    `archive.do_work()` (to the context's error handler) or `archive.poll_for_error()`.
-//! 4. **Archive down**. A request fails with a `Generic` code: `offer failed` once the
-//!    control request publication sees the archive gone, or a response timeout
-//!    (`AERON_ARCHIVE_MESSAGE_TIMEOUT`, 10 s by default) before that. A lost archive shows
-//!    as `archive.get_control_response_subscription().is_connected()` turning false; then
-//!    reconnect with bounded retries. Here the media driver stops with the archive, so the
-//!    example reconnects with a new client too.
+//! 4. **Archive down**. `NotConnected` reports a lost control subscription.
+//!    `IllegalState` means the client previously detected a fatal error and must
+//!    be closed. Other transport failures and timeouts retain their native code
+//!    in `Unknown(code)`. Reconnect with bounded retries. This example stops the
+//!    media driver with the archive, so it reconnects with a new client too.
 //!
 //! Requires `java` on PATH (an embedded Java Archive is started for you).
 //!
@@ -66,7 +65,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let archive_context = process.archive_context(&aeron)?;
     archive_context.set_error_handler(Some(|code: i32, msg: &str| {
-        eprintln!("[archive error] {code}: {msg}");
+        let code = AeronArchiveErrorCode::from_native_code(code);
+        eprintln!("[archive error] {code:?}: {msg}");
     }))?;
 
     // 2. Recording signals: the archive announces recording lifecycle events

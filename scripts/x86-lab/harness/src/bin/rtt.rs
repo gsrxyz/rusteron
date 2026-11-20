@@ -15,7 +15,6 @@
 use hdrhistogram::Histogram;
 use rusteron_client::*;
 use std::ffi::{CStr, CString};
-use std::hint::spin_loop;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -142,12 +141,13 @@ fn round_trip(
     buffer: &mut [u8; MESSAGE_LENGTH],
     mut record: impl FnMut(u64),
 ) {
+    let mut idle = BusySpinIdleStrategy::new();
     let position = loop {
         // stamped on each attempt, so time back-pressured is not counted
         buffer[..8].copy_from_slice(&Aeron::nano_clock().to_le_bytes());
         match publication.offer(buffer) {
             Ok(position) => break position,
-            Err(e) if e.is_retryable() => spin_loop(),
+            Err(e) if e.is_retryable() => idle.idle(0),
             Err(e) => panic!("offer: {e:?}"),
         }
     };
@@ -164,8 +164,8 @@ fn round_trip(
             .unwrap();
         if fragments == 0 {
             assert!(!image.is_closed(), "pong went away");
-            spin_loop();
         }
+        idle.idle(fragments);
     }
 }
 
@@ -192,18 +192,18 @@ fn run_pong(
         ready.store(true, Ordering::Release);
     }
     pin(cpu);
+    let mut idle = BusySpinIdleStrategy::new();
     while running.load(Ordering::Acquire) {
         let fragments = subscription
             .poll_fn(|ping, _header| echo(&publication, ping), FRAGMENT_COUNT_LIMIT)
             .unwrap();
-        if fragments == 0 {
-            spin_loop();
-        }
+        idle.idle(fragments);
     }
 }
 
 #[inline]
 fn echo(publication: &AeronExclusivePublication, ping: &[u8]) {
+    let mut idle = BusySpinIdleStrategy::new();
     loop {
         match publication.try_claim_owned(ping.len()) {
             Ok(mut claim) => {
@@ -211,7 +211,7 @@ fn echo(publication: &AeronExclusivePublication, ping: &[u8]) {
                 claim.commit().unwrap();
                 return;
             }
-            Err(e) if e.is_retryable() => spin_loop(),
+            Err(e) if e.is_retryable() => idle.idle(0),
             Err(e) => panic!("claim: {e:?}"),
         }
     }

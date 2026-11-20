@@ -64,12 +64,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut back_pressure = 0u64;
     let publish_start = Instant::now();
     let mut sent = 0u64;
+    let mut idle = BusySpinIdleStrategy::new();
     while sent < MESSAGES {
         match publication.offer(&message) {
             Ok(_) => sent += 1,
             Err(e) if e.is_retryable() => {
                 back_pressure += 1;
-                std::hint::spin_loop();
+                idle.idle(0);
             }
             Err(e) => return Err(format!("fatal offer error after {sent} messages: {e}").into()),
         }
@@ -83,7 +84,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // how long until the archiver has everything on disk?
-    let session_id = publication.get_constants()?.session_id;
+    let session_id = publication.get_constants()?.session_id();
     let counters = aeron.counters_reader();
     let counter_id = find_counter_id_by_session_in_archive_blocking(
         &counters,
@@ -113,12 +114,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     archive.list_recordings_fn(&mut count, 0, 100, |descriptor: &AeronArchiveRecordingDescriptor| {
         println!(
             "  recording {}: stream {} session {} [{} .. {}] ({} bytes) {}",
-            descriptor.recording_id,
-            descriptor.stream_id,
-            descriptor.session_id,
-            descriptor.start_position,
-            descriptor.stop_position,
-            descriptor.stop_position - descriptor.start_position,
+            descriptor.recording_id(),
+            descriptor.stream_id(),
+            descriptor.session_id(),
+            descriptor.start_position(),
+            descriptor.stop_position(),
+            descriptor.stop_position() - descriptor.start_position(),
             descriptor.stripped_channel(),
         );
     })?;

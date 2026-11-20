@@ -29,7 +29,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let running_ctrl_c = Arc::clone(&running);
     ctrlc::set_handler(move || running_ctrl_c.store(false, Ordering::SeqCst))?;
 
-    // Embedded media driver (the C samples assume an external `aeronmd`).
     // embedded media driver with RAII teardown (stops + joins on drop)
     let driver = EmbeddedDriver::launch()?;
 
@@ -46,8 +45,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // rate subscriber (rate_subscriber.c)
     // The subscriber keeps plain counters (single writer, no atomics on the hot path) and
     // returns them when it stops. It stops once it has seen everything the publisher sent.
-    // It has its own client: without `multi-threaded` a handle stays on the thread whose
-    // client created it. Offers report NotConnected until its subscription joins.
+    // It creates its own client on the receiving thread.
+    // Offers report NotConnected until its subscription joins.
     let target = Arc::new(AtomicU64::new(u64::MAX));
     let target_sub = target.clone();
     let dir = driver.dir().to_string();
@@ -63,22 +62,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (mut last_msgs, mut last_bytes) = (0u64, 0u64);
         let mut polls = 0u32;
         let mut drain_deadline = None;
+        let mut idle = BusySpinIdleStrategy::new();
         loop {
             let fragments = assembler.poll(
                 &subscription,
-                &mut counters,
-                |c, buf, _hdr| {
-                    c.0 += 1;
-                    c.1 += buf.len() as u64;
+                |buf, _hdr| {
+                    counters.0 += 1;
+                    counters.1 += buf.len() as u64;
                 },
                 FRAGMENT_LIMIT,
             )?;
+            idle.idle(fragments);
             polls = polls.wrapping_add(1);
             // read the clock when idle, or now and then so a saturated poll still reports
             if fragments > 0 && !polls.is_multiple_of(1024) {
                 continue;
             }
-            std::hint::spin_loop();
             let (m, b) = counters;
             let target = target_sub.load(Ordering::Acquire);
             if target != u64::MAX {
@@ -109,6 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut not_connected_spins = 0u64;
     let start = Instant::now();
     let mut sent = 0u64;
+    let mut idle = BusySpinIdleStrategy::new();
     'publish: while sent < MESSAGES && running.load(Ordering::Acquire) {
         match publication.offer(&message) {
             Ok(_) => sent += 1,
@@ -119,7 +119,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     AeronOfferError::NotConnected => not_connected_spins += 1,
                     _ => {}
                 }
-                std::hint::spin_loop();
+                idle.idle(0);
             }
             Err(e) => {
                 eprintln!("fatal offer error after {sent} messages: {e}");

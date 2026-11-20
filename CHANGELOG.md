@@ -4,6 +4,59 @@ Main changes, newest first, grouped by published crate version. Release-only
 commits, build logs, and changes later reverted or superseded are omitted.
 Early history predating the available release tags is grouped separately.
 
+## 0.3.0
+
+Breaking release. See the [0.2-to-0.3 migration guide](docs/migrating_0.2_to_0.3.md).
+
+- Ownership and handles
+  - Generated wrappers select ownership storage through a sealed type parameter instead of the `CResource` enum. Borrowed views cannot be cloned into owners.
+  - `close` and `delete` consume an owning handle and defer cleanup until other owners are done.
+  - Removed generated getters that transfer native ownership while returning a borrow.
+  - Breaking: `AeronArchive::aeron_owned()` returns `Option<Aeron>`, a clone of the client the archive connected with.
+  - Replication params retain their strings and credentials across clones.
+  - Failed native cleanup keeps dependencies alive instead of freeing them while C may still use them.
+- Thread safety
+  - Removed `multi-threaded`. `Send` and `Sync` follow native thread-safety rules, and local handles stay local.
+  - Breaking: `AeronSubscription` is not cloneable. It is `Send`, so it can move to the thread that polls it. Images, exclusive publications, replay merges and persistent subscriptions stay cloneable and local. As in Aeron Java and C++, polls and supplier offers do not check for nested calls on the same handle.
+- Contexts
+  - Contexts reject configuration changes after native initialisation.
+  - `AeronArchivePersistentSubscriptionContext::set_archive_context` gives the subscription its own copy of the Archive context, so one context can be reused for several subscriptions.
+  - Breaking: `set_udp_channel_incoming_interceptors` and `set_udp_channel_outgoing_interceptors` are `unsafe`, as the driver context frees the bindings when it closes. Their getters and `AeronUdpChannelInterceptorBindings::load` return `Option` instead of panicking on NULL.
+- Callbacks and polling
+  - Local callbacks use `Handler`. Retained conductor callbacks use `SharedHandler`. Added owned `FragmentAssembler` and `ControlledFragmentAssembler` for local polling.
+  - Breaking: fragment polls take `&mut callback` instead of `Option<&Handler>`, so the poll path has no `RefCell`. Own the callback and call `poll(&mut callback, limit)`.
+  - Breaking: readers that need a callback, such as `error_log_read`, `foreach_counter`, `loss_reporter_read` and ring buffer `read`, take `&Handler` instead of `Option<&Handler>`. A missing callback is a compile error instead of a panic.
+  - Breaking: removed `AeronImage::poll_instrumented`. Use `poll`.
+- Archive
+  - Archive contexts and native assemblers are not cloneable. Added retained Archive child views.
+  - Recording descriptor pollers are not cloneable and need mutable access to poll. Borrowed Archive pollers cannot drive expired listing callbacks.
+  - Breaking: `AeronArchiveReplayMerge::new` takes the `AeronArchive` by value. The merge reads the archive's control responses until it finishes, so another request on the same archive can stall it. Pass `archive.clone()` if you need the archive after the merge.
+  - Breaking: `find_recording` and `collect_recordings` predicates take the borrowed `&AeronArchiveRecordingDescriptorRef`, so read fields through getters such as `stream_id()`. Only matches are copied into a `RecordingDescriptor`.
+  - Archive errors use native numeric codes instead of parsing messages. `poll_for_error()` returns the typed code and full message. Converting an Archive error to `AeronCError` keeps both. `AeronArchiveError.message` is a `Cow<'static, str>`, so errors from Rust checks do not allocate.
+  - Resetting a recording descriptor poller releases the consumer it replaces. Repeated listings no longer keep every earlier consumer alive.
+  - Added `AeronArchivePersistentSubscription::failure_reason(&mut String)`, which reuses the string's capacity, and `AeronArchiveRecordingDescriptor::to_owned()` for a sendable copy of a descriptor.
+  - Fixed archive proxy cleanup closing separately owned publications, async registration reuse, and persistent-subscription context and callback lifetimes.
+- Safety checks and `unsafe` APIs
+  - Raw APIs that transfer ownership, convert raw pointers or alias native buffers now require `unsafe`. Text getters that a setter, poll or close can change are `unsafe` and return `&str` without allocating. Use the text straight away, or call the `_owned` getter for a safe copy. `AeronBufferClaim::data`, `frame_header_mut`, `commit`, `abort`, `main_do_work` and `main_idle_strategy` are safe. Erased message handlers require `unsafe` to store a borrowed context pointer.
+  - Text callbacks validate UTF-8, required callbacks reject `None`, and URI parsing checks input bounds. Rusteron keeps only checks that stop undefined behaviour in Aeron C, such as a NULL callback, an out-of-bounds read or an oversized shift.
+  - Native shallow-copy checks cover unions, arrays and unknown embedded types.
+  - UDP endpoint validation parses bracketed IPv6 hosts and rejects colons in unbracketed hosts.
+  - Breaking: IP prefix utilities return `Result` and reject lengths outside the address width instead of panicking.
+- Enums, constants and native codes
+  - Added generated `AeronCounterTypeId`, `AeronCounterState` and `AeronDriverErrorCode` enums that keep unknown integer values. Archive error variants and native-code conversions come from the bindings.
+  - Added checked integer conversions for native enums. Unknown values return the original integer as an error. The recording-signal helper uses the native enum values.
+  - Added Rust names for native enums, such as `AeronControlledFragmentHandlerAction::Continue` and `AeronThreadingMode::Shared`. They are the native types, so setters take them directly, as in `ctx.set_threading_mode(AeronThreadingMode::Shared)`.
+  - System counter IDs come from native constants. Replaced the `DummyLast` variant with the counters Aeron defines at IDs 40 through 45.
+  - URI setters come from native key constants. Removed `timestamp_offset_reserved()`. Use `"reserved"` as the value of a timestamp offset setter.
+  - Added native replay-parameter copying, bounded-replay checks and Archive protocol-version queries. Methods with multiple pointers to the same native type now generate separate source and destination arguments.
+- Performance
+  - Improved claim, polling and counter lookup paths.
+  - Owning handles of values that Rust allocates and Aeron C never frees, such as `AeronBufferClaim::default()`, cache the native pointer. Each access is one load instead of two, and the handle is 16 B instead of 8 B.
+  - `Debug` keeps safe fields and immutable queries without allocating. Error formatting uses a stack snapshot, and literal error messages do not allocate.
+- Generator and CI
+  - Moved repeated Duration, URI, destination and Archive descriptor-poller wrappers into generator templates.
+  - Added compile-time ownership checks and guide example checks in CI.
+
 ## 0.2.22
 
 - Added `Duration` setters and getters for client context timeouts and intervals and for the archive message timeout, plus `Duration` helpers for URIs. The existing integer methods still work.
@@ -50,7 +103,7 @@ Early history predating the available release tags is grouped separately.
 
 - Added `AeronArchiveRecordingDescriptorPoller::new` and `AeronArchiveRecordingSubscriptionDescriptorPoller::new`, so recordings can be listed without blocking. The archive's own pollers are borrowed and refuse `reset`.
 - Breaking: `AeronCountersReader::get_counter_value` returns `Result<i64, AeronCError>`. An id that is not a counter (`-1`, or above `max_counter_id`) is an error, instead of a crash or a read past the counters buffer. The value is read atomically (#70).
-- Breaking: `AeronBufferClaim::data_mut` and `frame_header_mut` take `&mut self`. A claim with no buffer gives an empty slice and `None`, instead of a null pointer.
+- Breaking: `AeronBufferClaim::data_mut` is now `data`. It and `frame_header_mut` take `&mut self`. A claim with no buffer gives an empty slice and `None`, instead of a null pointer.
 
 ## 0.2.15
 

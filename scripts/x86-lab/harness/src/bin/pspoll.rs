@@ -105,11 +105,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     archive.start_recording(AERON_IPC_STREAM, STREAM_ID, SOURCE_LOCATION_LOCAL, true)?;
     let adding = aeron.async_add_exclusive_publication(AERON_IPC_STREAM, STREAM_ID)?;
     let publication = client.until("publication", 10, || adding.poll())?;
-    let session_id = publication.get_constants()?.session_id;
+    let session_id = publication.get_constants()?.session_id();
     let counters = aeron.counters_reader();
     let recording_id = client.until("recording", 10, || {
         let counter_id = RecordingPos::find_counter_id_by_session(&counters, session_id);
-        Ok(if counter_id >= 0 { Some(RecordingPos::get_recording_id(&counters, counter_id)?) } else { None })
+        Ok(if counter_id >= 0 {
+            Some(RecordingPos::get_recording_id(&counters, counter_id)?)
+        } else {
+            None
+        })
     })?;
     let mut sent = 0;
     client.until("history", 10, || {
@@ -176,7 +180,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             client.work()
         })?;
-        assert!(persistent.iter().all(|ps| ps.is_live()), "a persistent subscription left live");
+        assert!(
+            persistent.iter().all(|ps| ps.is_live()),
+            "a persistent subscription left live"
+        );
         // subscriber positions on the control-response channel: one per image per subscription
         let response_port = format!("localhost:{resp_port}");
         let mut response_images = 0;

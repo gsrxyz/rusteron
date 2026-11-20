@@ -123,7 +123,7 @@ bench-lto:
 docs:
   cargo clean --doc
   cargo test  --workspace --doc
-  cargo test  -p rusteron-client --doc --features multi-threaded
+  cargo test  -p rusteron-client --doc --features static
   cargo doc --workspace --no-deps --open
 
 # CANNOT USE MIRI due to ffi

@@ -1,14 +1,27 @@
 use hdrhistogram::Histogram;
 use std::error::Error;
+use std::panic::{self, AssertUnwindSafe};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-pub struct StopOnDrop<'a>(pub &'a AtomicBool);
-
-impl Drop for StopOnDrop<'_> {
-    fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
-    }
+/// Runs `peer` on a named thread. However it ends, by returning or by panicking, `running` is
+/// cleared so the thread on the other side stops waiting for it. The peer's error comes back
+/// through the join handle as text, because `Box<dyn Error>` cannot cross threads
+pub fn spawn_peer(
+    name: &str,
+    running: Arc<AtomicBool>,
+    peer: impl FnOnce(&Arc<AtomicBool>) -> Result<(), Box<dyn Error>> + Send + 'static,
+) -> std::io::Result<JoinHandle<Result<(), String>>> {
+    thread::Builder::new().name(name.into()).spawn(move || {
+        let outcome = panic::catch_unwind(AssertUnwindSafe(|| peer(&running)));
+        running.store(false, Ordering::Release);
+        match outcome {
+            Ok(result) => result.map_err(|error| error.to_string()),
+            Err(_) => Err("panicked".into()),
+        }
+    })
 }
 
 pub struct MessageCounts {
