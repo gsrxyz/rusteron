@@ -4,6 +4,24 @@ Main changes, newest first, grouped by published crate version. Release-only
 commits, build logs, and changes later reverted or superseded are omitted.
 Early history predating the available release tags is grouped separately.
 
+## 0.3.1
+
+- Generated API safety
+  - Value constructors, `from_native`, and `clone_struct` resolve scalar aliases, enums, arrays, and nested structs before requiring `unsafe`. Zeroed value constructors check enum validity. Native handles that need initialization keep their unsafe zeroed constructors.
+  - Stateless idle functions and default termination validators are safe because their native implementations ignore pointer arguments. Fixed text in records without native methods has safe borrowed getters. `tmpdir` borrows its output buffer.
+  - Counter-slot reclamation and client-close notifications no longer count as raw handle deletion. Scalar pointer getters return raw pointers instead of creating mutable references through shared handles.
+- Media driver extensions
+  - Breaking: `AeronDriver` has no `Clone`. `start(self)` returns `ThreadedDriver`. `start_manual(self)` returns a thread-local `ManualDriver` with `do_work(&mut self)` and `idle(&mut self, work)`. Removed the driver's public `main_do_work` and `main_idle_strategy` methods.
+  - Breaking: raw supplier setters require `unsafe`. Typed flow-control, congestion-control, interceptor, and resolver APIs enforce state ownership.
+  - Added owned idle strategies, duty-cycle trackers, port managers, and native transport bindings. Custom native transport callbacks require an unsafe constructor. The `extensions` module has one runnable example per extension point under `examples/extensions`, plus bounded-flow and packet-loss examples.
+  - Idle strategies, name resolvers, and port selection accept closures. `DutyCycleTimer` records elapsed nanoseconds through a closure. Interceptors and resolvers can use `Default` for construction or a factory trait for fallible setup. Resolver instances can own runtime configuration.
+  - Packet observers can implement `inspect` with automatic forwarding. Outgoing packets have a borrowed `datagrams()` iterator. Resolver lookup copies reuse storage, with optional `LOOKUP_CAPACITY` reservation during initialization. Sender-owned extension counters use an atomic load and release store instead of an atomic read-modify-write.
+  - Idle callbacks store values without destructors directly in native state when alignment permits. Other values keep Rust ownership. The direct form removes one pointer load per callback.
+  - Driver startup, manual work cycles, and extension configuration leave error-message capture to the caller. Callback error reporting uses a bounded stack buffer instead of heap formatting.
+  - Driver lifecycle replacements use explicit method override metadata shared by source and precompiled builds. The generic method generator has no driver-specific exclusion list.
+  - Added opt-in bounded tagged flow control, seeded test packet loss, startup environment reports, and extension ThreadSanitizer CI.
+- Archive source-identity reads return errors without copying the native message. Call `capture_errmsg()` to retain it.
+
 ## 0.3.0
 
 Breaking release. See the [0.2-to-0.3 migration guide](docs/migrating_0.2_to_0.3.md).

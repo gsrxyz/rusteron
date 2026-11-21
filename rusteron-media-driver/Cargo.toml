@@ -74,6 +74,50 @@ sanitize-address = ["build-from-source"]  # Compiles the Aeron C sources with -f
 name = "media_driver"
 path = "src/bin/media_driver.rs"
 
+[[example]]
+name = "bounded_flow_control"
+path = "examples/extensions/bounded_flow_control.rs"
+
+[[example]]
+name = "congestion_control"
+path = "examples/extensions/congestion_control.rs"
+
+[[example]]
+name = "duty_cycle_tracker"
+path = "examples/extensions/duty_cycle_tracker.rs"
+
+[[example]]
+name = "flow_control"
+path = "examples/extensions/flow_control.rs"
+
+[[example]]
+name = "idle_strategy"
+path = "examples/extensions/idle_strategy.rs"
+
+[[example]]
+name = "incoming_interceptor"
+path = "examples/extensions/incoming_interceptor.rs"
+
+[[example]]
+name = "name_resolver"
+path = "examples/extensions/name_resolver.rs"
+
+[[example]]
+name = "native_transport"
+path = "examples/extensions/native_transport.rs"
+
+[[example]]
+name = "outgoing_interceptor"
+path = "examples/extensions/outgoing_interceptor.rs"
+
+[[example]]
+name = "packet_loss"
+path = "examples/extensions/packet_loss.rs"
+
+[[example]]
+name = "port_manager"
+path = "examples/extensions/port_manager.rs"
+
 [package.metadata.docs.rs]
 features = ["static", "precompile"]
 default-target = "aarch64-apple-darwin"

@@ -14,7 +14,7 @@ pub const SHARED_HANDLES: &[&str] = &[
 /// Subscriptions are `Send`, and their owner is shared. A `Clone` would let two threads poll
 /// one native subscription at the same time, which Aeron C does not allow
 pub fn handle_is_single_owner(name: &str) -> bool {
-    name == "aeron_subscription_t"
+    matches!(name, "aeron_subscription_t" | "aeron_driver_t")
 }
 
 /// Single-owner handles that may move to another thread but not be shared. Their owner
@@ -114,8 +114,10 @@ mod tests {
     }
 
     #[test]
-    fn only_the_send_subscription_has_no_clone() {
+    fn subscription_and_driver_have_one_owner() {
         assert!(handle_is_single_owner("aeron_subscription_t"));
+        assert!(handle_is_single_owner("aeron_driver_t"));
+        assert!(!handle_is_send_only("aeron_driver_t"));
         assert!(handle_is_send_only("aeron_subscription_t"));
         for name in ["aeron_image_t", "aeron_exclusive_publication_t"] {
             assert!(!handle_is_single_owner(name), "{name}");

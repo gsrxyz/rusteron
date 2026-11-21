@@ -21,15 +21,16 @@ pub trait JsonMesssageHandler {
 pub fn start_media_driver() -> Result<(), Box<dyn std::error::Error>> {
     let aeron_context = rusteron_media_driver::AeronDriverContext::new()?;
     let aeron_driver = rusteron_media_driver::AeronDriver::new(&aeron_context)?;
-    aeron_driver.start(true)?;
+    let mut aeron_driver = aeron_driver.start_manual()?;
     info!("Aeron media driver started successfully. Press Ctrl+C to stop.");
 
     aeron_driver.conductor().context().print_configuration();
-    aeron_driver.main_do_work()?;
+    aeron_driver.do_work()?;
     info!("aeron dir: {:?}", aeron_context.get_dir());
 
     loop {
-        aeron_driver.main_idle_strategy(aeron_driver.main_do_work()?);
+        let work = aeron_driver.do_work()?;
+        aeron_driver.idle(work);
     }
 }
 

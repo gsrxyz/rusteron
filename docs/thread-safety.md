@@ -29,7 +29,11 @@ local until reviewed.
 - Configure a client or driver context before passing it to native code. Retained
   clones of a context cannot change it afterwards. If client initialisation fails,
   the context can be changed and used again.
-- The background conductor needs no manual calls. With an agent invoker, call
+- `AeronDriver` has one owner. Starting it consumes the handle. A `ManualDriver`
+  stays on its starting thread and requires `&mut self` for work and idle calls.
+  A `ThreadedDriver` has no manual work entry point. Strategy callbacks split
+  mutable agent state from concurrent `Shared` reads. See [driver extensions](driver-extensions.md).
+- The client background conductor needs no manual calls. With a client agent invoker, call
   `main_do_work` and `main_idle_strategy` from one thread at a time, as in Aeron Java
   and C++. Other threads can still use the client's publication and registration APIs.
 - Getters that return `Ref` borrow their parent. A `Ref` has no `Clone`. Call

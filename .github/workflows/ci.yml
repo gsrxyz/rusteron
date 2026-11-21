@@ -75,6 +75,33 @@ jobs:
           cargo install just
           just test-valgrind
 
+  extension-thread-sanitizer:
+    name: Extension ThreadSanitizer
+    # Aeron's x86 atomics use inline assembly that TSan cannot observe.
+    # The ARM implementation uses compiler atomics.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.1
+          components: rust-src
+      - run: sudo apt-get update && sudo apt-get install -y cmake clang libclang-rt-dev libbsd-dev uuid-dev
+      - name: Test native and Rust extension threads
+        env:
+          CC: clang
+          CXX: clang++
+          RUSTC_BOOTSTRAP: "1"
+          RUSTFLAGS: -Zsanitizer=thread
+          RUSTERON_SANITIZE: thread
+          TSAN_OPTIONS: halt_on_error=1
+        run: |
+          cargo test -Zbuild-std --target aarch64-unknown-linux-gnu -p rusteron-media-driver --features static --lib extensions -- --test-threads=1 --skip panicking_extension_aborts
+          cargo test -Zbuild-std --target aarch64-unknown-linux-gnu -p rusteron-media-driver --features static --test driver_extensions -- --test-threads=1
+
   sanitize:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     name: Sanitizer (AddressSanitizer)

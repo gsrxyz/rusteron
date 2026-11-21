@@ -24,7 +24,8 @@ explicit type annotations and low-level FFI access.
 | `find_recording` or `collect_recordings` predicates reading `d.stream_id` | Call the getters, e.g. `d.stream_id()`. The predicate sees the borrowed descriptor, and only matches are copied into a `RecordingDescriptor` |
 | `timestamp_offset_reserved("...")` | Use `media_rcv_timestamp_offset("reserved")`, `channel_rcv_timestamp_offset("reserved")` or `channel_snd_timestamp_offset("reserved")`. Aeron defines `reserved` as a value, not a key |
 | Exhaustive matches on public Rust enums | Add a fallback arm. The enums are `#[non_exhaustive]` |
-| Raw manual conductor calls | Call `main_do_work()` from one thread at a time, as in Aeron Java and C++ |
+| Client manual conductor calls | Call `main_do_work()` from one thread at a time, as in Aeron Java and C++ |
+| Driver manual loop | Consume the driver with `start_manual()`. Use `do_work(&mut self)` and `idle(&mut self, work)` on the returned `ManualDriver` |
 
 Update the crate versions together:
 
@@ -355,8 +356,8 @@ polls it. A retained image from
 [thread safety](thread-safety.md#native-contracts-and-wrapper-traits).
 
 Configure contexts before native initialization. Later setters return an error,
-or panic if the signature has no error result. Manual conductor methods such as
-`main_do_work()` and `main_idle_strategy()` are safe. As in Aeron Java and C++,
+or panic if the signature has no error result. Client manual conductor methods
+`main_do_work()` and `main_idle_strategy()` remain safe. As in Aeron Java and C++,
 call them from one thread at a time. A background conductor avoids this for
 shared clients.
 
@@ -676,6 +677,20 @@ owner. `build()` returns an error for embedded NULs in string fields.
   `Option<Ref<'_, AeronCounter>>`. Handle `None` for an unset counter. Raw setters
   and builder counter methods that transfer native ownership need `unsafe` and
   exclusive ownership.
+
+In 0.3.1, generated value APIs resolve scalar aliases, native enums, arrays and
+nested structs. Constructors, `from_native` and `clone_struct` are safe when they
+introduce no pointer ownership or native initialization requirement. A native enum
+is safe to move as an initialized value. A zeroed constructor also needs zero to
+be a valid enum variant. Types with a known invalid zero value have no zeroed
+constructor.
+
+Stateless idle functions and the default termination validators are safe because
+they ignore their native pointer arguments. Stateful idle functions still require
+valid state. Fixed text in records without native methods has safe borrowed
+getters. `Aeron::tmpdir` returns text tied to its output buffer. Scalar pointer
+getters return raw pointers, so dereferencing one requires an explicit unsafe
+operation.
 
 Persistent subscriptions retain their context, client, archive context and
 listener. Set a Rust-owned client on the persistent-subscription context or its
@@ -1016,3 +1031,43 @@ over the hot call site threshold of 525. LLVM also judged `aeron_subscription_po
 Rust store in every build, so LTO cannot change it. A reusable
 `AeronBufferClaim` calls the native `commit`, which LTO inlined, but its timings
 did not change beyond the spread.
+
+
+## Media driver extensions and manual loops
+
+`AeronDriver` no longer implements `Clone`. Replace `driver.start(true)` with
+`let mut driver = driver.start_manual()?`. Replace each nested idle call with
+separate statements.
+
+```rust,no_run
+# use rusteron_media_driver::{AeronCError, AeronDriver, AeronDriverContext};
+let context = AeronDriverContext::new()?;
+let mut driver = AeronDriver::new(&context)?.start_manual()?;
+let work = driver.do_work()?;
+driver.idle(work);
+# Ok::<(), AeronCError>(())
+```
+
+Replace `driver.start(false)` with `let driver = driver.start()?`. Keep the
+returned `ThreadedDriver` alive until shutdown. It has no manual pump methods.
+INVOKER mode requires `start_manual`. Threading mode is configured at runtime,
+so a threaded start in INVOKER mode returns an error before native startup.
+
+The four raw flow-control, congestion-control, and resolver supplier setters now
+require `unsafe`. Prefer `set_unicast_flow_control::<T>`,
+`set_multicast_flow_control::<T>`, `set_congestion_control::<T>`, and
+`set_name_resolver::<T>`. Use `add_outgoing_interceptor::<T>` and
+`add_incoming_interceptor::<T>` to preserve an existing chain.
+
+Idle strategies and port selection can use closures. `set_name_resolver_fn`
+accepts a resolver closure, and `set_name_resolver_instance` takes an existing
+resolver. `DutyCycleTimer` handles the timestamp baseline for a measurement
+closure. Interceptors and type-selected resolvers can derive `Default` for
+construction. Custom constructors belong in `InterceptorFactory` or
+`NameResolverFactory`.
+
+Flow-control callbacks return `Position`. Construct it with `Position::new` to
+bound the signed arithmetic in C. Congestion callbacks return `ReceiverWindow`.
+The adapters keep mutable agent state separate from `Shared`. Callback panics
+abort. See [driver extensions](driver-extensions.md) for packet lifetimes,
+configuration, and bounded archive waits.

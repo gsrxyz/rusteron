@@ -38,6 +38,8 @@ pub struct RusteronBuildConfig {
     /// Per-crate hand-written wrapper code appended after the common `aeron_custom.rs`
     /// (e.g. `rusteron_code_gen::CUSTOM_ARCHIVE_CODE`). May reference crate-only types.
     pub extra_custom_code: &'static [&'static str],
+    /// Native methods replaced by handwritten APIs with different names or owners.
+    pub method_overrides: &'static [rusteron_code_gen::MethodOverride],
     /// Snapshot name under rusteron-code-gen/bindings/ used by COPY_BINDINGS.
     pub bindings_snapshot: &'static str,
     /// Hook before cmake configuration (archive runs gradle here). Receives aeron/ path.
@@ -210,11 +212,12 @@ pub fn rusteron_build_main(config: &RusteronBuildConfig) {
             }
 
             // Keep the bundle's C ABI, but generate wrappers for the current Rust crate.
-            rusteron_code_gen::artifacts::prepare_bindings(
+            rusteron_code_gen::artifacts::prepare_bindings_with_overrides(
                 &artifacts_dir.join(rusteron_code_gen::artifacts::BINDINGS_DIR),
                 &out_path,
                 config.wrapper_type_filter,
                 config.extra_custom_code,
+                config.method_overrides,
             )
             .expect("Failed to prepare Rust bindings from precompiled artifacts");
 
@@ -494,6 +497,7 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     bindings.write_to_file(out.clone()).expect("Couldn't write bindings!");
 
     let mut bindings = rusteron_code_gen::parse_bindings_with_custom(&out, config.extra_custom_code);
+    bindings.apply_method_overrides(config.method_overrides);
     if let Some(expected) = config.expected_wrapper {
         assert_eq!(
             expected,

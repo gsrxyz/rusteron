@@ -23,6 +23,7 @@ pub fn main() {
         wrapper_type_filter: driver_wrapper_filter,
         expected_wrapper: Some("aeron_driver_conductor_t"),
         extra_custom_code: &[],
+        method_overrides: rusteron_code_gen::MEDIA_DRIVER_METHOD_OVERRIDES,
         bindings_snapshot: "media-driver.rs",
         pre_build: RusteronBuildConfig::no_pre_build,
     });

@@ -17,6 +17,7 @@ pub fn main() {
         wrapper_type_filter: RusteronBuildConfig::aeron_only,
         expected_wrapper: None,
         extra_custom_code: &[],
+        method_overrides: &[],
         bindings_snapshot: "client.rs",
         pre_build: RusteronBuildConfig::no_pre_build,
     });

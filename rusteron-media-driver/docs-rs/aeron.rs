@@ -1,4 +1,3 @@
-
 type aeron_client_registering_resource_t = aeron_client_registering_resource_stct;
 unsafe impl NativeResource for addrinfo {
     type Policy = LocalResource;
@@ -47,7 +46,7 @@ impl<S: ResourceStorage<addrinfo>> core::fmt::Debug for Addrinfo<S> {
             .field("ai_family", &self.ai_family())
             .field("ai_socktype", &self.ai_socktype())
             .field("ai_protocol", &self.ai_protocol())
-            .field("ai_canonname", &unsafe { self.ai_canonname() })
+            .field("ai_canonname", &self.ai_canonname())
             .finish()
     }
 }
@@ -156,10 +155,7 @@ impl<S: ResourceStorage<addrinfo>> Addrinfo<S> {
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" The text points into native storage. Use it straight away, and do not"]
-    #[doc = r" hold it across a setter, poll or other call that can change it."]
-    pub unsafe fn ai_canonname(&self) -> &str {
+    pub fn ai_canonname(&self) -> &str {
         if unsafe { self.get_inner_ref() }.ai_canonname.is_null() {
             ""
         } else {
@@ -3324,10 +3320,8 @@ impl AeronArchiveRecordingPositionKeyLayout {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_archive_recording_position_key_layout_t,
     ) -> AeronArchiveRecordingPositionKeyLayout<Inline<aeron_archive_recording_position_key_layout_t>> {
         AeronArchiveRecordingPositionKeyLayout {
@@ -6202,10 +6196,8 @@ impl AeronAtomicCounter {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_atomic_counter_t) -> AeronAtomicCounter<Inline<aeron_atomic_counter_t>> {
+    pub fn from_native(value: aeron_atomic_counter_t) -> AeronAtomicCounter<Inline<aeron_atomic_counter_t>> {
         AeronAtomicCounter {
             inner: Inline::new(value),
         }
@@ -6427,10 +6419,8 @@ impl AeronBroadcastDescriptor {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_broadcast_descriptor_t,
     ) -> AeronBroadcastDescriptor<Inline<aeron_broadcast_descriptor_t>> {
         AeronBroadcastDescriptor {
@@ -6672,10 +6662,8 @@ impl AeronBroadcastRecordDescriptor {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_broadcast_record_descriptor_t,
     ) -> AeronBroadcastRecordDescriptor<Inline<aeron_broadcast_record_descriptor_t>> {
         AeronBroadcastRecordDescriptor {
@@ -7546,10 +7534,8 @@ impl AeronChannelEndpointStatusKeyLayout {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_channel_endpoint_status_key_layout_t,
     ) -> AeronChannelEndpointStatusKeyLayout<Inline<aeron_channel_endpoint_status_key_layout_t>> {
         AeronChannelEndpointStatusKeyLayout {
@@ -8223,10 +8209,8 @@ impl AeronClientTimeout {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_client_timeout_t) -> AeronClientTimeout<Inline<aeron_client_timeout_t>> {
+    pub fn from_native(value: aeron_client_timeout_t) -> AeronClientTimeout<Inline<aeron_client_timeout_t>> {
         AeronClientTimeout {
             inner: Inline::new(value),
         }
@@ -8344,10 +8328,7 @@ impl<S: ResourceStorage<aeron_clock_cache_t>> core::fmt::Debug for AeronClockCac
 impl AeronClockCache<CResource<aeron_clock_cache_t>> {
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_clock_cache_t>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -8370,10 +8351,7 @@ impl AeronClockCache<CResource<aeron_clock_cache_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> AeronClockCache<Inline<aeron_clock_cache_t>> {
+    pub fn new_zeroed_on_stack() -> AeronClockCache<Inline<aeron_clock_cache_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
             "creating zeroed empty resource on stack {}",
@@ -8552,10 +8530,8 @@ impl AeronClockCache {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_clock_cache_t) -> AeronClockCache<Inline<aeron_clock_cache_t>> {
+    pub fn from_native(value: aeron_clock_cache_t) -> AeronClockCache<Inline<aeron_clock_cache_t>> {
         AeronClockCache {
             inner: Inline::new(value),
         }
@@ -8808,10 +8784,8 @@ impl AeronCncConstants {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_cnc_constants_t) -> AeronCncConstants<Inline<aeron_cnc_constants_t>> {
+    pub fn from_native(value: aeron_cnc_constants_t) -> AeronCncConstants<Inline<aeron_cnc_constants_t>> {
         AeronCncConstants {
             inner: Inline::new(value),
         }
@@ -8976,10 +8950,7 @@ impl AeronCncMetadata<CResource<aeron_cnc_metadata_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_cnc_metadata_t>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -9002,10 +8973,7 @@ impl AeronCncMetadata<CResource<aeron_cnc_metadata_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> AeronCncMetadata<Inline<aeron_cnc_metadata_t>> {
+    pub fn new_zeroed_on_stack() -> AeronCncMetadata<Inline<aeron_cnc_metadata_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
             "creating zeroed empty resource on stack {}",
@@ -9125,10 +9093,8 @@ impl AeronCncMetadata {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_cnc_metadata_t) -> AeronCncMetadata<Inline<aeron_cnc_metadata_t>> {
+    pub fn from_native(value: aeron_cnc_metadata_t) -> AeronCncMetadata<Inline<aeron_cnc_metadata_t>> {
         AeronCncMetadata {
             inner: Inline::new(value),
         }
@@ -9150,6 +9116,11 @@ impl<S: ResourceStorage<aeron_cnc_metadata_t>> From<AeronCncMetadata<S>> for aer
     #[inline]
     fn from(value: AeronCncMetadata<S>) -> Self {
         unsafe { *value.get_inner().clone() }
+    }
+}
+impl Default for AeronCncMetadata<CResource<aeron_cnc_metadata_t>> {
+    fn default() -> Self {
+        AeronCncMetadata::new_zeroed_on_heap()
     }
 }
 impl<S: ResourceStorage<aeron_cnc_metadata_t>> AeronCncMetadata<S> {
@@ -9174,6 +9145,15 @@ mod aeron_cnc_metadata_t_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = unsafe { AeronCncMetadata::new_zeroed_on_stack() };
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronCncMetadata::default();
             }
         });
     }
@@ -11686,10 +11666,8 @@ impl AeronCorrelatedCommand {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_correlated_command_t,
     ) -> AeronCorrelatedCommand<Inline<aeron_correlated_command_t>> {
         AeronCorrelatedCommand {
@@ -11926,10 +11904,8 @@ impl AeronCounterCommand {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_counter_command_t) -> AeronCounterCommand<Inline<aeron_counter_command_t>> {
+    pub fn from_native(value: aeron_counter_command_t) -> AeronCounterCommand<Inline<aeron_counter_command_t>> {
         AeronCounterCommand {
             inner: Inline::new(value),
         }
@@ -12165,12 +12141,8 @@ impl AeronCounterConstants {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
-        value: aeron_counter_constants_t,
-    ) -> AeronCounterConstants<Inline<aeron_counter_constants_t>> {
+    pub fn from_native(value: aeron_counter_constants_t) -> AeronCounterConstants<Inline<aeron_counter_constants_t>> {
         AeronCounterConstants {
             inner: Inline::new(value),
         }
@@ -12396,10 +12368,8 @@ impl AeronCounterLink {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_counter_link_t) -> AeronCounterLink<Inline<aeron_counter_link_t>> {
+    pub fn from_native(value: aeron_counter_link_t) -> AeronCounterLink<Inline<aeron_counter_link_t>> {
         AeronCounterLink {
             inner: Inline::new(value),
         }
@@ -12666,10 +12636,8 @@ impl AeronCounterMetadataDescriptor {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_counter_metadata_descriptor_t,
     ) -> AeronCounterMetadataDescriptor<Inline<aeron_counter_metadata_descriptor_t>> {
         AeronCounterMetadataDescriptor {
@@ -13166,10 +13134,8 @@ impl AeronCounterUpdate {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_counter_update_t) -> AeronCounterUpdate<Inline<aeron_counter_update_t>> {
+    pub fn from_native(value: aeron_counter_update_t) -> AeronCounterUpdate<Inline<aeron_counter_update_t>> {
         AeronCounterUpdate {
             inner: Inline::new(value),
         }
@@ -13425,10 +13391,8 @@ impl AeronCounterValueDescriptor {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_counter_value_descriptor_t,
     ) -> AeronCounterValueDescriptor<Inline<aeron_counter_value_descriptor_t>> {
         AeronCounterValueDescriptor {
@@ -13688,8 +13652,8 @@ impl<S: ResourceStorage<aeron_counters_manager_t>> AeronCountersManager<S> {
     }
     #[inline]
     #[must_use]
-    pub fn free_list(&self) -> &mut i32 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.free_list }
+    pub fn free_list(&self) -> *mut i32 {
+        unsafe { self.get_inner_ref() }.free_list
     }
     #[inline]
     #[must_use]
@@ -13928,9 +13892,7 @@ impl<S: ResourceStorage<aeron_counters_manager_t>> AeronCountersManager<S> {
         }
     }
     #[inline]
-    #[doc = "# Safety"]
-    #[doc = "This bypasses Rust ownership. Keep all retained pointers valid until native cleanup. Initializers require exclusive access and must not overwrite live native state or invalidate borrowed views. After raw removal or deletion, prevent all further access and Rust cleanup through every alias. Prefer the owning handle's constructor, close or cancel method."]
-    pub unsafe fn free(&self, counter_id: i32) -> Result<i32, AeronCError> {
+    pub fn free(&self, counter_id: i32) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -15324,10 +15286,8 @@ impl AeronDataHeaderAsLongs {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_data_header_as_longs_t,
     ) -> AeronDataHeaderAsLongs<Inline<aeron_data_header_as_longs_t>> {
         AeronDataHeaderAsLongs {
@@ -15596,10 +15556,8 @@ impl AeronDataHeader {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_data_header_t) -> AeronDataHeader<Inline<aeron_data_header_t>> {
+    pub fn from_native(value: aeron_data_header_t) -> AeronDataHeader<Inline<aeron_data_header_t>> {
         AeronDataHeader {
             inner: Inline::new(value),
         }
@@ -17208,10 +17166,8 @@ impl AeronDestinationByIdCommand {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_destination_by_id_command_t,
     ) -> AeronDestinationByIdCommand<Inline<aeron_destination_by_id_command_t>> {
         AeronDestinationByIdCommand {
@@ -17460,10 +17416,8 @@ impl AeronDestinationCommand {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_destination_command_t,
     ) -> AeronDestinationCommand<Inline<aeron_destination_command_t>> {
         AeronDestinationCommand {
@@ -18212,7 +18166,7 @@ impl<S: ResourceStorage<aeron_distinct_observation_t>> core::fmt::Debug for Aero
         }
         f.debug_struct(stringify!(AeronDistinctObservation))
             .field("inner", &self.inner)
-            .field("description", &unsafe { self.description() })
+            .field("description", &self.description())
             .field("error_code", &self.error_code())
             .field("offset", &self.offset())
             .field("description_length", &self.description_length())
@@ -18289,10 +18243,7 @@ impl AeronDistinctObservation {}
 impl<S: ResourceStorage<aeron_distinct_observation_t>> AeronDistinctObservation<S> {
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" The text points into native storage. Use it straight away, and do not"]
-    #[doc = r" hold it across a setter, poll or other call that can change it."]
-    pub unsafe fn description(&self) -> &str {
+    pub fn description(&self) -> &str {
         if unsafe { self.get_inner_ref() }.description.is_null() {
             ""
         } else {
@@ -18431,6 +18382,15 @@ mod aeron_distinct_observation_t_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = unsafe { AeronDistinctObservation::new_zeroed_on_stack() };
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDistinctObservation::default();
             }
         });
     }
@@ -19333,8 +19293,8 @@ impl<S: ResourceStorage<aeron_driver_conductor_proxy_t>> AeronDriverConductorPro
     }
     #[inline]
     #[must_use]
-    pub fn fail_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.fail_counter }
+    pub fn fail_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.fail_counter
     }
     #[inline]
     #[doc = "# Safety"]
@@ -20454,23 +20414,23 @@ impl<S: ResourceStorage<aeron_driver_conductor_t>> AeronDriverConductor<S> {
     }
     #[inline]
     #[must_use]
-    pub fn errors_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.errors_counter }
+    pub fn errors_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.errors_counter
     }
     #[inline]
     #[must_use]
-    pub fn images_rejected_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.images_rejected_counter }
+    pub fn images_rejected_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.images_rejected_counter
     }
     #[inline]
     #[must_use]
-    pub fn unblocked_commands_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.unblocked_commands_counter }
+    pub fn unblocked_commands_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.unblocked_commands_counter
     }
     #[inline]
     #[must_use]
-    pub fn client_timeouts_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.client_timeouts_counter }
+    pub fn client_timeouts_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.client_timeouts_counter
     }
     #[inline]
     #[must_use]
@@ -22025,9 +21985,7 @@ impl<S: ResourceStorage<aeron_driver_conductor_t>> AeronDriverConductor<S> {
         }
     }
     #[inline]
-    #[doc = "# Safety"]
-    #[doc = "This bypasses Rust ownership. Keep all retained pointers valid until native cleanup. Initializers require exclusive access and must not overwrite live native state or invalidate borrowed views. After raw removal or deletion, prevent all further access and Rust cleanup through every alias. Prefer the owning handle's constructor, close or cancel method."]
-    pub unsafe fn on_client_close(&self, command: &AeronCorrelatedCommand) -> Result<i32, AeronCError> {
+    pub fn on_client_close(&self, command: &AeronCorrelatedCommand) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -22333,7 +22291,7 @@ impl<S: ResourceStorage<aeron_driver_context_bindings_clientd_entry_t>> core::fm
         }
         f.debug_struct(stringify!(AeronDriverContextBindingsClientdEntry))
             .field("inner", &self.inner)
-            .field("name", &unsafe { self.name() })
+            .field("name", &self.name())
             .finish()
     }
 }
@@ -22407,10 +22365,7 @@ impl AeronDriverContextBindingsClientdEntry {}
 impl<S: ResourceStorage<aeron_driver_context_bindings_clientd_entry_t>> AeronDriverContextBindingsClientdEntry<S> {
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" The text points into native storage. Use it straight away, and do not"]
-    #[doc = r" hold it across a setter, poll or other call that can change it."]
-    pub unsafe fn name(&self) -> &str {
+    pub fn name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.name.is_null() {
             ""
         } else {
@@ -25755,7 +25710,9 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
-    pub fn set_multicast_flowcontrol_supplier(
+    #[doc = "# Safety"]
+    #[doc = "The callback must satisfy the native ABI, ownership, lifetime and threading contracts for every invocation. It must initialize all required outputs and must not unwind through C. Prefer a typed strategy setter when available."]
+    pub unsafe fn set_multicast_flowcontrol_supplier(
         &self,
         value: aeron_flow_control_strategy_supplier_func_t,
     ) -> Result<i32, AeronCError> {
@@ -25798,7 +25755,9 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
-    pub fn set_unicast_flowcontrol_supplier(
+    #[doc = "# Safety"]
+    #[doc = "The callback must satisfy the native ABI, ownership, lifetime and threading contracts for every invocation. It must initialize all required outputs and must not unwind through C. Prefer a typed strategy setter when available."]
+    pub unsafe fn set_unicast_flowcontrol_supplier(
         &self,
         value: aeron_flow_control_strategy_supplier_func_t,
     ) -> Result<i32, AeronCError> {
@@ -25921,7 +25880,9 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
-    pub fn set_congestioncontrol_supplier(
+    #[doc = "# Safety"]
+    #[doc = "The callback must satisfy the native ABI, ownership, lifetime and threading contracts for every invocation. It must initialize all required outputs and must not unwind through C. Prefer a typed strategy setter when available."]
+    pub unsafe fn set_congestioncontrol_supplier(
         &self,
         value: aeron_congestion_control_strategy_supplier_func_t,
     ) -> Result<i32, AeronCError> {
@@ -28552,7 +28513,12 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
         }
     }
     #[inline]
-    pub fn set_name_resolver_supplier(&self, value: aeron_name_resolver_supplier_func_t) -> Result<i32, AeronCError> {
+    #[doc = "# Safety"]
+    #[doc = "The callback must satisfy the native ABI, ownership, lifetime and threading contracts for every invocation. It must initialize all required outputs and must not unwind through C. Prefer a typed strategy setter when available."]
+    pub unsafe fn set_name_resolver_supplier(
+        &self,
+        value: aeron_name_resolver_supplier_func_t,
+    ) -> Result<i32, AeronCError> {
         self.inner.check_configurable()?;
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -31465,7 +31431,7 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_free_log_bu
         }
         f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxyCmdFreeLogBuffer))
             .field("inner", &self.inner)
-            .field("log_file_name", &unsafe { self.log_file_name() })
+            .field("log_file_name", &self.log_file_name())
             .finish()
     }
 }
@@ -31562,10 +31528,7 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_free_log_bu
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" The text points into native storage. Use it straight away, and do not"]
-    #[doc = r" hold it across a setter, poll or other call that can change it."]
-    pub unsafe fn log_file_name(&self) -> &str {
+    pub fn log_file_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.log_file_name.is_null() {
             ""
         } else {
@@ -31778,7 +31741,7 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_map_log_buf
         }
         f.debug_struct(stringify!(AeronDriverNativeResourceAgentProxyCmdMapLogBuffer))
             .field("inner", &self.inner)
-            .field("log_file_name", &unsafe { self.log_file_name() })
+            .field("log_file_name", &self.log_file_name())
             .field("term_length", &self.term_length())
             .field("is_sparse", &self.is_sparse())
             .finish()
@@ -31870,10 +31833,7 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_cmd_map_log_buf
 {
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" The text points into native storage. Use it straight away, and do not"]
-    #[doc = r" hold it across a setter, poll or other call that can change it."]
-    pub unsafe fn log_file_name(&self) -> &str {
+    pub fn log_file_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.log_file_name.is_null() {
             ""
         } else {
@@ -32820,8 +32780,8 @@ impl<S: ResourceStorage<aeron_driver_native_resource_agent_proxy_t>> AeronDriver
     }
     #[inline]
     #[must_use]
-    pub fn fail_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.fail_counter }
+    pub fn fail_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.fail_counter
     }
     #[inline]
     #[must_use]
@@ -34064,11 +34024,8 @@ impl<S: ResourceStorage<aeron_driver_receiver_pending_setup_entry_t>> AeronDrive
     }
     #[inline]
     #[must_use]
-    pub fn control_addr(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
-        SockaddrStorage::from_resource(ScopedInline {
-            value: Inline::new(unsafe { self.get_inner_ref() }.control_addr),
-            _owner: std::marker::PhantomData,
-        })
+    pub fn control_addr(&self) -> SockaddrStorage<Inline<sockaddr_storage>> {
+        unsafe { SockaddrStorage::from_native(unsafe { self.get_inner_ref() }.control_addr) }
     }
     #[doc = r" Borrow this handle without cloning its owner."]
     #[inline(always)]
@@ -34327,8 +34284,8 @@ impl<S: ResourceStorage<aeron_driver_receiver_proxy_t>> AeronDriverReceiverProxy
     }
     #[inline]
     #[must_use]
-    pub fn fail_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.fail_counter }
+    pub fn fail_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.fail_counter
     }
     #[inline]
     pub fn on_add_endpoint(&self, endpoint: &AeronReceiveChannelEndpoint) -> () {
@@ -35449,23 +35406,23 @@ impl<S: ResourceStorage<aeron_driver_receiver_t>> AeronDriverReceiver<S> {
     }
     #[inline]
     #[must_use]
-    pub fn errors_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.errors_counter }
+    pub fn errors_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.errors_counter
     }
     #[inline]
     #[must_use]
-    pub fn invalid_frames_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.invalid_frames_counter }
+    pub fn invalid_frames_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.invalid_frames_counter
     }
     #[inline]
     #[must_use]
-    pub fn total_bytes_received_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.total_bytes_received_counter }
+    pub fn total_bytes_received_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.total_bytes_received_counter
     }
     #[inline]
     #[must_use]
-    pub fn resolution_changes_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.resolution_changes_counter }
+    pub fn resolution_changes_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.resolution_changes_counter
     }
     #[inline]
     pub fn aeron_receive_channel_endpoint_on_setup(
@@ -36128,8 +36085,8 @@ impl<S: ResourceStorage<aeron_driver_sender_proxy_t>> AeronDriverSenderProxy<S> 
     }
     #[inline]
     #[must_use]
-    pub fn fail_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.fail_counter }
+    pub fn fail_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.fail_counter
     }
     #[inline]
     pub fn on_add_endpoint(&self, endpoint: &AeronSendChannelEndpoint) -> () {
@@ -36884,48 +36841,48 @@ impl<S: ResourceStorage<aeron_driver_sender_t>> AeronDriverSender<S> {
     }
     #[inline]
     #[must_use]
-    pub fn total_bytes_sent_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.total_bytes_sent_counter }
+    pub fn total_bytes_sent_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.total_bytes_sent_counter
     }
     #[inline]
     #[must_use]
-    pub fn errors_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.errors_counter }
+    pub fn errors_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.errors_counter
     }
     #[inline]
     #[must_use]
-    pub fn invalid_frames_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.invalid_frames_counter }
+    pub fn invalid_frames_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.invalid_frames_counter
     }
     #[inline]
     #[must_use]
-    pub fn status_messages_received_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.status_messages_received_counter }
+    pub fn status_messages_received_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.status_messages_received_counter
     }
     #[inline]
     #[must_use]
-    pub fn status_messages_rejected_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.status_messages_rejected_counter }
+    pub fn status_messages_rejected_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.status_messages_rejected_counter
     }
     #[inline]
     #[must_use]
-    pub fn nak_messages_received_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.nak_messages_received_counter }
+    pub fn nak_messages_received_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.nak_messages_received_counter
     }
     #[inline]
     #[must_use]
-    pub fn error_messages_received_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.error_messages_received_counter }
+    pub fn error_messages_received_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.error_messages_received_counter
     }
     #[inline]
     #[must_use]
-    pub fn resolution_changes_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.resolution_changes_counter }
+    pub fn resolution_changes_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.resolution_changes_counter
     }
     #[inline]
     #[must_use]
-    pub fn short_sends_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.short_sends_counter }
+    pub fn short_sends_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.short_sends_counter
     }
     #[inline]
     #[must_use]
@@ -37287,7 +37244,6 @@ unsafe impl NativeResource for aeron_driver_t {
     type Policy = SharedResource;
     type Pointer = ReloadPointer;
 }
-#[derive(Clone)]
 pub struct AeronDriver<S: ResourceStorage<aeron_driver_t> = CResource<aeron_driver_t>> {
     inner: S,
 }
@@ -37510,12 +37466,7 @@ impl AeronDriver {
         }
     }
     #[inline]
-    #[doc = "# Safety"]
-    #[doc = "Raw pointer arguments must have the size, alignment, initialization and lifetime required by the native function. Writable pointers require exclusive access. Keep any retained pointers valid until native cleanup."]
-    pub unsafe fn termination_validator_default_allow(
-        state: *mut ::std::os::raw::c_void,
-        token_buffer: &mut [u8],
-    ) -> bool {
+    pub fn termination_validator_default_allow(state: *mut ::std::os::raw::c_void, token_buffer: &mut [u8]) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -37543,12 +37494,7 @@ impl AeronDriver {
         }
     }
     #[inline]
-    #[doc = "# Safety"]
-    #[doc = "Raw pointer arguments must have the size, alignment, initialization and lifetime required by the native function. Writable pointers require exclusive access. Keep any retained pointers valid until native cleanup."]
-    pub unsafe fn termination_validator_default_deny(
-        state: *mut ::std::os::raw::c_void,
-        token_buffer: &mut [u8],
-    ) -> bool {
+    pub fn termination_validator_default_deny(state: *mut ::std::os::raw::c_void, token_buffer: &mut [u8]) -> bool {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -37642,80 +37588,6 @@ impl<S: ResourceStorage<aeron_driver_t>> AeronDriver<S> {
     #[must_use]
     pub fn runners(&self) -> [aeron_agent_runner_t; 4usize] {
         unsafe { self.get_inner_ref() }.runners.into()
-    }
-    #[inline]
-    #[doc = "Start an `AeronDriver` given the threading mode. This may spawn threads for the Sender, Receiver, and Conductor"]
-    #[doc = " depending on threading mode used."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `manual_main_loop` to be called by the caller for the Conductor do_work cycle."]
-    #[doc = " \n# Return\n 0 for success and -1 for error."]
-    pub fn start(&self, manual_main_loop: bool) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_driver_start),
-                [
-                    concat!("driver", ": ", stringify!(*mut aeron_driver_t)).to_string(),
-                    format!("{} = {:?}", "manual_main_loop", manual_main_loop)
-                ]
-                .join(", ")
-            );
-            let result = aeron_driver_start(self.get_inner(), manual_main_loop.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    #[doc = "Call the Conductor (or Shared) main do_work duty cycle once."]
-    #[doc = ""]
-    #[doc = " Driver must have been created with manual_main_loop set to true."]
-    #[doc = ""]
-    #[doc = " \n# Return\n 0 for success and -1 for error."]
-    pub fn main_do_work(&self) -> Result<i32, AeronCError> {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_driver_main_do_work),
-                [concat!("driver", ": ", stringify!(*mut aeron_driver_t)).to_string()].join(", ")
-            );
-            let result = aeron_driver_main_do_work(self.get_inner());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            if result < 0 {
-                return Err(AeronCError::from_code(result));
-            } else {
-                return Ok(result);
-            }
-        }
-    }
-    #[inline]
-    #[doc = "Call the Conductor (or Shared) Idle Strategy."]
-    #[doc = ""]
-    #[doc = "# Parameters\n \n - `work_count` to pass to idle strategy."]
-    pub fn main_idle_strategy(&self, work_count: ::std::os::raw::c_int) -> () {
-        unsafe {
-            #[cfg(feature = "log-c-bindings")]
-            log::info!(
-                "{}({})",
-                stringify!(aeron_driver_main_idle_strategy),
-                [
-                    concat!("driver", ": ", stringify!(*mut aeron_driver_t)).to_string(),
-                    format!("{} = {:?}", "work_count", work_count)
-                ]
-                .join(", ")
-            );
-            let result = aeron_driver_main_idle_strategy(self.get_inner(), work_count.into());
-            #[cfg(feature = "log-c-bindings")]
-            log::info!("  -> {:?}", result);
-            result.into()
-        }
     }
     #[doc = r" Borrow this handle without cloning its owner."]
     #[inline(always)]
@@ -37950,10 +37822,7 @@ impl AeronDriverUriPublicationParams<CResource<aeron_driver_uri_publication_para
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_driver_uri_publication_params_t>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -37976,11 +37845,7 @@ impl AeronDriverUriPublicationParams<CResource<aeron_driver_uri_publication_para
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> AeronDriverUriPublicationParams<Inline<aeron_driver_uri_publication_params_t>>
-    {
+    pub fn new_zeroed_on_stack() -> AeronDriverUriPublicationParams<Inline<aeron_driver_uri_publication_params_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
             "creating zeroed empty resource on stack {}",
@@ -38197,10 +38062,8 @@ impl AeronDriverUriPublicationParams {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_driver_uri_publication_params_t,
     ) -> AeronDriverUriPublicationParams<Inline<aeron_driver_uri_publication_params_t>> {
         AeronDriverUriPublicationParams {
@@ -38232,6 +38095,11 @@ impl<S: ResourceStorage<aeron_driver_uri_publication_params_t>> From<AeronDriver
         unsafe { *value.get_inner().clone() }
     }
 }
+impl Default for AeronDriverUriPublicationParams<CResource<aeron_driver_uri_publication_params_t>> {
+    fn default() -> Self {
+        AeronDriverUriPublicationParams::new_zeroed_on_heap()
+    }
+}
 impl<S: ResourceStorage<aeron_driver_uri_publication_params_t>> AeronDriverUriPublicationParams<S> {
     #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
@@ -38254,6 +38122,15 @@ mod aeron_driver_uri_publication_params_t_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = unsafe { AeronDriverUriPublicationParams::new_zeroed_on_stack() };
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverUriPublicationParams::default();
             }
         });
     }
@@ -38335,9 +38212,7 @@ impl<S: ResourceStorage<aeron_driver_uri_subscription_params_t>> core::fmt::Debu
 }
 impl AeronDriverUriSubscriptionParams<CResource<aeron_driver_uri_subscription_params_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
-    pub unsafe fn new(
+    pub fn new(
         is_reliable: bool,
         is_sparse: bool,
         is_tether: bool,
@@ -38381,10 +38256,7 @@ impl AeronDriverUriSubscriptionParams<CResource<aeron_driver_uri_subscription_pa
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_driver_uri_subscription_params_t>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -38407,11 +38279,7 @@ impl AeronDriverUriSubscriptionParams<CResource<aeron_driver_uri_subscription_pa
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack()
-    -> AeronDriverUriSubscriptionParams<Inline<aeron_driver_uri_subscription_params_t>> {
+    pub fn new_zeroed_on_stack() -> AeronDriverUriSubscriptionParams<Inline<aeron_driver_uri_subscription_params_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
             "creating zeroed empty resource on stack {}",
@@ -38530,10 +38398,8 @@ impl AeronDriverUriSubscriptionParams {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_driver_uri_subscription_params_t,
     ) -> AeronDriverUriSubscriptionParams<Inline<aeron_driver_uri_subscription_params_t>> {
         AeronDriverUriSubscriptionParams {
@@ -38565,23 +38431,19 @@ impl<S: ResourceStorage<aeron_driver_uri_subscription_params_t>> From<AeronDrive
         unsafe { *value.get_inner().clone() }
     }
 }
+impl Default for AeronDriverUriSubscriptionParams<CResource<aeron_driver_uri_subscription_params_t>> {
+    fn default() -> Self {
+        AeronDriverUriSubscriptionParams::new_zeroed_on_heap()
+    }
+}
 impl<S: ResourceStorage<aeron_driver_uri_subscription_params_t>> AeronDriverUriSubscriptionParams<S> {
     #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
     #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
     #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
-    #[doc = r" # Safety"]
-    #[doc = r" This is a shallow copy, not a new native resource. Pointers inside"]
-    #[doc = r" unions, arrays and nested structs are copied too. Keep their targets"]
-    #[doc = r" alive for every use of the copy. Coordinate writes through aliases,"]
-    #[doc = r" and do not use the copy to release or reinitialize shared native state."]
-    #[doc = r" No Rust or native write may overlap copying the source struct."]
-    #[doc = r" Callback storage expires when its callback returns. Copy individual"]
-    #[doc = r" fields into Rust values when you need an independent snapshot."]
-    pub unsafe fn clone_struct(
-        &self,
-    ) -> AeronDriverUriSubscriptionParams<CResource<aeron_driver_uri_subscription_params_t>> {
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
+    pub fn clone_struct(&self) -> AeronDriverUriSubscriptionParams<CResource<aeron_driver_uri_subscription_params_t>> {
         let value = unsafe { *self.get_inner_ref() };
         AeronDriverUriSubscriptionParams::from_resource(CResource::owned_value(value))
     }
@@ -38596,6 +38458,15 @@ mod aeron_driver_uri_subscription_params_t_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = unsafe { AeronDriverUriSubscriptionParams::new_zeroed_on_stack() };
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronDriverUriSubscriptionParams::default();
             }
         });
     }
@@ -38760,13 +38631,13 @@ impl<S: ResourceStorage<aeron_duty_cycle_stall_tracker_t>> AeronDutyCycleStallTr
     }
     #[inline]
     #[must_use]
-    pub fn max_cycle_time_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.max_cycle_time_counter }
+    pub fn max_cycle_time_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.max_cycle_time_counter
     }
     #[inline]
     #[must_use]
-    pub fn cycle_time_threshold_exceeded_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.cycle_time_threshold_exceeded_counter }
+    pub fn cycle_time_threshold_exceeded_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.cycle_time_threshold_exceeded_counter
     }
     #[doc = r" Borrow this handle without cloning its owner."]
     #[inline(always)]
@@ -39596,10 +39467,8 @@ impl AeronErrorHeader {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_error_header_t) -> AeronErrorHeader<Inline<aeron_error_header_t>> {
+    pub fn from_native(value: aeron_error_header_t) -> AeronErrorHeader<Inline<aeron_error_header_t>> {
         AeronErrorHeader {
             inner: Inline::new(value),
         }
@@ -39844,10 +39713,8 @@ impl AeronErrorLogEntry {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_error_log_entry_t) -> AeronErrorLogEntry<Inline<aeron_error_log_entry_t>> {
+    pub fn from_native(value: aeron_error_log_entry_t) -> AeronErrorLogEntry<Inline<aeron_error_log_entry_t>> {
         AeronErrorLogEntry {
             inner: Inline::new(value),
         }
@@ -40087,10 +39954,8 @@ impl AeronErrorResponse {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_error_response_t) -> AeronErrorResponse<Inline<aeron_error_response_t>> {
+    pub fn from_native(value: aeron_error_response_t) -> AeronErrorResponse<Inline<aeron_error_response_t>> {
         AeronErrorResponse {
             inner: Inline::new(value),
         }
@@ -41377,10 +41242,8 @@ impl AeronFlowControlMaxOptions {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_flow_control_max_options_t,
     ) -> AeronFlowControlMaxOptions<Inline<aeron_flow_control_max_options_t>> {
         AeronFlowControlMaxOptions {
@@ -41518,7 +41381,7 @@ impl<S: ResourceStorage<aeron_flow_control_strategy_supplier_func_table_entry_t>
         }
         f.debug_struct(stringify!(AeronFlowControlStrategySupplierFuncTableEntry))
             .field("inner", &self.inner)
-            .field("name", &unsafe { self.name() })
+            .field("name", &self.name())
             .finish()
     }
 }
@@ -41602,10 +41465,7 @@ impl<S: ResourceStorage<aeron_flow_control_strategy_supplier_func_table_entry_t>
 {
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" The text points into native storage. Use it straight away, and do not"]
-    #[doc = r" hold it across a setter, poll or other call that can change it."]
-    pub unsafe fn name(&self) -> &str {
+    pub fn name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.name.is_null() {
             ""
         } else {
@@ -42166,10 +42026,7 @@ impl AeronFlowControlTaggedOptions<CResource<aeron_flow_control_tagged_options_t
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_flow_control_tagged_options_t>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -42192,10 +42049,7 @@ impl AeronFlowControlTaggedOptions<CResource<aeron_flow_control_tagged_options_t
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> AeronFlowControlTaggedOptions<Inline<aeron_flow_control_tagged_options_t>> {
+    pub fn new_zeroed_on_stack() -> AeronFlowControlTaggedOptions<Inline<aeron_flow_control_tagged_options_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
             "creating zeroed empty resource on stack {}",
@@ -42327,6 +42181,11 @@ impl<S: ResourceStorage<aeron_flow_control_tagged_options_t>> From<AeronFlowCont
         unsafe { *value.get_inner().clone() }
     }
 }
+impl Default for AeronFlowControlTaggedOptions<CResource<aeron_flow_control_tagged_options_t>> {
+    fn default() -> Self {
+        AeronFlowControlTaggedOptions::new_zeroed_on_heap()
+    }
+}
 impl<S: ResourceStorage<aeron_flow_control_tagged_options_t>> AeronFlowControlTaggedOptions<S> {
     #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
@@ -42356,6 +42215,15 @@ mod aeron_flow_control_tagged_options_t_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = unsafe { AeronFlowControlTaggedOptions::new_zeroed_on_stack() };
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronFlowControlTaggedOptions::default();
             }
         });
     }
@@ -42534,10 +42402,8 @@ impl AeronFrameHeader {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_frame_header_t) -> AeronFrameHeader<Inline<aeron_frame_header_t>> {
+    pub fn from_native(value: aeron_frame_header_t) -> AeronFrameHeader<Inline<aeron_frame_header_t>> {
         AeronFrameHeader {
             inner: Inline::new(value),
         }
@@ -42785,10 +42651,8 @@ impl AeronGetNextAvailableSessionIdCommand {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_get_next_available_session_id_command_t,
     ) -> AeronGetNextAvailableSessionIdCommand<Inline<aeron_get_next_available_session_id_command_t>> {
         AeronGetNextAvailableSessionIdCommand {
@@ -43354,10 +43218,8 @@ impl AeronHeaderValuesFrame {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_header_values_frame_t,
     ) -> AeronHeaderValuesFrame<Inline<aeron_header_values_frame_t>> {
         AeronHeaderValuesFrame {
@@ -43600,10 +43462,8 @@ impl AeronHeaderValues {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_header_values_t) -> AeronHeaderValues<Inline<aeron_header_values_t>> {
+    pub fn from_native(value: aeron_header_values_t) -> AeronHeaderValues<Inline<aeron_header_values_t>> {
         AeronHeaderValues {
             inner: Inline::new(value),
         }
@@ -43836,10 +43696,8 @@ impl AeronHeartbeatTimestampKeyLayout {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_heartbeat_timestamp_key_layout_t,
     ) -> AeronHeartbeatTimestampKeyLayout<Inline<aeron_heartbeat_timestamp_key_layout_t>> {
         AeronHeartbeatTimestampKeyLayout {
@@ -44026,9 +43884,7 @@ impl AeronIdleStrategy {
         }
     }
     #[inline]
-    #[doc = "# Safety"]
-    #[doc = "Raw pointer arguments must have the size, alignment, initialization and lifetime required by the native function. Writable pointers require exclusive access. Keep any retained pointers valid until native cleanup."]
-    pub unsafe fn yielding_idle(state: *mut ::std::os::raw::c_void, work_count: ::std::os::raw::c_int) -> () {
+    pub fn yielding_idle(state: *mut ::std::os::raw::c_void, work_count: ::std::os::raw::c_int) -> () {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -44047,9 +43903,7 @@ impl AeronIdleStrategy {
         }
     }
     #[inline]
-    #[doc = "# Safety"]
-    #[doc = "Raw pointer arguments must have the size, alignment, initialization and lifetime required by the native function. Writable pointers require exclusive access. Keep any retained pointers valid until native cleanup."]
-    pub unsafe fn busy_spinning_idle(state: *mut ::std::os::raw::c_void, work_count: ::std::os::raw::c_int) -> () {
+    pub fn busy_spinning_idle(state: *mut ::std::os::raw::c_void, work_count: ::std::os::raw::c_int) -> () {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -44068,9 +43922,7 @@ impl AeronIdleStrategy {
         }
     }
     #[inline]
-    #[doc = "# Safety"]
-    #[doc = "Raw pointer arguments must have the size, alignment, initialization and lifetime required by the native function. Writable pointers require exclusive access. Keep any retained pointers valid until native cleanup."]
-    pub unsafe fn noop_idle(state: *mut ::std::os::raw::c_void, work_count: ::std::os::raw::c_int) -> () {
+    pub fn noop_idle(state: *mut ::std::os::raw::c_void, work_count: ::std::os::raw::c_int) -> () {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -44383,10 +44235,8 @@ impl AeronImageBuffersReady {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_image_buffers_ready_t,
     ) -> AeronImageBuffersReady<Inline<aeron_image_buffers_ready_t>> {
         AeronImageBuffersReady {
@@ -44960,10 +44810,8 @@ impl AeronImageMessage {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_image_message_t) -> AeronImageMessage<Inline<aeron_image_message_t>> {
+    pub fn from_native(value: aeron_image_message_t) -> AeronImageMessage<Inline<aeron_image_message_t>> {
         AeronImageMessage {
             inner: Inline::new(value),
         }
@@ -46109,8 +45957,8 @@ impl AeronInt64CounterMap {}
 impl<S: ResourceStorage<aeron_int64_counter_map_t>> AeronInt64CounterMap<S> {
     #[inline]
     #[must_use]
-    pub fn entries(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.entries }
+    pub fn entries(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.entries
     }
     #[inline]
     #[must_use]
@@ -46378,8 +46226,8 @@ impl AeronInt64ToPtrHashMap {}
 impl<S: ResourceStorage<aeron_int64_to_ptr_hash_map_t>> AeronInt64ToPtrHashMap<S> {
     #[inline]
     #[must_use]
-    pub fn keys(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.keys }
+    pub fn keys(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.keys
     }
     #[inline]
     #[must_use]
@@ -46905,8 +46753,8 @@ impl AeronInt64ToTaggedPtrHashMap {}
 impl<S: ResourceStorage<aeron_int64_to_tagged_ptr_hash_map_t>> AeronInt64ToTaggedPtrHashMap<S> {
     #[inline]
     #[must_use]
-    pub fn keys(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.keys }
+    pub fn keys(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.keys
     }
     #[inline]
     #[must_use]
@@ -47625,7 +47473,7 @@ impl<S: ResourceStorage<aeron_ipc_publication_entry_t>> core::fmt::Debug for Aer
         }
         f.debug_struct(stringify!(AeronIpcPublicationEntry))
             .field("inner", &self.inner)
-            .field("log_file_name", &unsafe { self.log_file_name() })
+            .field("log_file_name", &self.log_file_name())
             .finish()
     }
 }
@@ -47729,10 +47577,7 @@ impl<S: ResourceStorage<aeron_ipc_publication_entry_t>> AeronIpcPublicationEntry
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" The text points into native storage. Use it straight away, and do not"]
-    #[doc = r" hold it across a setter, poll or other call that can change it."]
-    pub unsafe fn log_file_name(&self) -> &str {
+    pub fn log_file_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.log_file_name.is_null() {
             ""
         } else {
@@ -48201,13 +48046,13 @@ impl<S: ResourceStorage<aeron_ipc_publication_t>> AeronIpcPublication<S> {
     }
     #[inline]
     #[must_use]
-    pub fn unblocked_publications_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.unblocked_publications_counter }
+    pub fn unblocked_publications_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.unblocked_publications_counter
     }
     #[inline]
     #[must_use]
-    pub fn publications_revoked_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.publications_revoked_counter }
+    pub fn publications_revoked_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.publications_revoked_counter
     }
     #[inline]
     pub fn update_pub_pos_and_lmt(&self) -> Result<i32, AeronCError> {
@@ -48817,10 +48662,8 @@ impl AeronLocalSockaddrKeyLayout {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_local_sockaddr_key_layout_t,
     ) -> AeronLocalSockaddrKeyLayout<Inline<aeron_local_sockaddr_key_layout_t>> {
         AeronLocalSockaddrKeyLayout {
@@ -49517,10 +49360,8 @@ impl AeronLogbufferMetadata {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_logbuffer_metadata_t,
     ) -> AeronLogbufferMetadata<Inline<aeron_logbuffer_metadata_t>> {
         AeronLogbufferMetadata {
@@ -49761,12 +49602,8 @@ impl AeronLossDetectorGap {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
-        value: aeron_loss_detector_gap_t,
-    ) -> AeronLossDetectorGap<Inline<aeron_loss_detector_gap_t>> {
+    pub fn from_native(value: aeron_loss_detector_gap_t) -> AeronLossDetectorGap<Inline<aeron_loss_detector_gap_t>> {
         AeronLossDetectorGap {
             inner: Inline::new(value),
         }
@@ -50732,10 +50569,8 @@ impl AeronLossReporterEntry {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_loss_reporter_entry_t,
     ) -> AeronLossReporterEntry<Inline<aeron_loss_reporter_entry_t>> {
         AeronLossReporterEntry {
@@ -53008,10 +52843,8 @@ impl AeronNakHeader {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_nak_header_t) -> AeronNakHeader<Inline<aeron_nak_header_t>> {
+    pub fn from_native(value: aeron_nak_header_t) -> AeronNakHeader<Inline<aeron_nak_header_t>> {
         AeronNakHeader {
             inner: Inline::new(value),
         }
@@ -53238,10 +53071,8 @@ impl AeronNamedInterface {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_named_interface_t) -> AeronNamedInterface<Inline<aeron_named_interface_t>> {
+    pub fn from_native(value: aeron_named_interface_t) -> AeronNamedInterface<Inline<aeron_named_interface_t>> {
         AeronNamedInterface {
             inner: Inline::new(value),
         }
@@ -53356,7 +53187,7 @@ impl<S: ResourceStorage<aeron_network_publication_entry_t>> core::fmt::Debug for
         }
         f.debug_struct(stringify!(AeronNetworkPublicationEntry))
             .field("inner", &self.inner)
-            .field("log_file_name", &unsafe { self.log_file_name() })
+            .field("log_file_name", &self.log_file_name())
             .finish()
     }
 }
@@ -53460,10 +53291,7 @@ impl<S: ResourceStorage<aeron_network_publication_entry_t>> AeronNetworkPublicat
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" The text points into native storage. Use it straight away, and do not"]
-    #[doc = r" hold it across a setter, poll or other call that can change it."]
-    pub unsafe fn log_file_name(&self) -> &str {
+    pub fn log_file_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.log_file_name.is_null() {
             ""
         } else {
@@ -54033,11 +53861,8 @@ impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S>
     }
     #[inline]
     #[must_use]
-    pub fn endpoint_address(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
-        SockaddrStorage::from_resource(ScopedInline {
-            value: Inline::new(unsafe { self.get_inner_ref() }.endpoint_address),
-            _owner: std::marker::PhantomData,
-        })
+    pub fn endpoint_address(&self) -> SockaddrStorage<Inline<sockaddr_storage>> {
+        unsafe { SockaddrStorage::from_native(unsafe { self.get_inner_ref() }.endpoint_address) }
     }
     #[inline]
     #[must_use]
@@ -54203,38 +54028,38 @@ impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S>
     }
     #[inline]
     #[must_use]
-    pub fn short_sends_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.short_sends_counter }
+    pub fn short_sends_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.short_sends_counter
     }
     #[inline]
     #[must_use]
-    pub fn heartbeats_sent_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.heartbeats_sent_counter }
+    pub fn heartbeats_sent_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.heartbeats_sent_counter
     }
     #[inline]
     #[must_use]
-    pub fn sender_flow_control_limits_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.sender_flow_control_limits_counter }
+    pub fn sender_flow_control_limits_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.sender_flow_control_limits_counter
     }
     #[inline]
     #[must_use]
-    pub fn retransmits_sent_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.retransmits_sent_counter }
+    pub fn retransmits_sent_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.retransmits_sent_counter
     }
     #[inline]
     #[must_use]
-    pub fn retransmitted_bytes_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.retransmitted_bytes_counter }
+    pub fn retransmitted_bytes_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.retransmitted_bytes_counter
     }
     #[inline]
     #[must_use]
-    pub fn unblocked_publications_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.unblocked_publications_counter }
+    pub fn unblocked_publications_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.unblocked_publications_counter
     }
     #[inline]
     #[must_use]
-    pub fn publications_revoked_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.publications_revoked_counter }
+    pub fn publications_revoked_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.publications_revoked_counter
     }
     #[inline]
     #[must_use]
@@ -54787,10 +54612,8 @@ impl AeronNextAvailableSessionIdResponse {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_next_available_session_id_response_t,
     ) -> AeronNextAvailableSessionIdResponse<Inline<aeron_next_available_session_id_response_t>> {
         AeronNextAvailableSessionIdResponse {
@@ -55787,10 +55610,8 @@ impl AeronOperationSucceeded {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_operation_succeeded_t,
     ) -> AeronOperationSucceeded<Inline<aeron_operation_succeeded_t>> {
         AeronOperationSucceeded {
@@ -56022,10 +55843,8 @@ impl AeronOptionHeader {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_option_header_t) -> AeronOptionHeader<Inline<aeron_option_header_t>> {
+    pub fn from_native(value: aeron_option_header_t) -> AeronOptionHeader<Inline<aeron_option_header_t>> {
         AeronOptionHeader {
             inner: Inline::new(value),
         }
@@ -56260,10 +56079,8 @@ impl AeronParsedAddress {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_parsed_address_t) -> AeronParsedAddress<Inline<aeron_parsed_address_t>> {
+    pub fn from_native(value: aeron_parsed_address_t) -> AeronParsedAddress<Inline<aeron_parsed_address_t>> {
         AeronParsedAddress {
             inner: Inline::new(value),
         }
@@ -56507,12 +56324,8 @@ impl AeronParsedInterface {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
-        value: aeron_parsed_interface_t,
-    ) -> AeronParsedInterface<Inline<aeron_parsed_interface_t>> {
+    pub fn from_native(value: aeron_parsed_interface_t) -> AeronParsedInterface<Inline<aeron_parsed_interface_t>> {
         AeronParsedInterface {
             inner: Inline::new(value),
         }
@@ -56750,12 +56563,8 @@ impl AeronPerThreadError {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
-        value: aeron_per_thread_error_t,
-    ) -> AeronPerThreadError<Inline<aeron_per_thread_error_t>> {
+    pub fn from_native(value: aeron_per_thread_error_t) -> AeronPerThreadError<Inline<aeron_per_thread_error_t>> {
         AeronPerThreadError {
             inner: Inline::new(value),
         }
@@ -57197,8 +57006,8 @@ impl<S: ResourceStorage<aeron_position_t>> AeronPosition<S> {
     }
     #[inline]
     #[must_use]
-    pub fn value_addr(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.value_addr }
+    pub fn value_addr(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.value_addr
     }
     #[doc = r" Borrow this handle without cloning its owner."]
     #[inline(always)]
@@ -57514,10 +57323,8 @@ impl AeronPublicationBuffersReady {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_publication_buffers_ready_t,
     ) -> AeronPublicationBuffersReady<Inline<aeron_publication_buffers_ready_t>> {
         AeronPublicationBuffersReady {
@@ -57766,10 +57573,8 @@ impl AeronPublicationCommand {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_publication_command_t,
     ) -> AeronPublicationCommand<Inline<aeron_publication_command_t>> {
         AeronPublicationCommand {
@@ -58179,6 +57984,15 @@ mod aeron_publication_constants_t_allocation_tests {
             }
         });
     }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronPublicationConstants::default();
+            }
+        });
+    }
 }
 unsafe impl NativeResource for aeron_publication_error_t {
     type Policy = LocalResource;
@@ -58425,12 +58239,8 @@ impl AeronPublicationError {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
-        value: aeron_publication_error_t,
-    ) -> AeronPublicationError<Inline<aeron_publication_error_t>> {
+    pub fn from_native(value: aeron_publication_error_t) -> AeronPublicationError<Inline<aeron_publication_error_t>> {
         AeronPublicationError {
             inner: Inline::new(value),
         }
@@ -58558,10 +58368,7 @@ impl<S: ResourceStorage<aeron_publication_error_values_t>> core::fmt::Debug for 
 impl AeronPublicationErrorValues<CResource<aeron_publication_error_values_t>> {
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_publication_error_values_t>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -58584,10 +58391,7 @@ impl AeronPublicationErrorValues<CResource<aeron_publication_error_values_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> AeronPublicationErrorValues<Inline<aeron_publication_error_values_t>> {
+    pub fn new_zeroed_on_stack() -> AeronPublicationErrorValues<Inline<aeron_publication_error_values_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
             "creating zeroed empty resource on stack {}",
@@ -58894,13 +58698,12 @@ impl<S: ResourceStorage<aeron_publication_image_connection_t>> AeronPublicationI
     }
     #[inline]
     #[must_use]
-    pub fn resolved_control_address_for_implicit_unicast_channels(
-        &self,
-    ) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
-        SockaddrStorage::from_resource(ScopedInline {
-            value: Inline::new(unsafe { self.get_inner_ref() }.resolved_control_address_for_implicit_unicast_channels),
-            _owner: std::marker::PhantomData,
-        })
+    pub fn resolved_control_address_for_implicit_unicast_channels(&self) -> SockaddrStorage<Inline<sockaddr_storage>> {
+        unsafe {
+            SockaddrStorage::from_native(
+                unsafe { self.get_inner_ref() }.resolved_control_address_for_implicit_unicast_channels,
+            )
+        }
     }
     #[inline]
     #[must_use]
@@ -59127,7 +58930,7 @@ impl<S: ResourceStorage<aeron_publication_image_entry_t>> core::fmt::Debug for A
         }
         f.debug_struct(stringify!(AeronPublicationImageEntry))
             .field("inner", &self.inner)
-            .field("log_file_name", &unsafe { self.log_file_name() })
+            .field("log_file_name", &self.log_file_name())
             .finish()
     }
 }
@@ -59231,10 +59034,7 @@ impl<S: ResourceStorage<aeron_publication_image_entry_t>> AeronPublicationImageE
     }
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" The text points into native storage. Use it straight away, and do not"]
-    #[doc = r" hold it across a setter, poll or other call that can change it."]
-    pub unsafe fn log_file_name(&self) -> &str {
+    pub fn log_file_name(&self) -> &str {
         if unsafe { self.get_inner_ref() }.log_file_name.is_null() {
             ""
         } else {
@@ -59593,11 +59393,8 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
     }
     #[inline]
     #[must_use]
-    pub fn source_address(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
-        SockaddrStorage::from_resource(ScopedInline {
-            value: Inline::new(unsafe { self.get_inner_ref() }.source_address),
-            _owner: std::marker::PhantomData,
-        })
+    pub fn source_address(&self) -> SockaddrStorage<Inline<sockaddr_storage>> {
+        unsafe { SockaddrStorage::from_native(unsafe { self.get_inner_ref() }.source_address) }
     }
     #[inline]
     #[must_use]
@@ -59921,48 +59718,48 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
     }
     #[inline]
     #[must_use]
-    pub fn heartbeats_received_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.heartbeats_received_counter }
+    pub fn heartbeats_received_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.heartbeats_received_counter
     }
     #[inline]
     #[must_use]
-    pub fn flow_control_under_runs_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.flow_control_under_runs_counter }
+    pub fn flow_control_under_runs_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.flow_control_under_runs_counter
     }
     #[inline]
     #[must_use]
-    pub fn flow_control_over_runs_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.flow_control_over_runs_counter }
+    pub fn flow_control_over_runs_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.flow_control_over_runs_counter
     }
     #[inline]
     #[must_use]
-    pub fn status_messages_sent_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.status_messages_sent_counter }
+    pub fn status_messages_sent_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.status_messages_sent_counter
     }
     #[inline]
     #[must_use]
-    pub fn nak_messages_sent_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.nak_messages_sent_counter }
+    pub fn nak_messages_sent_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.nak_messages_sent_counter
     }
     #[inline]
     #[must_use]
-    pub fn loss_gap_fills_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.loss_gap_fills_counter }
+    pub fn loss_gap_fills_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.loss_gap_fills_counter
     }
     #[inline]
     #[must_use]
-    pub fn mapped_bytes_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.mapped_bytes_counter }
+    pub fn mapped_bytes_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.mapped_bytes_counter
     }
     #[inline]
     #[must_use]
-    pub fn publication_images_revoked_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.publication_images_revoked_counter }
+    pub fn publication_images_revoked_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.publication_images_revoked_counter
     }
     #[inline]
     #[must_use]
-    pub fn invalid_packets_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.invalid_packets_counter }
+    pub fn invalid_packets_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.invalid_packets_counter
     }
     #[inline]
     pub fn clean_buffer_to(&self, position: i64) -> () {
@@ -61498,10 +61295,8 @@ impl AeronRbDescriptor {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_rb_descriptor_t) -> AeronRbDescriptor<Inline<aeron_rb_descriptor_t>> {
+    pub fn from_native(value: aeron_rb_descriptor_t) -> AeronRbDescriptor<Inline<aeron_rb_descriptor_t>> {
         AeronRbDescriptor {
             inner: Inline::new(value),
         }
@@ -61731,10 +61526,8 @@ impl AeronRbRecordDescriptor {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_rb_record_descriptor_t,
     ) -> AeronRbRecordDescriptor<Inline<aeron_rb_record_descriptor_t>> {
         AeronRbRecordDescriptor {
@@ -62282,18 +62075,18 @@ impl<S: ResourceStorage<aeron_receive_channel_endpoint_t>> AeronReceiveChannelEn
     }
     #[inline]
     #[must_use]
-    pub fn short_sends_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.short_sends_counter }
+    pub fn short_sends_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.short_sends_counter
     }
     #[inline]
     #[must_use]
-    pub fn possible_ttl_asymmetry_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.possible_ttl_asymmetry_counter }
+    pub fn possible_ttl_asymmetry_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.possible_ttl_asymmetry_counter
     }
     #[inline]
     #[must_use]
-    pub fn errors_frames_sent_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.errors_frames_sent_counter }
+    pub fn errors_frames_sent_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.errors_frames_sent_counter
     }
     #[inline]
     #[must_use]
@@ -63773,19 +63566,13 @@ impl<S: ResourceStorage<aeron_receive_destination_t>> AeronReceiveDestination<S>
     }
     #[inline]
     #[must_use]
-    pub fn current_control_addr(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
-        SockaddrStorage::from_resource(ScopedInline {
-            value: Inline::new(unsafe { self.get_inner_ref() }.current_control_addr),
-            _owner: std::marker::PhantomData,
-        })
+    pub fn current_control_addr(&self) -> SockaddrStorage<Inline<sockaddr_storage>> {
+        unsafe { SockaddrStorage::from_native(unsafe { self.get_inner_ref() }.current_control_addr) }
     }
     #[inline]
     #[must_use]
-    pub fn bind_addr(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
-        SockaddrStorage::from_resource(ScopedInline {
-            value: Inline::new(unsafe { self.get_inner_ref() }.bind_addr),
-            _owner: std::marker::PhantomData,
-        })
+    pub fn bind_addr(&self) -> SockaddrStorage<Inline<sockaddr_storage>> {
+        unsafe { SockaddrStorage::from_native(unsafe { self.get_inner_ref() }.bind_addr) }
     }
     #[inline]
     #[must_use]
@@ -64111,10 +63898,8 @@ impl AeronRejectImageCommand {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_reject_image_command_t,
     ) -> AeronRejectImageCommand<Inline<aeron_reject_image_command_t>> {
         AeronRejectImageCommand {
@@ -64355,10 +64140,8 @@ impl AeronRemoveCounterCommand {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_remove_counter_command_t,
     ) -> AeronRemoveCounterCommand<Inline<aeron_remove_counter_command_t>> {
         AeronRemoveCounterCommand {
@@ -64610,10 +64393,8 @@ impl AeronRemovePublicationCommand {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_remove_publication_command_t,
     ) -> AeronRemovePublicationCommand<Inline<aeron_remove_publication_command_t>> {
         AeronRemovePublicationCommand {
@@ -64858,10 +64639,8 @@ impl AeronRemoveSubscriptionCommand {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_remove_subscription_command_t,
     ) -> AeronRemoveSubscriptionCommand<Inline<aeron_remove_subscription_command_t>> {
         AeronRemoveSubscriptionCommand {
@@ -65014,10 +64793,7 @@ impl AeronResolutionHeaderIpv4<CResource<aeron_resolution_header_ipv4_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_resolution_header_ipv4_t>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -65040,10 +64816,7 @@ impl AeronResolutionHeaderIpv4<CResource<aeron_resolution_header_ipv4_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> AeronResolutionHeaderIpv4<Inline<aeron_resolution_header_ipv4_t>> {
+    pub fn new_zeroed_on_stack() -> AeronResolutionHeaderIpv4<Inline<aeron_resolution_header_ipv4_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
             "creating zeroed empty resource on stack {}",
@@ -65130,10 +64903,8 @@ impl AeronResolutionHeaderIpv4 {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_resolution_header_ipv4_t,
     ) -> AeronResolutionHeaderIpv4<Inline<aeron_resolution_header_ipv4_t>> {
         AeronResolutionHeaderIpv4 {
@@ -65165,6 +64936,11 @@ impl<S: ResourceStorage<aeron_resolution_header_ipv4_t>> From<AeronResolutionHea
         unsafe { *value.get_inner().clone() }
     }
 }
+impl Default for AeronResolutionHeaderIpv4<CResource<aeron_resolution_header_ipv4_t>> {
+    fn default() -> Self {
+        AeronResolutionHeaderIpv4::new_zeroed_on_heap()
+    }
+}
 impl<S: ResourceStorage<aeron_resolution_header_ipv4_t>> AeronResolutionHeaderIpv4<S> {
     #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
@@ -65187,6 +64963,15 @@ mod aeron_resolution_header_ipv4_t_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = unsafe { AeronResolutionHeaderIpv4::new_zeroed_on_stack() };
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronResolutionHeaderIpv4::default();
             }
         });
     }
@@ -65272,10 +65057,7 @@ impl AeronResolutionHeaderIpv6<CResource<aeron_resolution_header_ipv6_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_resolution_header_ipv6_t>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -65298,10 +65080,7 @@ impl AeronResolutionHeaderIpv6<CResource<aeron_resolution_header_ipv6_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> AeronResolutionHeaderIpv6<Inline<aeron_resolution_header_ipv6_t>> {
+    pub fn new_zeroed_on_stack() -> AeronResolutionHeaderIpv6<Inline<aeron_resolution_header_ipv6_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
             "creating zeroed empty resource on stack {}",
@@ -65388,10 +65167,8 @@ impl AeronResolutionHeaderIpv6 {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_resolution_header_ipv6_t,
     ) -> AeronResolutionHeaderIpv6<Inline<aeron_resolution_header_ipv6_t>> {
         AeronResolutionHeaderIpv6 {
@@ -65423,6 +65200,11 @@ impl<S: ResourceStorage<aeron_resolution_header_ipv6_t>> From<AeronResolutionHea
         unsafe { *value.get_inner().clone() }
     }
 }
+impl Default for AeronResolutionHeaderIpv6<CResource<aeron_resolution_header_ipv6_t>> {
+    fn default() -> Self {
+        AeronResolutionHeaderIpv6::new_zeroed_on_heap()
+    }
+}
 impl<S: ResourceStorage<aeron_resolution_header_ipv6_t>> AeronResolutionHeaderIpv6<S> {
     #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
@@ -65445,6 +65227,15 @@ mod aeron_resolution_header_ipv6_t_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = unsafe { AeronResolutionHeaderIpv6::new_zeroed_on_stack() };
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronResolutionHeaderIpv6::default();
             }
         });
     }
@@ -65625,12 +65416,8 @@ impl AeronResolutionHeader {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
-        value: aeron_resolution_header_t,
-    ) -> AeronResolutionHeader<Inline<aeron_resolution_header_t>> {
+    pub fn from_native(value: aeron_resolution_header_t) -> AeronResolutionHeader<Inline<aeron_resolution_header_t>> {
         AeronResolutionHeader {
             inner: Inline::new(value),
         }
@@ -65879,10 +65666,8 @@ impl AeronResponseSetupHeader {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_response_setup_header_t,
     ) -> AeronResponseSetupHeader<Inline<aeron_response_setup_header_t>> {
         AeronResponseSetupHeader {
@@ -66009,9 +65794,7 @@ impl<S: ResourceStorage<aeron_retransmit_action_t>> core::fmt::Debug for AeronRe
 }
 impl AeronRetransmitAction<CResource<aeron_retransmit_action_t>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
-    pub unsafe fn new(
+    pub fn new(
         expiry_ns: i64,
         term_id: i32,
         term_offset: i32,
@@ -66041,10 +65824,7 @@ impl AeronRetransmitAction<CResource<aeron_retransmit_action_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_retransmit_action_t>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -66067,10 +65847,7 @@ impl AeronRetransmitAction<CResource<aeron_retransmit_action_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> AeronRetransmitAction<Inline<aeron_retransmit_action_t>> {
+    pub fn new_zeroed_on_stack() -> AeronRetransmitAction<Inline<aeron_retransmit_action_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
             "creating zeroed empty resource on stack {}",
@@ -66152,12 +65929,8 @@ impl AeronRetransmitAction {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
-        value: aeron_retransmit_action_t,
-    ) -> AeronRetransmitAction<Inline<aeron_retransmit_action_t>> {
+    pub fn from_native(value: aeron_retransmit_action_t) -> AeronRetransmitAction<Inline<aeron_retransmit_action_t>> {
         AeronRetransmitAction {
             inner: Inline::new(value),
         }
@@ -66181,21 +65954,19 @@ impl<S: ResourceStorage<aeron_retransmit_action_t>> From<AeronRetransmitAction<S
         unsafe { *value.get_inner().clone() }
     }
 }
+impl Default for AeronRetransmitAction<CResource<aeron_retransmit_action_t>> {
+    fn default() -> Self {
+        AeronRetransmitAction::new_zeroed_on_heap()
+    }
+}
 impl<S: ResourceStorage<aeron_retransmit_action_t>> AeronRetransmitAction<S> {
     #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
     #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
     #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
-    #[doc = r" # Safety"]
-    #[doc = r" This is a shallow copy, not a new native resource. Pointers inside"]
-    #[doc = r" unions, arrays and nested structs are copied too. Keep their targets"]
-    #[doc = r" alive for every use of the copy. Coordinate writes through aliases,"]
-    #[doc = r" and do not use the copy to release or reinitialize shared native state."]
-    #[doc = r" No Rust or native write may overlap copying the source struct."]
-    #[doc = r" Callback storage expires when its callback returns. Copy individual"]
-    #[doc = r" fields into Rust values when you need an independent snapshot."]
-    pub unsafe fn clone_struct(&self) -> AeronRetransmitAction<CResource<aeron_retransmit_action_t>> {
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
+    pub fn clone_struct(&self) -> AeronRetransmitAction<CResource<aeron_retransmit_action_t>> {
         let value = unsafe { *self.get_inner_ref() };
         AeronRetransmitAction::from_resource(CResource::owned_value(value))
     }
@@ -66210,6 +65981,15 @@ mod aeron_retransmit_action_t_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = unsafe { AeronRetransmitAction::new_zeroed_on_stack() };
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronRetransmitAction::default();
             }
         });
     }
@@ -66377,8 +66157,8 @@ impl<S: ResourceStorage<aeron_retransmit_handler_t>> AeronRetransmitHandler<S> {
     }
     #[inline]
     #[must_use]
-    pub fn invalid_packets_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.invalid_packets_counter }
+    pub fn invalid_packets_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.invalid_packets_counter
     }
     #[inline]
     #[must_use]
@@ -66397,8 +66177,8 @@ impl<S: ResourceStorage<aeron_retransmit_handler_t>> AeronRetransmitHandler<S> {
     }
     #[inline]
     #[must_use]
-    pub fn retransmit_overflow_counter(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.retransmit_overflow_counter }
+    pub fn retransmit_overflow_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.retransmit_overflow_counter
     }
     #[inline]
     #[doc = "# Safety"]
@@ -66917,10 +66697,8 @@ impl AeronRttmHeader {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_rttm_header_t) -> AeronRttmHeader<Inline<aeron_rttm_header_t>> {
+    pub fn from_native(value: aeron_rttm_header_t) -> AeronRttmHeader<Inline<aeron_rttm_header_t>> {
         AeronRttmHeader {
             inner: Inline::new(value),
         }
@@ -67425,19 +67203,13 @@ impl<S: ResourceStorage<aeron_send_channel_endpoint_t>> AeronSendChannelEndpoint
     }
     #[inline]
     #[must_use]
-    pub fn current_data_addr(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
-        SockaddrStorage::from_resource(ScopedInline {
-            value: Inline::new(unsafe { self.get_inner_ref() }.current_data_addr),
-            _owner: std::marker::PhantomData,
-        })
+    pub fn current_data_addr(&self) -> SockaddrStorage<Inline<sockaddr_storage>> {
+        unsafe { SockaddrStorage::from_native(unsafe { self.get_inner_ref() }.current_data_addr) }
     }
     #[inline]
     #[must_use]
-    pub fn bind_addr(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
-        SockaddrStorage::from_resource(ScopedInline {
-            value: Inline::new(unsafe { self.get_inner_ref() }.bind_addr),
-            _owner: std::marker::PhantomData,
-        })
+    pub fn bind_addr(&self) -> SockaddrStorage<Inline<sockaddr_storage>> {
+        unsafe { SockaddrStorage::from_native(unsafe { self.get_inner_ref() }.bind_addr) }
     }
     #[inline]
     #[must_use]
@@ -68056,10 +67828,8 @@ impl AeronSetupHeader {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: aeron_setup_header_t) -> AeronSetupHeader<Inline<aeron_setup_header_t>> {
+    pub fn from_native(value: aeron_setup_header_t) -> AeronSetupHeader<Inline<aeron_setup_header_t>> {
         AeronSetupHeader {
             inner: Inline::new(value),
         }
@@ -69204,10 +68974,8 @@ impl AeronStaticCounterCommand {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_static_counter_command_t,
     ) -> AeronStaticCounterCommand<Inline<aeron_static_counter_command_t>> {
         AeronStaticCounterCommand {
@@ -69445,10 +69213,8 @@ impl AeronStaticCounterResponse {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_static_counter_response_t,
     ) -> AeronStaticCounterResponse<Inline<aeron_static_counter_response_t>> {
         AeronStaticCounterResponse {
@@ -69614,10 +69380,7 @@ impl AeronStatusMessageHeader<CResource<aeron_status_message_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<aeron_status_message_header_t>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -69640,10 +69403,7 @@ impl AeronStatusMessageHeader<CResource<aeron_status_message_header_t>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> AeronStatusMessageHeader<Inline<aeron_status_message_header_t>> {
+    pub fn new_zeroed_on_stack() -> AeronStatusMessageHeader<Inline<aeron_status_message_header_t>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
             "creating zeroed empty resource on stack {}",
@@ -69760,10 +69520,8 @@ impl AeronStatusMessageHeader {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_status_message_header_t,
     ) -> AeronStatusMessageHeader<Inline<aeron_status_message_header_t>> {
         AeronStatusMessageHeader {
@@ -69795,6 +69553,11 @@ impl<S: ResourceStorage<aeron_status_message_header_t>> From<AeronStatusMessageH
         unsafe { *value.get_inner().clone() }
     }
 }
+impl Default for AeronStatusMessageHeader<CResource<aeron_status_message_header_t>> {
+    fn default() -> Self {
+        AeronStatusMessageHeader::new_zeroed_on_heap()
+    }
+}
 impl<S: ResourceStorage<aeron_status_message_header_t>> AeronStatusMessageHeader<S> {
     #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
@@ -69817,6 +69580,15 @@ mod aeron_status_message_header_t_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = unsafe { AeronStatusMessageHeader::new_zeroed_on_stack() };
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronStatusMessageHeader::default();
             }
         });
     }
@@ -69990,10 +69762,8 @@ impl AeronStatusMessageOptionalHeader {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_status_message_optional_header_t,
     ) -> AeronStatusMessageOptionalHeader<Inline<aeron_status_message_optional_header_t>> {
         AeronStatusMessageOptionalHeader {
@@ -70317,6 +70087,15 @@ mod aeron_str_to_ptr_hash_map_key_t_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = unsafe { AeronStrToPtrHashMapKey::new_zeroed_on_stack() };
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronStrToPtrHashMapKey::default();
             }
         });
     }
@@ -70817,10 +70596,8 @@ impl AeronStreamPositionCounterKeyLayout {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_stream_position_counter_key_layout_t,
     ) -> AeronStreamPositionCounterKeyLayout<Inline<aeron_stream_position_counter_key_layout_t>> {
         AeronStreamPositionCounterKeyLayout {
@@ -71736,10 +71513,8 @@ impl AeronSubscriptionCommand {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_subscription_command_t,
     ) -> AeronSubscriptionCommand<Inline<aeron_subscription_command_t>> {
         AeronSubscriptionCommand {
@@ -72668,10 +72443,8 @@ impl AeronSubscriptionReady {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_subscription_ready_t,
     ) -> AeronSubscriptionReady<Inline<aeron_subscription_ready_t>> {
         AeronSubscriptionReady {
@@ -73709,7 +73482,7 @@ impl<S: ResourceStorage<aeron_system_counter_t>> core::fmt::Debug for AeronSyste
         }
         f.debug_struct(stringify!(AeronSystemCounter))
             .field("inner", &self.inner)
-            .field("label", &unsafe { self.label() })
+            .field("label", &self.label())
             .field("id", &self.id())
             .finish()
     }
@@ -73777,10 +73550,7 @@ impl AeronSystemCounter {}
 impl<S: ResourceStorage<aeron_system_counter_t>> AeronSystemCounter<S> {
     #[inline]
     #[must_use]
-    #[doc = r" # Safety"]
-    #[doc = r" The text points into native storage. Use it straight away, and do not"]
-    #[doc = r" hold it across a setter, poll or other call that can change it."]
-    pub unsafe fn label(&self) -> &str {
+    pub fn label(&self) -> &str {
         if unsafe { self.get_inner_ref() }.label.is_null() {
             ""
         } else {
@@ -73899,6 +73669,15 @@ mod aeron_system_counter_t_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = unsafe { AeronSystemCounter::new_zeroed_on_stack() };
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronSystemCounter::default();
             }
         });
     }
@@ -75502,6 +75281,7 @@ impl Aeron {
     #[inline]
     #[doc = "# Safety"]
     #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
+    #[doc = "On POSIX, the output buffer must hold at least PATH_MAX bytes. Aeron calls realpath without passing the slice length. Keep the returned text within the output buffer's lifetime and do not mutate the buffer while the text is borrowed."]
     pub unsafe fn realpath<'text>(path: &std::ffi::CStr, resolved_path: &mut [u8]) -> &'text str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -75529,9 +75309,7 @@ impl Aeron {
         }
     }
     #[inline]
-    #[doc = "# Safety"]
-    #[doc = "The text points into native storage. A setter, poll or close can rewrite or free it, even through another clone of this handle. Use it straight away, for example to log or copy it, and do not hold it across any call that can change this resource."]
-    pub unsafe fn tmpdir<'text>(path: &mut [u8]) -> &'text str {
+    pub fn tmpdir<'text>(path: &'text mut [u8]) -> &'text str {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -77932,10 +77710,8 @@ impl AeronTerminateDriverCommand {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(
+    pub fn from_native(
         value: aeron_terminate_driver_command_t,
     ) -> AeronTerminateDriverCommand<Inline<aeron_terminate_driver_command_t>> {
         AeronTerminateDriverCommand {
@@ -78145,8 +77921,8 @@ impl AeronTetherablePosition {}
 impl<S: ResourceStorage<aeron_tetherable_position_t>> AeronTetherablePosition<S> {
     #[inline]
     #[must_use]
-    pub fn value_addr(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.value_addr }
+    pub fn value_addr(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.value_addr
     }
     #[inline]
     #[must_use]
@@ -80611,35 +80387,23 @@ impl<S: ResourceStorage<aeron_udp_channel_t>> AeronUdpChannel<S> {
     }
     #[inline]
     #[must_use]
-    pub fn remote_data(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
-        SockaddrStorage::from_resource(ScopedInline {
-            value: Inline::new(unsafe { self.get_inner_ref() }.remote_data),
-            _owner: std::marker::PhantomData,
-        })
+    pub fn remote_data(&self) -> SockaddrStorage<Inline<sockaddr_storage>> {
+        unsafe { SockaddrStorage::from_native(unsafe { self.get_inner_ref() }.remote_data) }
     }
     #[inline]
     #[must_use]
-    pub fn local_data(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
-        SockaddrStorage::from_resource(ScopedInline {
-            value: Inline::new(unsafe { self.get_inner_ref() }.local_data),
-            _owner: std::marker::PhantomData,
-        })
+    pub fn local_data(&self) -> SockaddrStorage<Inline<sockaddr_storage>> {
+        unsafe { SockaddrStorage::from_native(unsafe { self.get_inner_ref() }.local_data) }
     }
     #[inline]
     #[must_use]
-    pub fn remote_control(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
-        SockaddrStorage::from_resource(ScopedInline {
-            value: Inline::new(unsafe { self.get_inner_ref() }.remote_control),
-            _owner: std::marker::PhantomData,
-        })
+    pub fn remote_control(&self) -> SockaddrStorage<Inline<sockaddr_storage>> {
+        unsafe { SockaddrStorage::from_native(unsafe { self.get_inner_ref() }.remote_control) }
     }
     #[inline]
     #[must_use]
-    pub fn local_control(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
-        SockaddrStorage::from_resource(ScopedInline {
-            value: Inline::new(unsafe { self.get_inner_ref() }.local_control),
-            _owner: std::marker::PhantomData,
-        })
+    pub fn local_control(&self) -> SockaddrStorage<Inline<sockaddr_storage>> {
+        unsafe { SockaddrStorage::from_native(unsafe { self.get_inner_ref() }.local_control) }
     }
     #[inline]
     #[must_use]
@@ -81037,11 +80801,8 @@ impl<S: ResourceStorage<aeron_udp_destination_entry_t>> AeronUdpDestinationEntry
     }
     #[inline]
     #[must_use]
-    pub fn addr(&self) -> SockaddrStorage<ScopedInline<'_, sockaddr_storage>> {
-        SockaddrStorage::from_resource(ScopedInline {
-            value: Inline::new(unsafe { self.get_inner_ref() }.addr),
-            _owner: std::marker::PhantomData,
-        })
+    pub fn addr(&self) -> SockaddrStorage<Inline<sockaddr_storage>> {
+        unsafe { SockaddrStorage::from_native(unsafe { self.get_inner_ref() }.addr) }
     }
     #[inline]
     #[must_use]
@@ -81313,8 +81074,8 @@ impl<S: ResourceStorage<aeron_udp_destination_tracker_t>> AeronUdpDestinationTra
     }
     #[inline]
     #[must_use]
-    pub fn num_destinations_addr(&self) -> &mut i64 {
-        unsafe { &mut *unsafe { self.get_inner_ref() }.num_destinations_addr }
+    pub fn num_destinations_addr(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.num_destinations_addr
     }
     #[inline]
     #[must_use]
@@ -81886,6 +81647,15 @@ mod aeron_uri_param_t_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = unsafe { AeronUriParam::new_zeroed_on_stack() };
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = AeronUriParam::default();
             }
         });
     }
@@ -84497,9 +84267,7 @@ impl<S: ResourceStorage<in_addr>> core::fmt::Debug for InAddr<S> {
 }
 impl InAddr<CResource<in_addr>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
-    pub unsafe fn new(s_addr: in_addr_t) -> Result<Self, AeronCError> {
+    pub fn new(s_addr: in_addr_t) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<in_addr>::new(
             move |ctx_field| {
                 let inst = in_addr { s_addr: s_addr.into() };
@@ -84517,10 +84285,7 @@ impl InAddr<CResource<in_addr>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<in_addr>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -84540,10 +84305,7 @@ impl InAddr<CResource<in_addr>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> InAddr<Inline<in_addr>> {
+    pub fn new_zeroed_on_stack() -> InAddr<Inline<in_addr>> {
         #[cfg(feature = "extra-logging")]
         log::debug!("creating zeroed empty resource on stack {}", stringify!(in_addr));
         InAddr {
@@ -84638,10 +84400,8 @@ impl InAddr {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: in_addr) -> InAddr<Inline<in_addr>> {
+    pub fn from_native(value: in_addr) -> InAddr<Inline<in_addr>> {
         InAddr {
             inner: Inline::new(value),
         }
@@ -84665,21 +84425,19 @@ impl<S: ResourceStorage<in_addr>> From<InAddr<S>> for in_addr {
         unsafe { *value.get_inner().clone() }
     }
 }
+impl Default for InAddr<CResource<in_addr>> {
+    fn default() -> Self {
+        InAddr::new_zeroed_on_heap()
+    }
+}
 impl<S: ResourceStorage<in_addr>> InAddr<S> {
     #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
     #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
     #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
-    #[doc = r" # Safety"]
-    #[doc = r" This is a shallow copy, not a new native resource. Pointers inside"]
-    #[doc = r" unions, arrays and nested structs are copied too. Keep their targets"]
-    #[doc = r" alive for every use of the copy. Coordinate writes through aliases,"]
-    #[doc = r" and do not use the copy to release or reinitialize shared native state."]
-    #[doc = r" No Rust or native write may overlap copying the source struct."]
-    #[doc = r" Callback storage expires when its callback returns. Copy individual"]
-    #[doc = r" fields into Rust values when you need an independent snapshot."]
-    pub unsafe fn clone_struct(&self) -> InAddr<CResource<in_addr>> {
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
+    pub fn clone_struct(&self) -> InAddr<CResource<in_addr>> {
         let value = unsafe { *self.get_inner_ref() };
         InAddr::from_resource(CResource::owned_value(value))
     }
@@ -84694,6 +84452,15 @@ mod in_addr_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = unsafe { InAddr::new_zeroed_on_stack() };
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = InAddr::default();
             }
         });
     }
@@ -85491,10 +85258,7 @@ impl Pollfd<CResource<pollfd>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<pollfd>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -85514,10 +85278,7 @@ impl Pollfd<CResource<pollfd>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> Pollfd<Inline<pollfd>> {
+    pub fn new_zeroed_on_stack() -> Pollfd<Inline<pollfd>> {
         #[cfg(feature = "extra-logging")]
         log::debug!("creating zeroed empty resource on stack {}", stringify!(pollfd));
         Pollfd {
@@ -85612,10 +85373,8 @@ impl Pollfd {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: pollfd) -> Pollfd<Inline<pollfd>> {
+    pub fn from_native(value: pollfd) -> Pollfd<Inline<pollfd>> {
         Pollfd {
             inner: Inline::new(value),
         }
@@ -85637,6 +85396,11 @@ impl<S: ResourceStorage<pollfd>> From<Pollfd<S>> for pollfd {
     #[inline]
     fn from(value: Pollfd<S>) -> Self {
         unsafe { *value.get_inner().clone() }
+    }
+}
+impl Default for Pollfd<CResource<pollfd>> {
+    fn default() -> Self {
+        Pollfd::new_zeroed_on_heap()
     }
 }
 impl<S: ResourceStorage<pollfd>> Pollfd<S> {
@@ -85661,6 +85425,15 @@ mod pollfd_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = unsafe { Pollfd::new_zeroed_on_stack() };
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = Pollfd::default();
             }
         });
     }
@@ -85713,9 +85486,7 @@ impl<S: ResourceStorage<sockaddr>> core::fmt::Debug for Sockaddr<S> {
 }
 impl Sockaddr<CResource<sockaddr>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
-    pub unsafe fn new(
+    pub fn new(
         sa_len: __uint8_t,
         sa_family: sa_family_t,
         sa_data: [::std::os::raw::c_char; 14usize],
@@ -85741,10 +85512,7 @@ impl Sockaddr<CResource<sockaddr>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<sockaddr>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -85764,10 +85532,7 @@ impl Sockaddr<CResource<sockaddr>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> Sockaddr<Inline<sockaddr>> {
+    pub fn new_zeroed_on_stack() -> Sockaddr<Inline<sockaddr>> {
         #[cfg(feature = "extra-logging")]
         log::debug!("creating zeroed empty resource on stack {}", stringify!(sockaddr));
         Sockaddr {
@@ -85834,10 +85599,8 @@ impl Sockaddr {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: sockaddr) -> Sockaddr<Inline<sockaddr>> {
+    pub fn from_native(value: sockaddr) -> Sockaddr<Inline<sockaddr>> {
         Sockaddr {
             inner: Inline::new(value),
         }
@@ -85861,21 +85624,19 @@ impl<S: ResourceStorage<sockaddr>> From<Sockaddr<S>> for sockaddr {
         unsafe { *value.get_inner().clone() }
     }
 }
+impl Default for Sockaddr<CResource<sockaddr>> {
+    fn default() -> Self {
+        Sockaddr::new_zeroed_on_heap()
+    }
+}
 impl<S: ResourceStorage<sockaddr>> Sockaddr<S> {
     #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
     #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
     #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
-    #[doc = r" # Safety"]
-    #[doc = r" This is a shallow copy, not a new native resource. Pointers inside"]
-    #[doc = r" unions, arrays and nested structs are copied too. Keep their targets"]
-    #[doc = r" alive for every use of the copy. Coordinate writes through aliases,"]
-    #[doc = r" and do not use the copy to release or reinitialize shared native state."]
-    #[doc = r" No Rust or native write may overlap copying the source struct."]
-    #[doc = r" Callback storage expires when its callback returns. Copy individual"]
-    #[doc = r" fields into Rust values when you need an independent snapshot."]
-    pub unsafe fn clone_struct(&self) -> Sockaddr<CResource<sockaddr>> {
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
+    pub fn clone_struct(&self) -> Sockaddr<CResource<sockaddr>> {
         let value = unsafe { *self.get_inner_ref() };
         Sockaddr::from_resource(CResource::owned_value(value))
     }
@@ -85890,6 +85651,15 @@ mod sockaddr_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = unsafe { Sockaddr::new_zeroed_on_stack() };
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = Sockaddr::default();
             }
         });
     }
@@ -85946,10 +85716,7 @@ impl<S: ResourceStorage<sockaddr_storage>> core::fmt::Debug for SockaddrStorage<
 impl SockaddrStorage<CResource<sockaddr_storage>> {
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<sockaddr_storage>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -85972,10 +85739,7 @@ impl SockaddrStorage<CResource<sockaddr_storage>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> SockaddrStorage<Inline<sockaddr_storage>> {
+    pub fn new_zeroed_on_stack() -> SockaddrStorage<Inline<sockaddr_storage>> {
         #[cfg(feature = "extra-logging")]
         log::debug!(
             "creating zeroed empty resource on stack {}",
@@ -86141,10 +85905,8 @@ impl SockaddrStorage {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: sockaddr_storage) -> SockaddrStorage<Inline<sockaddr_storage>> {
+    pub fn from_native(value: sockaddr_storage) -> SockaddrStorage<Inline<sockaddr_storage>> {
         SockaddrStorage {
             inner: Inline::new(value),
         }
@@ -86230,9 +85992,7 @@ impl<S: ResourceStorage<timespec>> core::fmt::Debug for Timespec<S> {
 }
 impl Timespec<CResource<timespec>> {
     #[inline]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must refer to valid storage for every use of this struct."]
-    pub unsafe fn new(tv_sec: __darwin_time_t, tv_nsec: ::std::os::raw::c_long) -> Result<Self, AeronCError> {
+    pub fn new(tv_sec: __darwin_time_t, tv_nsec: ::std::os::raw::c_long) -> Result<Self, AeronCError> {
         let r_constructor = ManagedCResource::<timespec>::new(
             move |ctx_field| {
                 let inst = timespec {
@@ -86253,10 +86013,7 @@ impl Timespec<CResource<timespec>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage on the heap."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_heap() -> Self {
+    pub fn new_zeroed_on_heap() -> Self {
         let resource = ManagedCResource::<timespec>::new(
             move |ctx_field| {
                 #[cfg(feature = "extra-logging")]
@@ -86276,10 +86033,7 @@ impl Timespec<CResource<timespec>> {
     }
     #[inline]
     #[doc = r" Creates zeroed native storage inline."]
-    #[doc = r" # Safety"]
-    #[doc = r" For handles with native methods, initialise the native state"]
-    #[doc = r" before calling those methods. Zeroed storage is not a connection."]
-    pub unsafe fn new_zeroed_on_stack() -> Timespec<Inline<timespec>> {
+    pub fn new_zeroed_on_stack() -> Timespec<Inline<timespec>> {
         #[cfg(feature = "extra-logging")]
         log::debug!("creating zeroed empty resource on stack {}", stringify!(timespec));
         Timespec {
@@ -86363,10 +86117,8 @@ impl Timespec {
         }
     }
     #[doc = r" Copy a native struct into inline storage."]
-    #[doc = r" # Safety"]
-    #[doc = r" Pointer fields must stay valid for every use of the returned handle."]
     #[inline]
-    pub unsafe fn from_native(value: timespec) -> Timespec<Inline<timespec>> {
+    pub fn from_native(value: timespec) -> Timespec<Inline<timespec>> {
         Timespec {
             inner: Inline::new(value),
         }
@@ -86390,21 +86142,19 @@ impl<S: ResourceStorage<timespec>> From<Timespec<S>> for timespec {
         unsafe { *value.get_inner().clone() }
     }
 }
+impl Default for Timespec<CResource<timespec>> {
+    fn default() -> Self {
+        Timespec::new_zeroed_on_heap()
+    }
+}
 impl<S: ResourceStorage<timespec>> Timespec<S> {
     #[doc = r" Copies the underlying struct into a new heap allocation"]
     #[doc = r""]
     #[doc = r" Only for plain data structs with no init or clean-up functions, so not for"]
     #[doc = r" Aeron, AeronContext, AeronPublication or AeronSubscription"]
     #[doc = r""]
-    #[doc = r" # Safety"]
-    #[doc = r" This is a shallow copy, not a new native resource. Pointers inside"]
-    #[doc = r" unions, arrays and nested structs are copied too. Keep their targets"]
-    #[doc = r" alive for every use of the copy. Coordinate writes through aliases,"]
-    #[doc = r" and do not use the copy to release or reinitialize shared native state."]
-    #[doc = r" No Rust or native write may overlap copying the source struct."]
-    #[doc = r" Callback storage expires when its callback returns. Copy individual"]
-    #[doc = r" fields into Rust values when you need an independent snapshot."]
-    pub unsafe fn clone_struct(&self) -> Timespec<CResource<timespec>> {
+    #[doc = r" The struct holds no pointers, so the copy does not depend on the source"]
+    pub fn clone_struct(&self) -> Timespec<CResource<timespec>> {
         let value = unsafe { *self.get_inner_ref() };
         Timespec::from_resource(CResource::owned_value(value))
     }
@@ -86419,6 +86169,15 @@ mod timespec_allocation_tests {
         crate::test_alloc::assert_no_allocation(|| {
             for _ in 0..100 {
                 let _ = unsafe { Timespec::new_zeroed_on_stack() };
+            }
+        });
+    }
+    #[test]
+    #[file_serial(global)]
+    fn test_default() {
+        crate::test_alloc::assert_no_allocation(|| {
+            for _ in 0..100 {
+                let _ = Timespec::default();
             }
         });
     }
@@ -105190,4 +104949,3 @@ unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback_for_
         closure(term_id.into(), term_offset.into(), length.into())
     })
 }
-

@@ -115,8 +115,25 @@ const RAW_LIFECYCLE_FNS: &[&str] = &[
     "aeron_archive_persistent_subscription_context_set_listener",
 ];
 
-/// Ends in `_close` but only registers a close notification, so it stays safe
-const NOT_RAW_LIFECYCLE_FNS: &[&str] = &["aeron_exclusive_publication_revoke_on_close"];
+/// Audited calls that do not release their receiver despite their suffix.
+const NOT_RAW_LIFECYCLE_FNS: &[&str] = &[
+    "aeron_exclusive_publication_revoke_on_close",
+    // Reclaims a bounds-checked counter slot, not the manager allocation.
+    "aeron_counters_manager_free",
+    // Marks one client closed and clears its heartbeat, without freeing either handle.
+    "aeron_driver_conductor_on_client_close",
+];
+
+/// These native implementations never access or retain any pointer argument.
+/// Pointer validity therefore adds no caller obligation. Stateful idle functions
+/// are absent because they read or write their state.
+const IGNORED_NATIVE_POINTERS: &[&str] = &[
+    "aeron_idle_strategy_yielding_idle",
+    "aeron_idle_strategy_busy_spinning_idle",
+    "aeron_idle_strategy_noop_idle",
+    "aeron_driver_termination_validator_default_allow",
+    "aeron_driver_termination_validator_default_deny",
+];
 
 /// Native getters whose output struct holds pointers into the queried handle. The lifetime-bound
 /// `get_*` forms are safe, the raw forms are `unsafe`
@@ -129,6 +146,7 @@ const CUSTOM_FIELD_GETTERS: &[(&str, &str)] = &[("aeron_buffer_claim_t", "data")
 /// its own `# Safety` section, so a new reason needs both a flag and a doc
 struct MethodUnsafety {
     raw_pointer_args: bool,
+    raw_callback_args: bool,
     /// A setter passes a value C frees later (see [`crate::arg_classifier::is_c_owned_set_type`])
     c_takes_ownership: bool,
     output_has_pointers: bool,
@@ -141,6 +159,7 @@ impl MethodUnsafety {
         method: &Method,
         wrappers: &BTreeMap<String, CWrapper>,
         fn_arguments: &[TokenStream],
+        callback_aliases: &BTreeSet<String>,
     ) -> Self {
         let fn_name = method.fn_name.as_str();
         let raw_lifecycle = RAW_LIFECYCLE_FNS.contains(&fn_name)
@@ -163,12 +182,22 @@ impl MethodUnsafety {
                 .iter()
                 .skip(1)
                 .any(|arg| crate::arg_classifier::is_c_owned_set_type(&arg.c_type));
-        let raw_pointer_args = fn_arguments.iter().any(|arg| {
-            matches!(syn::parse2::<syn::FnArg>(arg.clone()),
+        let raw_pointer_args = !IGNORED_NATIVE_POINTERS.contains(&fn_name)
+            && fn_arguments.iter().any(|arg| {
+                matches!(syn::parse2::<syn::FnArg>(arg.clone()),
                 Ok(syn::FnArg::Typed(arg)) if matches!(*arg.ty, Type::Ptr(_)))
-        });
+            });
+        // Driver-context suppliers expose raw callbacks without clientd arguments.
+        let raw_callback_args = type_name == "aeron_driver_context_t"
+            && fn_arguments.iter().any(|arg| {
+                matches!(syn::parse2::<syn::FnArg>(arg.clone()),
+                    Ok(syn::FnArg::Typed(arg)) if matches!(*arg.ty, Type::Path(ref path)
+                        if path.path.segments.last().is_some_and(|segment|
+                            callback_aliases.contains(&segment.ident.to_string()))))
+            });
         Self {
             raw_pointer_args,
+            raw_callback_args,
             c_takes_ownership,
             output_has_pointers,
             raw_lifecycle,
@@ -176,11 +205,19 @@ impl MethodUnsafety {
     }
 
     fn any(&self) -> bool {
-        self.raw_pointer_args || self.c_takes_ownership || self.output_has_pointers || self.raw_lifecycle
+        self.raw_pointer_args
+            || self.raw_callback_args
+            || self.c_takes_ownership
+            || self.output_has_pointers
+            || self.raw_lifecycle
     }
 
     fn docs(&self) -> Vec<TokenStream> {
         let reasons = [
+            (
+                self.raw_callback_args,
+                "The callback must satisfy the native ABI, ownership, lifetime and threading contracts for every invocation. It must initialize all required outputs and must not unwind through C. Prefer a typed strategy setter when available.",
+            ),
             (
                 self.raw_pointer_args,
                 "Raw pointer arguments must have the size, alignment, initialization and lifetime required by the native function. Writable pointers require exclusive access. Keep any retained pointers valid until native cleanup.",
@@ -433,7 +470,7 @@ impl ReturnType {
             }
         }
         let return_type: Type = parse_str(&self.original).expect("Invalid return type");
-        if self.original.is_single_mut_pointer() && self.original.is_primitive() {
+        if use_ref_for_cwrapper && self.original.is_single_mut_pointer() && self.original.is_primitive() {
             let mut_type: Type =
                 parse_str(&return_type.to_token_stream().to_string().replace("* mut ", "&mut ")).unwrap();
             return quote! { #mut_type };
@@ -568,9 +605,7 @@ impl ReturnType {
                 return quote! { if #result.is_null() { ""} else { unsafe { std::ffi::CStr::from_ptr(#result).to_str().unwrap_or("") } } };
             }
         } else if self.original.is_single_mut_pointer() && self.original.is_primitive() {
-            return quote! {
-                unsafe { &mut *#result }
-            };
+            return result;
         } else if let Some(wrapper) = self.pointee_wrapper() {
             let class = format_ident!("{}", wrapper.class_name);
             quote! { unsafe { #class::from_ptr(std::ptr::NonNull::new(#result as *mut _).expect("native getter returned null").as_ptr()) } }
@@ -755,6 +790,10 @@ impl ReturnType {
 
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct CWrapper {
+    /// Alias, enum and aggregate definitions shared by the parsed bindings.
+    pub native_types: std::sync::Arc<crate::NativeTypeMetadata>,
+    /// Unsafe C callback aliases, including aliases without a clientd argument.
+    pub unsafe_callback_aliases: std::sync::Arc<BTreeSet<String>>,
     pub class_name: String,
     pub type_name: String,
     /// Canonical bindgen struct, used to share one policy across C typedef aliases.
@@ -763,8 +802,7 @@ pub struct CWrapper {
     pub fields: Vec<Arg>,
     pub methods: Vec<Method>,
     pub docs: BTreeSet<String>,
-    /// Method names manually implemented in aeron_custom.rs. The generator skips these
-    /// to avoid duplicate definitions.
+    /// Rust method names replaced by handwritten code or explicit override metadata.
     pub skipped_methods: BTreeSet<String>,
     /// The C struct is forward-declared only (bindgen's `_unused: [u8; 0]`), directly or via a
     /// typedef. bindgen derives no `Copy`/`Clone` for it, and copying one by value copies nothing
@@ -807,51 +845,25 @@ pub fn parse_custom_methods(src: &str) -> HashMap<String, BTreeSet<String>> {
 impl CWrapper {
     /// Unknown value types can hide pointers in unions, aliases or arrays.
     /// Only recognise scalar types and aggregates that we can inspect.
-    fn type_borrows_native_storage(ty: &Type, wrappers: &BTreeMap<String, CWrapper>) -> bool {
+    fn type_borrows_native_storage(&self, ty: &Type, wrappers: &BTreeMap<String, CWrapper>) -> bool {
         match ty {
-            Type::Array(array) => Self::type_borrows_native_storage(&array.elem, wrappers),
+            Type::Array(array) => self.type_borrows_native_storage(&array.elem, wrappers),
             Type::Path(path) => {
                 let name = path.to_token_stream().to_string();
+                if self.native_types.contains(&name) {
+                    return self.native_types.facts(ty).borrows_storage;
+                }
                 if let Some(nested) = wrappers.get(&name) {
                     return nested.borrows_native_storage(wrappers);
                 }
-                !matches!(
-                    name.as_str(),
-                    "u8" | "i8"
-                        | "u16"
-                        | "i16"
-                        | "u32"
-                        | "i32"
-                        | "u64"
-                        | "i64"
-                        | "u128"
-                        | "i128"
-                        | "usize"
-                        | "isize"
-                        | "f32"
-                        | "f64"
-                        | "bool"
-                        | ":: std :: os :: raw :: c_char"
-                        | ":: std :: os :: raw :: c_schar"
-                        | ":: std :: os :: raw :: c_uchar"
-                        | ":: std :: os :: raw :: c_short"
-                        | ":: std :: os :: raw :: c_ushort"
-                        | ":: std :: os :: raw :: c_int"
-                        | ":: std :: os :: raw :: c_uint"
-                        | ":: std :: os :: raw :: c_long"
-                        | ":: std :: os :: raw :: c_ulong"
-                        | ":: std :: os :: raw :: c_longlong"
-                        | ":: std :: os :: raw :: c_ulonglong"
-                        | ":: std :: os :: raw :: c_float"
-                        | ":: std :: os :: raw :: c_double"
-                )
+                self.native_types.facts(ty).borrows_storage
             }
-            _ => true,
+            _ => self.native_types.facts(ty).borrows_storage,
         }
     }
 
-    fn field_borrows_native_storage(field: &Arg, wrappers: &BTreeMap<String, CWrapper>) -> bool {
-        Self::type_borrows_native_storage(&field.as_type(), wrappers)
+    fn field_borrows_native_storage(&self, field: &Arg, wrappers: &BTreeMap<String, CWrapper>) -> bool {
+        self.type_borrows_native_storage(&field.as_type(), wrappers)
     }
 
     // C structs cannot contain themselves by value, so embedded value types
@@ -859,17 +871,28 @@ impl CWrapper {
     pub(crate) fn borrows_native_storage(&self, wrappers: &BTreeMap<String, CWrapper>) -> bool {
         self.fields
             .iter()
-            .any(|field| Self::field_borrows_native_storage(field, wrappers))
+            .any(|field| self.field_borrows_native_storage(field, wrappers))
     }
 
-    /// All-zero bytes are a usable value: no native method expects initialised state,
-    /// and the only pointers are C text, which the getters read as empty when null
+    /// Zero must be a valid Rust value and need no native initialization.
+    /// Method-free text records also accept null pointers as empty strings.
     pub(crate) fn zeroed_is_valid(&self, wrappers: &BTreeMap<String, CWrapper>) -> bool {
-        self.methods.is_empty()
+        (!self.opaque || self.methods.is_empty())
             && self
                 .fields
                 .iter()
-                .all(|field| field.is_c_string_any() || !Self::field_borrows_native_storage(field, wrappers))
+                .all(|field| self.native_types.facts(&field.as_type()).zero_valid == Some(true))
+            && (self.methods.is_empty() || !self.borrows_native_storage(wrappers))
+            && self
+                .fields
+                .iter()
+                .all(|field| field.is_c_string_any() || !self.field_borrows_native_storage(field, wrappers))
+    }
+
+    fn has_invalid_zero(&self) -> bool {
+        self.fields
+            .iter()
+            .any(|field| self.native_types.facts(&field.as_type()).zero_valid == Some(false))
     }
 
     pub fn find_methods(&self, name: &str) -> Vec<Method> {
@@ -1004,9 +1027,25 @@ impl CWrapper {
                 let owned_retained_handler = classified.owned_retained.clone();
 
                 let mut generic_types: Vec<TokenStream> = classified.generics();
+                let mut fn_arguments: Vec<TokenStream> = classified.signatures();
                 if unchecked_text && !uses_self {
                     generic_types.insert(0, quote! { 'text });
                     return_type = quote! { &'text str };
+                }
+                if let crate::string_views::StringView::Argument(name) = string_view {
+                    generic_types.insert(0, quote! { 'text });
+                    return_type = quote! { &'text str };
+                    let argument = fn_arguments.iter_mut().find(|argument| {
+                        matches!(syn::parse2::<syn::FnArg>((*argument).clone()),
+                            Ok(syn::FnArg::Typed(arg)) if matches!(&*arg.pat,
+                                syn::Pat::Ident(ident) if ident.ident == name))
+                    }).expect("borrowed text requires its source argument");
+                    let syn::FnArg::Typed(mut parsed) = syn::parse2(argument.clone()).unwrap() else { unreachable!() };
+                    let Type::Reference(reference) = &mut *parsed.ty else {
+                        panic!("borrowed text requires a reference argument: {name}");
+                    };
+                    reference.lifetime = Some(syn::parse_quote!('text));
+                    *argument = quote! { #parsed };
                 }
                 let where_clause = if generic_types.is_empty() {
                     quote! {}
@@ -1014,7 +1053,6 @@ impl CWrapper {
                     quote! { <#(#generic_types),*> }
                 };
 
-                let fn_arguments: Vec<TokenStream> = classified.signatures();
                 let mut arg_names: Vec<TokenStream> = classified.calls();
                 let retained_handler_registrations: Vec<TokenStream> = classified.registrations();
                 let preludes: Vec<TokenStream> = classified.preludes();
@@ -1090,14 +1128,8 @@ impl CWrapper {
                     }
                 }
 
-                // A counter value address. Other threads update it, so a `&mut i64` would be unsound
-                if method.return_type.c_type == "* mut i64" {
-                    return_type = quote! { *mut i64 };
-                    converter = quote! { result };
-                }
-
                 let mut method_docs: Vec<TokenStream> = get_docs(&method.docs, wrappers, Some(&fn_arguments) );
-                let unsafety = MethodUnsafety::new(&self.type_name, method, wrappers, &fn_arguments);
+                let unsafety = MethodUnsafety::new(&self.type_name, method, wrappers, &fn_arguments, &self.unsafe_callback_aliases);
                 // The `&str` borrows native storage that a setter, poll or close can free, even through
                 // another clone, so the caller must promise to use it straight away. Java and C++ copy instead
                 let method_unsafety = if unsafety.any() || unchecked_text { quote! { unsafe } } else { quote! {} };
@@ -1107,6 +1139,9 @@ impl CWrapper {
                     if crate::string_views::has_owned_method(&self.type_name, method) {
                         let owned_doc = format!("Use `{fn_name}_owned()` to keep a copy.");
                         method_docs.push(quote! { #[doc = #owned_doc] });
+                    }
+                    if method.fn_name == "aeron_realpath" {
+                        method_docs.push(quote! { #[doc = "On POSIX, the output buffer must hold at least PATH_MAX bytes. Aeron calls realpath without passing the slice length. Keep the returned text within the output buffer's lifetime and do not mutate the buffer while the text is borrowed."] });
                     }
                 }
                 method_docs.extend(unsafety.docs());
@@ -1775,7 +1810,7 @@ impl CWrapper {
                     };
                 }
                 if let crate::string_views::StringView::BorrowedWithLength(length) =
-                    crate::string_views::field(&self.type_name, field_name)
+                    crate::string_views::field(self, field_name)
                 {
                     let length = format_ident!("{}", length);
                     converter = quote! {
@@ -1805,7 +1840,7 @@ impl CWrapper {
                 }
                 let (field_unsafety, field_safety_docs) = match return_type.to_string().as_str() {
                     "& str"
-                        if crate::string_views::field(&self.type_name, field_name)
+                        if crate::string_views::field(self, field_name)
                             == crate::string_views::StringView::Unchecked =>
                     {
                         (
@@ -2137,38 +2172,42 @@ impl CWrapper {
                 } else {
                     (quote! {}, quote! {})
                 };
-            let zeroed_impl = quote! {
-                #[inline]
-                /// Creates zeroed native storage on the heap.
-                #zeroed_safety_docs
-                pub #zeroed_unsafety fn new_zeroed_on_heap() -> Self {
-                    let resource = ManagedCResource::<#native_type>::new(
-                        move |ctx_field| {
-                            #[cfg(feature = "extra-logging")]
-                            log::info!("creating zeroed empty resource on heap {}", stringify!(#type_name));
-                            let inst: #type_name = unsafe { std::mem::zeroed() };
-                            let inner_ptr: *mut #type_name = Box::into_raw(Box::new(inst));
-                            unsafe { *ctx_field = inner_ptr };
-                            0
-                        },
-                        None,
-                        true,
-                    ).unwrap();
+            let zeroed_impl = if self.has_invalid_zero() {
+                quote! {}
+            } else {
+                quote! {
+                    #[inline]
+                    /// Creates zeroed native storage on the heap.
+                    #zeroed_safety_docs
+                    pub #zeroed_unsafety fn new_zeroed_on_heap() -> Self {
+                        let resource = ManagedCResource::<#native_type>::new(
+                            move |ctx_field| {
+                                #[cfg(feature = "extra-logging")]
+                                log::info!("creating zeroed empty resource on heap {}", stringify!(#type_name));
+                                let inst: #type_name = unsafe { std::mem::zeroed() };
+                                let inner_ptr: *mut #type_name = Box::into_raw(Box::new(inst));
+                                unsafe { *ctx_field = inner_ptr };
+                                0
+                            },
+                            None,
+                            true,
+                        ).unwrap();
 
-                    Self {
-                        inner: CResource::new(ResourceRef::new(resource)).into(),
+                        Self {
+                            inner: CResource::new(ResourceRef::new(resource)).into(),
+                        }
                     }
-                }
 
-                #[inline]
-                /// Creates zeroed native storage inline.
-                #zeroed_safety_docs
-                pub #zeroed_unsafety fn new_zeroed_on_stack() -> #class_name<Inline<#type_name>> {
-                    #[cfg(feature = "extra-logging")]
-                    log::debug!("creating zeroed empty resource on stack {}", stringify!(#type_name));
+                    #[inline]
+                    /// Creates zeroed native storage inline.
+                    #zeroed_safety_docs
+                    pub #zeroed_unsafety fn new_zeroed_on_stack() -> #class_name<Inline<#type_name>> {
+                        #[cfg(feature = "extra-logging")]
+                        log::debug!("creating zeroed empty resource on stack {}", stringify!(#type_name));
 
-                    #class_name {
-                        inner: Inline::new(unsafe { std::mem::zeroed() }),
+                        #class_name {
+                            inner: Inline::new(unsafe { std::mem::zeroed() }),
+                        }
                     }
                 }
             };
@@ -2237,7 +2276,7 @@ impl CWrapper {
                 let field_handler_deps: Vec<TokenStream> = Self::handler_dependency_registrations(&self.fields);
                 let (constructor_unsafety, constructor_safety_docs) = if self.fields.iter().any(|field| {
                     !matches!(field.processing, ArgProcessing::Handler(_))
-                        && Self::field_borrows_native_storage(field, wrappers)
+                        && self.field_borrows_native_storage(field, wrappers)
                 }) {
                     (
                         quote! { unsafe },
@@ -2431,7 +2470,7 @@ impl CWrapper {
 
         let mut tests = vec![];
 
-        if !has_c_constructor && !handle_has_stable_pointer(&self.type_name) {
+        if !has_c_constructor && !handle_has_stable_pointer(&self.type_name) && !self.has_invalid_zero() {
             tests.push(quote! {
                 #[test]
                 #[file_serial(global)]
@@ -2459,10 +2498,7 @@ impl CWrapper {
             });
         }
 
-        if self.has_default_method()
-            && ((self.methods.is_empty() && !self.borrows_native_storage(wrappers))
-                || self.type_name == "aeron_buffer_claim_t")
-        {
+        if self.has_default_method() && (self.zeroed_is_valid(wrappers) || self.type_name == "aeron_buffer_claim_t") {
             tests.push(quote! {
                 #[test]
                 #[file_serial(global)]
@@ -4477,12 +4513,22 @@ pub fn generate_rust_code(
         && !handle_is_archive_context(&wrapper.type_name)
         && !wrapper.skipped_methods.contains("from_native")
     {
+        let (unsafety, safety_docs) = if wrapper.borrows_native_storage(wrappers) {
+            (
+                quote! { unsafe },
+                quote! {
+                    /// # Safety
+                    /// Pointer fields must stay valid for every use of the returned handle.
+                },
+            )
+        } else {
+            (quote! {}, quote! {})
+        };
         quote! {
             /// Copy a native struct into inline storage.
-            /// # Safety
-            /// Pointer fields must stay valid for every use of the returned handle.
+            #safety_docs
             #[inline]
-            pub unsafe fn from_native(value: #type_name) -> #class_name<Inline<#type_name>> {
+            pub #unsafety fn from_native(value: #type_name) -> #class_name<Inline<#type_name>> {
                 #class_name { inner: Inline::new(value),  }
             }
         }
@@ -4753,6 +4799,144 @@ pub fn generate_rust_code(
 mod tests {
     use super::*;
 
+    fn api_methods(bindings: &CBinding, native: &str) -> BTreeMap<String, syn::ImplItemFn> {
+        let generated = generate_rust_code(
+            &bindings.wrappers[native],
+            &bindings.wrappers,
+            false,
+            false,
+            true,
+            &bindings.handlers,
+            &bindings.constants,
+        );
+        syn::parse2::<syn::File>(generated)
+            .unwrap()
+            .items
+            .into_iter()
+            .filter_map(|item| match item {
+                Item::Impl(item) => Some(item.items),
+                _ => None,
+            })
+            .flatten()
+            .filter_map(|item| match item {
+                ImplItem::Fn(item) => Some((item.sig.ident.to_string(), item)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn assert_safe(methods: &BTreeMap<String, syn::ImplItemFn>, name: &str, safe: bool) {
+        let method = methods
+            .get(name)
+            .unwrap_or_else(|| panic!("missing {name}; generated {:?}", methods.keys().collect_vec()));
+        assert_eq!(matches!(method.sig.safety, syn::Safety::Default), safe, "{name}");
+    }
+
+    #[test]
+    fn native_value_apis_resolve_scalar_aliases_and_enums() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("bindings/media-driver.rs");
+        let bindings = crate::parse_bindings(&path);
+        for native in [
+            "in_addr",
+            "sockaddr",
+            "timespec",
+            "aeron_frame_header_t",
+            "aeron_status_message_header_t",
+            "aeron_driver_uri_subscription_params_t",
+            "aeron_retransmit_action_t",
+        ] {
+            let methods = api_methods(&bindings, native);
+            for name in [
+                "new",
+                "clone_struct",
+                "from_native",
+                "new_zeroed_on_heap",
+                "new_zeroed_on_stack",
+            ] {
+                assert_safe(&methods, name, true);
+            }
+            assert_safe(&methods, "from_ptr", false);
+        }
+        for native in ["aeron_clock_cache_t", "aeron_cnc_metadata_t"] {
+            let methods = api_methods(&bindings, native);
+            assert_safe(&methods, "new_zeroed_on_stack", true);
+            assert_safe(&methods, "from_native", true);
+        }
+        for native in ["aeron_uri_t", "aeron_agent_runner_t"] {
+            let methods = api_methods(&bindings, native);
+            assert_safe(&methods, "from_native", false);
+            assert_safe(&methods, "new_zeroed_on_stack", false);
+        }
+    }
+
+    #[test]
+    fn invalid_enum_zero_has_no_zeroed_constructor() {
+        let source = syn::parse_file("enum E { A = 1 } type Alias = E; struct value_t { tag: Alias }").unwrap();
+        let wrapper = CWrapper {
+            class_name: "Value".into(),
+            type_name: "value_t".into(),
+            native_type: "value_t".into(),
+            fields: vec![arg("tag", "Alias")],
+            native_types: std::sync::Arc::new(crate::NativeTypeMetadata::from_items(&source.items)),
+            ..Default::default()
+        };
+        let bindings = CBinding {
+            wrappers: BTreeMap::from([("value_t".into(), wrapper)]),
+            ..Default::default()
+        };
+        let methods = api_methods(&bindings, "value_t");
+        assert_safe(&methods, "new", true);
+        assert_safe(&methods, "from_native", true);
+        assert!(!methods.contains_key("new_zeroed_on_heap"));
+        assert!(!methods.contains_key("new_zeroed_on_stack"));
+    }
+
+    #[test]
+    fn native_pointer_contracts_distinguish_ignored_inputs_and_live_resources() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("bindings/media-driver.rs");
+        let bindings = crate::parse_bindings(&path);
+        let idle = api_methods(&bindings, "aeron_idle_strategy_t");
+        for name in ["yielding_idle", "busy_spinning_idle", "noop_idle"] {
+            assert_safe(&idle, name, true);
+        }
+        for name in ["sleeping_idle", "backoff_idle"] {
+            assert_safe(&idle, name, false);
+        }
+        let driver = api_methods(&bindings, "aeron_driver_t");
+        for name in [
+            "termination_validator_default_allow",
+            "termination_validator_default_deny",
+        ] {
+            assert_safe(&driver, name, true);
+        }
+        let manager = api_methods(&bindings, "aeron_counters_manager_t");
+        assert_safe(&manager, "free", true);
+        assert_safe(&manager, "init", false);
+        assert_safe(&manager, "aeron_network_publication_close", false);
+        let conductor = api_methods(&bindings, "aeron_driver_conductor_t");
+        assert_safe(&conductor, "on_client_close", true);
+        let context = api_methods(
+            &crate::parse_bindings(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("bindings/archive.rs")),
+            "aeron_archive_persistent_subscription_context_t",
+        );
+        assert_safe(&context, "set_state_counter", false);
+    }
+
+    #[test]
+    fn scalar_pointer_results_preserve_raw_pointers() {
+        for native in ["* mut i64", "* mut u32", "* mut :: std :: os :: raw :: c_int"] {
+            let result = ReturnType::new(arg("value", native), BTreeMap::new());
+            assert_eq!(result.get_new_return_type(false, false).to_string(), native);
+            assert!(result.get_new_return_type(false, true).to_string().starts_with("& mut"));
+            assert_eq!(
+                result
+                    .handle_c_to_rs_return(quote! { result }, false, false)
+                    .to_string(),
+                "result"
+            );
+        }
+    }
+
     fn arg(name: &str, c_type: &str) -> Arg {
         Arg {
             name: name.to_string(),
@@ -4892,6 +5076,67 @@ mod tests {
                 assert!(debug.contains(&format!("self . {name} ()")), "{native}: {debug}");
             }
             assert!(!debug.contains("_owned"), "{native}: {debug}");
+        }
+    }
+
+    #[test]
+    fn driver_suppliers_require_unsafe_and_manual_methods_are_not_generated() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bindings/media-driver.rs");
+        let mut bindings = crate::parse_bindings(&path);
+        bindings.apply_method_overrides(crate::MEDIA_DRIVER_METHOD_OVERRIDES);
+        let generate = |native: &str| {
+            generate_rust_code(
+                &bindings.wrappers[native],
+                &bindings.wrappers,
+                false,
+                false,
+                true,
+                &bindings.handlers,
+                &bindings.constants,
+            )
+            .to_string()
+        };
+        let context = generate("aeron_driver_context_t");
+        for name in [
+            "set_unicast_flowcontrol_supplier",
+            "set_multicast_flowcontrol_supplier",
+            "set_congestioncontrol_supplier",
+            "set_name_resolver_supplier",
+        ] {
+            assert!(context.contains(&format!("pub unsafe fn {name}")), "{name}");
+        }
+        let driver = generate("aeron_driver_t");
+        for name in ["start", "main_do_work", "main_idle_strategy"] {
+            assert!(!driver.contains(&format!("pub fn {name} (")), "{name}");
+        }
+        assert!(!driver.contains("# [derive (Clone)] pub struct AeronDriver"));
+    }
+
+    #[test]
+    fn driver_supplier_safety_preserves_client_and_archive_callback_signatures() {
+        let cases: &[(&str, &str, &[&str])] = &[
+            ("client.rs", "aeron_t", &["set_fprintf_handler", "is_driver_active"]),
+            ("archive.rs", "aeron_t", &["set_fprintf_handler", "is_driver_active"]),
+            ("archive.rs", "aeron_archive_context_t", &["set_credentials_supplier"]),
+        ];
+        for (file, native, methods) in cases {
+            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("bindings")
+                .join(file);
+            let bindings = crate::parse_bindings(&path);
+            let generated = generate_rust_code(
+                &bindings.wrappers[*native],
+                &bindings.wrappers,
+                false,
+                false,
+                true,
+                &bindings.handlers,
+                &bindings.constants,
+            )
+            .to_string();
+            for name in *methods {
+                assert!(generated.contains(&format!("pub fn {name}")), "{file}: {name}");
+            }
         }
     }
 

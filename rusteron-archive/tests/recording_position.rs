@@ -99,9 +99,18 @@ fn source_identity_is_bounded_by_the_caller_buffer() {
             .unwrap(),
         0
     );
+    let error = reader
+        .aeron_archive_recording_pos_get_source_identity(-1, &mut buffer)
+        .unwrap_err();
+    assert_eq!(error.code, -1);
+    assert_eq!(error.message(), None);
+    let captured = error.capture_errmsg();
+    // SAFETY: this clears only the calling thread's native error state.
+    unsafe { bindings::aeron_err_clear() };
     assert!(
-        reader
-            .aeron_archive_recording_pos_get_source_identity(-1, &mut buffer)
-            .is_err()
+        captured
+            .message()
+            .unwrap()
+            .contains("failed to read metadata for counter id -1")
     );
 }
