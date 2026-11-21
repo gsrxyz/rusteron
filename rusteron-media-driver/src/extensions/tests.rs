@@ -397,6 +397,13 @@ fn manual_driver_runs_and_all_strategy_setters_reject_a_frozen_context() {
     assert!(context.set_multicast_flow_control::<MaxFlowControl>().is_err());
     assert!(context.set_congestion_control::<StaticWindow>().is_err());
     assert!(context.add_outgoing_interceptor::<SeededLoss<0>>().is_err());
+    let state = std::sync::Arc::new(AtomicUsize::new(0));
+    assert!(
+        context
+            .add_outgoing_interceptor_with_state::<Stateful>(state.clone())
+            .is_err()
+    );
+    assert_eq!(std::sync::Arc::strong_count(&state), 1);
     let mut driver = driver.start_manual().unwrap();
     for _ in 0..10 {
         let work = driver.do_work().unwrap();
@@ -520,6 +527,121 @@ fn interceptor_installation_preserves_chain_order_and_owns_each_binding() {
         assert!(!state.is_null());
         assert_eq!((*second).outgoing_close_func.unwrap()(state), 0);
     }
+}
+
+struct Stateful(std::sync::Arc<AtomicUsize>);
+impl InterceptorStateFactory for Stateful {
+    type State = std::sync::Arc<AtomicUsize>;
+    fn new(state: &Self::State, _: StrategyContext, _: TransportAffinity) -> Result<Self, AeronCError> {
+        state.fetch_add(1, Ordering::Relaxed);
+        Ok(Self(state.clone()))
+    }
+}
+impl OutgoingInterceptor for Stateful {}
+impl IncomingInterceptor for Stateful {}
+
+struct FailedStateful;
+impl InterceptorStateFactory for FailedStateful {
+    type State = ();
+    fn new(_: &(), _: StrategyContext, _: TransportAffinity) -> Result<Self, AeronCError> {
+        Err(AeronCError::with_message(-1, "construction failed"))
+    }
+}
+impl IncomingInterceptor for FailedStateful {}
+
+#[test]
+fn failed_stateful_interceptor_factory_publishes_no_pointer() {
+    let context = AeronDriverContext::new().unwrap();
+    context
+        .add_incoming_interceptor_with_state::<FailedStateful>(())
+        .unwrap();
+    unsafe {
+        let ctx = context.get_inner();
+        let table = aeron_driver_context_get_udp_channel_incoming_interceptors(ctx);
+        let mut state = std::ptr::dangling_mut::<c_void>();
+        assert_eq!(
+            (*table).incoming_init_func.unwrap()(
+                &mut state,
+                ctx,
+                TransportAffinity::AERON_UDP_CHANNEL_TRANSPORT_AFFINITY_RECEIVER,
+            ),
+            -1
+        );
+        assert!(state.is_null());
+    }
+}
+
+unsafe fn construct(context: &AeronDriverContext, outgoing: bool) -> std::sync::Arc<AtomicUsize> {
+    unsafe {
+        let ctx = context.get_inner();
+        let table = if outgoing {
+            &*aeron_driver_context_get_udp_channel_outgoing_interceptors(ctx)
+        } else {
+            &*aeron_driver_context_get_udp_channel_incoming_interceptors(ctx)
+        };
+        let (init, close) = if outgoing {
+            (table.outgoing_init_func.unwrap(), table.outgoing_close_func.unwrap())
+        } else {
+            (table.incoming_init_func.unwrap(), table.incoming_close_func.unwrap())
+        };
+        let mut raw = std::ptr::null_mut();
+        let affinity = TransportAffinity::AERON_UDP_CHANNEL_TRANSPORT_AFFINITY_SENDER;
+        assert_eq!(init(&mut raw, ctx, affinity), 0);
+        let state = (*raw.cast::<Stateful>()).0.clone();
+        assert_eq!(close(raw), 0);
+        state
+    }
+}
+
+#[test]
+fn stateful_interceptors_share_slots_with_a_resolver_and_stay_per_context() {
+    let first = std::sync::Arc::new(AtomicUsize::new(0));
+    let second = std::sync::Arc::new(AtomicUsize::new(0));
+    let incoming = std::sync::Arc::new(AtomicUsize::new(0));
+    let context = AeronDriverContext::new().unwrap();
+    // The resolver instance takes the only named slot a fresh context has.
+    context
+        .set_name_resolver_fn(|_, _, _| Ok(std::net::Ipv4Addr::LOCALHOST.into()))
+        .unwrap();
+    context
+        .add_outgoing_interceptor_with_state::<Stateful>(first.clone())
+        .unwrap();
+    context
+        .add_incoming_interceptor_with_state::<Stateful>(incoming.clone())
+        .unwrap();
+    let other = AeronDriverContext::new().unwrap();
+    other
+        .add_outgoing_interceptor_with_state::<Stateful>(second.clone())
+        .unwrap();
+    // Installing interceptors first must leave the resolver's native slot free.
+    other
+        .set_name_resolver_fn(|_, _, _| Ok(std::net::Ipv4Addr::LOCALHOST.into()))
+        .unwrap();
+
+    unsafe {
+        assert!(std::sync::Arc::ptr_eq(&construct(&context, true), &first));
+        assert!(std::sync::Arc::ptr_eq(&construct(&context, false), &incoming));
+        assert!(std::sync::Arc::ptr_eq(&construct(&other, true), &second));
+        assert!(
+            aeron_driver_context_bindings_clientd_find(
+                context.get_inner(),
+                c"rusteron.name_resolver.instance".as_ptr()
+            ) >= 0
+        );
+    }
+    assert_eq!(
+        (first.load(Ordering::Relaxed), incoming.load(Ordering::Relaxed)),
+        (1, 1)
+    );
+    assert_eq!(second.load(Ordering::Relaxed), 1);
+
+    let replacement = std::sync::Arc::new(AtomicUsize::new(0));
+    context
+        .add_outgoing_interceptor_with_state::<Stateful>(replacement.clone())
+        .unwrap();
+    let constructed = unsafe { construct(&context, true) };
+    assert!(std::sync::Arc::ptr_eq(&constructed, &replacement));
+    assert_eq!(first.load(Ordering::Relaxed), 1);
 }
 
 struct PanicIdle;

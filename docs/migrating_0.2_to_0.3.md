@@ -1052,6 +1052,9 @@ Replace `driver.start(false)` with `let driver = driver.start()?`. Keep the
 returned `ThreadedDriver` alive until shutdown. It has no manual pump methods.
 INVOKER mode requires `start_manual`. Threading mode is configured at runtime,
 so a threaded start in INVOKER mode returns an error before native startup.
+Both started handles are `!Send` because the driver can retain thread-local
+context resources. Construct and drop the driver on its owning thread; do not
+make a wrapper `Send` by using an unsafe implementation.
 
 The four raw flow-control, congestion-control, and resolver supplier setters now
 require `unsafe`. Prefer `set_unicast_flow_control::<T>`,

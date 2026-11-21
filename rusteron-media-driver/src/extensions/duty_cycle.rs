@@ -1,6 +1,6 @@
 use super::*;
 
-/// The native measurement to replace. Each role owns a separate tracker.
+/// A native measurement role. Each role owns a separate tracker.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DutyCycleRole {
     Conductor,
@@ -70,6 +70,49 @@ unsafe extern "C" fn measure<T: DutyCycleTracker>(state: *mut c_void, now: i64) 
     unsafe { &mut *state.cast::<T>() }.measure_and_update(now);
 }
 
+struct ForwardingTracker<T> {
+    table: aeron_duty_cycle_tracker_t,
+    previous: *mut aeron_duty_cycle_tracker_t,
+    value: UnsafeCell<T>,
+}
+
+// Each tracker and its predecessor are invoked by the same agent, and the
+// context retains both until native shutdown has joined the agents.
+unsafe impl<T: DutyCycleTracker> Send for ForwardingTracker<T> {}
+unsafe impl<T: DutyCycleTracker> Sync for ForwardingTracker<T> {}
+
+unsafe extern "C" fn update_forwarding<T: DutyCycleTracker>(state: *mut c_void, now: i64) {
+    unsafe {
+        let owner = state.cast::<ForwardingTracker<T>>();
+        let previous = (*owner).previous;
+        ((*previous).update.unwrap())((*previous).state, now);
+        (&mut *(*owner).value.get()).update(now);
+    }
+}
+
+unsafe extern "C" fn measure_forwarding<T: DutyCycleTracker>(state: *mut c_void, now: i64) {
+    unsafe {
+        let owner = state.cast::<ForwardingTracker<T>>();
+        let previous = (*owner).previous;
+        ((*previous).measure_and_update.unwrap())((*previous).state, now);
+        (&mut *(*owner).value.get()).measure_and_update(now);
+    }
+}
+
+unsafe fn tracker_slot(
+    context: *mut aeron_driver_context_t,
+    role: DutyCycleRole,
+) -> *mut *mut aeron_duty_cycle_tracker_t {
+    unsafe {
+        match role {
+            DutyCycleRole::Conductor => &mut (*context).conductor_duty_cycle_tracker,
+            DutyCycleRole::Sender => &mut (*context).sender_duty_cycle_tracker,
+            DutyCycleRole::Receiver => &mut (*context).receiver_duty_cycle_tracker,
+            DutyCycleRole::NameResolver => &mut (*context).name_resolver_time_tracker,
+        }
+    }
+}
+
 impl AeronDriverContext {
     /// Replace a native stall tracker before driver initialization.
     ///
@@ -92,18 +135,48 @@ impl AeronDriverContext {
         });
         owner.table.state = owner.value.get().cast();
         unsafe {
-            let context = self.get_inner();
-            let slot = match role {
-                DutyCycleRole::Conductor => &mut (*context).conductor_duty_cycle_tracker,
-                DutyCycleRole::Sender => &mut (*context).sender_duty_cycle_tracker,
-                DutyCycleRole::Receiver => &mut (*context).receiver_duty_cycle_tracker,
-                DutyCycleRole::NameResolver => &mut (*context).name_resolver_time_tracker,
-            };
-            *slot = &mut owner.table;
+            *tracker_slot(self.get_inner(), role) = &mut owner.table;
         }
         // C stores this pointer without freeing it. Resource dependencies drop
         // after native close, which follows the join of all driver agents.
         self.inner.add_dependency(owner);
+        Ok(())
+    }
+
+    /// Add a tracker after the role's current tracker before driver initialization.
+    ///
+    /// Both receive each timestamp, with the existing tracker called first.
+    /// When the existing tracker is Aeron's default, its max-cycle and stall
+    /// counters continue to update. Repeated additions run in installation order;
+    /// `set_duty_cycle_tracker` replaces the entire chain.
+    pub fn add_duty_cycle_tracker<T: DutyCycleTracker>(
+        &self,
+        role: DutyCycleRole,
+        tracker: T,
+    ) -> Result<(), AeronCError> {
+        self.inner.check_configurable()?;
+        unsafe {
+            let slot = tracker_slot(self.get_inner(), role);
+            let previous = *slot;
+            if previous.is_null() || (*previous).update.is_none() || (*previous).measure_and_update.is_none() {
+                return Err(AeronCError::with_message(
+                    -1,
+                    "current duty cycle tracker is incomplete",
+                ));
+            }
+            let mut owner = Box::new(ForwardingTracker {
+                table: aeron_duty_cycle_tracker_t {
+                    update: Some(update_forwarding::<T>),
+                    measure_and_update: Some(measure_forwarding::<T>),
+                    state: std::ptr::null_mut(),
+                },
+                previous,
+                value: UnsafeCell::new(tracker),
+            });
+            owner.table.state = (&mut *owner as *mut ForwardingTracker<T>).cast();
+            *slot = &mut owner.table;
+            self.inner.add_dependency(owner);
+        }
         Ok(())
     }
 }

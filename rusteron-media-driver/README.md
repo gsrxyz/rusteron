@@ -211,7 +211,7 @@ context.set_idle_strategy(IdleStrategyRole::Shared, move |work| {
 
 let maximum_ns = Arc::new(AtomicU64::new(0));
 let recorded_ns = maximum_ns.clone();
-context.set_duty_cycle_tracker(DutyCycleRole::Conductor, DutyCycleTimer::new(move |elapsed_ns| {
+context.add_duty_cycle_tracker(DutyCycleRole::Conductor, DutyCycleTimer::new(move |elapsed_ns| {
     recorded_ns.fetch_max(elapsed_ns as u64, Ordering::Relaxed);
 }))?;
 
@@ -231,11 +231,40 @@ context.set_port_manager(PortManagerRole::Sender,
 Each installation owns its closure. Install separate values for the active idle
 roles in your threading mode. Port-selection closures have no release callback.
 Implement `PortManager` on a named type if the policy reserves ports.
+`add_duty_cycle_tracker` also runs the current tracker, preserving Aeron's
+stall counters when the current tracker is the native default.
+`set_duty_cycle_tracker` replaces the current tracker instead.
 
 Incoming and outgoing interceptors can derive `Default` and implement only their
 packet method. Implement `InterceptorFactory` instead of `Default` when setup
-needs the frozen context or agent affinity. A resolver can also derive `Default`
-and use `set_name_resolver::<T>()`. Implement `NameResolverFactory` for fallible
+needs the frozen context or agent affinity. Implement `InterceptorStateFactory`
+and pass state to `add_incoming_interceptor_with_state` when instances report to
+the application:
+
+```rust,no_run
+use rusteron_media_driver::{AeronCError, AeronDriverContext, extensions::*};
+use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
+
+struct CountIncoming(Arc<AtomicU64>);
+impl InterceptorStateFactory for CountIncoming {
+    type State = Arc<AtomicU64>;
+    fn new(count: &Self::State, _: StrategyContext, _: TransportAffinity) -> Result<Self, AeronCError> {
+        Ok(Self(count.clone()))
+    }
+}
+impl IncomingInterceptor for CountIncoming {
+    fn inspect(&mut self, _: &IncomingPacket<'_>) {
+        self.0.fetch_add(1, Ordering::Relaxed);
+    }
+}
+let count = Arc::new(AtomicU64::new(0));
+let context = AeronDriverContext::new()?;
+context.add_incoming_interceptor_with_state::<CountIncoming>(count.clone())?;
+# Ok::<(), AeronCError>(())
+```
+
+Each context retains its own state. A resolver can derive `Default` and use
+`set_name_resolver::<T>()`. Implement `NameResolverFactory` for fallible
 construction from native initialization arguments, or pass a configured value
 to `set_name_resolver_instance`.
 

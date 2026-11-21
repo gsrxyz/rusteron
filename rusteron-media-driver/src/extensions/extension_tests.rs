@@ -82,6 +82,45 @@ fn every_tracker_role_forwards_timestamps_and_retains_replaced_state() {
 }
 
 #[test]
+fn added_trackers_chain_and_set_replaces_the_chain() {
+    let first = Arc::new(Observed::default());
+    let second = Arc::new(Observed::default());
+    let replacement = Arc::new(Observed::default());
+    let context = AeronDriverContext::new().unwrap();
+    context
+        .set_duty_cycle_tracker(DutyCycleRole::Sender, Probe(first.clone()))
+        .unwrap();
+    context
+        .add_duty_cycle_tracker(DutyCycleRole::Sender, Probe(second.clone()))
+        .unwrap();
+    let raw = context.get_inner();
+    unsafe {
+        let table = (*raw).sender_duty_cycle_tracker;
+        (*table).update.unwrap()((*table).state, 10);
+        (*table).measure_and_update.unwrap()((*table).state, 20);
+    }
+    assert_eq!(*first.calls.lock().unwrap(), [10, 20]);
+    assert_eq!(*second.calls.lock().unwrap(), [10, 20]);
+
+    context
+        .set_duty_cycle_tracker(DutyCycleRole::Sender, Probe(replacement.clone()))
+        .unwrap();
+    unsafe {
+        let table = (*raw).sender_duty_cycle_tracker;
+        (*table).update.unwrap()((*table).state, 30);
+    }
+    assert_eq!(*first.calls.lock().unwrap(), [10, 20]);
+    assert_eq!(*second.calls.lock().unwrap(), [10, 20]);
+    assert_eq!(*replacement.calls.lock().unwrap(), [30]);
+    assert_eq!(first.drops.load(Ordering::Relaxed), 0);
+    assert_eq!(second.drops.load(Ordering::Relaxed), 0);
+    drop(context);
+    assert_eq!(first.drops.load(Ordering::Relaxed), 1);
+    assert_eq!(second.drops.load(Ordering::Relaxed), 1);
+    assert_eq!(replacement.drops.load(Ordering::Relaxed), 1);
+}
+
+#[test]
 fn every_idle_role_forwards_work_and_supports_native_replacement() {
     let events = Arc::new(Observed::default());
     let context = AeronDriverContext::new().unwrap();

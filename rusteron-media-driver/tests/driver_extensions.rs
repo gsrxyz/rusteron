@@ -322,6 +322,56 @@ fn typed_callbacks_deliver_udp_and_drop_once_in_each_threading_mode() {
     assert!(NOTIFIED.load(Ordering::Relaxed) > 0);
 }
 
+#[derive(Default)]
+struct PacketCounts {
+    sent: AtomicUsize,
+    received: AtomicUsize,
+}
+struct CountInto(std::sync::Arc<PacketCounts>);
+impl InterceptorStateFactory for CountInto {
+    type State = std::sync::Arc<PacketCounts>;
+    fn new(state: &Self::State, _: StrategyContext, _: TransportAffinity) -> Result<Self, AeronCError> {
+        Ok(Self(state.clone()))
+    }
+}
+impl OutgoingInterceptor for CountInto {
+    fn inspect(&mut self, packet: &OutgoingPacket<'_>) {
+        self.0.sent.fetch_add(packet.len(), Ordering::Relaxed);
+    }
+}
+impl IncomingInterceptor for CountInto {
+    fn inspect(&mut self, _: &IncomingPacket<'_>) {
+        self.0.received.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+#[test]
+#[serial_test::serial(driver_extensions)]
+fn stateful_interceptors_report_to_the_state_of_their_own_driver() {
+    let counted = std::sync::Arc::new(PacketCounts::default());
+    let idle = std::sync::Arc::new(PacketCounts::default());
+    let launch = |counts: &std::sync::Arc<PacketCounts>| {
+        let counts = counts.clone();
+        EmbeddedDriver::launch_with(move |context| {
+            context.add_outgoing_interceptor_with_state::<CountInto>(counts.clone())?;
+            context.add_incoming_interceptor_with_state::<CountInto>(counts.clone())?;
+            context.set_name_resolver_fn(|_, _, _| Ok(std::net::Ipv4Addr::LOCALHOST.into()))
+        })
+        .unwrap()
+    };
+    let driver = launch(&counted);
+    let other = launch(&idle);
+    let client = client(&driver);
+    round_trip(&client, &channel(), 64);
+    drop(client);
+    drop(driver);
+    drop(other);
+    assert!(counted.sent.load(Ordering::Relaxed) > 0);
+    assert!(counted.received.load(Ordering::Relaxed) > 0);
+    assert_eq!(idle.sent.load(Ordering::Relaxed), 0);
+    assert_eq!(idle.received.load(Ordering::Relaxed), 0);
+}
+
 #[test]
 #[serial_test::serial(driver_extensions)]
 fn documented_extensions_deliver_udp_in_every_threading_mode() {
@@ -435,6 +485,92 @@ impl DutyCycleTracker for AgentProbe {
     }
     fn measure_and_update(&mut self, _: i64) {
         self.events.measurements[self.index].fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+#[test]
+#[serial_test::serial(driver_extensions)]
+fn added_duty_trackers_preserve_native_stall_counters_for_every_role() {
+    let context = AeronDriverContext::new().unwrap();
+    context
+        .set_dir(&format!("/tmp/rusteron-duty-observer-{}", std::process::id()).into_c_string())
+        .unwrap();
+    context.set_dir_delete_on_start(true).unwrap();
+    context.set_dir_delete_on_shutdown(true).unwrap();
+    context.set_threading_mode(AeronThreadingMode::Invoker).unwrap();
+    context.set_conductor_cycle_threshold_ns(1);
+    context.set_sender_cycle_threshold_ns(1);
+    context.set_receiver_cycle_threshold_ns(1);
+    context.set_name_resolver_threshold_ns(1);
+
+    let observations = std::sync::Arc::new(AgentEvents::default());
+    for (index, role) in [
+        DutyCycleRole::Conductor,
+        DutyCycleRole::Sender,
+        DutyCycleRole::Receiver,
+        DutyCycleRole::NameResolver,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for _ in 0..2 {
+            context
+                .add_duty_cycle_tracker(
+                    role,
+                    AgentProbe {
+                        events: observations.clone(),
+                        index,
+                    },
+                )
+                .unwrap();
+        }
+    }
+
+    let driver = AeronDriver::new(&context).unwrap();
+    assert!(
+        context
+            .add_duty_cycle_tracker(DutyCycleRole::Conductor, DutyCycleTimer::new(|_| {}))
+            .is_err()
+    );
+    let _driver = driver.start_manual().unwrap();
+    // INVOKER runs no agents in the background. The driver has initialized
+    // the real native counters, and no other callbacks run during these calls.
+    unsafe {
+        let raw = context.get_inner();
+        for (index, (table, stall)) in [
+            (
+                (*raw).conductor_duty_cycle_tracker,
+                std::ptr::addr_of_mut!((*raw).conductor_duty_cycle_stall_tracker),
+            ),
+            (
+                (*raw).sender_duty_cycle_tracker,
+                std::ptr::addr_of_mut!((*raw).sender_duty_cycle_stall_tracker),
+            ),
+            (
+                (*raw).receiver_duty_cycle_tracker,
+                std::ptr::addr_of_mut!((*raw).receiver_duty_cycle_stall_tracker),
+            ),
+            (
+                (*raw).name_resolver_time_tracker,
+                std::ptr::addr_of_mut!((*raw).name_resolver_time_stall_tracker),
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let max = std::sync::atomic::AtomicI64::from_ptr((*stall).max_cycle_time_counter);
+            let exceeded = std::sync::atomic::AtomicI64::from_ptr((*stall).cycle_time_threshold_exceeded_counter);
+            let before = exceeded.load(Ordering::Acquire);
+            let measurements = observations.measurements[index].load(Ordering::Relaxed);
+            (*table).update.unwrap()((*table).state, 10);
+            (*table).measure_and_update.unwrap()((*table).state, 110);
+            assert!(max.load(Ordering::Acquire) >= 100);
+            assert_eq!(exceeded.load(Ordering::Acquire), before + 1);
+            assert_eq!(
+                observations.measurements[index].load(Ordering::Relaxed),
+                measurements + 2
+            );
+        }
     }
 }
 

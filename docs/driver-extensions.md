@@ -41,6 +41,14 @@ that needs `StrategyContext` or `TransportAffinity`. Aeron constructs a separate
 instance for each agent that uses the interceptor. Its native constructor has
 no user-data argument, so interceptors use a type-selected factory.
 
+Implement `InterceptorStateFactory` when instances must report to application
+state, such as shared counters or a queue read by another thread. Pass that
+state to `add_outgoing_interceptor_with_state` or
+`add_incoming_interceptor_with_state`. The context keeps it in Aeron's named
+per-interceptor slot until native close, and each agent's constructor borrows
+it. Separate drivers in one process keep separate state. Each interceptor type
+and direction has one state per context. Installing the type again replaces it.
+
 Resolvers can derive `Default` and use `set_name_resolver::<T>()` without a
 constructor method. Implement `NameResolverFactory` instead of `Default` when
 construction needs `set_name_resolver_init_args` or can fail. The packet and
@@ -250,16 +258,18 @@ either form before the driver starts.
 ## Duty-cycle trackers
 
 Pass a `DutyCycleTimer` or implement `DutyCycleTracker` and call
-`set_duty_cycle_tracker(role, value)`.
+`add_duty_cycle_tracker(role, value)` to preserve the existing tracker.
 `update` records a baseline timestamp. `measure_and_update` measures elapsed
 nanoseconds and records the next baseline. The timestamps use Aeron's monotonic
 clock. A tracker needs one baseline per installation.
 
 `Conductor`, `Sender`, and `Receiver` measure their duty cycles. `NameResolver`
 measures lookup and resolve calls on the native resource agent. Shared threading
-modes still invoke the three main trackers. Installing a tracker replaces that
-role's native stall counter updates. Export any replacement measurements through
-the strategy's own counters or shared atomics.
+modes still invoke the three main trackers. `add_duty_cycle_tracker` calls the
+existing tracker before the new observer. If the existing tracker is Aeron's
+default, it continues updating the native maximum and stall counters. Multiple
+additions run in installation order. `set_duty_cycle_tracker` replaces the
+entire chain and stops the default counter updates for that role.
 
 ## Port managers
 

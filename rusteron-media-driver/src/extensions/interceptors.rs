@@ -1,4 +1,5 @@
 use super::*;
+use std::ffi::CString;
 
 pub use crate::bindings::aeron_udp_channel_transport_affinity_t as TransportAffinity;
 
@@ -197,13 +198,24 @@ impl<T: Default> InterceptorFactory for T {
     }
 }
 
-unsafe extern "C" fn outgoing_init<T: OutgoingInterceptor + InterceptorFactory>(
-    out: *mut *mut c_void,
-    ctx: *mut aeron_driver_context_t,
-    affinity: TransportAffinity,
-) -> i32 {
+/// Construct an interceptor from application state that the context retains.
+///
+/// Use this instead of `InterceptorFactory` when instances must report to, or
+/// read from, state owned by the application, such as an `Arc` of counters or a
+/// demand queue. Each context keeps its own state, so separate drivers in one
+/// process stay isolated without a process-global static.
+///
+/// `new` borrows the state only during construction. Clone an `Arc` or copy the
+/// values that the instance needs later.
+pub trait InterceptorStateFactory: Sized {
+    type State: Send + Sync + 'static;
+    fn new(state: &Self::State, context: StrategyContext, affinity: TransportAffinity) -> Result<Self, AeronCError>;
+}
+
+#[inline]
+unsafe fn publish_instance<T>(out: *mut *mut c_void, result: Result<T, AeronCError>) -> i32 {
     unsafe { *out = std::ptr::null_mut() };
-    match T::new(unsafe { StrategyContext::from_raw(ctx) }, affinity) {
+    match result {
         Ok(state) => {
             unsafe { *out = Box::into_raw(Box::new(state)).cast() };
             0
@@ -211,19 +223,86 @@ unsafe extern "C" fn outgoing_init<T: OutgoingInterceptor + InterceptorFactory>(
         Err(error) => unsafe { supplier_error(error) },
     }
 }
+
+unsafe extern "C" fn outgoing_init<T: OutgoingInterceptor + InterceptorFactory>(
+    out: *mut *mut c_void,
+    ctx: *mut aeron_driver_context_t,
+    affinity: TransportAffinity,
+) -> i32 {
+    unsafe { publish_instance(out, T::new(StrategyContext::from_raw(ctx), affinity)) }
+}
 unsafe extern "C" fn incoming_init<T: IncomingInterceptor + InterceptorFactory>(
     out: *mut *mut c_void,
     ctx: *mut aeron_driver_context_t,
     affinity: TransportAffinity,
 ) -> i32 {
-    unsafe { *out = std::ptr::null_mut() };
-    match T::new(unsafe { StrategyContext::from_raw(ctx) }, affinity) {
-        Ok(state) => {
-            unsafe { *out = Box::into_raw(Box::new(state)).cast() };
-            0
-        }
-        Err(error) => unsafe { supplier_error(error) },
+    unsafe { publish_instance(out, T::new(StrategyContext::from_raw(ctx), affinity)) }
+}
+
+/// Context-retained state for one interceptor type and direction.
+struct InterceptorState<S> {
+    key: CString,
+    state: S,
+}
+
+fn state_key<T: 'static>(outgoing: bool) -> CString {
+    let direction = if outgoing { "outgoing" } else { "incoming" };
+    CString::new(format!(
+        "rusteron.interceptor.{direction}.{:?};",
+        std::any::TypeId::of::<T>()
+    ))
+    .expect("a type id has no NUL byte")
+}
+
+unsafe fn find_state_entry(context: *mut aeron_driver_context_t, key: &CStr) -> Option<usize> {
+    unsafe {
+        (0..(*context).num_bindings_clientd_entries).find(|&index| {
+            let entry = &*(*context).bindings_clientd_entries.add(index);
+            !entry.name.is_null() && CStr::from_ptr(entry.name) == key
+        })
     }
+}
+
+unsafe fn with_state<T: InterceptorStateFactory + 'static>(
+    out: *mut *mut c_void,
+    ctx: *mut aeron_driver_context_t,
+    affinity: TransportAffinity,
+    outgoing: bool,
+) -> i32 {
+    let key = state_key::<T>(outgoing);
+    let result = unsafe {
+        let state = find_state_entry(ctx, &key).map_or(std::ptr::null(), |index| {
+            (*(*ctx).bindings_clientd_entries.add(index))
+                .clientd
+                .cast::<T::State>()
+                .cast_const()
+        });
+        if state.is_null() {
+            Err(AeronCError::with_message(
+                -1,
+                "interceptor state is missing; install it with an add_*_interceptor_with_state method",
+            ))
+        } else {
+            // The context retains this state until native close, after every
+            // agent has joined, and only lends shared borrows to constructors.
+            T::new(&*state, StrategyContext::from_raw(ctx), affinity)
+        }
+    };
+    unsafe { publish_instance(out, result) }
+}
+unsafe extern "C" fn outgoing_init_with_state<T: OutgoingInterceptor + InterceptorStateFactory>(
+    out: *mut *mut c_void,
+    ctx: *mut aeron_driver_context_t,
+    affinity: TransportAffinity,
+) -> i32 {
+    unsafe { with_state::<T>(out, ctx, affinity, true) }
+}
+unsafe extern "C" fn incoming_init_with_state<T: IncomingInterceptor + InterceptorStateFactory>(
+    out: *mut *mut c_void,
+    ctx: *mut aeron_driver_context_t,
+    affinity: TransportAffinity,
+) -> i32 {
+    unsafe { with_state::<T>(out, ctx, affinity, false) }
 }
 unsafe extern "C" fn close<T>(raw: *mut c_void) -> i32 {
     unsafe { drop(Box::from_raw(raw.cast::<T>())) };
@@ -288,37 +367,154 @@ unsafe extern "C" fn receive<T: IncomingInterceptor>(
     }
 }
 
+fn outgoing_table<T: OutgoingInterceptor>(
+    init: aeron_udp_channel_interceptor_init_func_t,
+) -> aeron_udp_channel_interceptor_bindings_t {
+    let mut table = aeron_udp_channel_interceptor_bindings_t::default();
+    table.outgoing_init_func = init;
+    table.outgoing_send_func = Some(send::<T>);
+    // Even a type without Drop owns a Box that the close callback must free.
+    table.outgoing_close_func = Some(close::<T>);
+    if T::NOTIFICATIONS {
+        table.outgoing_transport_notification_func = Some(out_transport::<T>);
+        table.outgoing_publication_notification_func = Some(out_publication::<T>);
+        table.outgoing_image_notification_func = Some(out_image::<T>);
+    }
+    table
+}
+
+fn incoming_table<T: IncomingInterceptor>(
+    init: aeron_udp_channel_interceptor_init_func_t,
+) -> aeron_udp_channel_interceptor_bindings_t {
+    let mut table = aeron_udp_channel_interceptor_bindings_t::default();
+    table.incoming_init_func = init;
+    table.incoming_func = Some(receive::<T>);
+    table.incoming_close_func = Some(close::<T>);
+    if T::NOTIFICATIONS {
+        table.incoming_transport_notification_func = Some(in_transport::<T>);
+        table.incoming_publication_notification_func = Some(in_publication::<T>);
+        table.incoming_image_notification_func = Some(in_image::<T>);
+    }
+    table
+}
+
 impl AeronDriverContext {
     /// Prepend a plaintext interceptor to the existing outgoing chain. The latest
     /// addition runs first. Existing environment-loaded bindings keep their order.
     pub fn add_outgoing_interceptor<T: OutgoingInterceptor + InterceptorFactory>(&self) -> Result<(), AeronCError> {
         self.inner.check_configurable()?;
-        let mut table = aeron_udp_channel_interceptor_bindings_t::default();
-        table.outgoing_init_func = Some(outgoing_init::<T>);
-        table.outgoing_send_func = Some(send::<T>);
-        // Even a type without Drop owns a Box that the close callback must free.
-        table.outgoing_close_func = Some(close::<T>);
-        if T::NOTIFICATIONS {
-            table.outgoing_transport_notification_func = Some(out_transport::<T>);
-            table.outgoing_publication_notification_func = Some(out_publication::<T>);
-            table.outgoing_image_notification_func = Some(out_image::<T>);
-        }
-        unsafe { self.install(table, true) }
+        unsafe { self.install(outgoing_table::<T>(Some(outgoing_init::<T>)), true) }
     }
     /// Prepend an interceptor to the existing incoming chain.
     pub fn add_incoming_interceptor<T: IncomingInterceptor + InterceptorFactory>(&self) -> Result<(), AeronCError> {
         self.inner.check_configurable()?;
-        let mut table = aeron_udp_channel_interceptor_bindings_t::default();
-        table.incoming_init_func = Some(incoming_init::<T>);
-        table.incoming_func = Some(receive::<T>);
-        table.incoming_close_func = Some(close::<T>);
-        if T::NOTIFICATIONS {
-            table.incoming_transport_notification_func = Some(in_transport::<T>);
-            table.incoming_publication_notification_func = Some(in_publication::<T>);
-            table.incoming_image_notification_func = Some(in_image::<T>);
-        }
-        unsafe { self.install(table, false) }
+        unsafe { self.install(incoming_table::<T>(Some(incoming_init::<T>)), false) }
     }
+
+    /// Prepend an outgoing interceptor whose instances are built from `state`.
+    ///
+    /// The context retains `state` until native context close. Each interceptor
+    /// type and direction has one state per context. Installing the same type
+    /// again replaces the state seen by every later construction of that type.
+    pub fn add_outgoing_interceptor_with_state<T: OutgoingInterceptor + InterceptorStateFactory>(
+        &self,
+        state: T::State,
+    ) -> Result<(), AeronCError> {
+        self.inner.check_configurable()?;
+        unsafe {
+            self.install_with_state(
+                outgoing_table::<T>(Some(outgoing_init_with_state::<T>)),
+                true,
+                state_key::<T>(true),
+                state,
+            )
+        }
+    }
+    /// Prepend an incoming interceptor whose instances are built from `state`.
+    /// State ownership follows `add_outgoing_interceptor_with_state`.
+    pub fn add_incoming_interceptor_with_state<T: IncomingInterceptor + InterceptorStateFactory>(
+        &self,
+        state: T::State,
+    ) -> Result<(), AeronCError> {
+        self.inner.check_configurable()?;
+        unsafe {
+            self.install_with_state(
+                incoming_table::<T>(Some(incoming_init_with_state::<T>)),
+                false,
+                state_key::<T>(false),
+                state,
+            )
+        }
+    }
+
+    unsafe fn install_with_state<S: Send + Sync + 'static>(
+        &self,
+        table: aeron_udp_channel_interceptor_bindings_t,
+        outgoing: bool,
+        key: CString,
+        state: S,
+    ) -> Result<(), AeronCError> {
+        let context = self.get_inner();
+        let owner = Box::new(InterceptorState { key, state });
+        unsafe {
+            // Aeron reserves one entry for the resolver plus one for every
+            // interceptor. Make room for the new binding before publishing it.
+            let mut required = 2usize;
+            for mut binding in [
+                (*context).udp_channel_outgoing_interceptor_bindings.cast_const(),
+                (*context).udp_channel_incoming_interceptor_bindings.cast_const(),
+            ] {
+                while !binding.is_null() {
+                    required = required
+                        .checked_add(1)
+                        .ok_or_else(|| AeronCError::with_message(-1, "too many interceptor states"))?;
+                    binding = (*binding).meta_info.next_interceptor_bindings;
+                }
+            }
+            let count = (*context).num_bindings_clientd_entries;
+            if required > count {
+                // Aeron's reallocf destroys the old array on failure. Copy
+                // into a new native allocation so a failed install leaves
+                // the resolver and earlier interceptors usable.
+                let size = required
+                    .checked_mul(std::mem::size_of::<aeron_driver_context_bindings_clientd_entry_t>())
+                    .ok_or_else(|| AeronCError::with_message(-1, "too many interceptor states"))?;
+                let mut raw = std::ptr::null_mut();
+                check(aeron_alloc(&mut raw, size))?;
+                let entries = raw.cast::<aeron_driver_context_bindings_clientd_entry_t>();
+                if count != 0 {
+                    std::ptr::copy_nonoverlapping((*context).bindings_clientd_entries, entries, count);
+                }
+                for index in count..required {
+                    (*entries.add(index)).name = std::ptr::null();
+                    (*entries.add(index)).clientd = std::ptr::null_mut();
+                }
+                aeron_free((*context).bindings_clientd_entries.cast());
+                (*context).bindings_clientd_entries = entries;
+                (*context).num_bindings_clientd_entries = required;
+            }
+            let index = if let Some(index) = find_state_entry(context, &owner.key) {
+                index
+            } else {
+                let free = aeron_driver_context_bindings_clientd_find_first_free_index(context);
+                if free >= 0 {
+                    free as usize
+                } else {
+                    return Err(AeronCError::with_message(
+                        -1,
+                        "no native context slot is available for the interceptor state",
+                    ));
+                }
+            };
+            self.install(table, outgoing)?;
+            let entry = &mut *(*context).bindings_clientd_entries.add(index);
+            (*entry).name = owner.key.as_ptr();
+            (*entry).clientd = (&owner.state as *const S).cast_mut().cast();
+        }
+        self.inner.add_dependency(owner);
+        Ok(())
+    }
+
     unsafe fn install(
         &self,
         mut table: aeron_udp_channel_interceptor_bindings_t,

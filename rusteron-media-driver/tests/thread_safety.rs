@@ -24,4 +24,6 @@ assert_not_impl!(AeronDriver, Clone);
 assert_not_impl!(ManualDriver, Send);
 assert_not_impl!(ManualDriver, Sync);
 assert_not_impl!(ManualDriver, Clone);
+assert_not_impl!(ThreadedDriver, Send);
+assert_not_impl!(ThreadedDriver, Sync);
 assert_not_impl!(ThreadedDriver, Clone);
