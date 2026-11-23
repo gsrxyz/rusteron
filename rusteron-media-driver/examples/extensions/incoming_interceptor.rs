@@ -1,6 +1,4 @@
 //! Count received packets and forward each packet once without changing its bytes.
-//! Run with `cargo run -p rusteron-media-driver --features static --example incoming_interceptor`.
-//! Connect clients to the printed directory. Press Enter to stop.
 
 use rusteron_media_driver::{AeronCError, AeronDriverContext, extensions::*};
 
@@ -15,7 +13,6 @@ impl IncomingInterceptor for ObserveIncoming {
     }
 }
 
-/// Install this extension before creating the driver.
 pub fn configure(context: &AeronDriverContext) -> Result<(), AeronCError> {
     context.add_incoming_interceptor::<ObserveIncoming>()
 }

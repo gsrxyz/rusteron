@@ -1,6 +1,4 @@
 //! Count native UDP sends and forward the unchanged arguments to Aeron. Other callbacks stay native.
-//! Run with `cargo run -p rusteron-media-driver --features static --example native_transport`.
-//! Connect clients to the printed directory. Press Enter to stop.
 
 use rusteron_media_driver::{AeronCError, AeronDriverContext, bindings::*, extensions::*};
 
@@ -20,7 +18,6 @@ unsafe extern "C" fn observed_send(
     unsafe { aeron_udp_channel_transport_send(paths, transport, address, vectors, length, bytes) }
 }
 
-/// Install this extension before creating the driver.
 pub fn configure(context: &AeronDriverContext) -> Result<(), AeronCError> {
     let mut callbacks = NativeTransportBindings::udp().callbacks();
     callbacks.send_func = Some(observed_send);

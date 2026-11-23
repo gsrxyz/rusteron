@@ -678,19 +678,8 @@ owner. `build()` returns an error for embedded NULs in string fields.
   and builder counter methods that transfer native ownership need `unsafe` and
   exclusive ownership.
 
-In 0.3.1, generated value APIs resolve scalar aliases, native enums, arrays and
-nested structs. Constructors, `from_native` and `clone_struct` are safe when they
-introduce no pointer ownership or native initialization requirement. A native enum
-is safe to move as an initialized value. A zeroed constructor also needs zero to
-be a valid enum variant. Types with a known invalid zero value have no zeroed
-constructor.
-
-Stateless idle functions and the default termination validators are safe because
-they ignore their native pointer arguments. Stateful idle functions still require
-valid state. Fixed text in records without native methods has safe borrowed
-getters. `Aeron::tmpdir` returns text tied to its output buffer. Scalar pointer
-getters return raw pointers, so dereferencing one requires an explicit unsafe
-operation.
+In 0.3.1, generated value constructors, `from_native` and `clone_struct` are safe
+when the type holds no pointer ownership. Scalar pointer getters return raw pointers.
 
 Persistent subscriptions retain their context, client, archive context and
 listener. Set a Rust-owned client on the persistent-subscription context or its
@@ -1035,24 +1024,13 @@ did not change beyond the spread.
 
 ## Media driver extensions and manual loops
 
-In 0.3.1, `IdleStrategy` has `const BUSY_SPIN: bool = false`. Existing
-implementations and closures keep the native name `rusteron`. A named strategy
-that never sleeps, yields, or parks can set the constant to `true`; its native
-name becomes `rusteron-spin`. Update code that compares Rust strategy names if
-you opt in. The associated constant makes `dyn IdleStrategy` unavailable. Use
-a concrete strategy or a closure with `set_idle_strategy`. The idle callback
-and native-state storage layout do not change.
-
-Use `add_duty_cycle_tracker` to observe measurements after the existing tracker
-and retain native maximum and stall counters. `set_duty_cycle_tracker` replaces
-the entire chain. Native transport tables can retain a runtime-close guard
-through `NativeTransportBindings::from_callbacks`. Context clones keep that
-guard alive until the last context closes, after driver agents have joined.
-These additions require no change to existing extension implementations.
-
-`AeronDriver` no longer implements `Clone`. Replace `driver.start(true)` with
-`let mut driver = driver.start_manual()?`. Replace each nested idle call with
-separate statements.
+- `AeronDriver` is not `Clone`. Replace `driver.start(true)` with `start_manual()` and
+  `driver.start(false)` with `start()`. Keep the returned handle alive until shutdown.
+- INVOKER mode needs `start_manual`. Both started handles are `!Send`.
+- Raw flow-control, congestion-control and resolver supplier setters need `unsafe`.
+  Prefer the typed setters, such as `set_unicast_flow_control::<T>`.
+- `IdleStrategy` has `const BUSY_SPIN: bool = false`, so `dyn IdleStrategy` no longer compiles.
+- See [driver extensions](driver-extensions.md).
 
 ```rust,no_run
 # use rusteron_media_driver::{AeronCError, AeronDriver, AeronDriverContext};
@@ -1062,30 +1040,3 @@ let work = driver.do_work()?;
 driver.idle(work);
 # Ok::<(), AeronCError>(())
 ```
-
-Replace `driver.start(false)` with `let driver = driver.start()?`. Keep the
-returned `ThreadedDriver` alive until shutdown. It has no manual pump methods.
-INVOKER mode requires `start_manual`. Threading mode is configured at runtime,
-so a threaded start in INVOKER mode returns an error before native startup.
-Both started handles are `!Send` because the driver can retain thread-local
-context resources. Construct and drop the driver on its owning thread; do not
-make a wrapper `Send` by using an unsafe implementation.
-
-The four raw flow-control, congestion-control, and resolver supplier setters now
-require `unsafe`. Prefer `set_unicast_flow_control::<T>`,
-`set_multicast_flow_control::<T>`, `set_congestion_control::<T>`, and
-`set_name_resolver::<T>`. Use `add_outgoing_interceptor::<T>` and
-`add_incoming_interceptor::<T>` to preserve an existing chain.
-
-Idle strategies and port selection can use closures. `set_name_resolver_fn`
-accepts a resolver closure, and `set_name_resolver_instance` takes an existing
-resolver. `DutyCycleTimer` handles the timestamp baseline for a measurement
-closure. Interceptors and type-selected resolvers can derive `Default` for
-construction. Custom constructors belong in `InterceptorFactory` or
-`NameResolverFactory`.
-
-Flow-control callbacks return `Position`. Construct it with `Position::new` to
-bound the signed arithmetic in C. Congestion callbacks return `ReceiverWindow`.
-The adapters keep mutable agent state separate from `Shared`. Callback panics
-abort. See [driver extensions](driver-extensions.md) for packet lifetimes,
-configuration, and bounded archive waits.

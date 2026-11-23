@@ -7,7 +7,19 @@ pub struct SockAddrRef<'a> {
     pub(super) raw: *const sockaddr_storage,
     pub(super) _life: PhantomData<&'a sockaddr_storage>,
 }
+// The bindings do not export the socket families, and AF_INET6 differs by platform
+pub(super) const AF_INET: u32 = 2;
+pub(super) const AF_INET6: u32 = if cfg!(windows) {
+    23
+} else if cfg!(target_vendor = "apple") {
+    30
+} else {
+    10
+};
+
 impl SockAddrRef<'_> {
+    /// # Safety
+    /// `raw` must point to an initialised address that outlives the returned view
     pub(super) unsafe fn from_raw(raw: *const sockaddr_storage) -> Self {
         Self {
             raw,
@@ -15,15 +27,15 @@ impl SockAddrRef<'_> {
         }
     }
     pub fn to_socket_addr(self) -> Option<SocketAddr> {
-        // Only initialized address fields are read. Native padding is never read.
+        // Only initialised address fields are read. Native padding is never read.
         unsafe {
             let family = (*self.raw).ss_family as u32;
             let raw = self.raw.cast::<u8>();
-            if family == 2 {
+            if family == AF_INET {
                 let port = u16::from_be(raw.add(2).cast::<u16>().read_unaligned());
                 let ip = raw.add(4).cast::<[u8; 4]>().read_unaligned();
                 Some(SocketAddr::new(IpAddr::V4(Ipv4Addr::from(ip)), port))
-            } else if family == if cfg!(target_os = "macos") { 30 } else { 10 } {
+            } else if family == AF_INET6 {
                 let port = u16::from_be(raw.add(2).cast::<u16>().read_unaligned());
                 let ip = raw.add(8).cast::<[u8; 16]>().read_unaligned();
                 Some(SocketAddr::V6(SocketAddrV6::new(

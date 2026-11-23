@@ -1,5 +1,4 @@
 //! Retain a native runtime until the driver joins and its context closes.
-//! Run with `cargo run -p rusteron-media-driver --features static --example native_transport_owned`.
 //!
 //! Replace the demonstration allocation and UDP table with your C library's
 //! runtime-open and bindings-table functions. Keep its library loaded too if
@@ -45,7 +44,7 @@ impl Drop for NativeRuntime {
 
 pub fn configure(context: &AeronDriverContext) -> Result<(), AeronCError> {
     let mut handle = std::ptr::null_mut();
-    // SAFETY: aeron_alloc initializes the output on success. This demonstration
+    // SAFETY: aeron_alloc initialises the output on success. This demonstration
     // uses native allocation/free as the runtime's open/close pair.
     let result = unsafe { aeron_alloc(&mut handle, 1) };
     if result < 0 {

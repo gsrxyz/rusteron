@@ -1,6 +1,4 @@
 //! Resolve example.local to loopback and accept IP literals without a DNS request.
-//! Run with `cargo run -p rusteron-media-driver --features static --example name_resolver`.
-//! Connect clients to the printed directory. Press Enter to stop.
 
 use rusteron_media_driver::{AeronCError, AeronDriverContext, extensions::*};
 
@@ -26,7 +24,6 @@ impl NameResolver for LocalResolver {
     }
 }
 
-/// Install this extension before creating the driver.
 pub fn configure(context: &AeronDriverContext) -> Result<(), AeronCError> {
     context.set_name_resolver_instance(LocalResolver)
 }

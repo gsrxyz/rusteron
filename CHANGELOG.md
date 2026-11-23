@@ -7,25 +7,20 @@ Early history predating the available release tags is grouped separately.
 ## 0.3.1
 
 - Generated API safety
-  - Value constructors, `from_native`, and `clone_struct` resolve scalar aliases, enums, arrays, and nested structs before requiring `unsafe`. Zeroed value constructors check enum validity. Native handles that need initialization keep their unsafe zeroed constructors.
-  - Stateless idle functions and default termination validators are safe because their native implementations ignore pointer arguments. Fixed text in records without native methods has safe borrowed getters. `tmpdir` borrows its output buffer.
-  - Counter-slot reclamation and client-close notifications no longer count as raw handle deletion. Scalar pointer getters return raw pointers instead of creating mutable references through shared handles.
+  - Value constructors, `from_native` and `clone_struct` are safe when the type holds no pointer ownership.
+  - Stateless idle functions, default termination validators and fixed-text getters are safe.
+  - Scalar pointer getters return raw pointers.
 - Media driver extensions
-  - Breaking: `IdleStrategy::BUSY_SPIN` marks strategies that never sleep, yield, or park. The associated constant prevents `dyn IdleStrategy`. Native context names report `rusteron-spin` for declared busy-spin strategies. The marker adds no work to idle callbacks and preserves native-state storage.
-  - Added opt-in `GilbertElliottLoss` for seeded burst loss and `DestinationLoss` for loss on one IP address and port. Added a combined example and reliable retransmission tests. Documented why delayed and reordered packets need more than the current synchronous interceptor API.
-  - Added an owned native-runtime example and a C transport integration test. The runtime closes exactly once after agent join and native context close. Incoming and outgoing interceptors and custom flow control work with the C table in either installation order.
-  - Breaking: `AeronDriver` has no `Clone`. `start(self)` returns `ThreadedDriver`. `start_manual(self)` returns a thread-local `ManualDriver` with `do_work(&mut self)` and `idle(&mut self, work)`. Removed the driver's public `main_do_work` and `main_idle_strategy` methods.
-  - Breaking: raw supplier setters require `unsafe`. Typed flow-control, congestion-control, interceptor, and resolver APIs enforce state ownership.
-  - Added owned idle strategies, duty-cycle trackers, port managers, and native transport bindings. Custom native transport callbacks require an unsafe constructor. The `extensions` module has one runnable example per extension point under `examples/extensions`, plus bounded-flow and packet-loss examples.
-  - Idle strategies, name resolvers, and port selection accept closures. `DutyCycleTimer` records elapsed nanoseconds through a closure. Interceptors and resolvers can use `Default` for construction or a factory trait for fallible setup. Resolver instances can own runtime configuration.
-  - Interceptors can be built from application state with `add_outgoing_interceptor_with_state` and `add_incoming_interceptor_with_state` (`InterceptorStateFactory`). The context retains that state in Aeron's per-interceptor slots, so each driver reports to its own state without a process-global static.
-  - `add_duty_cycle_tracker` chains an observer after the existing tracker, preserving native maximum and stall counters when using Aeron's default. Tests verify callback order and zero Rust allocations. Integration tests cover the native counters for all four roles.
-  - Packet observers can implement `inspect` with automatic forwarding. Outgoing packets have a borrowed `datagrams()` iterator. Resolver lookup copies reuse storage, with optional `LOOKUP_CAPACITY` reservation during initialization. Sender-owned extension counters use an atomic load and release store instead of an atomic read-modify-write.
-  - Idle callbacks store values without destructors directly in native state when alignment permits. Other values keep Rust ownership. The direct form removes one pointer load per callback.
-  - Driver startup, manual work cycles, and extension configuration leave error-message capture to the caller. Callback error reporting uses a bounded stack buffer instead of heap formatting.
-  - Driver lifecycle replacements use explicit method override metadata shared by source and precompiled builds. The generic method generator has no driver-specific exclusion list.
-  - Added opt-in bounded tagged flow control, seeded test packet loss, startup environment reports, and extension ThreadSanitizer CI.
-- Archive source-identity reads return errors without copying the native message. Call `capture_errmsg()` to retain it.
+  - Breaking: `AeronDriver` is not `Clone`. `start(self)` returns `ThreadedDriver`, `start_manual(self)` returns `ManualDriver`.
+    Removed `main_do_work` and `main_idle_strategy` from the driver.
+  - Breaking: raw supplier setters need `unsafe`.
+  - Breaking: `IdleStrategy::BUSY_SPIN` prevents `dyn IdleStrategy`.
+  - Added typed flow control, congestion control, interceptors, name resolvers, idle strategies,
+    duty-cycle trackers, port managers and native transport bindings, with one example each.
+  - Added opt-in `BoundedTaggedFlowControl`, test loss policies (`SeededLoss`, `GilbertElliottLoss`, `DestinationLoss`)
+    and `environment::inspect_environment`.
+  - Driver errors no longer copy the native message. Call `capture_errmsg()` when needed.
+- Archive source-identity errors no longer copy the native message.
 
 ## 0.3.0
 

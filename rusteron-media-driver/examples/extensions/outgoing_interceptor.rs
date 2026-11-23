@@ -1,6 +1,4 @@
 //! Count outgoing batches and forward each batch once without changing its buffers.
-//! Run with `cargo run -p rusteron-media-driver --features static --example outgoing_interceptor`.
-//! Connect clients to the printed directory. Press Enter to stop.
 
 use rusteron_media_driver::{AeronCError, AeronDriverContext, extensions::*};
 
@@ -15,7 +13,6 @@ impl OutgoingInterceptor for ObserveOutgoing {
     }
 }
 
-/// Install this extension before creating the driver.
 pub fn configure(context: &AeronDriverContext) -> Result<(), AeronCError> {
     context.add_outgoing_interceptor::<ObserveOutgoing>()
 }

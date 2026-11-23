@@ -120,7 +120,7 @@ unsafe fn tracker_slot(
 }
 
 impl AeronDriverContext {
-    /// Replace a native stall tracker before driver initialization.
+    /// Replace a native stall tracker before driver initialisation.
     ///
     /// The context retains this instance until native context shutdown, even if
     /// another setter replaces it. This replaces the role's built-in stall
@@ -131,7 +131,7 @@ impl AeronDriverContext {
         tracker: T,
     ) -> Result<(), AeronCError> {
         self.inner.check_configurable()?;
-        let mut owner = Box::new(Tracker {
+        let owner = NativeOwned::new(Tracker {
             table: aeron_duty_cycle_tracker_t {
                 update: Some(update::<T>),
                 measure_and_update: Some(measure::<T>),
@@ -139,9 +139,10 @@ impl AeronDriverContext {
             },
             value: UnsafeCell::new(tracker),
         });
-        owner.table.state = owner.value.get().cast();
         unsafe {
-            *tracker_slot(self.get_inner(), role) = &mut owner.table;
+            let raw = owner.as_ptr();
+            (*raw).table.state = (*raw).value.get().cast();
+            *tracker_slot(self.get_inner(), role) = &raw mut (*raw).table;
         }
         // C stores this pointer without freeing it. Resource dependencies drop
         // after native close, which follows the join of all driver agents.
@@ -149,7 +150,7 @@ impl AeronDriverContext {
         Ok(())
     }
 
-    /// Add a tracker after the role's current tracker before driver initialization.
+    /// Add a tracker after the role's current tracker before driver initialisation.
     ///
     /// Both receive each timestamp, with the existing tracker called first.
     /// When the existing tracker is Aeron's default, its max-cycle and stall
@@ -172,7 +173,7 @@ impl AeronDriverContext {
                     "current duty cycle tracker is incomplete",
                 ));
             }
-            let mut owner = Box::new(ForwardingTracker {
+            let owner = NativeOwned::new(ForwardingTracker {
                 table: aeron_duty_cycle_tracker_t {
                     update: Some(update_forwarding::<T>),
                     measure_and_update: Some(measure_forwarding::<T>),
@@ -181,8 +182,9 @@ impl AeronDriverContext {
                 previous,
                 value: UnsafeCell::new(tracker),
             });
-            owner.table.state = (&mut *owner as *mut ForwardingTracker<T>).cast();
-            *slot = &mut owner.table;
+            let raw = owner.as_ptr();
+            (*raw).table.state = raw.cast();
+            *slot = &raw mut (*raw).table;
             self.inner.add_dependency(owner);
         }
         Ok(())

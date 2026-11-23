@@ -1,6 +1,4 @@
 //! Preserve requested ports, including zero for kernel allocation. Count reservations and releases.
-//! Run with `cargo run -p rusteron-media-driver --features static --example port_manager`.
-//! Connect clients to the printed directory. Press Enter to stop.
 
 use rusteron_media_driver::{AeronCError, AeronDriverContext, extensions::*};
 
@@ -23,7 +21,6 @@ impl PortManager for KernelPorts {
     }
 }
 
-/// Install this extension before creating the driver.
 pub fn configure(context: &AeronDriverContext) -> Result<(), AeronCError> {
     context.set_port_manager(PortManagerRole::Sender, KernelPorts)?;
     context.set_port_manager(PortManagerRole::Receiver, KernelPorts)

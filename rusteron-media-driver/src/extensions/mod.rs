@@ -1,6 +1,6 @@
 //! Typed media driver callbacks.
 //!
-//! Aeron calls one monomorphized C function per callback. Mutable state belongs
+//! Aeron calls one monomorphised C function per callback. Mutable state belongs
 //! to one agent. Cross-agent state must implement `Sync`. Callback panics abort.
 //! Configuration is frozen by `AeronDriver::new`.
 //!
@@ -37,6 +37,37 @@ pub use ports::*;
 pub use resolver::*;
 pub use transport::*;
 pub use views::*;
+
+/// Heap state whose address C keeps until context close.
+///
+/// A `Box` asserts unique access when it moves, which invalidates pointers already
+/// given to C. This owner holds a raw pointer, so moving it into the context is a
+/// plain copy of the address
+struct NativeOwned<T>(std::ptr::NonNull<T>);
+impl<T> NativeOwned<T> {
+    fn new(value: T) -> Self {
+        Self(std::ptr::NonNull::from(Box::leak(Box::new(value))))
+    }
+    fn as_ptr(&self) -> *mut T {
+        self.0.as_ptr()
+    }
+}
+impl<T> std::ops::Deref for NativeOwned<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        // SAFETY: the allocation lives until drop and is only mutated through C's pointers
+        unsafe { self.0.as_ref() }
+    }
+}
+impl<T> Drop for NativeOwned<T> {
+    fn drop(&mut self) {
+        // SAFETY: `new` leaked this Box and nothing else frees it
+        drop(unsafe { Box::from_raw(self.0.as_ptr()) });
+    }
+}
+// SAFETY: ownership matches `Box<T>`
+unsafe impl<T: Send> Send for NativeOwned<T> {}
+unsafe impl<T: Sync> Sync for NativeOwned<T> {}
 
 #[inline]
 fn check(result: i32) -> Result<(), AeronCError> {
@@ -84,7 +115,7 @@ unsafe fn supplier_error(error: AeronCError) -> i32 {
     -1
 }
 
-/// Values copied from the frozen context during initialization.
+/// Values copied from the frozen context during initialisation.
 #[derive(Clone, Copy, Debug)]
 pub struct StrategyContext {
     pub initial_receiver_window: usize,
@@ -110,7 +141,7 @@ impl StrategyContext {
     }
 }
 
-/// An initialization-only view of a native channel.
+/// An initialisation-only view of a native channel.
 #[derive(Clone, Copy)]
 pub struct ChannelRef<'a> {
     raw: *const aeron_udp_channel_t,

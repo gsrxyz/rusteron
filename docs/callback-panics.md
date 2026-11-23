@@ -29,10 +29,4 @@ Edge cases:
 - With `use_conductor_agent_invoker`, conductor callbacks run inside your `invoke` call, but are still logged rather than raised.
 - For raw bindings, declare poll handlers as `unsafe extern "C-unwind" fn`. The compiler rejects `extern "C"` handlers for these poll functions. Other raw callbacks must not panic because Rust aborts at the `extern "C"` boundary.
 - To make any panic stop the process, set `panic = "abort"` in your Cargo profile. Every panic then aborts immediately, before any of the above runs.
-
-
-Driver loss suppliers still expose native endpoint pointers. Dereferencing those
-pointers or attaching a generator requires the native lifetime and threading
-contract. The supplier runs on the conductor. The installed generator runs on the
-sender or receiver. A termination validator must check a token's embedded length
-against the actual byte slice before interpreting the token.
+- Driver loss suppliers expose native endpoint pointers. Dereferencing them follows the native lifetime and threading contract.

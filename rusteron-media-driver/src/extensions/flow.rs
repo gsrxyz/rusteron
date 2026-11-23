@@ -16,7 +16,7 @@ impl Position {
     }
 }
 
-/// Initialization arguments borrowed only for `FlowControl::new`.
+/// Initialisation arguments borrowed only for `FlowControl::new`.
 pub struct FlowControlArgs<'a> {
     pub channel: ChannelRef<'a>,
     pub context: StrategyContext,

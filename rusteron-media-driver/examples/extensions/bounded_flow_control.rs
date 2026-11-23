@@ -1,12 +1,9 @@
 //! Allow 50 milliseconds for a missing tagged receiver before healthy subscribers can advance the sender.
-//! Run with `cargo run -p rusteron-media-driver --features static --example bounded_flow_control`.
-//! Connect clients to the printed directory. Press Enter to stop.
 
 use rusteron_media_driver::{AeronCError, AeronDriverContext, extensions::*};
 
 // Omit fc= in channel URIs so Aeron uses the installed supplier.
 
-/// Install this extension before creating the driver.
 pub fn configure(context: &AeronDriverContext) -> Result<(), AeronCError> {
     context.set_flow_control_group_tag(555)?;
     context.set_flow_control_group_min_size(1)?;

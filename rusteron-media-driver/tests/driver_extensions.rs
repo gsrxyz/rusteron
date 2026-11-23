@@ -555,7 +555,7 @@ fn added_duty_trackers_preserve_native_stall_counters_for_every_role() {
             .is_err()
     );
     let _driver = driver.start_manual().unwrap();
-    // INVOKER runs no agents in the background. The driver has initialized
+    // INVOKER runs no agents in the background. The driver has initialised
     // the real native counters, and no other callbacks run during these calls.
     unsafe {
         let raw = context.get_inner();
@@ -820,7 +820,7 @@ fn failed_native_socket_setup_releases_the_reserved_port() {
         let mut callbacks = NativeTransportBindings::udp().callbacks();
         callbacks.init_func = Some(reject_transport_init);
         // SAFETY: the callback returns an error without acquiring resources or
-        // changing the transport. Native initialization already set fd to -1.
+        // changing the transport. Native initialisation already set fd to -1.
         let bindings = unsafe { NativeTransportBindings::from_callbacks(callbacks, ()) }?;
         context.set_native_transport_bindings(TransportRole::Data, bindings)
     })
@@ -944,7 +944,7 @@ static ORIGINAL_SUPPLIER: std::sync::Mutex<native::aeron_flow_control_strategy_s
     std::sync::Mutex::new(None);
 
 // Fault injection fills the counter manager after the Rust supplier succeeds.
-// Aeron's later publication setup must call the returned strategy's finalizer.
+// Aeron's later publication setup must call the returned strategy's finaliser.
 unsafe extern "C" fn exhaust_after_supplier(
     out: *mut *mut native::aeron_flow_control_strategy_t,
     context: *mut native::aeron_driver_context_t,

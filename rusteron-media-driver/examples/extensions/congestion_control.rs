@@ -1,6 +1,4 @@
 //! Use a fixed receiver window capped at half the term length. Do not sample round-trip times.
-//! Run with `cargo run -p rusteron-media-driver --features static --example congestion_control`.
-//! Connect clients to the printed directory. Press Enter to stop.
 
 use rusteron_media_driver::{AeronCError, AeronDriverContext, extensions::*};
 
@@ -30,7 +28,6 @@ impl CongestionControl for FixedWindow {
     }
 }
 
-/// Install this extension before creating the driver.
 pub fn configure(context: &AeronDriverContext) -> Result<(), AeronCError> {
     context.set_congestion_control::<FixedWindow>()
 }
@@ -61,7 +58,7 @@ mod tests {
         let mut source = sockaddr_storage::default();
         for (term_length, expected) in [(4096, 2048), (65536, 8192)] {
             let mut raw = std::ptr::null_mut();
-            // SAFETY: all inputs are live local storage. Finalization releases
+            // SAFETY: all inputs are live local storage. Finalisation releases
             // the strategy before the context or its borrowed arguments drop.
             unsafe {
                 let supplier = aeron_driver_context_get_congestioncontrol_supplier(context.get_inner()).unwrap();

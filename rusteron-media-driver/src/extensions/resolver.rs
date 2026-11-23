@@ -3,11 +3,11 @@ use std::net::IpAddr;
 
 /// A resolver used by Aeron's native resource agent. Keep callbacks bounded if
 /// that agent shares a thread with packet processing.
-/// Implement callback behavior here. Pass an existing value to
+/// Implement callback behaviour here. Pass an existing value to
 /// `set_name_resolver_instance`, or use `Default` or `NameResolverFactory`
-/// with `set_name_resolver` for construction during native initialization.
+/// with `set_name_resolver` for construction during native initialisation.
 pub trait NameResolver: Send + Sized + 'static {
-    /// Reserve replacement storage during initialization. Include the trailing
+    /// Reserve replacement storage during initialisation. Include the trailing
     /// NUL byte. This is a capacity hint, not a length limit. Larger replacements
     /// grow the buffer. Resolve-only implementations need no lookup storage.
     const LOOKUP_CAPACITY: usize = 0;
@@ -28,7 +28,7 @@ pub trait NameResolver: Send + Sized + 'static {
     }
 }
 
-/// Construct a resolver from native initialization arguments.
+/// Construct a resolver from native initialisation arguments.
 ///
 /// Types that implement `Default` receive this implementation automatically.
 /// Use `set_name_resolver_instance` to pass an existing value or a closure.
@@ -97,8 +97,8 @@ const INSTANCE_KEY: &CStr = c"rusteron.name_resolver.instance";
 
 struct PendingResolver<T>(UnsafeCell<Option<T>>);
 
-// Context configuration and driver initialization stay on the context's thread.
-// Only initialization accesses this cell. The value then moves into ResolverBox,
+// Context configuration and driver initialisation stay on the context's thread.
+// Only initialisation accesses this cell. The value then moves into ResolverBox,
 // whose callbacks have exclusive access on the native resource agent.
 unsafe impl<T: NameResolver> Sync for PendingResolver<T> {}
 
@@ -108,8 +108,11 @@ unsafe extern "C" fn instance_supplier<T: NameResolver>(
     context: *mut aeron_driver_context_t,
 ) -> i32 {
     // Registration reserves this entry before publishing this supplier. Native
-    // initialization runs on the context's thread and consumes the value once.
+    // initialisation runs on the context's thread and consumes the value once.
     let index = unsafe { aeron_driver_context_bindings_clientd_find(context, INSTANCE_KEY.as_ptr()) };
+    if index < 0 {
+        return unsafe { supplier_error(AeronCError::with_message(-1, "the resolver instance entry is missing")) };
+    }
     let entry = unsafe { &*(*context).bindings_clientd_entries.add(index as usize) };
     let value = unsafe { &mut *(*entry.clientd.cast::<PendingResolver<T>>()).0.get() };
     match value.take() {
@@ -120,7 +123,7 @@ unsafe extern "C" fn instance_supplier<T: NameResolver>(
         None => unsafe {
             supplier_error(AeronCError::with_message(
                 -1,
-                "the resolver instance was already used; install a new instance before retrying initialization",
+                "the resolver instance was already used; install a new instance before retrying initialisation",
             ))
         },
     }
@@ -182,11 +185,11 @@ unsafe fn write_ip(output: *mut sockaddr_storage, ip: IpAddr) {
         let raw = output.cast::<u8>();
         match ip {
             IpAddr::V4(ip) => {
-                (*output).ss_family = 2;
+                (*output).ss_family = AF_INET as _;
                 std::ptr::copy_nonoverlapping(ip.octets().as_ptr(), raw.add(4), 4);
             }
             IpAddr::V6(ip) => {
-                (*output).ss_family = if cfg!(target_os = "macos") { 30 } else { 10 };
+                (*output).ss_family = AF_INET6 as _;
                 std::ptr::copy_nonoverlapping(ip.octets().as_ptr(), raw.add(8), 16);
             }
         }
@@ -215,7 +218,7 @@ unsafe extern "C" fn close<T: NameResolver>(resolver: *mut aeron_name_resolver_t
 }
 impl AeronDriverContext {
     /// Install a type-selected resolver. Configure it with `set_name_resolver_init_args`
-    /// before driver initialization.
+    /// before driver initialisation.
     pub fn set_name_resolver<T: NameResolverFactory>(&self) -> Result<(), AeronCError> {
         self.inner.check_configurable()?;
         check(unsafe { aeron_driver_context_set_name_resolver_supplier(self.get_inner(), Some(supplier::<T>)) })
@@ -230,18 +233,13 @@ impl AeronDriverContext {
         self.set_name_resolver_instance(resolve)
     }
 
-    /// Move a resolver or closure into the driver during initialization.
+    /// Move a resolver or closure into the driver during initialisation.
     ///
-    /// The value can capture runtime configuration. Each context owns its own
-    /// value. Replaced values remain alive until context close. Once initialized,
-    /// the native resolver owns the value and drops it during shutdown.
-    ///
-    /// Initialization consumes this value once. If driver initialization fails
-    /// after that point, install a new value before retrying. Native initialization
-    /// arguments apply to `set_name_resolver`, not to an existing instance.
+    /// The native resolver owns the value after initialisation and drops it at shutdown.
+    /// Initialisation consumes it once, so install a new value before retrying a failed start.
     pub fn set_name_resolver_instance<T: NameResolver>(&self, resolver: T) -> Result<(), AeronCError> {
         self.inner.check_configurable()?;
-        let owner = Box::new(PendingResolver(UnsafeCell::new(Some(resolver))));
+        let owner = NativeOwned::new(PendingResolver(UnsafeCell::new(Some(resolver))));
         unsafe {
             let context = self.get_inner();
             let entry =
@@ -258,7 +256,7 @@ impl AeronDriverContext {
                 context,
                 Some(instance_supplier::<T>),
             ))?;
-            (*entry).clientd = (&*owner as *const PendingResolver<T>).cast_mut().cast();
+            (*entry).clientd = owner.as_ptr().cast();
         }
         self.inner.add_dependency(owner);
         Ok(())

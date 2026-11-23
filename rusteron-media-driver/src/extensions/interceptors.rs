@@ -25,16 +25,18 @@ impl OutgoingPacket<'_> {
     }
     #[inline]
     pub fn datagram(&self, index: usize) -> Option<&[u8]> {
-        if index >= self.length {
-            return None;
-        }
+        // SAFETY: the index is within the native vector
+        (index < self.length).then(|| unsafe { self.datagram_unchecked(index) })
+    }
+    #[inline]
+    unsafe fn datagram_unchecked(&self, index: usize) -> &[u8] {
         unsafe {
             let iov = &*self.iov.add(index);
-            Some(if iov.iov_len == 0 {
+            if iov.iov_len == 0 {
                 &[]
             } else {
                 std::slice::from_raw_parts(iov.iov_base.cast(), iov.iov_len)
-            })
+            }
         }
     }
     /// Borrow every datagram in send order without allocating or copying payloads.
@@ -52,11 +54,12 @@ impl OutgoingPacket<'_> {
     /// ```
     #[inline]
     pub fn datagrams(&self) -> impl DoubleEndedIterator<Item = &[u8]> + ExactSizeIterator + '_ {
-        (0..self.length).map(|index| self.datagram(index).unwrap())
+        // SAFETY: the range stays within the native vector
+        (0..self.length).map(|index| unsafe { self.datagram_unchecked(index) })
     }
     /// Report a deliberate drop as a successful send, so Aeron can retransmit it.
     ///
-    /// Aeron 1.54.2's RTT reply path passes an uninitialized byte counter to
+    /// Aeron 1.54.2's RTT reply path passes an uninitialised byte counter to
     /// outgoing interceptors. That native caller must be fixed before using
     /// loss policies with RTT measurement; forwarding can also trigger it.
     pub fn drop_as_sent(self) -> i32 {
@@ -143,7 +146,7 @@ impl<'a> IncomingNext<'a> {
     }
 }
 
-/// Per-agent outgoing interception. State moves from initialization to its agent
+/// Per-agent outgoing interception. State moves from initialisation to its agent
 /// and returns to the closing thread after all agents have joined.
 /// Implement `Default` for construction without context, or `InterceptorFactory`
 /// when construction needs the frozen context or agent affinity.
@@ -204,13 +207,8 @@ impl<T: Default> InterceptorFactory for T {
 
 /// Construct an interceptor from application state that the context retains.
 ///
-/// Use this instead of `InterceptorFactory` when instances must report to, or
-/// read from, state owned by the application, such as an `Arc` of counters or a
-/// demand queue. Each context keeps its own state, so separate drivers in one
-/// process stay isolated without a process-global static.
-///
-/// `new` borrows the state only during construction. Clone an `Arc` or copy the
-/// values that the instance needs later.
+/// Each context keeps its own state. `new` borrows it only during construction,
+/// so clone an `Arc` or copy what the instance needs later.
 pub trait InterceptorStateFactory: Sized {
     type State: Send + Sync + 'static;
     fn new(state: &Self::State, context: StrategyContext, affinity: TransportAffinity) -> Result<Self, AeronCError>;
@@ -459,7 +457,7 @@ impl AeronDriverContext {
         state: S,
     ) -> Result<(), AeronCError> {
         let context = self.get_inner();
-        let owner = Box::new(InterceptorState { key, state });
+        let owner = NativeOwned::new(InterceptorState { key, state });
         unsafe {
             // Aeron reserves one entry for the resolver plus one for every
             // interceptor. Make room for the new binding before publishing it.
@@ -513,7 +511,7 @@ impl AeronDriverContext {
             self.install(table, outgoing)?;
             let entry = &mut *(*context).bindings_clientd_entries.add(index);
             (*entry).name = owner.key.as_ptr();
-            (*entry).clientd = (&owner.state as *const S).cast_mut().cast();
+            (*entry).clientd = (&raw mut (*owner.as_ptr()).state).cast();
         }
         self.inner.add_dependency(owner);
         Ok(())
@@ -945,7 +943,7 @@ mod tests {
             .enumerate()
             {
                 let mut native_address = sockaddr_storage::default();
-                // SAFETY: initialize the address fields Aeron reads, with a live
+                // SAFETY: initialise the address fields Aeron reads, with a live
                 // local address for the duration of the synchronous send.
                 unsafe {
                     super::super::resolver::write_ip_for_test(&mut native_address, address.ip());

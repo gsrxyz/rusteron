@@ -1,18 +1,17 @@
 # Media driver extension examples
 
-Each executable installs one feature. Its `configure` function contains the registration.
-Copy that function and the implementation into your driver setup.
+Each file installs one extension in its `configure` function and starts its own driver.
 
 ```sh
 cargo run -p rusteron-media-driver --features static --example idle_strategy
 ```
 
-Replace `idle_strategy` with any example name below. Connect clients to the directory
-printed by the executable. Use `aeron:udp?endpoint=127.0.0.1:40123`, or
-`aeron:udp?endpoint=example.local:40123` for the resolver example. Press Enter to stop.
-The driver stops and joins its agents before the process exits.
+- Connect clients to the printed directory with `aeron:udp?endpoint=127.0.0.1:40123`
+  (`example.local:40123` for `name_resolver`). Press Enter to stop.
+- Atomic counters in the observation examples are example code, not adapter cost.
+- `packet_loss` and `burst_loss` are for tests only.
 
-| Feature | Example name | Behavior |
+| Feature | Example name | Behaviour |
 |---|---|---|
 | [Flow control](flow_control.rs) | `flow_control` | Count status messages and delegate sender limits to MaxFlowControl. |
 | [Congestion control](congestion_control.rs) | `congestion_control` | Set a fixed receiver window capped at half the term. |
@@ -28,23 +27,3 @@ The driver stops and joins its agents before the process exits.
 | [Packet loss](packet_loss.rs) | `packet_loss` | Drop every seventh outgoing batch after a fixed seeded offset. |
 | [Burst loss on one path](burst_loss.rs) | `burst_loss` | Apply seeded Gilbert-Elliott loss to one destination IP address and port. |
 
-Each file starts its own embedded driver and closes it after Enter.
-
-The observation examples use atomic counters instead of logging on driver threads.
-Their atomic operations belong to the examples. The adapters call concrete Rust types.
-`packet_loss` and `burst_loss` are for tests. Omit `fc=` when using a custom flow-control supplier.
-The bounded example uses group tag 555 and a group minimum of one.
-
-Run the example unit tests and native integration tests with:
-
-```sh
-cargo test -p rusteron-media-driver --features static --examples
-cargo test -p rusteron-media-driver --features static --test driver_extensions
-cargo test -p rusteron-media-driver-links-test --features rusteron-media-driver/static --test transport_runtime
-```
-
-The integration tests exercise the example configurations. They also combine
-all nine extension points in every threading mode. The packet-loss test checks native
-NAK and retransmission counters. The bounded-flow test checks the degradation counter.
-The C transport test reuses the owned-runtime guard and verifies context close,
-agent join, interceptors, and custom flow control in both installation orders.

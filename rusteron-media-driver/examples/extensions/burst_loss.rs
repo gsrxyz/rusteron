@@ -1,6 +1,5 @@
 //! Apply seeded burst loss to one UDP destination. Other destinations pass unchanged.
 //! Run with `cargo run -p rusteron-media-driver --features static --example burst_loss -- 127.0.0.1:40123`.
-//! Connect clients to the printed directory. Press Enter to stop.
 
 use rusteron_media_driver::{AeronCError, AeronDriverContext, extensions::*};
 use std::net::SocketAddr;

@@ -39,7 +39,7 @@ pub struct TrackRebuild {
 
 /// Receiver and conductor callbacks with disjoint mutable state.
 /// RTT values are signed and can be negative. Shared measurements need atomics
-/// or another synchronization mechanism chosen by the strategy.
+/// or another synchronisation mechanism chosen by the strategy.
 pub trait CongestionControl: Sized + 'static {
     type Receiver: Send + 'static;
     type Conductor: Send + 'static;
@@ -210,6 +210,7 @@ impl CongestionControl for StaticWindow {
     type Conductor = ReceiverWindow;
     type Shared = ();
     fn new(args: &CongestionControlArgs<'_>) -> Result<((), ReceiverWindow, ()), AeronCError> {
+        // SAFETY: the channel is live for the duration of `new`
         let channel_window = unsafe { (*args.channel.raw).receiver_window_length };
         let configured = if channel_window == 0 {
             args.context.initial_receiver_window

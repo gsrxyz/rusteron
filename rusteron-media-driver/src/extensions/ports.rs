@@ -14,9 +14,7 @@ pub enum PortManagerRole {
 /// the requested port to preserve an explicit channel port. The adapter keeps
 /// the requested IP address, IPv6 scope, and flow information unchanged.
 ///
-/// Calls for one instance never overlap. Allocation runs on the conductor.
-/// Shutdown can release a port on the closing thread, so state must be `Send`.
-/// A panic aborts the process.
+/// Allocation runs on the conductor. Shutdown can release a port on the closing thread.
 pub trait PortManager: Send + 'static {
     fn get_managed_port(&mut self, channel: ChannelRef<'_>, requested: SocketAddr) -> Result<u16, AeronCError>;
     /// Aeron passes the managed bind address, which can still have port zero.
@@ -43,7 +41,7 @@ struct Manager<T> {
 }
 
 // The local context prevents concurrent registration. Native allocation and
-// release callbacks are serialized, including release during driver shutdown.
+// release callbacks are serialised, including release during driver shutdown.
 unsafe impl<T: PortManager> Send for Manager<T> {}
 unsafe impl<T: PortManager> Sync for Manager<T> {}
 
@@ -76,13 +74,13 @@ unsafe extern "C" fn free<T: PortManager>(state: *mut c_void, address: *mut sock
 }
 
 impl AeronDriverContext {
-    /// Replace a native port manager before driver initialization.
+    /// Replace a native port manager before driver initialisation.
     ///
     /// The context retains the manager until native shutdown. This replaces
     /// the role's native wildcard port range policy.
     pub fn set_port_manager<T: PortManager>(&self, role: PortManagerRole, manager: T) -> Result<(), AeronCError> {
         self.inner.check_configurable()?;
-        let mut owner = Box::new(Manager {
+        let owner = NativeOwned::new(Manager {
             table: aeron_port_manager_t {
                 get_managed_port: Some(get::<T>),
                 free_managed_port: Some(free::<T>),
@@ -90,12 +88,13 @@ impl AeronDriverContext {
             },
             value: UnsafeCell::new(manager),
         });
-        owner.table.state = owner.value.get().cast();
         unsafe {
+            let raw = owner.as_ptr();
+            (*raw).table.state = (*raw).value.get().cast();
             let context = self.get_inner();
             match role {
-                PortManagerRole::Sender => (*context).sender_port_manager = &mut owner.table,
-                PortManagerRole::Receiver => (*context).receiver_port_manager = &mut owner.table,
+                PortManagerRole::Sender => (*context).sender_port_manager = &raw mut (*raw).table,
+                PortManagerRole::Receiver => (*context).receiver_port_manager = &raw mut (*raw).table,
             }
         }
         self.inner.add_dependency(owner);

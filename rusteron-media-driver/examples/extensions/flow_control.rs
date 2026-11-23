@@ -1,6 +1,4 @@
 //! Count status messages and delegate sender limits to Aeron's maximum flow-control policy.
-//! Run with `cargo run -p rusteron-media-driver --features static --example flow_control`.
-//! Connect clients to the printed directory. Press Enter to stop.
 
 use rusteron_media_driver::{AeronCError, AeronDriverContext, extensions::*};
 
@@ -31,7 +29,6 @@ impl FlowControl for ObservedFlow {
     }
 }
 
-/// Install this extension before creating the driver.
 pub fn configure(context: &AeronDriverContext) -> Result<(), AeronCError> {
     context.set_unicast_flow_control::<ObservedFlow>()?;
     context.set_multicast_flow_control::<ObservedFlow>()

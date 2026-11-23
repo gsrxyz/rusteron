@@ -1,6 +1,4 @@
 //! Spin for 100 empty cycles, then yield. Reset the spin budget when work arrives.
-//! Run with `cargo run -p rusteron-media-driver --features static --example idle_strategy`.
-//! Connect clients to the printed directory. Press Enter to stop.
 
 use rusteron_media_driver::{AeronCError, AeronDriverContext, extensions::*};
 
@@ -26,7 +24,6 @@ impl IdleStrategy for SpinThenYield {
     }
 }
 
-/// Install this extension before creating the driver.
 pub fn configure(context: &AeronDriverContext) -> Result<(), AeronCError> {
     for role in [
         IdleStrategyRole::Conductor,

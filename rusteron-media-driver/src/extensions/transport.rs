@@ -62,10 +62,10 @@ impl NativeTransportBindings {
     ///
     /// # Safety
     /// Every callback must obey the vendored Aeron transport and poller ABI.
-    /// Callbacks must respect buffer lengths, initialize all native outputs,
+    /// Callbacks must respect buffer lengths, initialise all native outputs,
     /// preserve socket ownership, and release resources on failed setup.
     /// Sender and receiver callbacks can run concurrently. Mutable state must
-    /// belong to one agent or have synchronization. All pointers and callback
+    /// belong to one agent or have synchronisation. All pointers and callback
     /// code must remain valid through context shutdown. Retain owned resources
     /// in `keepalive`. Metadata strings must be valid C strings for that period.
     /// Receive operations must deliver through the supplied receive callback
@@ -105,7 +105,7 @@ impl NativeTransportBindings {
 }
 
 impl AeronDriverContext {
-    /// Install an owned table before driver initialization.
+    /// Install an owned table before driver initialisation.
     ///
     /// The context retains replaced tables until shutdown. Unchanged callbacks
     /// remain direct native calls without an extra Rust dispatch.

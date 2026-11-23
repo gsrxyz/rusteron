@@ -1,13 +1,10 @@
 //! Keep the longest measured duty cycle in nanoseconds. Each installed timer has its own baseline.
-//! Run with `cargo run -p rusteron-media-driver --features static --example duty_cycle_tracker`.
-//! Connect clients to the printed directory. Press Enter to stop.
 
 use rusteron_media_driver::{AeronCError, AeronDriverContext, extensions::*};
 
 use std::sync::atomic::{AtomicU64, Ordering};
 pub static MAX_CYCLE_NS: AtomicU64 = AtomicU64::new(0);
 
-/// Install this extension before creating the driver.
 pub fn configure(context: &AeronDriverContext) -> Result<(), AeronCError> {
     for role in [
         DutyCycleRole::Conductor,

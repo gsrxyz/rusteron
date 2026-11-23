@@ -44,10 +44,8 @@ pub struct GilbertElliottConfig {
 
 /// Seeded burst loss for tests, with separate loss probabilities in two states.
 ///
-/// For each batch, sample loss in the current state, then sample the transition
-/// for the next batch. SplitMix64 supplies two draws per batch, even for zero
-/// or certain probabilities. Seed zero is valid. State is local to each agent.
-/// Decisions allocate nothing and use no synchronization.
+/// Each batch samples loss in the current state, then the next state.
+/// State is local to each agent.
 pub struct GilbertElliottLoss {
     random: u64,
     bad: bool,

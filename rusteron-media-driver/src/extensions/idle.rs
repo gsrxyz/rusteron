@@ -17,9 +17,7 @@ pub enum IdleStrategyRole {
 
 /// Idle after one native duty cycle. Positive work should reset any backoff.
 ///
-/// Each installation owns a separate instance. Calls never overlap. State can
-/// move to a native runner and drops after that runner joins. A callback panic
-/// aborts the process.
+/// Each installation owns a separate instance and calls never overlap.
 /// Closures that implement `FnMut(i32) + Send + 'static` implement this trait.
 pub trait IdleStrategy: Send + 'static {
     /// Declare that this strategy never sleeps, yields, or parks.
@@ -88,8 +86,8 @@ impl AeronDriverContext {
                 state.cast::<T>().write(strategy);
                 None
             } else {
-                let owner = Box::new(IdleOwner(UnsafeCell::new(strategy)));
-                state.cast::<*mut T>().write(owner.0.get());
+                let owner = NativeOwned::new(IdleOwner(UnsafeCell::new(strategy)));
+                state.cast::<*mut T>().write((*owner.as_ptr()).0.get());
                 Some(owner)
             };
             std::ptr::copy_nonoverlapping(

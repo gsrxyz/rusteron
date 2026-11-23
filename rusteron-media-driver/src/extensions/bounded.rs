@@ -11,16 +11,10 @@ struct Receiver {
 
 /// Tagged receiver flow control with a bounded wait before the minimum becomes zero.
 ///
-/// Set the group tag and minimum through the context. Omit `fc=` from channels,
-/// since Aeron gives that option precedence over custom multicast suppliers.
-/// `WAIT_NS` must be nonnegative. `CAPACITY` reserves receiver slots at setup.
-/// When all slots are used, an unknown tagged receiver is ignored until a slot
-/// expires. No receiver allocation occurs in a callback.
-///
-/// Each transition to a zero minimum increments counter type 20001, labeled
-/// "bounded tagged flow control degradations" with the publication registration.
-/// A full group restores the configured minimum and starts a new wait on its
-/// next loss. A zero group minimum disables degradation.
+/// Set the group tag and minimum through the context and omit `fc=` from channels.
+/// `WAIT_NS` must be nonnegative. `CAPACITY` receiver slots are reserved at setup.
+/// When all are used, unknown receivers are ignored until a slot expires.
+/// Each degradation increments counter type 20001. A full group restores the minimum.
 pub struct BoundedTaggedFlowControl<const WAIT_NS: i64, const CAPACITY: usize = 64> {
     receivers: Box<[Receiver; CAPACITY]>,
     count: usize,

@@ -38,7 +38,7 @@ fn sender_metrics_count_transitions_and_wrap_without_allocating() {
 #[test]
 #[cfg(not(feature = "backtrace"))]
 fn extension_error_paths_do_not_allocate_on_the_rust_heap() {
-    // Initialize Aeron's per-thread error state before measuring Rust costs.
+    // Initialise Aeron's per-thread error state before measuring Rust costs.
     unsafe { supplier_error(AeronCError::with_message(-1, "initial error")) };
     crate::test_alloc::assert_no_heap_allocation(|| {
         assert!(check(0).is_ok());

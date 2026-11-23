@@ -23,15 +23,8 @@ stay local until their thread-safety contracts have been reviewed.
 See [owning and borrowed handles](https://github.com/gsrxyz/rusteron/blob/main/docs/migrating_0.2_to_0.3.md#owning-and-borrowed-handles)
 and [thread safety](https://github.com/gsrxyz/rusteron/blob/main/docs/thread-safety.md).
 
-The parser detects handwritten methods that keep the generated name and owner.
-For replacements with a different name or owner, set `method_overrides` in the
-crate's build configuration. Each `MethodOverride` names the native method and
-its Rust replacements. The generator adds these methods to the existing
-`skipped_methods` set. An unknown native method fails the build. Source builds
-and precompiled builds apply the same metadata. Raw FFI declarations stay
-available. The media driver selects `MEDIA_DRIVER_METHOD_OVERRIDES` to keep
-startup and manual work on their consuming handles. The client and Archive
-select no explicit overrides.
+Handwritten methods with the generated name and owner replace the generated ones. For a
+different name or owner, list the native method in `method_overrides`. Unknown methods fail the build.
 
 Use the generator for repeated wrappers. `convenience.rs` generates Duration
 accessors from native getter and setter pairs, and destination helpers from the

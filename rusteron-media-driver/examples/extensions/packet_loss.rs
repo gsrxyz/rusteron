@@ -1,10 +1,7 @@
 //! Drop every seventh outgoing batch after a fixed seeded offset. Use only for retransmission tests.
-//! Run with `cargo run -p rusteron-media-driver --features static --example packet_loss`.
-//! Connect clients to the printed directory. Press Enter to stop.
 
 use rusteron_media_driver::{AeronCError, AeronDriverContext, extensions::*};
 
-/// Install this extension before creating the driver.
 pub fn configure(context: &AeronDriverContext) -> Result<(), AeronCError> {
     context.add_outgoing_interceptor::<SeededLoss<7, 3>>()
 }
