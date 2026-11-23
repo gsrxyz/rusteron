@@ -6,10 +6,8 @@ fn main() {
             .unwrap_or_else(|_| panic!("rusteron-media-driver must export DEP_AERON_DRIVER_{key}"))
     };
     println!("cargo:rerun-if-changed=transport.c");
-    println!("cargo:rerun-if-changed=runtime_transport.c");
     cc::Build::new()
         .file("transport.c")
-        .file("runtime_transport.c")
         .include(dep("INCLUDE"))
         .include(dep("CLIENT_INCLUDE"))
         // As in Aeron's own cmake build: its headers have unused hook parameters.
