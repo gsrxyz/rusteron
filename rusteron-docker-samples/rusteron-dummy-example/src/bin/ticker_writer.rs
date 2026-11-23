@@ -44,7 +44,7 @@ async fn main() -> websocket_lite::Result<()> {
 
     let (archive, aeron) = archive_connect()?;
 
-    // awaited on this task rather than spawned: the Aeron handles are not Send
+    // The archive stays on this task because AeronArchive is not Send.
     let mut recorder = AeronRecorder::new(archive.clone(), aeron.clone());
     while !stop.load(Ordering::Acquire) {
         match &recorder {
@@ -73,10 +73,9 @@ impl AeronRecorder {
         let stream_id = TICKER_STREAM_ID;
 
         info!(
-            "attempting to starting recording {} streamId={} [archive={archive:?}, aeronError={}, aeronClosed={}]",
+            "starting recording {} streamId={} [archive={archive:?}, aeronClosed={}]",
             channel,
             stream_id,
-            Aeron::errmsg(),
             archive.aeron().is_closed(),
         );
         let subscription_id =
@@ -87,7 +86,7 @@ impl AeronRecorder {
 
         info!(
             "created ticker publication [sessionId={}]",
-            publication.get_constants()?.session_id
+            publication.get_constants()?.session_id()
         );
 
         Ok(Self {

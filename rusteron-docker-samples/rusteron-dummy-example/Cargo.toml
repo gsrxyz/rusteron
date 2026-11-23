@@ -10,8 +10,8 @@ websocket-lite = "0.5"
 tokio = { version = "1", features = ["full"] }
 futures-util = "0.3"
 # built from source, not `precompile`, so the Dockerfile can inline Aeron C with cross-language LTO
-rusteron-archive = { version = "0.2", features = ["static"]}
-rusteron-media-driver = { version = "0.2", features = ["static"]}
+rusteron-archive = { version = "0.3", features = ["static"] }
+rusteron-media-driver = { version = "0.3", features = ["static"] }
 #rusteron-archive = { path = "../../rusteron-archive", features = ["static"]}
 #rusteron-media-driver = { path = "../../rusteron-media-driver", features = ["static"]}
 serde = { version = "1", features = ["derive"] }

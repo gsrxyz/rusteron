@@ -83,7 +83,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04-arm]
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -97,11 +97,14 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '23'
-      - run: sudo apt-get update && sudo apt-get install -y cmake clang libclang-rt-dev libbsd-dev uuid-dev
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang-18 libclang-rt-18-dev libbsd-dev uuid-dev
       - name: Test driver, client and archive threads
         env:
-          CC: clang
-          CXX: clang++
+          CC: clang-18
+          CXX: clang++-18
         run: bash scripts/test-tsan.sh
 
   sanitize:
