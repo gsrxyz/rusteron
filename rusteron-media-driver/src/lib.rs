@@ -78,6 +78,14 @@ impl Drop for EmbeddedMediaDriver {
     }
 }
 
+// Lets the example files that unit tests include name this crate
+#[cfg(test)]
+extern crate self as rusteron_media_driver;
+
+mod driver;
+pub mod environment;
+pub use driver::{ManualDriver, ThreadedDriver};
+pub mod extensions;
 pub mod testing;
 
 impl AeronDriverContext {
@@ -119,7 +127,6 @@ impl AeronDriverContext {
     pub fn apply_cgroup_cpuset_affinity(&self) -> Result<(), AeronCError> {
         self.aeron_driver_validate_and_apply_affinity_configuration()
             .map(|_| ())
-            .map_err(AeronCError::capture_errmsg)
     }
 
     /// Pins each driver agent thread, as it starts, to the CPU set for its role
@@ -176,25 +183,24 @@ impl AeronDriver {
         let dir = aeron_context.get_dir_owned();
         info!("Starting media driver [dir={}]", dir);
         let driver = Self::new(&aeron_context)
-            .map_err(|error| error.capture_errmsg())
+            .map_err(AeronCError::capture_errmsg)
             .expect("failed to initialize embedded media driver");
         let driver_owner = driver.inner.as_owned().expect("driver requires owned storage").clone();
         drop(driver);
+        let started_dir = dir.clone();
         let handle = std::thread::spawn(move || {
             // The native driver is initialized but not started. Move only its
             // checked owner; the public driver handle remains local to this worker.
             let aeron_driver = AeronDriver::from_resource(CResource::new(driver_owner));
-            aeron_driver.start(true)?;
-
-            let context = aeron_driver.context();
-            // SAFETY: driver initialization froze the context configuration
-            info!("Aeron driver started [dir={}]", unsafe { context.get_dir() });
+            let mut aeron_driver = aeron_driver.start_manual().map_err(AeronCError::capture_errmsg)?;
+            info!("Aeron driver started [dir={}]", started_dir);
 
             started2.store(true, Ordering::SeqCst);
 
             // Poll for work until Ctrl+C is pressed
             while !stop.load(Ordering::Acquire) {
-                aeron_driver.main_idle_strategy(aeron_driver.main_do_work()?);
+                let work = aeron_driver.do_work().map_err(AeronCError::capture_errmsg)?;
+                aeron_driver.idle(work);
             }
 
             info!("stopping media driver");
@@ -302,8 +308,7 @@ mod tests {
 
     #[test]
     fn invalid_ip_prefixes_are_rejected_before_calling_native_code() {
-        // SAFETY: these initialized address values have no pointers or external storage.
-        let ipv4 = unsafe { InAddr::new(0).unwrap() };
+        let ipv4 = InAddr::new(0).unwrap();
         let ipv6 = unsafe { In6Addr::new_zeroed_on_heap() };
         for prefix in [33, usize::MAX] {
             assert!(ipv4.aeron_ipv4_does_prefix_match(&ipv4, prefix).is_err());
@@ -402,8 +407,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn socket_bindings_match_the_native_library() {
-        // SAFETY: the next native call fills this output before it is read.
-        let address = unsafe { SockaddrStorage::new_zeroed_on_heap() };
+        let address = SockaddrStorage::new_zeroed_on_heap();
         address.aeron_set_ipv4_wildcard_host_and_port();
         // Linux writes a 16-bit AF_INET at offset zero. Darwin bindings read
         // an 8-bit family at offset one and return zero.
@@ -545,6 +549,29 @@ mod tests {
     #[test]
     fn cgroup_cpuset_affinity_is_a_no_op_when_off() -> Result<(), AeronCError> {
         AeronDriverContext::new()?.apply_cgroup_cpuset_affinity()
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    #[cfg_attr(feature = "backtrace", ignore = "backtrace allocates on each AeronCError")]
+    fn affinity_validation_errors_do_not_allocate_on_the_rust_heap() -> Result<(), AeronCError> {
+        let context = AeronDriverContext::new()?;
+        context.set_thread_affinity_use_cpuset_offsets(false)?;
+        context.set_thread_affinity_fail_on_validation_errors(true)?;
+        context.set_conductor_cpu_affinity(0)?;
+        context.set_sender_cpu_affinity(0)?;
+        context.set_receiver_cpu_affinity(-1)?;
+        context.set_native_resource_agent_cpu_affinity(-1)?;
+        // Two agents on CPU 0 fail validation regardless of the host's CPU count.
+        // Warm Aeron's per-thread error state before counting Rust allocations.
+        assert!(context.apply_cgroup_cpuset_affinity().is_err());
+        crate::test_alloc::assert_no_heap_allocation(|| {
+            let error = context.apply_cgroup_cpuset_affinity().unwrap_err();
+            assert_eq!(error.code, -1);
+            assert_eq!(error.message(), None);
+            error.with_last_err_message(|message| assert_ne!(message, "no error"));
+        });
+        Ok(())
     }
 
     #[test]

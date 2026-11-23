@@ -11,7 +11,11 @@ mod tests {
 
     #[test]
     fn transport_header_compiles_against_exported_paths() {
-        // SAFETY: a pure function that build.rs compiled from transport.c.
-        assert!(unsafe { links_test_transport_bindings_size() } > 0);
+        // The C header and the Rust bindings must agree on the table layout
+        assert_eq!(
+            // SAFETY: a pure function that build.rs compiled from transport.c.
+            unsafe { links_test_transport_bindings_size() },
+            size_of::<rusteron_media_driver::bindings::aeron_udp_channel_transport_bindings_t>()
+        );
     }
 }

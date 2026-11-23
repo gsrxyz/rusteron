@@ -135,7 +135,47 @@ pub fn parse_bindings_with_custom(out: &PathBuf, extra_custom_code: &[&str]) -> 
             custom.entry(class).or_default().extend(methods);
         }
     }
+    let mut callback_aliases = BTreeSet::new();
+    // Resolve aliases to a fixed point. Suppliers have no clientd and therefore
+    // are absent from `handlers`, but still require an unsafe raw API.
+    loop {
+        let count = callback_aliases.len();
+        for item in &items {
+            if let Item::Type(alias) = item {
+                fn is_callback(ty: &syn::Type, aliases: &BTreeSet<String>) -> bool {
+                    match ty {
+                        syn::Type::FnPtr(callback) => {
+                            callback.unsafety.is_some()
+                                && callback
+                                    .abi
+                                    .as_ref()
+                                    .and_then(|abi| abi.name.as_ref())
+                                    .is_some_and(|name| name.value().starts_with('C'))
+                        }
+                        syn::Type::Path(path) => path.path.segments.last().is_some_and(|segment| {
+                            aliases.contains(&segment.ident.to_string())
+                                || (segment.ident == "Option"
+                                    && matches!(&segment.arguments, syn::PathArguments::AngleBracketed(args)
+                                    if args.args.iter().any(|arg| matches!(arg,
+                                        syn::GenericArgument::Type(ty) if is_callback(ty, aliases)))))
+                        }),
+                        _ => false,
+                    }
+                }
+                if is_callback(&alias.ty, &callback_aliases) {
+                    callback_aliases.insert(alias.ident.to_string());
+                }
+            }
+        }
+        if count == callback_aliases.len() {
+            break;
+        }
+    }
+    let callback_aliases = std::sync::Arc::new(callback_aliases);
+    let native_types = std::sync::Arc::new(crate::NativeTypeMetadata::from_items(&items));
     for wrapper in bindings.wrappers.values_mut() {
+        wrapper.native_types = native_types.clone();
+        wrapper.unsafe_callback_aliases = callback_aliases.clone();
         if let Some(methods) = custom.get(&wrapper.class_name) {
             wrapper.skipped_methods = methods.clone();
         }

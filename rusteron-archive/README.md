@@ -96,6 +96,9 @@ use `poll_fn` with a stack closure. `Handlers::NONE` fills an unused callback sl
 Archive control errors use native numeric codes. Match on `error.code` or use
 `AeronArchiveErrorCode::from_native_code(code)` in an Archive error handler.
 `poll_for_error()` returns unsolicited errors with their typed code and full message.
+`AeronArchiveError` copies the native message into owned storage on failure.
+`AeronCError` leaves message capture to the caller. Call `capture_errmsg()` before
+another native call or thread exit if the message must survive.
 A blocking Archive request fails after the message timeout, 10 s by default.
 The setting is `AERON_ARCHIVE_MESSAGE_TIMEOUT`. Change it with
 `AeronArchiveContext::set_message_timeout(duration)`.

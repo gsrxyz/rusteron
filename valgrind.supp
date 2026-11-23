@@ -29,6 +29,18 @@
 }
 
 # Fallback for Rust test-thread bookkeeping (toolchain-dependent symbol paths).
+# Rust 1.98 uses v0 symbols and init_current for the same runtime state.
+# These three adjacent std frames identify its thread-local MPMC context.
+{
+   rust_test_thread_context_possible_leak_v0
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:*_3std6thread6thread*6Thread3new
+   fun:*_3std6thread7current12init_current
+   fun:*_3std4sync4mpmc7context*7Context3new
+}
+
 {
    rust_test_thread_spawn_possible_leak
    Memcheck:Leak

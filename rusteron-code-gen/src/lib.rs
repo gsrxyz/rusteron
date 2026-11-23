@@ -14,7 +14,9 @@ mod common;
 mod constant_enums;
 mod convenience;
 mod generator;
+mod method_overrides;
 mod native_enums;
+mod native_types;
 mod parser;
 mod string_views;
 pub mod test_logger;
@@ -23,6 +25,8 @@ mod thread_safety;
 pub use arg_classifier::*;
 pub use common::*;
 pub use generator::*;
+pub use method_overrides::{MEDIA_DRIVER_METHOD_OVERRIDES, MethodOverride};
+pub use native_types::NativeTypeMetadata;
 pub use parser::*;
 
 use proc_macro2::TokenStream;
@@ -285,6 +289,7 @@ mod tests {
             .join("bindings")
             .join("media-driver.rs");
         let mut bindings = parse_bindings(&path);
+        bindings.apply_method_overrides(crate::MEDIA_DRIVER_METHOD_OVERRIDES);
         assert_eq!(
             "AeronImageFragmentAssembler",
             bindings
@@ -423,12 +428,18 @@ mod tests {
 
     /// Generates `aeron.rs` the way build.rs does, from the bindings snapshot packaged with
     /// this crate, so tests that use it still run from the published crate
-    fn generate_aeron_rs(bindings_file: &str, skip_filter: fn(&str) -> bool, extra_custom_code: &[&str]) -> String {
+    fn generate_aeron_rs(
+        bindings_file: &str,
+        skip_filter: fn(&str) -> bool,
+        extra_custom_code: &[&str],
+        method_overrides: &[crate::MethodOverride],
+    ) -> String {
         let bindings_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("bindings")
             .join(bindings_file);
 
         let mut bindings = crate::parse_bindings_with_custom(&bindings_path, extra_custom_code);
+        bindings.apply_method_overrides(method_overrides);
         format_with_rustfmt(&crate::generate_wrappers(&mut bindings, skip_filter).to_string())
             .unwrap_or_else(|_| panic!("rustfmt failed on regenerated {bindings_file}"))
     }
@@ -440,13 +451,14 @@ mod tests {
         snapshot_rel_path: &str,
         skip_filter: fn(&str) -> bool,
         extra_custom_code: &[&str],
+        method_overrides: &[crate::MethodOverride],
     ) {
         if running_under_valgrind() {
             return;
         }
 
         let snapshot_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(snapshot_rel_path);
-        let generated = generate_aeron_rs(bindings_file, skip_filter, extra_custom_code);
+        let generated = generate_aeron_rs(bindings_file, skip_filter, extra_custom_code, method_overrides);
         // `COPY_BINDINGS=true` regenerates from the host's bindings, which differ per platform,
         // so refresh from the committed bindings instead
         if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
@@ -493,6 +505,7 @@ mod tests {
             "../rusteron-client/docs-rs/aeron.rs",
             |t| t.starts_with("aeron_"),
             &[],
+            &[],
         );
     }
 
@@ -510,6 +523,7 @@ mod tests {
             "../rusteron-archive/docs-rs/aeron.rs",
             |t| t.starts_with("aeron_"),
             &[crate::CUSTOM_ARCHIVE_CODE],
+            &[],
         );
     }
 
@@ -522,6 +536,7 @@ mod tests {
             "../rusteron-media-driver/docs-rs/aeron.rs",
             |t| !t.contains("pthread") && !t.contains("_t_"),
             &[],
+            crate::MEDIA_DRIVER_METHOD_OVERRIDES,
         );
     }
 
@@ -598,7 +613,12 @@ mod tests {
     #[test]
     #[cfg(not(target_os = "windows"))]
     fn descriptor_pollers_use_retained_callback_generation() {
-        let generated = generate_aeron_rs("archive.rs", |t| t.starts_with("aeron_"), &[crate::CUSTOM_ARCHIVE_CODE]);
+        let generated = generate_aeron_rs(
+            "archive.rs",
+            |t| t.starts_with("aeron_"),
+            &[crate::CUSTOM_ARCHIVE_CODE],
+            &[],
+        );
         let custom = crate::CUSTOM_ARCHIVE_CODE;
         for poller in [
             "recording_descriptor_poller",

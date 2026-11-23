@@ -4,6 +4,27 @@ Main changes, newest first, grouped by published crate version. Release-only
 commits, build logs, and changes later reverted or superseded are omitted.
 Early history predating the available release tags is grouped separately.
 
+## 0.3.1
+
+- Generated API safety
+  - Value constructors, `from_native` and `clone_struct` are safe when the type holds no pointer ownership.
+  - Stateless idle functions, default termination validators and fixed-text getters are safe.
+  - Scalar pointer getters return raw pointers.
+- Media driver extensions
+  - Breaking: `AeronDriver` is not `Clone`. `start(self)` returns `ThreadedDriver`, `start_manual(self)` returns `ManualDriver`.
+    Removed `main_do_work` and `main_idle_strategy` from the driver.
+  - Breaking: raw supplier setters need `unsafe`.
+  - Breaking: `IdleStrategy::BUSY_SPIN` prevents `dyn IdleStrategy`.
+  - Added typed flow control, congestion control, interceptors, name resolvers, idle strategies,
+    duty-cycle trackers, port managers and native transport bindings, with one example each.
+  - Added examples for bounded tagged flow control and seeded packet loss, and `environment::inspect_environment`.
+  - Driver errors no longer copy the native message. Call `capture_errmsg()` when needed.
+- Archive source-identity errors no longer copy the native message.
+- CI compiles guide examples against the client, archive and media driver crates.
+- ThreadSanitizer
+  - Added `just test-tsan` and x86_64 and ARM64 CI jobs covering driver extensions, client and archive threading.
+  - TSan builds use compiler atomics for Aeron's atomic operations. Normal builds are unchanged.
+
 ## 0.3.0
 
 Breaking release. See the [0.2-to-0.3 migration guide](docs/migrating_0.2_to_0.3.md).

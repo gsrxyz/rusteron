@@ -1,0 +1,14 @@
+# Aeron 1.54.2 publication-image loss metadata uses a sequence-lock protocol.
+# on_gap_detected writes loss_term_id, loss_term_offset and loss_length between
+# begin_loss_change and end_loss_change. send_pending_loss copies them and
+# discards the copy if the generation changed. Those speculative plain accesses
+# can overlap, so TSan reports them even with observable generation atomics.
+# Match only the native access frame, never arbitrary callers of Aeron.
+race_top:^aeron_publication_image_on_gap_detected$
+
+# Gap scanning probes frame-length words at 32-byte intervals beyond an empty
+# frame. A receiver can fill that hole with a longer packet while the scan reads
+# words inside its payload. The scanner only uses those words to bound a gap;
+# TSan reports its atomic probes against the receiver's payload memcpy.
+# This header contains only the native gap scanner, including when inlined.
+race_top:*/concurrent/aeron_term_gap_scanner.h$

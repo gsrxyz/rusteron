@@ -24,7 +24,8 @@ explicit type annotations and low-level FFI access.
 | `find_recording` or `collect_recordings` predicates reading `d.stream_id` | Call the getters, e.g. `d.stream_id()`. The predicate sees the borrowed descriptor, and only matches are copied into a `RecordingDescriptor` |
 | `timestamp_offset_reserved("...")` | Use `media_rcv_timestamp_offset("reserved")`, `channel_rcv_timestamp_offset("reserved")` or `channel_snd_timestamp_offset("reserved")`. Aeron defines `reserved` as a value, not a key |
 | Exhaustive matches on public Rust enums | Add a fallback arm. The enums are `#[non_exhaustive]` |
-| Raw manual conductor calls | Call `main_do_work()` from one thread at a time, as in Aeron Java and C++ |
+| Client manual conductor calls | Call `main_do_work()` from one thread at a time, as in Aeron Java and C++ |
+| Driver manual loop | Consume the driver with `start_manual()`. Use `do_work(&mut self)` and `idle(&mut self, work)` on the returned `ManualDriver` |
 
 Update the crate versions together:
 
@@ -355,8 +356,8 @@ polls it. A retained image from
 [thread safety](thread-safety.md#native-contracts-and-wrapper-traits).
 
 Configure contexts before native initialization. Later setters return an error,
-or panic if the signature has no error result. Manual conductor methods such as
-`main_do_work()` and `main_idle_strategy()` are safe. As in Aeron Java and C++,
+or panic if the signature has no error result. Client manual conductor methods
+`main_do_work()` and `main_idle_strategy()` remain safe. As in Aeron Java and C++,
 call them from one thread at a time. A background conductor avoids this for
 shared clients.
 
@@ -676,6 +677,9 @@ owner. `build()` returns an error for embedded NULs in string fields.
   `Option<Ref<'_, AeronCounter>>`. Handle `None` for an unset counter. Raw setters
   and builder counter methods that transfer native ownership need `unsafe` and
   exclusive ownership.
+
+In 0.3.1, generated value constructors, `from_native` and `clone_struct` are safe
+when the type holds no pointer ownership. Scalar pointer getters return raw pointers.
 
 Persistent subscriptions retain their context, client, archive context and
 listener. Set a Rust-owned client on the persistent-subscription context or its
@@ -1016,3 +1020,19 @@ over the hot call site threshold of 525. LLVM also judged `aeron_subscription_po
 Rust store in every build, so LTO cannot change it. A reusable
 `AeronBufferClaim` calls the native `commit`, which LTO inlined, but its timings
 did not change beyond the spread.
+
+## Media driver manual loops (0.3.1)
+
+- Replace `driver.start(true)` with `start_manual()` and `driver.start(false)` with `start()`.
+  Keep the returned handle alive until shutdown.
+- Raw supplier setters need `unsafe`. Prefer typed setters such as `set_unicast_flow_control::<T>`.
+- `dyn IdleStrategy` no longer compiles, because of `const BUSY_SPIN`.
+
+```rust,no_run
+# use rusteron_media_driver::{AeronCError, AeronDriver, AeronDriverContext};
+let context = AeronDriverContext::new()?;
+let mut driver = AeronDriver::new(&context)?.start_manual()?;
+let work = driver.do_work()?;
+driver.idle(work);
+# Ok::<(), AeronCError>(())
+```

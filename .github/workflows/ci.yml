@@ -75,6 +75,38 @@ jobs:
           cargo install just
           just test-valgrind
 
+  extension-thread-sanitizer:
+    name: ThreadSanitizer (${{ matrix.os }})
+    # Instrumented builds use compiler atomics. Aeron's normal x86 assembly
+    # and ARM volatile/fence operations cannot establish TSan synchronization.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.1
+          components: rust-src
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '23'
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang-18 libclang-rt-18-dev libbsd-dev uuid-dev
+      - name: Test driver, client and archive threads
+        env:
+          CC: clang-18
+          CXX: clang++-18
+        run: bash scripts/test-tsan.sh
+
   sanitize:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     name: Sanitizer (AddressSanitizer)
@@ -236,7 +268,7 @@ jobs:
 
           dependencies = Path('target/debug/deps')
           externs = []
-          for crate in ('rusteron_client', 'rusteron_archive'):
+          for crate in ('rusteron_client', 'rusteron_archive', 'rusteron_media_driver'):
               library = max(dependencies.glob(f'lib{crate}-*.rlib'), key=lambda p: p.stat().st_mtime)
               externs.extend(['--extern', f'{crate}={library}'])
           for guide in ('client-guide.md', 'archive-guide.md', 'migrating_0.2_to_0.3.md'):

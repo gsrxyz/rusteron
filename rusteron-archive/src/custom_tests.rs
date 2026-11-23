@@ -1,5 +1,32 @@
-//! Tests that need the native library but no driver or Java Archive.
+//! Tests that use the native library or an embedded driver, without a Java Archive.
 use super::*;
+
+#[test]
+#[cfg_attr(feature = "backtrace", ignore = "backtrace allocates on each AeronCError")]
+fn source_identity_errors_do_not_allocate_on_the_rust_heap() -> Result<(), Box<dyn std::error::Error>> {
+    let driver = rusteron_media_driver::testing::EmbeddedDriver::launch()?;
+    let client = Aeron::connect_dir(driver.dir())?;
+    let reader = client.counters_reader();
+    let mut destination = [0xAA; 16];
+    // Warm Aeron's per-thread error state before counting Rust allocations.
+    assert!(
+        reader
+            .aeron_archive_recording_pos_get_source_identity(-1, &mut destination)
+            .is_err()
+    );
+    crate::test_alloc::assert_no_heap_allocation(|| {
+        for counter_id in [-1, i32::MAX] {
+            let error = reader
+                .aeron_archive_recording_pos_get_source_identity(counter_id, &mut destination)
+                .unwrap_err();
+            assert_eq!(error.code, -1);
+            assert_eq!(error.message(), None);
+            error.with_last_err_message(|message| assert!(message.contains("failed to read metadata for counter id")));
+            assert_eq!(destination, [0xAA; 16]);
+        }
+    });
+    Ok(())
+}
 
 #[test]
 fn replay_queries_and_copy_use_native_fields_without_allocating() {
@@ -11,9 +38,8 @@ fn replay_queries_and_copy_use_native_fields_without_allocating() {
         replay_token: 555,
         subscription_registration_id: 777,
     };
-    // SAFETY: these value structs have no pointers or external storage.
-    let source = unsafe { AeronArchiveReplayParams::from_native(expected) };
-    let destination = unsafe { AeronArchiveReplayParams::from_native(aeron_archive_replay_params_t::default()) };
+    let source = AeronArchiveReplayParams::from_native(expected);
+    let destination = AeronArchiveReplayParams::from_native(aeron_archive_replay_params_t::default());
     let check_fields = |params: &AeronArchiveReplayParams<Inline<aeron_archive_replay_params_t>>| {
         assert_eq!(params.bounding_limit_counter_id(), expected.bounding_limit_counter_id);
         assert_eq!(params.file_io_max_length(), expected.file_io_max_length);

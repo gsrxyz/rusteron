@@ -38,6 +38,8 @@ pub struct RusteronBuildConfig {
     /// Per-crate hand-written wrapper code appended after the common `aeron_custom.rs`
     /// (e.g. `rusteron_code_gen::CUSTOM_ARCHIVE_CODE`). May reference crate-only types.
     pub extra_custom_code: &'static [&'static str],
+    /// Native methods replaced by handwritten APIs with different names or owners.
+    pub method_overrides: &'static [rusteron_code_gen::MethodOverride],
     /// Snapshot name under rusteron-code-gen/bindings/ used by COPY_BINDINGS.
     pub bindings_snapshot: &'static str,
     /// Hook before cmake configuration (archive runs gradle here). Receives aeron/ path.
@@ -210,11 +212,12 @@ pub fn rusteron_build_main(config: &RusteronBuildConfig) {
             }
 
             // Keep the bundle's C ABI, but generate wrappers for the current Rust crate.
-            rusteron_code_gen::artifacts::prepare_bindings(
+            rusteron_code_gen::artifacts::prepare_bindings_with_overrides(
                 &artifacts_dir.join(rusteron_code_gen::artifacts::BINDINGS_DIR),
                 &out_path,
                 config.wrapper_type_filter,
                 config.extra_custom_code,
+                config.method_overrides,
             )
             .expect("Failed to prepare Rust bindings from precompiled artifacts");
 
@@ -333,6 +336,24 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
         let san_flags = format!("-fsanitize={} -fno-omit-frame-pointer -g -O1", san);
         c_flags = format!("{} {}", san_flags, c_flags);
         cxx_flags = san_flags;
+        if san == "thread" {
+            // Aeron's volatile/fence and inline-assembly atomics are invisible to TSan.
+            // Use compiler atomics only in instrumented builds. Suppressing Aeron frames
+            // would also suppress real races in native state and Rust callback lifetimes.
+            let include_dir = PathBuf::from(env::var("OUT_DIR").unwrap()).join("tsan-include");
+            let concurrent = include_dir.join("concurrent");
+            fs::create_dir_all(&concurrent).expect("Failed to create Aeron's TSan include directory");
+            for name in ["aeron_atomic64_gcc_x86_64.h", "aeron_atomic64_c11.h"] {
+                fs::write(concurrent.join(name), rusteron_code_gen::c_build::TSAN_ATOMIC_HEADER)
+                    .expect("Failed to write Aeron's ThreadSanitizer atomic header");
+            }
+            // Quote includes precede CMake's -I paths, without pre-including libc before
+            // Aeron translation units have defined their feature-test macros.
+            let include = format!(" -iquote \"{}\"", include_dir.display());
+            c_flags.push_str(&include);
+            cxx_flags.push_str(&include);
+            println!("cargo:tsan_include={}", include_dir.display());
+        }
         // The instrumented Aeron C objects reference __asan_* symbols, so the
         // crate's test/example link step needs an ASan runtime on the link line.
         // cargo:rustc-link-arg scopes this to THIS crate's own binaries. Build
@@ -494,6 +515,7 @@ fn build_from_source(config: &RusteronBuildConfig, docs_rs: &Path) {
     bindings.write_to_file(out.clone()).expect("Couldn't write bindings!");
 
     let mut bindings = rusteron_code_gen::parse_bindings_with_custom(&out, config.extra_custom_code);
+    bindings.apply_method_overrides(config.method_overrides);
     if let Some(expected) = config.expected_wrapper {
         assert_eq!(
             expected,

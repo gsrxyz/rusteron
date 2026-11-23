@@ -13,7 +13,8 @@ for each C function:
 | `for_each_image` visitor | Your thread | The wrapper catches the panic and raises it from `for_each_image` after C releases the image list | C still visits the remaining images. |
 | Reserved-value supplier passed to `offer_with_reserved_value` | Your thread, inside `offer` | The wrapper catches the panic and raises it from `offer` | Aeron still publishes the message with reserved value `0`. |
 | Other synchronous callbacks, such as `aeron_cnc_error_log_read`, counter `foreach`, loss-report readers and URI parsers | Your thread | The wrapper catches the panic, returns a default value to C and raises it after C returns | The C function receives `0`, null or `()` according to the callback's return type. |
-| Retained image, error, registration, client-close, Archive and driver callbacks | Usually the conductor thread | The wrapper logs the panic with `log::error!` and `eprintln!` and lets the client continue | The wrapper drops that event. Later events still arrive. |
+| Typed driver strategy, interceptor, and resolver callbacks, including setup and destruction | Native agent or closing caller | An escaping panic aborts at the `extern "C"` boundary | No fallback or recovery occurs. |
+| Retained image, error, registration, client-close, Archive and generated driver hooks | Usually the conductor thread | The wrapper logs the panic with `log::error!` and `eprintln!` and lets the client continue | The wrapper drops that event. Later events still arrive. |
 
 Notes:
 
@@ -28,3 +29,4 @@ Edge cases:
 - With `use_conductor_agent_invoker`, conductor callbacks run inside your `invoke` call, but are still logged rather than raised.
 - For raw bindings, declare poll handlers as `unsafe extern "C-unwind" fn`. The compiler rejects `extern "C"` handlers for these poll functions. Other raw callbacks must not panic because Rust aborts at the `extern "C"` boundary.
 - To make any panic stop the process, set `panic = "abort"` in your Cargo profile. Every panic then aborts immediately, before any of the above runs.
+- Driver loss suppliers expose native endpoint pointers. Dereferencing them follows the native lifetime and threading contract.

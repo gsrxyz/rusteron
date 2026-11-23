@@ -118,8 +118,7 @@ fn clone_struct_copies_fields_into_independent_stable_storage() {
         flags: 0xc0,
         type_: 3,
     };
-    // SAFETY: this plain header has no borrowed pointers.
-    let source = unsafe { AeronFrameHeader::from_native(native) };
+    let source = AeronFrameHeader::from_native(native);
     let copy = source.clone_struct();
     assert_ne!(source.get_inner(), copy.get_inner());
     // SAFETY: no reference to the source header is live, and the copy is separate.
@@ -144,8 +143,7 @@ fn clone_struct_preserves_large_plain_structs() {
     native.key.fill(0xab);
     native.label_length = native.label.len() as i32;
     native.label.fill(0x5a);
-    // SAFETY: this descriptor contains only integers and byte arrays.
-    let source = unsafe { AeronCounterMetadataDescriptor::from_native(native) };
+    let source = AeronCounterMetadataDescriptor::from_native(native);
     let copy = source.clone_struct();
     drop(source);
     let copied: aeron_counter_metadata_descriptor_t = copy.into();

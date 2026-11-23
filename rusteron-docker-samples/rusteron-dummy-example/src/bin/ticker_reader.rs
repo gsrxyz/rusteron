@@ -30,7 +30,7 @@ fn main() -> Result<()> {
     while !shutdown.load(Ordering::Acquire) {
         if archive_log_time.elapsed() > archive_log {
             archive_log_time = Instant::now();
-            match archive.collect_recordings(|recording| recording.stream_id == stream_id) {
+            match archive.collect_recordings(|recording| recording.stream_id() == stream_id) {
                 Ok(recordings) => {
                     let last_stopped = recordings.iter().rev().find(|recording| recording.stop_position > 0);
                     info!("found {} recordings [lastStopped={last_stopped:?}]", recordings.len());
@@ -51,7 +51,7 @@ fn main() -> Result<()> {
                         )?;
                         let merge = AeronArchiveReplayMerge::new(
                             &subscription,
-                            &archive,
+                            archive.clone(),
                             &replay_channel.as_str().into_c_string(),
                             c"aeron:udp?endpoint=localhost:0",
                             // the writer's channel is already a full URI

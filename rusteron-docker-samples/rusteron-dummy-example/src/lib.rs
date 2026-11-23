@@ -18,19 +18,19 @@ pub trait JsonMesssageHandler {
     fn on_msg(&mut self, msg: &str);
 }
 
-pub fn start_media_driver() -> Result<(), Box<dyn std::error::Error>> {
+pub fn start_media_driver() -> websocket_lite::Result<()> {
+    let shutdown = register_exit_signals()?;
     let aeron_context = rusteron_media_driver::AeronDriverContext::new()?;
-    let aeron_driver = rusteron_media_driver::AeronDriver::new(&aeron_context)?;
-    aeron_driver.start(true)?;
+    aeron_context.print_configuration();
+    info!("aeron dir: {}", aeron_context.get_dir_owned());
+    let aeron_driver = rusteron_media_driver::AeronDriver::launch_embedded_guard(aeron_context, false);
     info!("Aeron media driver started successfully. Press Ctrl+C to stop.");
 
-    aeron_driver.conductor().context().print_configuration();
-    aeron_driver.main_do_work()?;
-    info!("aeron dir: {:?}", aeron_context.get_dir());
-
-    loop {
-        aeron_driver.main_idle_strategy(aeron_driver.main_do_work()?);
+    while !shutdown.load(Ordering::Acquire) && !aeron_driver.is_finished() {
+        sleep(Duration::from_millis(100));
     }
+    aeron_driver.join()?;
+    Ok(())
 }
 
 /// Streams `subscription` from `url` into `handler`, reconnecting on errors, until `stop` is set.

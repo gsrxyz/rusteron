@@ -2636,6 +2636,7 @@ impl AeronArchiveError {
     /// Reads the error code before copying its message. `code` is the failed call's
     /// return value, used only when Aeron has not set a thread-local error code.
     /// Message contents never determine the error code.
+    /// Allocates for the message so it survives later native calls and thread exit.
     #[cold]
     pub fn from_code(code: i32) -> Self {
         // SAFETY: Aeron returns the calling thread's integer error code.
@@ -2694,7 +2695,7 @@ impl<S: ResourceStorage<aeron_counters_reader_t>> AeronCountersReader<S> {
             )
         };
         if result < 0 {
-            return Err(AeronCError::from_code(result).capture_errmsg());
+            return Err(AeronCError::from_code(result));
         }
         Ok(length)
     }

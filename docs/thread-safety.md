@@ -29,7 +29,11 @@ local until reviewed.
 - Configure a client or driver context before passing it to native code. Retained
   clones of a context cannot change it afterwards. If client initialisation fails,
   the context can be changed and used again.
-- The background conductor needs no manual calls. With an agent invoker, call
+- `AeronDriver` has one owner. Starting it consumes the handle. A `ManualDriver`
+  stays on its starting thread and requires `&mut self` for work and idle calls.
+  A `ThreadedDriver` has no manual work entry point. Strategy callbacks split
+  mutable agent state from concurrent `Shared` reads. See [driver extensions](driver-extensions.md).
+- The client background conductor needs no manual calls. With a client agent invoker, call
   `main_do_work` and `main_idle_strategy` from one thread at a time, as in Aeron Java
   and C++. Other threads can still use the client's publication and registration APIs.
 - Getters that return `Ref` borrow their parent. A `Ref` has no `Clone`. Call
@@ -169,3 +173,16 @@ cargo bench -p rusteron-client --features static --bench callback_overhead
 ```
 
 See [how to benchmark](../BENCHMARKS.md#how-to-benchmark) for the other benchmarks.
+## ThreadSanitizer
+
+```sh
+just test-tsan   # Linux, needs rust-src and Clang's sanitizer runtime
+```
+
+- Rebuilds Rust, std and Aeron C with TSan. CI runs it on x86_64 and ARM64.
+- TSan builds swap Aeron's volatile/fence and x86 assembly atomics for compiler atomics so TSan sees the synchronisation. Normal builds are unchanged.
+- [`scripts/tsan.supp`](../scripts/tsan.supp) suppresses two Aeron protocols TSan cannot model: the loss-metadata sequence lock and gap-scanner probes. Both match only the native frame.
+- Covers driver extensions, client registrations, offers, claims and counters, subscription handoff, exclusive publications, archive transports and persistent subscriptions.
+- Compile-time assertions reject `Sync`/`Clone` on subscriptions and `Send`/`Sync` on exclusive publications, images, archive clients and persistent subscriptions.
+- Skips the panic-abort test and the deliberate conductor-leak test.
+- Fails unless TSan catches two deliberate races, one native and one in a Rust callback.

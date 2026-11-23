@@ -7,6 +7,7 @@ pub(crate) enum StringView {
     Borrowed,
     BorrowedWithLength(&'static str),
     Static,
+    Argument(&'static str),
     Unchecked,
 }
 
@@ -23,6 +24,8 @@ pub(crate) fn method(wrapper: &str, method: &Method) -> StringView {
         | "aeron_driver_uri_get_offset_info"
         | "aeron_error_code_str" => StringView::Static,
         "aeron_publication_channel" | "aeron_cnc_filename" => StringView::Borrowed,
+        // POSIX returns constant text; Windows writes into this bounded buffer.
+        "aeron_tmpdir" => StringView::Argument("path"),
         _ => {
             let _ = wrapper;
             StringView::Unchecked
@@ -30,8 +33,8 @@ pub(crate) fn method(wrapper: &str, method: &Method) -> StringView {
     }
 }
 
-pub(crate) fn field(wrapper: &str, field: &str) -> StringView {
-    match (wrapper, field) {
+pub(crate) fn field(wrapper: &crate::CWrapper, field: &str) -> StringView {
+    match (wrapper.type_name.as_str(), field) {
         ("aeron_archive_encoded_credentials_t", "data") => StringView::BorrowedWithLength("length"),
         // These keys point into caller storage and carry their own length, so they are not NUL terminated
         ("aeron_str_to_ptr_hash_map_key_t", "str_") => StringView::BorrowedWithLength("str_length"),
@@ -52,6 +55,17 @@ pub(crate) fn field(wrapper: &str, field: &str) -> StringView {
         | ("aeron_archive_recording_descriptor_t", "stripped_channel" | "original_channel" | "source_identity")
         | ("aeron_archive_recording_subscription_descriptor_t", "stripped_channel")
         | ("aeron_archive_replication_params_t", "live_destination" | "replication_channel" | "src_response_channel") => {
+            StringView::Borrowed
+        }
+        // Records without native methods have no safe writer for their text.
+        // Their unsafe constructors require the pointers to remain valid.
+        _ if !wrapper.opaque
+            && wrapper.methods.is_empty()
+            && wrapper
+                .fields
+                .iter()
+                .any(|arg| arg.name == field && arg.is_c_string_any()) =>
+        {
             StringView::Borrowed
         }
         _ => StringView::Unchecked,
@@ -89,7 +103,16 @@ mod tests {
     #[test]
     fn unknown_text_requires_an_explicit_borrow_contract() {
         assert_eq!(method("future_t", &native("aeron_future_text")), StringView::Unchecked);
-        assert_eq!(field("future_t", "text"), StringView::Unchecked);
+        assert_eq!(
+            field(
+                &crate::CWrapper {
+                    type_name: "future_t".into(),
+                    ..Default::default()
+                },
+                "text"
+            ),
+            StringView::Unchecked
+        );
         assert_eq!(method("aeron_t", &native("aeron_errmsg")), StringView::Unchecked);
         assert_eq!(method("aeron_t", &native("aeron_version_text")), StringView::Static);
         assert_eq!(
@@ -97,11 +120,23 @@ mod tests {
             StringView::Borrowed
         );
         assert_eq!(
-            field("aeron_archive_recording_descriptor_t", "original_channel"),
+            field(
+                &crate::CWrapper {
+                    type_name: "aeron_archive_recording_descriptor_t".into(),
+                    ..Default::default()
+                },
+                "original_channel"
+            ),
             StringView::Borrowed
         );
         assert_eq!(
-            field("aeron_archive_control_response_poller_t", "error_message"),
+            field(
+                &crate::CWrapper {
+                    type_name: "aeron_archive_control_response_poller_t".into(),
+                    ..Default::default()
+                },
+                "error_message"
+            ),
             StringView::Unchecked
         );
     }
@@ -157,6 +192,19 @@ mod tests {
                 assert!(matches!(owned.sig.safety, syn::Safety::Default));
                 assert!(owned.block.to_token_stream().to_string().contains("to_owned"));
             }
+        }
+    }
+
+    #[test]
+    fn immutable_record_text_does_not_need_an_unsafe_getter() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("bindings/media-driver.rs");
+        let bindings = crate::parse_bindings(&path);
+        for (record, name) in [("aeron_system_counter_t", "label"), ("addrinfo", "ai_canonname")] {
+            let wrapper = &bindings.wrappers[record];
+            assert_eq!(field(wrapper, name), StringView::Borrowed);
+            let mut mutable = wrapper.clone();
+            mutable.methods.push(native("aeron_future_update"));
+            assert_eq!(field(&mutable, name), StringView::Unchecked);
         }
     }
 }
