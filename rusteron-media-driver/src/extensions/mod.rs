@@ -69,6 +69,9 @@ impl<T> Drop for NativeOwned<T> {
 unsafe impl<T: Send> Send for NativeOwned<T> {}
 unsafe impl<T: Sync> Sync for NativeOwned<T> {}
 
+// errno EINVAL, the same value on every supported platform
+const EINVAL: i32 = 22;
+
 #[inline]
 fn check(result: i32) -> Result<(), AeronCError> {
     if result < 0 {
@@ -102,7 +105,7 @@ unsafe fn supplier_error(error: AeronCError) -> i32 {
         // returning. with_last_err_message snapshots native text before reuse.
         unsafe {
             aeron_err_set(
-                22,
+                EINVAL,
                 c"rusteron extension".as_ptr(),
                 c"extensions".as_ptr(),
                 0,

@@ -512,6 +512,10 @@ fn interceptor_installation_preserves_chain_order_and_owns_each_binding() {
     let second = unsafe { aeron_driver_context_get_udp_channel_outgoing_interceptors(context.get_inner()) };
     unsafe {
         assert_eq!((*second).meta_info.next_interceptor_bindings, first);
+        assert_eq!(
+            CStr::from_ptr((*second).meta_info.name).to_str().unwrap(),
+            std::any::type_name::<SeededLoss<3>>()
+        );
         assert!((*first).meta_info.next_interceptor_bindings.is_null());
         assert!((*second).incoming_init_func.is_none());
         assert!((*second).outgoing_close_func.is_some());
@@ -568,6 +572,29 @@ fn failed_stateful_interceptor_factory_publishes_no_pointer() {
             -1
         );
         assert!(state.is_null());
+    }
+}
+
+#[test]
+fn incoming_interceptors_append_after_existing_bindings() {
+    let context = AeronDriverContext::new().unwrap();
+    context
+        .add_incoming_interceptor_with_state::<FailedStateful>(())
+        .unwrap();
+    context
+        .add_incoming_interceptor_with_state::<Stateful>(Default::default())
+        .unwrap();
+    unsafe {
+        let ctx = context.get_inner();
+        let head = aeron_driver_context_get_udp_channel_incoming_interceptors(ctx);
+        let tail = (*head).meta_info.next_interceptor_bindings;
+        assert!((*tail).meta_info.next_interceptor_bindings.is_null());
+        let affinity = TransportAffinity::AERON_UDP_CHANNEL_TRANSPORT_AFFINITY_RECEIVER;
+        let mut state = std::ptr::null_mut();
+        // The first addition stays at the head, so it sees packets before the second
+        assert_eq!((*head).incoming_init_func.unwrap()(&mut state, ctx, affinity), -1);
+        assert_eq!((*tail).incoming_init_func.unwrap()(&mut state, ctx, affinity), 0);
+        assert_eq!((*tail).incoming_close_func.unwrap()(state), 0);
     }
 }
 

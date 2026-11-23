@@ -38,6 +38,7 @@ regex   = { workspace = true, optional = true }
 [dev-dependencies]
 # compiles the README's build.rs example for a crate building C against the exported headers
 cc          = "1"
+criterion   = { workspace = true }
 fd-lock     = { workspace = true }
 rusteron-code-gen = { workspace = true }
 serial_test = { workspace = true }
@@ -69,6 +70,10 @@ native-tls        = ["reqwest?/native-tls"]   # Use native-tls for reqwest
 rustls-tls        = ["reqwest?/rustls"]         # Use rustls instead of native-tls for reqwest
 build-from-source = ["dep:bindgen", "dep:cmake", "dep:dunce", "dep:proc-macro2"]  # Builds Aeron C from source (requires cmake and a C++ compiler)
 sanitize-address = ["build-from-source"]  # Compiles the Aeron C sources with -fsanitize=address (use with RUSTFLAGS="-Zsanitizer=address")
+
+[[bench]]
+name    = "extension_trampolines"
+harness = false
 
 [[bin]]
 name = "media_driver"

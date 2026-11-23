@@ -1,5 +1,8 @@
 use super::*;
 
+// Driver counter type id for flow-control strategy counters
+const STRATEGY_COUNTER_TYPE_ID: i32 = 20001;
+
 /// A nonnegative sender limit. Construction saturates negative values to zero.
 /// Aeron subtracts a nonnegative sender position from this value in signed C arithmetic.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -403,7 +406,14 @@ impl DriverCounter {
         if let Some(label) = label {
             let label = format!("{}: registration={registration}", label.to_string_lossy());
             counter.id = unsafe {
-                aeron_counters_manager_allocate(manager, 20001, std::ptr::null(), 0, label.as_ptr().cast(), label.len())
+                aeron_counters_manager_allocate(
+                    manager,
+                    STRATEGY_COUNTER_TYPE_ID,
+                    std::ptr::null(),
+                    0,
+                    label.as_ptr().cast(),
+                    label.len(),
+                )
             };
             check(counter.id)?;
             unsafe {

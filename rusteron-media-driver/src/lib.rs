@@ -178,20 +178,24 @@ impl AeronDriver {
 
         let dir = aeron_context.get_dir_owned();
         info!("Starting media driver [dir={}]", dir);
-        let driver = Self::new(&aeron_context).expect("failed to initialize embedded media driver");
+        let driver = Self::new(&aeron_context)
+            .map_err(AeronCError::capture_errmsg)
+            .expect("failed to initialize embedded media driver");
         let driver_owner = driver.inner.as_owned().expect("driver requires owned storage").clone();
         drop(driver);
+        let started_dir = dir.clone();
         let handle = std::thread::spawn(move || {
             // The native driver is initialized but not started. Move only its
             // checked owner; the public driver handle remains local to this worker.
             let aeron_driver = AeronDriver::from_resource(CResource::new(driver_owner));
-            let mut aeron_driver = aeron_driver.start_manual()?;
+            let mut aeron_driver = aeron_driver.start_manual().map_err(AeronCError::capture_errmsg)?;
+            info!("Aeron driver started [dir={}]", started_dir);
 
             started2.store(true, Ordering::SeqCst);
 
             // Poll for work until Ctrl+C is pressed
             while !stop.load(Ordering::Acquire) {
-                let work = aeron_driver.do_work()?;
+                let work = aeron_driver.do_work().map_err(AeronCError::capture_errmsg)?;
                 aeron_driver.idle(work);
             }
 

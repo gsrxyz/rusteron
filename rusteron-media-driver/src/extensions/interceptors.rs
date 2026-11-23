@@ -60,8 +60,8 @@ impl OutgoingPacket<'_> {
     /// Report a deliberate drop as a successful send, so Aeron can retransmit it.
     ///
     /// Aeron 1.54.2's RTT reply path passes an uninitialised byte counter to
-    /// outgoing interceptors. That native caller must be fixed before using
-    /// loss policies with RTT measurement; forwarding can also trigger it.
+    /// outgoing interceptors. Avoid loss policies with RTT measurement until
+    /// Aeron ships aeron-io/aeron@c0457af122. Forwarding reads it too
     pub fn drop_as_sent(self) -> i32 {
         let mut bytes = 0i64;
         for i in 0..self.length {
@@ -401,19 +401,32 @@ fn incoming_table<T: IncomingInterceptor>(
 }
 
 impl AeronDriverContext {
-    /// Prepend a plaintext interceptor to the existing outgoing chain. The latest
-    /// addition runs first. Existing environment-loaded bindings keep their order.
+    /// Prepend an interceptor to the outgoing chain, so it runs before
+    /// environment-loaded interceptors such as ATS. The latest addition runs first
     pub fn add_outgoing_interceptor<T: OutgoingInterceptor + InterceptorFactory>(&self) -> Result<(), AeronCError> {
         self.inner.check_configurable()?;
-        unsafe { self.install(outgoing_table::<T>(Some(outgoing_init::<T>)), true) }
+        unsafe {
+            self.install(
+                outgoing_table::<T>(Some(outgoing_init::<T>)),
+                true,
+                std::any::type_name::<T>(),
+            )
+        }
     }
-    /// Prepend an interceptor to the existing incoming chain.
+    /// Append an interceptor to the incoming chain, so it runs after
+    /// environment-loaded interceptors such as ATS. The latest addition runs last
     pub fn add_incoming_interceptor<T: IncomingInterceptor + InterceptorFactory>(&self) -> Result<(), AeronCError> {
         self.inner.check_configurable()?;
-        unsafe { self.install(incoming_table::<T>(Some(incoming_init::<T>)), false) }
+        unsafe {
+            self.install(
+                incoming_table::<T>(Some(incoming_init::<T>)),
+                false,
+                std::any::type_name::<T>(),
+            )
+        }
     }
 
-    /// Prepend an outgoing interceptor whose instances are built from `state`.
+    /// Prepend an outgoing interceptor whose instances are built from `state`
     ///
     /// The context retains `state` until native context close. Each interceptor
     /// type and direction has one state per context. Installing the same type
@@ -427,12 +440,13 @@ impl AeronDriverContext {
             self.install_with_state(
                 outgoing_table::<T>(Some(outgoing_init_with_state::<T>)),
                 true,
+                std::any::type_name::<T>(),
                 state_key::<T>(true),
                 state,
             )
         }
     }
-    /// Prepend an incoming interceptor whose instances are built from `state`.
+    /// Append an incoming interceptor whose instances are built from `state`.
     /// State ownership follows `add_outgoing_interceptor_with_state`.
     pub fn add_incoming_interceptor_with_state<T: IncomingInterceptor + InterceptorStateFactory>(
         &self,
@@ -443,6 +457,7 @@ impl AeronDriverContext {
             self.install_with_state(
                 incoming_table::<T>(Some(incoming_init_with_state::<T>)),
                 false,
+                std::any::type_name::<T>(),
                 state_key::<T>(false),
                 state,
             )
@@ -453,6 +468,7 @@ impl AeronDriverContext {
         &self,
         table: aeron_udp_channel_interceptor_bindings_t,
         outgoing: bool,
+        name: &str,
         key: CString,
         state: S,
     ) -> Result<(), AeronCError> {
@@ -508,7 +524,7 @@ impl AeronDriverContext {
                     ));
                 }
             };
-            self.install(table, outgoing)?;
+            self.install(table, outgoing, name)?;
             let entry = &mut *(*context).bindings_clientd_entries.add(index);
             (*entry).name = owner.key.as_ptr();
             (*entry).clientd = (&raw mut (*owner.as_ptr()).state).cast();
@@ -521,20 +537,42 @@ impl AeronDriverContext {
         &self,
         mut table: aeron_udp_channel_interceptor_bindings_t,
         outgoing: bool,
+        name: &str,
     ) -> Result<(), AeronCError> {
         let ctx = self.get_inner();
-        table.meta_info.name = c"rusteron".as_ptr();
+        // The startup configuration dump prints this name, so use the Rust type to tell
+        // interceptors apart. The context retains the string until native close
+        let name = CString::new(name)
+            .map_err(|_| AeronCError::with_message(-1, "interceptor type name contains a NUL byte"))?;
+        table.meta_info.name = name.as_ptr();
         table.meta_info.type_ = c"interceptor".as_ptr();
-        table.meta_info.next_interceptor_bindings = unsafe {
+        // Both chains run from the head, and the tail is next to the driver. Prepend
+        // outgoing and append incoming so Rust code sits on the driver side of
+        // environment-loaded interceptors such as ATS and sees plaintext
+        let head = unsafe {
             if outgoing {
                 aeron_driver_context_get_udp_channel_outgoing_interceptors(ctx)
             } else {
                 aeron_driver_context_get_udp_channel_incoming_interceptors(ctx)
             }
         };
+        table.meta_info.next_interceptor_bindings = if outgoing { head } else { std::ptr::null() };
         let mut raw: *mut c_void = std::ptr::null_mut();
         check(unsafe { aeron_alloc(&mut raw, std::mem::size_of_val(&table)) })?;
         unsafe { raw.cast::<aeron_udp_channel_interceptor_bindings_t>().write(table) };
+        if !outgoing && !head.is_null() {
+            // Aeron's logging agent appends the same way. The context owns every
+            // node, so writing through the const link is sound before start
+            unsafe {
+                let mut tail = head;
+                while !(*tail).meta_info.next_interceptor_bindings.is_null() {
+                    tail = (*tail).meta_info.next_interceptor_bindings.cast_mut();
+                }
+                (*tail).meta_info.next_interceptor_bindings = raw.cast();
+            }
+            self.inner.add_dependency(name);
+            return Ok(());
+        }
         let result = unsafe {
             if outgoing {
                 aeron_driver_context_set_udp_channel_outgoing_interceptors(ctx, raw.cast())
@@ -544,6 +582,8 @@ impl AeronDriverContext {
         };
         if result < 0 {
             unsafe { aeron_free(raw) };
+        } else {
+            self.inner.add_dependency(name);
         }
         check(result)
     }

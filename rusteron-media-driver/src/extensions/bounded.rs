@@ -1,6 +1,9 @@
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+// AERON_STATUS_MESSAGE_HEADER_EOS_FLAG in protocol/aeron_udp_protocol.h
+const STATUS_MESSAGE_EOS_FLAG: u8 = 0x40;
+
 #[derive(Clone, Copy, Default)]
 struct Receiver {
     id: i64,
@@ -27,6 +30,7 @@ pub struct BoundedTaggedFlowControl<const WAIT_NS: i64, const CAPACITY: usize = 
     setup_limit: Option<(i64, i64)>,
     tagged_setup: bool,
     retransmit_multiple: usize,
+    capacity_warned: bool,
 }
 
 /// The conductor reads only this flag. Receiver bookkeeping stays on the sender.
@@ -38,6 +42,12 @@ pub struct TaggedReceiverState {
 }
 
 impl<const WAIT_NS: i64, const CAPACITY: usize> BoundedTaggedFlowControl<WAIT_NS, CAPACITY> {
+    // Logs once per publication so a full table cannot flood the sender thread
+    #[cold]
+    fn warn_capacity(&mut self, receiver_id: i64) {
+        self.capacity_warned = true;
+        log::warn!("tagged flow control ignores receiver {receiver_id}, all {CAPACITY} slots are in use");
+    }
     fn setup_limit(&mut self, now: i64) -> i64 {
         match self.setup_limit {
             Some((at, _)) if now.wrapping_sub(at) > self.timeout => {
@@ -104,9 +114,14 @@ impl<const WAIT_NS: i64, const CAPACITY: usize> FlowControl for BoundedTaggedFlo
             ));
         }
         let minimum = args.context.group_min_size as usize;
+        // Allocate on the heap directly. Box::new would build the array on the stack first
+        let receivers = vec![Receiver::default(); CAPACITY]
+            .into_boxed_slice()
+            .try_into()
+            .map_err(|_| AeronCError::with_message(-1, "tagged flow-control slots have the wrong length"))?;
         Ok((
             Self {
-                receivers: Box::new([Receiver::default(); CAPACITY]),
+                receivers,
                 count: 0,
                 timeout: args.context.receiver_timeout_ns.min(i64::MAX as u64) as i64,
                 tag: args.context.group_tag,
@@ -117,6 +132,7 @@ impl<const WAIT_NS: i64, const CAPACITY: usize> FlowControl for BoundedTaggedFlo
                 setup_limit: None,
                 tagged_setup: false,
                 retransmit_multiple: args.context.multicast_retransmit_window_multiple,
+                capacity_warned: false,
             },
             TaggedReceiverState {
                 required: AtomicBool::new(minimum == 0),
@@ -173,7 +189,7 @@ impl<const WAIT_NS: i64, const CAPACITY: usize> FlowControl for BoundedTaggedFlo
         let received_limit = position.saturating_add(window);
         self.latest_limit = self.latest_limit.max(received_limit);
         let matches = sm.group_tag() == Some(self.tag);
-        let eos = sm.flags() & 0x40 != 0;
+        let eos = sm.flags() & STATUS_MESSAGE_EOS_FLAG != 0;
         let mut existing = false;
         let old_count = self.count;
         let mut setup_limit = self.setup_limit(now);
@@ -203,6 +219,8 @@ impl<const WAIT_NS: i64, const CAPACITY: usize> FlowControl for BoundedTaggedFlo
             self.setup_limit = None;
             setup_limit = i64::MAX;
             min = min.min(received_limit);
+        } else if !existing && matches && self.count == CAPACITY && !self.capacity_warned {
+            self.warn_capacity(sm.receiver_id());
         }
         if self.count != old_count || (!self.degraded && self.count < self.minimum) {
             self.update_minimum(shared, now, metrics, old_count);

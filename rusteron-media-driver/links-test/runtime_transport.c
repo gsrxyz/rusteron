@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 
+#include <errno.h>
 #include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -11,6 +12,7 @@
 #include "aeron_driver_context.h"
 #include "media/aeron_udp_channel_transport.h"
 #include "media/aeron_udp_transport_poller.h"
+#include "util/aeron_error.h"
 
 /* A small C transport library with a per-runtime table.
  * It delegates UDP traffic to Aeron. Only setup and close update these counters. */
@@ -95,17 +97,20 @@ static int runtime_transport_init(
     links_test_runtime_t *runtime = runtime_from_context(context);
     if (NULL == runtime)
     {
+        AERON_SET_ERR(EINVAL, "%s", "context has no links-test runtime bindings");
         return -1;
     }
     /* A C transport can require Rust sender/receiver strategies to busy-spin. */
     if (0 != strcmp(context->sender_idle_strategy_name, "rusteron-spin") ||
         0 != strcmp(context->receiver_idle_strategy_name, "rusteron-spin"))
     {
+        AERON_SET_ERR(EINVAL, "%s", "sender and receiver idle strategies must be rusteron-spin");
         return -1;
     }
     links_test_transport_state_t *state = calloc(1, sizeof(links_test_transport_state_t));
     if (NULL == state)
     {
+        AERON_SET_ERR(ENOMEM, "%s", "failed to allocate transport state");
         return -1;
     }
     int result = aeron_udp_channel_transport_init(
@@ -178,11 +183,13 @@ static int runtime_poller_init(
     links_test_runtime_t *runtime = runtime_from_context(context);
     if (NULL == runtime)
     {
+        AERON_SET_ERR(EINVAL, "%s", "context has no links-test runtime bindings");
         return -1;
     }
     links_test_poller_state_t *state = calloc(1, sizeof(links_test_poller_state_t));
     if (NULL == state)
     {
+        AERON_SET_ERR(ENOMEM, "%s", "failed to allocate poller state");
         return -1;
     }
     int result = aeron_udp_transport_poller_init(poller, context, affinity);

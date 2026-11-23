@@ -15,7 +15,7 @@ pub enum TransportRole {
 /// Use packet interceptors for safe packet inspection. Start a transport
 /// replacement with [`Self::udp`] and delegate unchanged operations to Aeron.
 pub struct NativeTransportBindings {
-    table: Box<aeron_udp_channel_transport_bindings_t>,
+    table: NativeOwned<aeron_udp_channel_transport_bindings_t>,
     _keepalive: Box<dyn std::any::Any + Send + Sync>,
 }
 
@@ -29,7 +29,7 @@ impl NativeTransportBindings {
     /// Aeron's standard UDP transport. This does not load or mutate global symbols.
     pub fn udp() -> Self {
         Self {
-            table: Box::new(aeron_udp_channel_transport_bindings_t {
+            table: NativeOwned::new(aeron_udp_channel_transport_bindings_t {
                 init_func: Some(aeron_udp_channel_transport_init),
                 reconnect_func: Some(aeron_udp_channel_transport_reconnect),
                 close_func: Some(aeron_udp_channel_transport_close),
@@ -98,7 +98,7 @@ impl NativeTransportBindings {
             ));
         }
         Ok(Self {
-            table: Box::new(table),
+            table: NativeOwned::new(table),
             _keepalive: Box::new(keepalive),
         })
     }
@@ -115,14 +115,16 @@ impl AeronDriverContext {
     pub fn set_native_transport_bindings(
         &self,
         role: TransportRole,
-        mut bindings: NativeTransportBindings,
+        bindings: NativeTransportBindings,
     ) -> Result<(), AeronCError> {
         self.inner.check_configurable()?;
         unsafe {
             let context = self.get_inner();
             match role {
-                TransportRole::Data => (*context).udp_channel_transport_bindings = &mut *bindings.table,
-                TransportRole::Conductor => (*context).conductor_udp_channel_transport_bindings = &mut *bindings.table,
+                TransportRole::Data => (*context).udp_channel_transport_bindings = bindings.table.as_ptr(),
+                TransportRole::Conductor => {
+                    (*context).conductor_udp_channel_transport_bindings = bindings.table.as_ptr()
+                }
             }
         }
         self.inner.add_dependency(bindings);

@@ -41,8 +41,9 @@ impl AeronDriver {
             if (*(*self.get_inner()).context).threading_mode == aeron_threading_mode_t::AERON_THREADING_MODE_INVOKER {
                 return Err(AeronCError::with_message(-1, "INVOKER mode requires start_manual"));
             }
-            if aeron_driver_start(self.get_inner(), false) < 0 {
-                return Err(AeronCError::from_code(-1));
+            let result = aeron_driver_start(self.get_inner(), false);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
             }
         }
         Ok(ThreadedDriver { _driver: self })
@@ -51,8 +52,9 @@ impl AeronDriver {
     /// Start the driver and return the only handle that can drive its conductor.
     pub fn start_manual(self) -> Result<ManualDriver, AeronCError> {
         // SAFETY: consuming the non-Clone driver prevents a second start or pump.
-        if unsafe { aeron_driver_start(self.get_inner(), true) } < 0 {
-            return Err(AeronCError::from_code(-1));
+        let result = unsafe { aeron_driver_start(self.get_inner(), true) };
+        if result < 0 {
+            return Err(AeronCError::from_code(result));
         }
         Ok(ManualDriver {
             driver: self,

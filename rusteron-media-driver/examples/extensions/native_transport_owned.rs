@@ -47,10 +47,9 @@ pub fn configure(context: &AeronDriverContext) -> Result<(), AeronCError> {
     // SAFETY: aeron_alloc initialises the output on success. This demonstration
     // uses native allocation/free as the runtime's open/close pair.
     let result = unsafe { aeron_alloc(&mut handle, 1) };
-    if result < 0 {
-        return Err(AeronCError::from_code(result));
-    }
-    let handle = NonNull::new(handle).expect("aeron_alloc succeeded");
+    let Some(handle) = NonNull::new(handle).filter(|_| result >= 0) else {
+        return Err(AeronCError::from_code(result).capture_errmsg());
+    };
     // SAFETY: the native allocation has one owner and aeron_free accepts it.
     let runtime = unsafe { NativeRuntime::from_raw(handle, aeron_free) };
     let table = NativeTransportBindings::udp().callbacks();

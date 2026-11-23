@@ -6,7 +6,11 @@ Typed Rust extension points for the embedded media driver. Runnable examples are
 ## Rules for every extension
 
 - Configure extensions before `AeronDriver::new`. Setters fail once the driver has initialised.
-- The context owns each installed value until native context close, after all agents have joined.
+- Configuration installed on the context (idle strategies, trackers, port managers, interceptor
+  state, a resolver instance not yet taken, transport keepalives) lives until native context close.
+- Instances built by Aeron from that configuration (flow-control and congestion strategies,
+  interceptors, resolvers) drop when their native close callback runs. That can be during driver
+  shutdown, while a context clone is still alive.
 - Callbacks are `extern "C"`. A panic aborts the process.
 - The adapters add no allocation, lock, atomic read-modify-write or trait-object dispatch per callback.
 - Mutable state must be `Send`. State read by more than one agent (`Shared`) must be `Send + Sync`.
@@ -46,18 +50,22 @@ Typed Rust extension points for the embedded media driver. Runnable examples are
 - `BoundedTaggedFlowControl<WAIT_NS, CAPACITY>` waits up to `WAIT_NS` for the tagged group minimum,
   then drops the minimum to zero until the full group returns. The archive may then miss data.
 - Each degradation increments driver counter type 20001.
-- `CAPACITY` (default 64) receiver slots are allocated at setup. Unknown receivers are ignored when full.
+- `CAPACITY` (default 64) receiver slots are allocated at setup. Unknown receivers are ignored when full, with one warning logged per publication.
   A group minimum larger than `CAPACITY` fails setup.
 
 ## Interceptors
 
 - Implement `OutgoingInterceptor` or `IncomingInterceptor`. Overriding only `inspect` forwards each packet once.
 - Override `send` or `on_datagram` to drop or control forwarding.
-- `add_*_interceptor` prepends, so the latest addition runs first.
+- Outgoing interceptors are prepended and incoming ones appended, so Rust code runs on the driver side of environment-loaded interceptors such as ATS and sees plaintext.
 - Construction uses `Default`, `InterceptorFactory` (fallible) or `InterceptorStateFactory` with
   `add_*_interceptor_with_state` to share application state. Aeron builds one instance per agent.
-- Packet borrows and the next callback end when the callback returns. Delayed or reordered delivery is not supported.
+- Packet borrows and the next callback end when the callback returns.
+- Delayed or reordered delivery is not supported. The bindings have no timer callback, so a held
+  packet can only be released by a later send. The packet would need a copy, because the iov is
+  borrowed. The transport and endpoint can also close while a packet is held.
 - `OutgoingPacket::datagrams()` iterates the batch without allocation.
+- The driver's startup configuration dump names each interceptor by its Rust type.
 
 ### Test loss policies
 
@@ -65,7 +73,8 @@ Typed Rust extension points for the embedded media driver. Runnable examples are
 - `DestinationLoss<L>` applies `L` to one destination IP address and port.
 - Dropped batches are reported as sent so Aeron's normal NAK recovery retransmits them. For tests only.
 - Aeron 1.54.2 passes an uninitialised byte counter on the RTT reply path
-  (`aeron_network_publication.c:897`). This affects any interceptor on that path.
+  (`aeron_network_publication.c:897`), so `drop_as_sent` reads an indeterminate value there.
+  Upstream fixed it in aeron-io/aeron@c0457af122, which is not in a release yet.
 
 ## Name resolvers
 
@@ -114,4 +123,5 @@ cargo test -p rusteron-media-driver --features static --lib extensions
 cargo test -p rusteron-media-driver --features static --examples
 cargo test -p rusteron-media-driver --features static --test driver_extensions
 cargo test -p rusteron-media-driver-links-test --features rusteron-media-driver/static --test transport_runtime
+cargo bench -p rusteron-media-driver --features static --bench extension_trampolines
 ```

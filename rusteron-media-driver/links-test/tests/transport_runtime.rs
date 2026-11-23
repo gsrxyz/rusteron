@@ -184,25 +184,39 @@ fn c_runtime_composes_with_resolver_and_interceptors_in_both_installation_orders
         let directory = PathBuf::from(driver.dir());
         let client_context = AeronContext::new().unwrap();
         client_context.set_dir(&driver.dir().into_c_string()).unwrap();
+        // A panic in this C callback would abort the test binary, so count errors instead
+        let client_errors = Arc::new(AtomicUsize::new(0));
+        let errors = client_errors.clone();
         client_context
-            .set_error_handler(Some(|code: i32, message: &str| panic!("{code}: {message}")))
+            .set_error_handler(Some(move |code: i32, message: &str| {
+                eprintln!("client error {code}: {message}");
+                errors.fetch_add(1, Ordering::Relaxed);
+            }))
             .unwrap();
         let client = Aeron::new(&client_context).unwrap();
         client.start().unwrap();
-        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-        let channel = format!(
-            "aeron:udp?endpoint=runtime-test.invalid:{}",
-            socket.local_addr().unwrap().port()
-        )
-        .into_c_string();
-        drop(socket);
+        // Port 0 lets the kernel pick a free port. The publication reuses the host name
+        // with the bound port, so both sides go through the Rust resolver
         let timeout = Duration::from_secs(10);
         let subscription = client
-            .add_subscription(&channel, 78, Handlers::NONE, Handlers::NONE, timeout)
+            .add_subscription(
+                c"aeron:udp?endpoint=runtime-test.invalid:0",
+                78,
+                Handlers::NONE,
+                Handlers::NONE,
+                timeout,
+            )
             .unwrap();
+        let mut resolved = String::new();
+        eventually(|| {
+            resolved = subscription.try_resolve_channel_endpoint_port_as_string(256).unwrap();
+            !resolved.is_empty()
+        });
+        let port = resolved.rsplit_once(':').unwrap().1;
+        let channel = format!("aeron:udp?endpoint=runtime-test.invalid:{port}").into_c_string();
         let publication = client.add_publication(&channel, 78, timeout).unwrap();
         eventually(|| publication.is_connected());
-        let (mut offered, mut received) = (0u64, 0u64);
+        let (mut offered, mut received, mut in_order) = (0u64, 0u64, true);
         eventually(|| {
             if offered < 128 {
                 match publication.offer(&offered.to_le_bytes()) {
@@ -212,8 +226,9 @@ fn c_runtime_composes_with_resolver_and_interceptors_in_both_installation_orders
             }
             subscription
                 .poll_fn(
+                    // Asserting here would panic inside a C callback and abort
                     |bytes, _| {
-                        assert_eq!(bytes, received.to_le_bytes());
+                        in_order &= bytes == received.to_le_bytes();
                         received += 1;
                     },
                     10,
@@ -221,6 +236,8 @@ fn c_runtime_composes_with_resolver_and_interceptors_in_both_installation_orders
                 .unwrap();
             received == 128
         });
+        assert!(in_order, "messages arrived out of order or corrupted");
+        assert_eq!(client_errors.load(Ordering::Relaxed), 0, "client reported errors");
         assert!(outgoing.load(Ordering::Relaxed) > 0);
         assert!(incoming.load(Ordering::Relaxed) > 0);
         assert!(resolutions.load(Ordering::Relaxed) > 0);
