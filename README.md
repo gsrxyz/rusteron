@@ -39,7 +39,7 @@ It is developed under the GSR GitHub organisation. We welcome contributions, fee
 | --- | --- |
 | [rusteron-client](rusteron-client/README.md) | Connect, publish and subscribe over IPC or UDP |
 | [rusteron-archive](rusteron-archive/README.md) | The transport client plus recording, replay, replication and persistent subscriptions |
-| [rusteron-media-driver](rusteron-media-driver/README.md) | Run an embedded or standalone C Media Driver |
+| [rusteron-media-driver](rusteron-media-driver/README.md) | Run an embedded or standalone C media driver, and extend it in Rust |
 | [rusteron-code-gen](rusteron-code-gen/README.md) | Generate bindings and wrappers; an internal build dependency |
 
 `rusteron-archive` includes the transport APIs, so applications using it do not
@@ -181,6 +181,7 @@ panics and continue. Message redelivery depends on the callback type. See
 - [Client guide](docs/client-guide.md) and [Archive guide](docs/archive-guide.md)
 - [Build requirements](BUILD.md) and [CPU targets and cross-language LTO](docs/cross-language-lto.md)
 - [Media Driver configuration and back pressure](docs/media_driver_configuration_and_backpressure_guide.md)
+- [Media driver extensions in Rust](docs/driver-extensions.md)
 - [Multi-destination subscriptions](docs/mdc_mds_guide.md)
 - [Tuning on x86-64 Linux](docs/tuning_x86_64_linux.md)
 - [How to benchmark and measured results](BENCHMARKS.md)
