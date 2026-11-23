@@ -1,127 +1,54 @@
 # Driver extensions
 
-Typed Rust extension points for the embedded media driver. Runnable examples are in
+Typed Rust hooks for the embedded media driver. One runnable file per feature is in
 [`examples/extensions`](../rusteron-media-driver/examples/extensions/README.md).
 
-## Rules for every extension
+## Rules
 
-- Configure extensions before `AeronDriver::new`. Setters fail once the driver has initialised.
-- Configuration installed on the context (idle strategies, trackers, port managers, interceptor
-  state, a resolver instance not yet taken, transport keepalives) lives until native context close.
-- Instances built by Aeron from that configuration (flow-control and congestion strategies,
-  interceptors, resolvers) drop when their native close callback runs. That can be during driver
-  shutdown, while a context clone is still alive.
+- Install extensions before `AeronDriver::new`. Setters fail after that.
 - Callbacks are `extern "C"`. A panic aborts the process.
-- The adapters add no allocation, lock, atomic read-modify-write or trait-object dispatch per callback.
-- Mutable state must be `Send`. State read by more than one agent (`Shared`) must be `Send + Sync`.
-- Callback errors are written to Aeron's error buffer through a stack buffer. Startup and
-  `do_work` errors carry only the code. Call `capture_errmsg()` straight away if you need the text.
+- Callbacks add no allocation, lock or dynamic dispatch.
+- Mutable state must be `Send`. `Shared` state read by several agents must be `Send + Sync`.
+- Context configuration lives until native context close. Instances Aeron builds from it drop
+  on their native close callback, which can be during driver shutdown.
+- Errors carry only the code. Call `capture_errmsg()` straight away if you need the text.
 
-## Driver ownership
+## Starting the driver
 
-- `start(self)` returns `ThreadedDriver`. All agents run on native threads.
-- `start_manual(self)` returns `ManualDriver`. Call `do_work(&mut self)` and `idle(&mut self, work)` on the owning thread.
-- `ManualDriver` is not `Clone`, `Send` or `Sync`. Dropping either handle stops and joins the agents.
-- INVOKER mode needs `start_manual`. `start` returns an error before native startup.
+- `start(self)` returns `ThreadedDriver`, with every agent on native threads.
+- `start_manual(self)` returns `ManualDriver`. Call `do_work` and `idle` on the starting thread.
+- INVOKER mode needs `start_manual`.
 
-## Callback threads
+## Extensions
 
-| Extension | Mutable state on | Shared reads |
+| Extension | Install with | Runs on |
 |---|---|---|
-| Flow control | Sender | Conductor and sender |
-| Congestion control | Receiver and conductor, separate state | Conductor and receiver |
-| Interceptor | Its data-path agent | None |
-| Name resolver | Native resource agent | None |
-| Idle strategy | Its agent runner | None |
-| Duty-cycle tracker | Its measured agent | None |
-| Port manager | Conductor, then the closing thread | None |
-| Native transport | Sender, receiver or resolver | Defined by the custom callbacks |
+| Flow control | `set_unicast_flow_control::<T>`, `set_multicast_flow_control::<T>` | Sender |
+| Congestion control | `set_congestion_control::<T>` | Receiver and conductor |
+| Interceptor | `add_outgoing_interceptor::<T>`, `add_incoming_interceptor::<T>` | Its data-path agent |
+| Name resolver | `set_name_resolver_fn`, `set_name_resolver::<T>` | Native resource agent |
+| Idle strategy | `set_idle_strategy(role, ..)` | Its agent |
+| Duty-cycle tracker | `add_duty_cycle_tracker(role, ..)` | Its agent |
+| Port manager | `set_port_manager(role, ..)` | Conductor |
+| Native transport | `unsafe from_callbacks`, then `set_native_transport_bindings` | Sender, receiver or resolver |
 
-## Flow and congestion control
+## Notes
 
-- Implement `FlowControl` or `CongestionControl` and install with `set_unicast_flow_control::<T>`,
-  `set_multicast_flow_control::<T>` or `set_congestion_control::<T>`.
-- Return `Position::new(..)`. It saturates negative limits to zero to keep C's signed arithmetic in range.
-- `ReceiverWindow` is capped at half the term length.
-- Omit `fc=` on channels that use a custom multicast supplier. Aeron gives `fc=` priority.
-
-### Bounded tagged flow control
-
-- `BoundedTaggedFlowControl<WAIT_NS, CAPACITY>` waits up to `WAIT_NS` for the tagged group minimum,
-  then drops the minimum to zero until the full group returns. The archive may then miss data.
-- Each degradation increments driver counter type 20001.
-- `CAPACITY` (default 64) receiver slots are allocated at setup. Unknown receivers are ignored when full, with one warning logged per publication.
-  A group minimum larger than `CAPACITY` fails setup.
-
-## Interceptors
-
-- Implement `OutgoingInterceptor` or `IncomingInterceptor`. Overriding only `inspect` forwards each packet once.
-- Override `send` or `on_datagram` to drop or control forwarding.
-- Outgoing interceptors are prepended and incoming ones appended, so Rust code runs on the driver side of environment-loaded interceptors such as ATS and sees plaintext.
-- Construction uses `Default`, `InterceptorFactory` (fallible) or `InterceptorStateFactory` with
-  `add_*_interceptor_with_state` to share application state. Aeron builds one instance per agent.
-- Packet borrows and the next callback end when the callback returns.
-- Delayed or reordered delivery is not supported. The bindings have no timer callback, so a held
-  packet can only be released by a later send. The packet would need a copy, because the iov is
-  borrowed. The transport and endpoint can also close while a packet is held.
-- `OutgoingPacket::datagrams()` iterates the batch without allocation.
-- The driver's startup configuration dump names each interceptor by its Rust type.
-
-### Test loss policies
-
-- `SeededLoss<N, SEED>` drops every Nth batch. `GilbertElliottLoss` models bursts, with probabilities in parts per million.
-- `DestinationLoss<L>` applies `L` to one destination IP address and port.
-- Dropped batches are reported as sent so Aeron's normal NAK recovery retransmits them. For tests only.
-- Aeron 1.54.2 passes an uninitialised byte counter on the RTT reply path
-  (`aeron_network_publication.c:897`), so `drop_as_sent` reads an indeterminate value there.
-  Upstream fixed it in aeron-io/aeron@c0457af122, which is not in a release yet.
-
-## Name resolvers
-
-- `set_name_resolver_fn(|name, uri_param, re_resolve| ..)` for a closure that returns an `IpAddr`.
-- `set_name_resolver::<T>()` with `Default` or `NameResolverFactory`, or `set_name_resolver_instance(value)`.
-- Initialisation consumes an instance once. Install a new one before retrying after a failed start.
-- Set `LOOKUP_CAPACITY` to reserve lookup storage so replacements do not allocate.
-
-## Idle strategies
-
-- `set_idle_strategy(role, value)` accepts an `IdleStrategy` or `FnMut(i32)`. Reset backoff when work is positive.
-- Set `BUSY_SPIN = true` if the strategy never sleeps, yields or parks. The native name becomes `rusteron-spin`.
-
-| Threading mode | Active roles |
-|---|---|
-| Dedicated | `Conductor`, `Sender`, `Receiver`, `NativeResourceAgent` |
-| Shared network | `Conductor`, `SharedNetwork`, `NativeResourceAgent` |
-| Shared | `Shared` |
-| Invoker | `Shared`, called by `ManualDriver::idle` |
-
-## Duty-cycle trackers
-
-- `add_duty_cycle_tracker(role, value)` runs after the existing tracker, so Aeron's stall counters keep working.
-- `set_duty_cycle_tracker` replaces the chain and stops those counters.
-- `DutyCycleTimer::new(|elapsed_ns| ..)` handles the baseline timestamp.
-
-## Port managers
-
-- `set_port_manager(role, value)` accepts a `PortManager` or a closure `|_: ChannelRef<'_>, addr: SocketAddr| Ok(port)`.
-- Return the requested port to keep an explicit port, or zero for a kernel-assigned port.
-- Closures have no release callback. Implement `PortManager::free_managed_port` if the policy reserves ports.
-
-## Native transport bindings
-
-- `NativeTransportBindings::udp()` copies Aeron's UDP table. Replace function pointers and pass the
-  table to `unsafe from_callbacks(table, keepalive)`.
-- `keepalive` drops after native context close. Use it to close a C runtime.
-- Install with `set_native_transport_bindings(TransportRole::Data | Conductor, ..)`.
-- Interceptor chains still apply. A custom receive function must call the supplied callback.
-- When delegating to native UDP pollers, keep `poller.bindings_clientd` unchanged.
+- Flow control: omit `fc=` on the channel when using a custom multicast strategy, because `fc=` takes priority.
+- Interceptors run on the driver side of environment-loaded ones such as ATS, so they see plaintext.
+  Override `inspect` to observe, or `send` / `on_datagram` to drop.
+- Interceptors cannot delay or reorder packets. The bindings have no timer, and the packet is borrowed.
+- Interceptors that drop packets, such as the loss examples, should not run with RTT measurement on
+  Aeron 1.54.2. It has an uninitialised byte counter on the RTT reply path, fixed in
+  aeron-io/aeron@c0457af122.
+- Idle strategies: set `BUSY_SPIN = true` if the strategy never sleeps or yields.
+- `add_duty_cycle_tracker` keeps Aeron's stall counters. `set_duty_cycle_tracker` replaces them.
+- Native transport: interceptors still apply, and a custom receive function must call the supplied callback.
 
 ## Tests
 
 ```sh
-cargo test -p rusteron-media-driver --features static --lib extensions
-cargo test -p rusteron-media-driver --features static --examples
-cargo test -p rusteron-media-driver --features static --test driver_extensions
-cargo test -p rusteron-media-driver-links-test --features rusteron-media-driver/static --test transport_runtime
+cargo test -p rusteron-media-driver --features static
+cargo test -p rusteron-media-driver-links-test --features rusteron-media-driver/static
 cargo bench -p rusteron-media-driver --features static --bench extension_trampolines
 ```

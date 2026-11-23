@@ -17,8 +17,7 @@ Early history predating the available release tags is grouped separately.
   - Breaking: `IdleStrategy::BUSY_SPIN` prevents `dyn IdleStrategy`.
   - Added typed flow control, congestion control, interceptors, name resolvers, idle strategies,
     duty-cycle trackers, port managers and native transport bindings, with one example each.
-  - Added opt-in `BoundedTaggedFlowControl`, test loss policies (`SeededLoss`, `GilbertElliottLoss`, `DestinationLoss`)
-    and `environment::inspect_environment`.
+  - Added examples for bounded tagged flow control and seeded packet loss, and `environment::inspect_environment`.
   - Driver errors no longer copy the native message. Call `capture_errmsg()` when needed.
 - Archive source-identity errors no longer copy the native message.
 

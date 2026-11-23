@@ -202,35 +202,3 @@ impl AeronDriverContext {
         check(unsafe { aeron_driver_context_set_congestioncontrol_supplier(self.get_inner(), Some(supplier::<T>)) })
     }
 }
-
-/// A fixed receiver window with no RTT measurements, as in Aeron's static policy.
-pub struct StaticWindow;
-impl CongestionControl for StaticWindow {
-    type Receiver = ();
-    type Conductor = ReceiverWindow;
-    type Shared = ();
-    fn new(args: &CongestionControlArgs<'_>) -> Result<((), ReceiverWindow, ()), AeronCError> {
-        // SAFETY: the channel is live for the duration of `new`
-        let channel_window = unsafe { (*args.channel.raw).receiver_window_length };
-        let configured = if channel_window == 0 {
-            args.context.initial_receiver_window
-        } else {
-            channel_window
-        };
-        Ok((
-            (),
-            ReceiverWindow::new(configured.min((args.term_length / 2) as usize) as i32),
-            (),
-        ))
-    }
-    fn initial_window_length(c: &mut ReceiverWindow, _: &()) -> ReceiverWindow {
-        *c
-    }
-    fn max_window_length(c: &mut ReceiverWindow, _: &()) -> ReceiverWindow {
-        *c
-    }
-    fn on_track_rebuild(c: &mut ReceiverWindow, _: &(), _: TrackRebuild, force: &mut bool) -> ReceiverWindow {
-        *force = false;
-        *c
-    }
-}

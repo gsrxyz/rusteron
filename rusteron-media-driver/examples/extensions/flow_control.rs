@@ -1,31 +1,37 @@
-//! Count status messages and delegate sender limits to Aeron's maximum flow-control policy.
+//! Count status messages and advance the sender to the furthest receiver, as Aeron's max policy does.
 
 use rusteron_media_driver::{AeronCError, AeronDriverContext, extensions::*};
 
 use std::sync::atomic::{AtomicU64, Ordering};
 pub static FLOW_MESSAGES: AtomicU64 = AtomicU64::new(0);
 
-/// Add observation to a complete flow-control policy by delegation.
-struct ObservedFlow(MaxFlowControl);
+/// Aeron's max policy with a status-message count.
+struct ObservedFlow;
 impl FlowControl for ObservedFlow {
     type Shared = ();
-    fn new(args: &FlowControlArgs<'_>) -> Result<(Self, ()), AeronCError> {
-        Ok((Self(MaxFlowControl::new(args)?.0), ()))
+    fn new(_: &FlowControlArgs<'_>) -> Result<(Self, ()), AeronCError> {
+        Ok((Self, ()))
     }
     fn on_status_message(
         &mut self,
-        shared: &(),
+        _: &(),
         message: StatusMessage<'_>,
-        source: SockAddrRef<'_>,
+        _: SockAddrRef<'_>,
         limit: i64,
         term: i32,
         shift: usize,
-        now: i64,
-        metrics: StrategyMetrics<'_>,
+        _: i64,
+        _: StrategyMetrics<'_>,
     ) -> Position {
         FLOW_MESSAGES.fetch_add(1, Ordering::Relaxed);
-        self.0
-            .on_status_message(shared, message, source, limit, term, shift, now, metrics)
+        // The maximum receiver limit, as in Aeron's max policy
+        Position::new(
+            limit.max(
+                message
+                    .position(term, shift)
+                    .saturating_add(i64::from(message.receiver_window())),
+            ),
+        )
     }
 }
 

@@ -321,50 +321,6 @@ impl AeronDriverContext {
     }
 }
 
-/// Aeron's max flow-control policy, with the context's retransmission window multiple.
-pub struct MaxFlowControl {
-    retransmit_window_multiple: usize,
-}
-impl FlowControl for MaxFlowControl {
-    type Shared = ();
-    fn new(args: &FlowControlArgs<'_>) -> Result<(Self, ()), AeronCError> {
-        Ok((
-            Self {
-                retransmit_window_multiple: args.retransmit_window_multiple(),
-            },
-            (),
-        ))
-    }
-    #[inline]
-    fn on_status_message(
-        &mut self,
-        _: &(),
-        sm: StatusMessage<'_>,
-        _: SockAddrRef<'_>,
-        limit: i64,
-        term: i32,
-        shift: usize,
-        _: i64,
-        _: StrategyMetrics<'_>,
-    ) -> Position {
-        Position::new(limit.max(sm.position(term, shift).saturating_add(i64::from(sm.receiver_window()))))
-    }
-    fn max_retransmission_length(
-        &mut self,
-        _: &(),
-        offset: usize,
-        length: usize,
-        term: usize,
-        _: usize,
-        _: usize,
-    ) -> usize {
-        // This helper reads Aeron's default initial window, as the native max policy does.
-        unsafe {
-            aeron_flow_control_calculate_retransmission_length(length, term, offset, self.retransmit_window_multiple)
-        }
-    }
-}
-
 /// A callback-scoped driver counter. Calling `increment` records a policy transition.
 /// No counter exists unless the strategy declares `COUNTER_LABEL`. Only the
 /// sender writes this counter. Native observers can read it concurrently.

@@ -148,7 +148,7 @@ static SENT: AtomicUsize = AtomicUsize::new(0);
 static NOTIFIED: AtomicUsize = AtomicUsize::new(0);
 static RECEIVED: AtomicUsize = AtomicUsize::new(0);
 
-struct CountedFlow(MaxFlowControl);
+struct CountedFlow;
 impl Drop for CountedFlow {
     fn drop(&mut self) {
         DROPPED.fetch_add(1, Ordering::Relaxed);
@@ -156,9 +156,9 @@ impl Drop for CountedFlow {
 }
 impl FlowControl for CountedFlow {
     type Shared = ();
-    fn new(args: &FlowControlArgs<'_>) -> Result<(Self, ()), rusteron_media_driver::AeronCError> {
+    fn new(_: &FlowControlArgs<'_>) -> Result<(Self, ()), rusteron_media_driver::AeronCError> {
         CREATED.fetch_add(1, Ordering::Relaxed);
-        Ok((Self(MaxFlowControl::new(args)?.0), ()))
+        Ok((Self, ()))
     }
     fn on_idle(&mut self, _: &(), _: i64, limit: i64, _: i64, _: bool, _: StrategyMetrics<'_>) -> Position {
         IDLE.fetch_add(1, Ordering::Relaxed);
@@ -166,18 +166,18 @@ impl FlowControl for CountedFlow {
     }
     fn on_status_message(
         &mut self,
-        shared: &(),
+        _: &(),
         sm: StatusMessage<'_>,
-        source: SockAddrRef<'_>,
+        _: SockAddrRef<'_>,
         limit: i64,
         term: i32,
         shift: usize,
-        now: i64,
-        metrics: StrategyMetrics<'_>,
+        _: i64,
+        _: StrategyMetrics<'_>,
     ) -> Position {
         STATUS.fetch_add(1, Ordering::Relaxed);
-        self.0
-            .on_status_message(shared, sm, source, limit, term, shift, now, metrics)
+        // The maximum receiver limit, as in Aeron's max policy
+        Position::new(limit.max(sm.position(term, shift).saturating_add(i64::from(sm.receiver_window()))))
     }
 }
 struct Out;
@@ -316,7 +316,7 @@ fn typed_callbacks_deliver_udp_and_drop_once_in_each_threading_mode() {
         let driver = EmbeddedDriver::launch_with(|context| {
             context.set_threading_mode(mode)?;
             context.set_unicast_flow_control::<CountedFlow>()?;
-            context.set_congestion_control::<StaticWindow>()?;
+            congestion_control::configure(context)?;
             context.add_outgoing_interceptor::<Out>()?;
             context.add_incoming_interceptor::<Incoming>()?;
             Ok(())

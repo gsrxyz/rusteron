@@ -1,4 +1,5 @@
 use super::*;
+use super::{bounded_example::BoundedTaggedFlowControl, packet_loss_example::SeededLoss};
 use crate::{AeronDriver, AeronThreadingMode, IntoCString};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -1177,5 +1178,81 @@ fn unknown_address_family_does_not_read_uninitialized_address_fields() {
     unsafe {
         std::ptr::addr_of_mut!((*storage.as_mut_ptr()).ss_family).write(0);
         assert!(SockAddrRef::from_raw(storage.as_ptr()).to_socket_addr().is_none());
+    }
+}
+
+/// Aeron's max flow-control policy, with the context's retransmission window multiple.
+struct MaxFlowControl {
+    retransmit_window_multiple: usize,
+}
+impl FlowControl for MaxFlowControl {
+    type Shared = ();
+    fn new(args: &FlowControlArgs<'_>) -> Result<(Self, ()), AeronCError> {
+        Ok((
+            Self {
+                retransmit_window_multiple: args.retransmit_window_multiple(),
+            },
+            (),
+        ))
+    }
+    #[inline]
+    fn on_status_message(
+        &mut self,
+        _: &(),
+        sm: StatusMessage<'_>,
+        _: SockAddrRef<'_>,
+        limit: i64,
+        term: i32,
+        shift: usize,
+        _: i64,
+        _: StrategyMetrics<'_>,
+    ) -> Position {
+        Position::new(limit.max(sm.position(term, shift).saturating_add(i64::from(sm.receiver_window()))))
+    }
+    fn max_retransmission_length(
+        &mut self,
+        _: &(),
+        offset: usize,
+        length: usize,
+        term: usize,
+        _: usize,
+        _: usize,
+    ) -> usize {
+        // This helper reads Aeron's default initial window, as the native max policy does.
+        unsafe {
+            aeron_flow_control_calculate_retransmission_length(length, term, offset, self.retransmit_window_multiple)
+        }
+    }
+}
+
+/// A fixed receiver window with no RTT measurements, as in Aeron's static policy.
+struct StaticWindow;
+impl CongestionControl for StaticWindow {
+    type Receiver = ();
+    type Conductor = ReceiverWindow;
+    type Shared = ();
+    fn new(args: &CongestionControlArgs<'_>) -> Result<((), ReceiverWindow, ()), AeronCError> {
+        // SAFETY: the channel is live for the duration of `new`
+        let channel_window = unsafe { (*args.channel.raw).receiver_window_length };
+        let configured = if channel_window == 0 {
+            args.context.initial_receiver_window
+        } else {
+            channel_window
+        };
+        Ok((
+            (),
+            ReceiverWindow::new(configured.min((args.term_length / 2) as usize) as i32),
+            (),
+        ))
+    }
+    fn initial_window_length(c: &mut ReceiverWindow, _: &()) -> ReceiverWindow {
+        *c
+    }
+    fn max_window_length(c: &mut ReceiverWindow, _: &()) -> ReceiverWindow {
+        *c
+    }
+    fn on_track_rebuild(c: &mut ReceiverWindow, _: &(), _: TrackRebuild, force: &mut bool) -> ReceiverWindow {
+        *force = false;
+        *c
     }
 }

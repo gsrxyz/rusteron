@@ -1,11 +1,13 @@
 # rusteron-media-driver
 
-`rusteron-media-driver` provides a fast, idiomatic Rust API over the Aeron C Media
-Driver, which manages low-latency messaging between producers and consumers. Run
-it as a standalone process or embed it in a Rust application.
+`rusteron-media-driver` is a Rust API over the Aeron C media driver, which manages
+low-latency messaging between producers and consumers.
 
-> For production deployments, we recommend the Aeron Java or C media driver.
-> The embedded version here is best suited to integration tests and lightweight environments.
+- Run it as a standalone process or embed it in a Rust application.
+- Add custom driver behaviour in Rust: flow control, congestion control, packet
+  interceptors, name resolution, idle strategies, duty-cycle trackers, port managers
+  and native UDP transports. See [Custom extensions](#custom-extensions).
+- Start an embedded driver for integration tests with `testing::EmbeddedDriver`.
 
 ## Sponsored by GSR
 
@@ -143,23 +145,16 @@ of `rusteron-media-driver` cannot share a dependency graph. The workspace crate
 [`links-test`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-media-driver/links-test)
 compiles a C file against these paths.
 
-<a id="contributing--license"></a>
-
 ## Custom extensions
 
-`extensions` has safe traits for flow control, congestion control, UDP interceptors,
-name resolution, idle strategies, duty-cycle trackers and port managers.
-
-- Configure each extension before `AeronDriver::new`.
-- Callbacks are monomorphised C function pointers with no lock or dynamic dispatch. A panic aborts.
-- Raw supplier setters and custom native transport callbacks need `unsafe`.
-- See [driver extensions](../docs/driver-extensions.md) for threads and contracts, and the
-  [extension examples](examples/extensions/README.md) for one runnable file per feature.
+Implement a trait or pass a closure, then install it on the context before
+`AeronDriver::new`. Each callback is a monomorphised `extern "C"` function, with no
+allocation, lock or dynamic dispatch. See [driver extensions](../docs/driver-extensions.md)
+and one runnable [example](examples/extensions/README.md) per extension.
 
 ```rust,no_run
 use rusteron_media_driver::{AeronDriverContext, extensions::*};
 let context = AeronDriverContext::new()?;
-context.set_unicast_flow_control::<MaxFlowControl>()?;
 context.set_idle_strategy(IdleStrategyRole::Shared, |work| {
     if work <= 0 {
         std::hint::spin_loop();
@@ -167,6 +162,8 @@ context.set_idle_strategy(IdleStrategyRole::Shared, |work| {
 })?;
 # Ok::<(), rusteron_media_driver::AeronCError>(())
 ```
+
+<a id="contributing--license"></a>
 
 ## Contributing and license
 

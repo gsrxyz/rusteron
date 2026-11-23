@@ -78,6 +78,10 @@ impl Drop for EmbeddedMediaDriver {
     }
 }
 
+// Lets the example files that unit tests include name this crate
+#[cfg(test)]
+extern crate self as rusteron_media_driver;
+
 mod driver;
 pub mod environment;
 pub use driver::{ManualDriver, ThreadedDriver};

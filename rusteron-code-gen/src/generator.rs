@@ -116,6 +116,10 @@ const RAW_LIFECYCLE_FNS: &[&str] = &[
 ];
 
 /// Audited calls that do not release their receiver despite their suffix.
+///
+/// The driver entries write conductor state without a lock. They stay safe because the only
+/// safe route to a driver's conductor is `AeronDriver::conductor()`, and starting the driver
+/// consumes that handle, so no agent thread runs concurrently
 const NOT_RAW_LIFECYCLE_FNS: &[&str] = &[
     "aeron_exclusive_publication_revoke_on_close",
     // Reclaims a bounds-checked counter slot, not the manager allocation.

@@ -695,6 +695,7 @@ notifications!(IncomingInterceptor, in_transport, in_publication, in_image);
 
 #[cfg(test)]
 mod tests {
+    use super::super::{burst_loss_example::*, packet_loss_example::SeededLoss};
     use super::*;
 
     #[derive(Default)]
@@ -1188,5 +1189,93 @@ mod tests {
         assert_eq!(observer.calls, 1);
         assert_eq!(calls, 1);
         assert_eq!(&buffer, b"packet");
+    }
+
+    fn config() -> GilbertElliottConfig {
+        GilbertElliottConfig {
+            seed: 7,
+            good_to_bad: 200_000,
+            bad_to_good: 300_000,
+            good_loss: 100_000,
+            bad_loss: 900_000,
+        }
+    }
+
+    #[test]
+    fn rejects_each_out_of_range_probability() {
+        for index in 0..4 {
+            let mut invalid = config();
+            match index {
+                0 => invalid.good_to_bad = 1_000_001,
+                1 => invalid.bad_to_good = 1_000_001,
+                2 => invalid.good_loss = 1_000_001,
+                _ => invalid.bad_loss = 1_000_001,
+            }
+            assert!(GilbertElliottLoss::new(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn zero_and_certain_probabilities_control_both_states() {
+        for seed in [0, 1, u64::MAX] {
+            for (good_loss, bad_loss) in [(0, 0), (1_000_000, 1_000_000), (0, 1_000_000), (1_000_000, 0)] {
+                let mut loss = GilbertElliottLoss::new(GilbertElliottConfig {
+                    seed,
+                    good_to_bad: 1_000_000,
+                    bad_to_good: 1_000_000,
+                    good_loss,
+                    bad_loss,
+                })
+                .unwrap();
+                crate::test_alloc::assert_no_heap_allocation(|| {
+                    for index in 0..100 {
+                        assert_eq!(
+                            loss.should_drop(),
+                            if index % 2 == 0 { good_loss != 0 } else { bad_loss != 0 }
+                        );
+                    }
+                });
+            }
+            let mut good = GilbertElliottLoss::new(GilbertElliottConfig {
+                seed,
+                good_to_bad: 0,
+                bad_to_good: 0,
+                good_loss: 0,
+                bad_loss: 1_000_000,
+            })
+            .unwrap();
+            let mut bad = GilbertElliottLoss::new(GilbertElliottConfig {
+                seed,
+                good_to_bad: 1_000_000,
+                bad_to_good: 0,
+                good_loss: 0,
+                bad_loss: 1_000_000,
+            })
+            .unwrap();
+            assert!(!bad.should_drop());
+            for _ in 0..100 {
+                assert!(!good.should_drop());
+                assert!(bad.should_drop());
+            }
+        }
+    }
+
+    #[test]
+    fn seed_repeats_the_same_bursts() {
+        let mut first = GilbertElliottLoss::new(config()).unwrap();
+        let mut second = GilbertElliottLoss::new(config()).unwrap();
+        let mut different = GilbertElliottLoss::new(GilbertElliottConfig { seed: 8, ..config() }).unwrap();
+        let mut pattern = 0u64;
+        let mut other = 0u64;
+        crate::test_alloc::assert_no_heap_allocation(|| {
+            for index in 0..64 {
+                let drop = first.should_drop();
+                assert_eq!(drop, second.should_drop());
+                pattern |= u64::from(drop) << index;
+                other |= u64::from(different.should_drop()) << index;
+            }
+        });
+        assert_eq!(pattern, 0x0005_c7f0_0474_2804);
+        assert_ne!(pattern, other);
     }
 }

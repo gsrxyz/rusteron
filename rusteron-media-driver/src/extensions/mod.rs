@@ -15,24 +15,20 @@
 use crate::{AeronCError, AeronDriverContext, ResourceStorageExt, bindings::*};
 use std::{cell::UnsafeCell, ffi::CStr, marker::PhantomData, os::raw::c_void};
 
-mod bounded;
 mod congestion;
 mod duty_cycle;
 mod flow;
 mod idle;
 mod interceptors;
-mod loss;
 mod ports;
 mod resolver;
 mod transport;
 mod views;
-pub use bounded::*;
 pub use congestion::*;
 pub use duty_cycle::*;
 pub use flow::*;
 pub use idle::*;
 pub use interceptors::*;
-pub use loss::*;
 pub use ports::*;
 pub use resolver::*;
 pub use transport::*;
@@ -166,7 +162,20 @@ impl<'a> ChannelRef<'a> {
     }
 }
 
+// The unit tests compile the example policies so they also cover them
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "../../examples/extensions/bounded_flow_control.rs"]
+mod bounded_example;
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "../../examples/extensions/burst_loss.rs"]
+mod burst_loss_example;
 #[cfg(test)]
 mod extension_tests;
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "../../examples/extensions/packet_loss.rs"]
+mod packet_loss_example;
 #[cfg(test)]
 mod tests;

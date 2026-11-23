@@ -1021,16 +1021,12 @@ Rust store in every build, so LTO cannot change it. A reusable
 `AeronBufferClaim` calls the native `commit`, which LTO inlined, but its timings
 did not change beyond the spread.
 
+## Media driver manual loops (0.3.1)
 
-## Media driver extensions and manual loops
-
-- `AeronDriver` is not `Clone`. Replace `driver.start(true)` with `start_manual()` and
-  `driver.start(false)` with `start()`. Keep the returned handle alive until shutdown.
-- INVOKER mode needs `start_manual`. Both started handles are `!Send`.
-- Raw flow-control, congestion-control and resolver supplier setters need `unsafe`.
-  Prefer the typed setters, such as `set_unicast_flow_control::<T>`.
-- `IdleStrategy` has `const BUSY_SPIN: bool = false`, so `dyn IdleStrategy` no longer compiles.
-- See [driver extensions](driver-extensions.md).
+- Replace `driver.start(true)` with `start_manual()` and `driver.start(false)` with `start()`.
+  Keep the returned handle alive until shutdown.
+- Raw supplier setters need `unsafe`. Prefer typed setters such as `set_unicast_flow_control::<T>`.
+- `dyn IdleStrategy` no longer compiles, because of `const BUSY_SPIN`.
 
 ```rust,no_run
 # use rusteron_media_driver::{AeronCError, AeronDriver, AeronDriverContext};
