@@ -6,8 +6,8 @@ Each file installs one extension in its `configure` function and starts its own 
 cargo run -p rusteron-media-driver --features static --example idle_strategy
 ```
 
-Connect clients with `aeron:udp?endpoint=127.0.0.1:40123` (`example.local:40123` for
-`name_resolver`). Press Enter to stop.
+Connect clients to the printed driver directory with `aeron:udp?endpoint=127.0.0.1:40123`
+(`example.local:40123` for `name_resolver`). Press Enter to stop.
 
 | Feature | Example name | Behaviour |
 |---|---|---|

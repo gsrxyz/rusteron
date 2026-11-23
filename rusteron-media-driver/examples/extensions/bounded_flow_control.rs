@@ -38,7 +38,7 @@ pub struct BoundedTaggedFlowControl<const WAIT_NS: i64, const CAPACITY: usize = 
     setup_limit: Option<(i64, i64)>,
     tagged_setup: bool,
     retransmit_multiple: usize,
-    capacity_warned: bool,
+    full_table_counted: bool,
 }
 
 /// The conductor reads only this flag. Receiver bookkeeping stays on the sender.
@@ -50,10 +50,9 @@ pub struct TaggedReceiverState {
 }
 
 impl<const WAIT_NS: i64, const CAPACITY: usize> BoundedTaggedFlowControl<WAIT_NS, CAPACITY> {
-    // Counts once per publication so a full table cannot flood the counter
     #[cold]
     fn note_full_table(&mut self) {
-        self.capacity_warned = true;
+        self.full_table_counted = true;
         FULL_TABLE_PUBLICATIONS.fetch_add(1, Ordering::Relaxed);
     }
     fn setup_limit(&mut self, now: i64) -> i64 {
@@ -140,7 +139,7 @@ impl<const WAIT_NS: i64, const CAPACITY: usize> FlowControl for BoundedTaggedFlo
                 setup_limit: None,
                 tagged_setup: false,
                 retransmit_multiple: args.context.multicast_retransmit_window_multiple,
-                capacity_warned: false,
+                full_table_counted: false,
             },
             TaggedReceiverState {
                 required: AtomicBool::new(minimum == 0),
@@ -227,7 +226,7 @@ impl<const WAIT_NS: i64, const CAPACITY: usize> FlowControl for BoundedTaggedFlo
             self.setup_limit = None;
             setup_limit = i64::MAX;
             min = min.min(received_limit);
-        } else if !existing && matches && self.count == CAPACITY && !self.capacity_warned {
+        } else if !existing && matches && self.count == CAPACITY && !self.full_table_counted {
             self.note_full_table();
         }
         if self.count != old_count || (!self.degraded && self.count < self.minimum) {

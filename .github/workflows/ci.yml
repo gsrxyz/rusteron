@@ -77,8 +77,8 @@ jobs:
 
   extension-thread-sanitizer:
     name: Extension ThreadSanitizer
-    # Aeron's x86 atomics use inline assembly that TSan cannot observe.
-    # The ARM implementation uses compiler atomics.
+    # Aeron's x86 atomics use inline assembly that TSan cannot observe. On ARM they are
+    # plain accesses plus fences, so tsan.supp suppresses races inside Aeron's C.
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     steps:
@@ -97,7 +97,7 @@ jobs:
           RUSTC_BOOTSTRAP: "1"
           RUSTFLAGS: -Zsanitizer=thread
           RUSTERON_SANITIZE: thread
-          TSAN_OPTIONS: halt_on_error=1
+          TSAN_OPTIONS: halt_on_error=1 suppressions=${{ github.workspace }}/tsan.supp
         run: |
           cargo test -Zbuild-std --target aarch64-unknown-linux-gnu -p rusteron-media-driver --features static --lib extensions -- --test-threads=1 --skip panicking_extension_aborts
           cargo test -Zbuild-std --target aarch64-unknown-linux-gnu -p rusteron-media-driver --features static --test driver_extensions -- --test-threads=1

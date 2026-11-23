@@ -1,23 +1,18 @@
 # Driver extensions
 
-Typed Rust hooks for the embedded media driver. One runnable file per feature is in
+Typed Rust hooks for the embedded media driver. One runnable file per extension is in
 [`examples/extensions`](../rusteron-media-driver/examples/extensions/README.md).
 
 ## Rules
 
 - Install extensions before `AeronDriver::new`. Setters fail after that.
-- Callbacks are `extern "C"`. A panic aborts the process.
+- A panic in a callback aborts the process.
 - Callbacks add no allocation, lock or dynamic dispatch.
-- Mutable state must be `Send`. `Shared` state read by several agents must be `Send + Sync`.
-- Context configuration lives until native context close. Instances Aeron builds from it drop
-  on their native close callback, which can be during driver shutdown.
-- Errors carry only the code. Call `capture_errmsg()` straight away if you need the text.
-
-## Starting the driver
-
-- `start(self)` returns `ThreadedDriver`, with every agent on native threads.
-- `start_manual(self)` returns `ManualDriver`. Call `do_work` and `idle` on the starting thread.
-- INVOKER mode needs `start_manual`.
+- Mutable state must be `Send`. `Shared` state must be `Send + Sync`.
+- State drops when Aeron closes the instance, which can be during driver shutdown.
+- Errors carry only the code. Call `capture_errmsg()` straight away for the text.
+- `start()` runs every agent on native threads. `start_manual()` runs them on the calling
+  thread through `do_work` and `idle`, and is required for INVOKER mode.
 
 ## Extensions
 
@@ -34,21 +29,16 @@ Typed Rust hooks for the embedded media driver. One runnable file per feature is
 
 ## Notes
 
-- Flow control: omit `fc=` on the channel when using a custom multicast strategy, because `fc=` takes priority.
-- Interceptors run on the driver side of environment-loaded ones such as ATS, so they see plaintext.
-  Override `inspect` to observe, or `send` / `on_datagram` to drop.
-- Interceptors cannot delay or reorder packets. The bindings have no timer, and the packet is borrowed.
-- Interceptors that drop packets, such as the loss examples, should not run with RTT measurement on
-  Aeron 1.54.2. It has an uninitialised byte counter on the RTT reply path, fixed in
-  aeron-io/aeron@c0457af122.
-- Idle strategies: set `BUSY_SPIN = true` if the strategy never sleeps or yields.
+- Custom multicast flow control needs channels without `fc=`, which takes priority.
+- Interceptors see plaintext, run inside environment-loaded ones such as ATS, and cannot delay or reorder packets.
+- On Aeron 1.54.2, do not drop packets with RTT measurement enabled (fixed in aeron-io/aeron@c0457af122).
+- Set `BUSY_SPIN = true` on an idle strategy that never sleeps or yields.
 - `add_duty_cycle_tracker` keeps Aeron's stall counters. `set_duty_cycle_tracker` replaces them.
-- Native transport: interceptors still apply, and a custom receive function must call the supplied callback.
+- A native transport still runs interceptors. A custom receive function must call the supplied callback.
 
 ## Tests
 
 ```sh
 cargo test -p rusteron-media-driver --features static
 cargo test -p rusteron-media-driver-links-test --features rusteron-media-driver/static
-cargo bench -p rusteron-media-driver --features static --bench extension_trampolines
 ```
