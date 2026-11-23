@@ -115,17 +115,11 @@ const RAW_LIFECYCLE_FNS: &[&str] = &[
     "aeron_archive_persistent_subscription_context_set_listener",
 ];
 
-/// Audited calls that do not release their receiver despite their suffix.
-///
-/// The driver entries write conductor state without a lock. They stay safe because the only
-/// safe route to a driver's conductor is `AeronDriver::conductor()`, and starting the driver
-/// consumes that handle, so no agent thread runs concurrently
+/// Audited calls that do not release their receiver despite their suffix
 const NOT_RAW_LIFECYCLE_FNS: &[&str] = &[
     "aeron_exclusive_publication_revoke_on_close",
     // Reclaims a bounds-checked counter slot, not the manager allocation.
     "aeron_counters_manager_free",
-    // Marks one client closed and clears its heartbeat, without freeing either handle.
-    "aeron_driver_conductor_on_client_close",
 ];
 
 /// These native implementations never access or retain any pointer argument.
@@ -4918,7 +4912,7 @@ mod tests {
         assert_safe(&manager, "init", false);
         assert_safe(&manager, "aeron_network_publication_close", false);
         let conductor = api_methods(&bindings, "aeron_driver_conductor_t");
-        assert_safe(&conductor, "on_client_close", true);
+        assert_safe(&conductor, "on_client_close", false);
         let context = api_methods(
             &crate::parse_bindings(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("bindings/archive.rs")),
             "aeron_archive_persistent_subscription_context_t",
@@ -5084,10 +5078,9 @@ mod tests {
     }
 
     #[test]
-    fn driver_suppliers_require_unsafe_and_manual_methods_are_not_generated() {
+    fn driver_suppliers_require_unsafe() {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bindings/media-driver.rs");
-        let mut bindings = crate::parse_bindings(&path);
-        bindings.apply_method_overrides(crate::MEDIA_DRIVER_METHOD_OVERRIDES);
+        let bindings = crate::parse_bindings(&path);
         let generate = |native: &str| {
             generate_rust_code(
                 &bindings.wrappers[native],
@@ -5110,9 +5103,6 @@ mod tests {
             assert!(context.contains(&format!("pub unsafe fn {name}")), "{name}");
         }
         let driver = generate("aeron_driver_t");
-        for name in ["start", "main_do_work", "main_idle_strategy"] {
-            assert!(!driver.contains(&format!("pub fn {name} (")), "{name}");
-        }
         assert!(!driver.contains("# [derive (Clone)] pub struct AeronDriver"));
     }
 

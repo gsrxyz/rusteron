@@ -47,18 +47,6 @@ pub fn prepare_bindings(
     wrapper_type_filter: fn(&str) -> bool,
     extra_custom_code: &[&str],
 ) -> io::Result<()> {
-    prepare_bindings_with_overrides(source, destination, wrapper_type_filter, extra_custom_code, &[])
-}
-
-/// Regenerate wrappers with explicit replacements for native methods.
-/// Uses the same override metadata as source builds.
-pub fn prepare_bindings_with_overrides(
-    source: &Path,
-    destination: &Path,
-    wrapper_type_filter: fn(&str) -> bool,
-    extra_custom_code: &[&str],
-    method_overrides: &[crate::MethodOverride],
-) -> io::Result<()> {
     let raw_bindings = source.join("bindings.rs");
     require_file(&raw_bindings)?;
     fs::create_dir_all(destination)?;
@@ -68,7 +56,6 @@ pub fn prepare_bindings_with_overrides(
     // Keep bindings.rs because it describes the C functions and types in the downloaded libraries.
     // Generate the other Rust files again so they match the current Rust code.
     let mut bindings = crate::parse_bindings_with_custom(&output_bindings, extra_custom_code);
-    bindings.apply_method_overrides(method_overrides);
     let wrappers = crate::generate_wrappers(&mut bindings, wrapper_type_filter);
     if wrappers.is_empty() {
         return Err(io::Error::new(
@@ -223,52 +210,6 @@ mod tests {
             fs::read_to_string(source.join("aeron.rs"))
                 .unwrap()
                 .contains("stale wrappers")
-        );
-    }
-
-    #[test]
-    fn precompiled_driver_bindings_apply_lifecycle_overrides_and_keep_raw_functions() {
-        let temp = TestDir::new();
-        let source = temp.0.join("driver-bundle");
-        fs::create_dir_all(&source).unwrap();
-        fs::write(source.join("bindings.rs"), crate::MEDIA_DRIVER_BINDINGS).unwrap();
-        let output = temp.0.join("driver-consumer");
-        prepare_bindings_with_overrides(
-            &source,
-            &output,
-            |name| name == "aeron_driver_t",
-            &[],
-            crate::MEDIA_DRIVER_METHOD_OVERRIDES,
-        )
-        .unwrap();
-
-        let generated = syn::parse_file(&fs::read_to_string(output.join("aeron.rs")).unwrap()).unwrap();
-        let driver_methods = generated
-            .items
-            .iter()
-            .filter_map(|item| match item {
-                syn::Item::Impl(item)
-                    if item.trait_.is_none()
-                        && matches!(&*item.self_ty, syn::Type::Path(path)
-                    if path.path.segments.last().unwrap().ident == "AeronDriver") =>
-                {
-                    Some(&item.items)
-                }
-                _ => None,
-            })
-            .flatten()
-            .filter_map(|item| match item {
-                syn::ImplItem::Fn(method) => Some(method.sig.ident.to_string()),
-                _ => None,
-            })
-            .collect::<std::collections::BTreeSet<_>>();
-        assert!(driver_methods.contains("get_inner"));
-        for name in ["start", "main_do_work", "main_idle_strategy"] {
-            assert!(!driver_methods.contains(name), "{name}");
-        }
-        assert_eq!(
-            fs::read(output.join("bindings.rs")).unwrap(),
-            crate::MEDIA_DRIVER_BINDINGS.as_bytes()
         );
     }
 

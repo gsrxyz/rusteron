@@ -17,19 +17,23 @@ struct Running {
     process: EmbeddedArchiveMediaDriverProcess,
 }
 
-fn start_archive() -> Running {
+fn start_archive_process() -> EmbeddedArchiveMediaDriverProcess {
     let id = Aeron::nano_clock();
     let request = find_unused_udp_port(17400).unwrap();
     let response = find_unused_udp_port(request + 1).unwrap();
     let events = find_unused_udp_port(response + 1).unwrap();
-    let process = EmbeddedArchiveMediaDriverProcess::build_and_start(
+    EmbeddedArchiveMediaDriverProcess::build_and_start(
         &format!("target/aeron/{id}/shm"),
         &format!("target/aeron/{id}/archive"),
         &format!("aeron:udp?endpoint=localhost:{request}"),
         &format!("aeron:udp?endpoint=localhost:{response}"),
         &format!("aeron:udp?endpoint=localhost:{events}"),
     )
-    .unwrap();
+    .unwrap()
+}
+
+fn start_archive() -> Running {
+    let process = start_archive_process();
     let (archive, aeron) = process.archive_connect().unwrap();
     Running {
         archive,
@@ -235,17 +239,14 @@ fn an_open_recording_cannot_be_truncated_or_purged() {
 #[test]
 #[serial]
 fn a_lost_archive_process_turns_requests_into_errors_within_the_message_timeout() {
-    let Running {
-        archive,
-        aeron,
-        process,
-    } = start_archive();
-    drop((archive, aeron));
+    let process = start_archive_process();
     // Aeron C's default error handler exits the process when the driver goes, so this client
     // needs its own handler to see the failure as an error
     let context = AeronContext::new().unwrap();
     context.set_dir(&process.aeron_dir).unwrap();
     context.set_error_handler(Some(|_: i32, _: &str| {})).unwrap();
+    // Aeron::new waits for the driver. Connect once, so an earlier subscription cannot
+    // still hold the response endpoint in CLOSING state.
     let aeron = Aeron::new(&context).unwrap();
     aeron.start().unwrap();
     let archive = AeronArchiveAsyncConnect::new_with_aeron(&process.archive_context(&aeron).unwrap(), &aeron)

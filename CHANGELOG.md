@@ -4,6 +4,11 @@ Main changes, newest first, grouped by published crate version. Release-only
 commits, build logs, and changes later reverted or superseded are omitted.
 Early history predating the available release tags is grouped separately.
 
+## 0.3.2
+
+- Breaking: restored the 0.3.0 driver API.
+- Breaking: `AeronDriverConductor::on_client_close` needs `unsafe`.
+
 ## 0.3.1
 
 - Generated API safety
@@ -12,7 +17,7 @@ Early history predating the available release tags is grouped separately.
   - Scalar pointer getters return raw pointers.
 - Media driver extensions
   - Breaking: `AeronDriver` is not `Clone`. `start(self)` returns `ThreadedDriver`, `start_manual(self)` returns `ManualDriver`.
-    Removed `main_do_work` and `main_idle_strategy` from the driver.
+    Removed `main_do_work` and `main_idle_strategy` from the driver. Reverted in 0.3.2.
   - Breaking: raw supplier setters need `unsafe`.
   - Breaking: `IdleStrategy::BUSY_SPIN` prevents `dyn IdleStrategy`.
   - Added typed flow control, congestion control, interceptors, name resolvers, idle strategies,

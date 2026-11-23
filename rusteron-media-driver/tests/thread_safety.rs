@@ -1,5 +1,5 @@
 //! Compile-time ownership and thread checks for driver handles.
-use rusteron_media_driver::{AeronDriver, AeronDriverContext, ManualDriver, ThreadedDriver};
+use rusteron_media_driver::{AeronDriver, AeronDriverContext};
 
 // Inference is ambiguous if the type implements the forbidden trait.
 macro_rules! assert_not_impl {
@@ -21,9 +21,3 @@ assert_not_impl!(AeronDriverContext, Sync);
 assert_not_impl!(AeronDriver, Send);
 assert_not_impl!(AeronDriver, Sync);
 assert_not_impl!(AeronDriver, Clone);
-assert_not_impl!(ManualDriver, Send);
-assert_not_impl!(ManualDriver, Sync);
-assert_not_impl!(ManualDriver, Clone);
-assert_not_impl!(ThreadedDriver, Send);
-assert_not_impl!(ThreadedDriver, Sync);
-assert_not_impl!(ThreadedDriver, Clone);

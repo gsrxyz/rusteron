@@ -405,10 +405,10 @@ fn manual_driver_runs_and_all_strategy_setters_reject_a_frozen_context() {
             .is_err()
     );
     assert_eq!(std::sync::Arc::strong_count(&state), 1);
-    let mut driver = driver.start_manual().unwrap();
+    driver.start(true).unwrap();
     for _ in 0..10 {
-        let work = driver.do_work().unwrap();
-        driver.idle(work);
+        let work = driver.main_do_work().unwrap();
+        driver.main_idle_strategy(work);
     }
 }
 
@@ -1089,7 +1089,7 @@ fn bounded_partial_group_keeps_its_limit_after_degradation_and_rearms_when_full(
 }
 
 #[test]
-fn threaded_start_consumes_the_driver_and_rejects_invoker_before_starting() {
+fn threaded_start_rejects_invoker() {
     for mode in [
         AeronThreadingMode::Shared,
         AeronThreadingMode::SharedNetwork,
@@ -1103,11 +1103,12 @@ fn threaded_start_consumes_the_driver_and_rejects_invoker_before_starting() {
         context.set_dir_delete_on_start(true).unwrap();
         context.set_dir_delete_on_shutdown(true).unwrap();
         context.set_threading_mode(mode).unwrap();
-        let started = AeronDriver::new(&context).unwrap().start();
+        let driver = AeronDriver::new(&context).unwrap();
+        let started = driver.start(false);
         if mode == AeronThreadingMode::Invoker {
-            assert!(started.err().unwrap().message().unwrap().contains("start_manual"));
+            assert!(started.is_err());
         } else {
-            drop(started.unwrap());
+            started.unwrap();
         }
     }
 }

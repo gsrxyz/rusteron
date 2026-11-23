@@ -82,9 +82,7 @@ impl Drop for EmbeddedMediaDriver {
 #[cfg(test)]
 extern crate self as rusteron_media_driver;
 
-mod driver;
 pub mod environment;
-pub use driver::{ManualDriver, ThreadedDriver};
 pub mod extensions;
 pub mod testing;
 
@@ -192,15 +190,15 @@ impl AeronDriver {
             // The native driver is initialized but not started. Move only its
             // checked owner; the public driver handle remains local to this worker.
             let aeron_driver = AeronDriver::from_resource(CResource::new(driver_owner));
-            let mut aeron_driver = aeron_driver.start_manual().map_err(AeronCError::capture_errmsg)?;
+            aeron_driver.start(true).map_err(AeronCError::capture_errmsg)?;
             info!("Aeron driver started [dir={}]", started_dir);
 
             started2.store(true, Ordering::SeqCst);
 
             // Poll for work until Ctrl+C is pressed
             while !stop.load(Ordering::Acquire) {
-                let work = aeron_driver.do_work().map_err(AeronCError::capture_errmsg)?;
-                aeron_driver.idle(work);
+                let work = aeron_driver.main_do_work().map_err(AeronCError::capture_errmsg)?;
+                aeron_driver.main_idle_strategy(work);
             }
 
             info!("stopping media driver");
