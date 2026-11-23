@@ -76,10 +76,14 @@ jobs:
           just test-valgrind
 
   extension-thread-sanitizer:
-    name: Extension ThreadSanitizer
-    # Aeron's x86 atomics use inline assembly that TSan cannot observe. On ARM they are
-    # plain accesses plus fences, so tsan.supp suppresses races inside Aeron's C.
-    runs-on: ubuntu-24.04-arm
+    name: ThreadSanitizer (${{ matrix.os }})
+    # Instrumented builds use compiler atomics. Aeron's normal x86 assembly
+    # and ARM volatile/fence operations cannot establish TSan synchronization.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04-arm]
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -89,18 +93,16 @@ jobs:
         with:
           toolchain: 1.98.1
           components: rust-src
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '23'
       - run: sudo apt-get update && sudo apt-get install -y cmake clang libclang-rt-dev libbsd-dev uuid-dev
-      - name: Test native and Rust extension threads
+      - name: Test driver, client and archive threads
         env:
           CC: clang
           CXX: clang++
-          RUSTC_BOOTSTRAP: "1"
-          RUSTFLAGS: -Zsanitizer=thread
-          RUSTERON_SANITIZE: thread
-          TSAN_OPTIONS: halt_on_error=1 suppressions=${{ github.workspace }}/tsan.supp
-        run: |
-          cargo test -Zbuild-std --target aarch64-unknown-linux-gnu -p rusteron-media-driver --features static --lib extensions -- --test-threads=1 --skip panicking_extension_aborts
-          cargo test -Zbuild-std --target aarch64-unknown-linux-gnu -p rusteron-media-driver --features static --test driver_extensions -- --test-threads=1
+        run: bash scripts/test-tsan.sh
 
   sanitize:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
@@ -263,7 +265,7 @@ jobs:
 
           dependencies = Path('target/debug/deps')
           externs = []
-          for crate in ('rusteron_client', 'rusteron_archive'):
+          for crate in ('rusteron_client', 'rusteron_archive', 'rusteron_media_driver'):
               library = max(dependencies.glob(f'lib{crate}-*.rlib'), key=lambda p: p.stat().st_mtime)
               externs.extend(['--extern', f'{crate}={library}'])
           for guide in ('client-guide.md', 'archive-guide.md', 'migrating_0.2_to_0.3.md'):

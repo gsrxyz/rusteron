@@ -164,6 +164,119 @@ fn cloned_publications_publish_from_several_threads_and_keep_the_client_alive() 
 }
 
 #[test]
+fn subscription_handoff_preserves_position_while_another_thread_publishes() {
+    const MESSAGES: u64 = 1000;
+    let driver = driver();
+    let client = connect(&driver);
+    let (publication, subscription) = pair(&client, 8610);
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let handoff = Arc::new(Barrier::new(2));
+    let publisher_handoff = handoff.clone();
+    let publisher = std::thread::spawn(move || {
+        for sequence in 0..MESSAGES {
+            if sequence == MESSAGES / 2 {
+                publisher_handoff.wait();
+            }
+            while let Err(error) = publication.offer(&sequence.to_le_bytes()) {
+                assert!(error.is_retryable(), "{error}");
+                assert!(Instant::now() < deadline, "publisher stalled");
+                std::thread::yield_now();
+            }
+        }
+    });
+    let mut received = 0;
+    while received < MESSAGES / 2 {
+        let limit = (MESSAGES / 2 - received).min(64) as usize;
+        subscription
+            .poll_fn(
+                |bytes, _| {
+                    assert_eq!(u64::from_le_bytes(bytes.try_into().unwrap()), received);
+                    received += 1;
+                },
+                limit,
+            )
+            .unwrap();
+        assert!(Instant::now() < deadline, "first polling thread stalled");
+    }
+    // Move the sole subscription owner, including its existing image positions.
+    drop(client);
+    let receiver = std::thread::spawn(move || {
+        // The publisher sends the remaining half only after the handoff.
+        handoff.wait();
+        while received < MESSAGES {
+            subscription
+                .poll_fn(
+                    |bytes, _| {
+                        assert_eq!(u64::from_le_bytes(bytes.try_into().unwrap()), received);
+                        received += 1;
+                    },
+                    64,
+                )
+                .unwrap();
+            assert!(Instant::now() < deadline, "second polling thread stalled");
+        }
+        received
+    });
+    publisher.join().unwrap();
+    assert_eq!(receiver.join().unwrap(), MESSAGES);
+}
+
+#[test]
+fn exclusive_publication_is_created_and_claimed_on_its_own_thread() {
+    const MESSAGES: u64 = 1000;
+    let driver = driver();
+    let client = connect(&driver);
+    let subscription = client
+        .add_subscription(
+            c"aeron:ipc",
+            8611,
+            Handlers::NONE,
+            Handlers::NONE,
+            Duration::from_secs(5),
+        )
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let publisher = std::thread::spawn(move || {
+        // Aeron is shared, but this exclusive publication and its clone stay local.
+        let publication = client
+            .add_exclusive_publication(c"aeron:ipc", 8611, Duration::from_secs(5))
+            .unwrap();
+        let local = publication.clone();
+        drop(publication);
+        drop(client);
+        for sequence in 0..MESSAGES {
+            loop {
+                match local.try_claim_owned(8) {
+                    Ok(mut claim) => {
+                        claim.data().copy_from_slice(&sequence.to_le_bytes());
+                        claim.commit().unwrap();
+                        break;
+                    }
+                    Err(error) => assert!(error.is_retryable(), "{error}"),
+                }
+                assert!(Instant::now() < deadline, "exclusive publisher stalled");
+                std::thread::yield_now();
+            }
+        }
+    });
+    let mut received = 0;
+    while received < MESSAGES {
+        subscription
+            .poll_fn(
+                |bytes, _| {
+                    assert_eq!(u64::from_le_bytes(bytes.try_into().unwrap()), received);
+                    received += 1;
+                },
+                64,
+            )
+            .unwrap();
+        assert!(Instant::now() < deadline, "receiver stalled at {received}");
+    }
+    publisher.join().unwrap();
+    assert_eq!(received, MESSAGES);
+}
+
+#[test]
 fn closing_a_publication_clone_does_not_invalidate_an_active_claim() {
     let driver = driver();
     let client = connect(&driver);

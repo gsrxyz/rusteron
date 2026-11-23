@@ -20,6 +20,10 @@ Early history predating the available release tags is grouped separately.
   - Added examples for bounded tagged flow control and seeded packet loss, and `environment::inspect_environment`.
   - Driver errors no longer copy the native message. Call `capture_errmsg()` when needed.
 - Archive source-identity errors no longer copy the native message.
+- CI compiles guide examples against the client, archive and media driver crates.
+- ThreadSanitizer
+  - Added `just test-tsan` and x86_64 and ARM64 CI jobs covering driver extensions, client and archive threading.
+  - TSan builds use compiler atomics for Aeron's atomic operations. Normal builds are unchanged.
 
 ## 0.3.0
 

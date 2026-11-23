@@ -3,6 +3,9 @@
 //! The choice lives here rather than in `build_common.rs`, which each crate's
 //! build script `include!`s and so cannot be unit-tested in place.
 
+/// Atomics visible to ThreadSanitizer, included only for `RUSTERON_SANITIZE=thread`.
+pub const TSAN_ATOMIC_HEADER: &str = include_str!("aeron_tsan_atomic.h");
+
 /// Which CPUs a release build of Aeron C must run on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CpuTarget {

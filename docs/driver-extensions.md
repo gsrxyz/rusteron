@@ -11,8 +11,9 @@ Typed Rust hooks for the embedded media driver. One runnable file per extension 
 - Mutable state must be `Send`. `Shared` state must be `Send + Sync`.
 - State drops when Aeron closes the instance, which can be during driver shutdown.
 - Errors carry only the code. Call `capture_errmsg()` straight away for the text.
-- `start()` runs every agent on native threads. `start_manual()` runs them on the calling
-  thread through `do_work` and `idle`, and is required for INVOKER mode.
+- `start()` runs every agent on native threads. `start_manual()` leaves the main agent
+  on the calling thread through `do_work` and `idle`. Other agents still use native
+  threads in dedicated and shared-network modes. INVOKER mode requires `start_manual()`.
 
 ## Extensions
 
@@ -42,3 +43,5 @@ Typed Rust hooks for the embedded media driver. One runnable file per extension 
 cargo test -p rusteron-media-driver --features static
 cargo test -p rusteron-media-driver-links-test --features rusteron-media-driver/static
 ```
+
+`just test-tsan` runs the ThreadSanitizer checks on Linux. See [thread safety](thread-safety.md#threadsanitizer).

@@ -6,7 +6,17 @@ fn main() {
             .unwrap_or_else(|_| panic!("rusteron-media-driver must export DEP_AERON_DRIVER_{key}"))
     };
     println!("cargo:rerun-if-changed=transport.c");
-    cc::Build::new()
+    let mut build = cc::Build::new();
+    println!("cargo:rerun-if-env-changed=RUSTERON_SANITIZE");
+    if std::env::var("RUSTERON_SANITIZE").as_deref() == Ok("thread") {
+        build
+            .flag("-fsanitize=thread")
+            .flag("-fno-omit-frame-pointer")
+            .flag("-g")
+            .flag("-iquote")
+            .flag(dep("TSAN_INCLUDE"));
+    }
+    build
         .file("transport.c")
         .include(dep("INCLUDE"))
         .include(dep("CLIENT_INCLUDE"))

@@ -95,6 +95,118 @@ fn owned_transport_runtime_can_close_on_another_thread() {
     assert_eq!(closes.load(Ordering::SeqCst), 1);
 }
 
+#[test]
+#[serial_test::serial(driver_extensions)]
+fn owned_transport_closes_after_agent_join_and_context_close_with_interceptors_in_either_order() {
+    static SENDS: AtomicUsize = AtomicUsize::new(0);
+
+    unsafe extern "C" fn send(
+        paths: *mut native::aeron_udp_channel_data_paths_t,
+        transport: *mut native::aeron_udp_channel_transport_t,
+        address: *mut native::sockaddr_storage,
+        vectors: *mut native::iovec,
+        length: usize,
+        bytes: *mut i64,
+    ) -> i32 {
+        SENDS.fetch_add(1, Ordering::Relaxed);
+        // SAFETY: forward the native arguments unchanged through the installed transport.
+        unsafe { native::aeron_udp_channel_transport_send(paths, transport, address, vectors, length, bytes) }
+    }
+
+    struct CheckedRuntime {
+        _runtime: native_transport_owned::NativeRuntime,
+        joined: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        directory: std::path::PathBuf,
+    }
+    impl Drop for CheckedRuntime {
+        fn drop(&mut self) {
+            assert!(
+                self.joined.load(Ordering::Acquire),
+                "runtime dropped before driver join"
+            );
+            assert!(!self.directory.exists(), "runtime dropped before native context close");
+        }
+    }
+    unsafe extern "C" fn close(handle: *mut std::ffi::c_void) {
+        // SAFETY: the guard owns this Box and invokes close exactly once.
+        let count = unsafe { Box::from_raw(handle.cast::<std::sync::Arc<AtomicUsize>>()) };
+        count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    for transport_first in [true, false] {
+        let directory = std::env::temp_dir().join(format!(
+            "rusteron-owned-transport-{}-{transport_first}",
+            std::process::id()
+        ));
+        let context = AeronDriverContext::new().unwrap();
+        context.set_dir(&directory.to_string_lossy().into_c_string()).unwrap();
+        context.set_dir_delete_on_start(true).unwrap();
+        context.set_dir_delete_on_shutdown(true).unwrap();
+        context.set_threading_mode(AeronThreadingMode::Dedicated).unwrap();
+        let joined = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let closes = std::sync::Arc::new(AtomicUsize::new(0));
+        let handle = std::ptr::NonNull::new(Box::into_raw(Box::new(closes.clone())).cast()).unwrap();
+        // SAFETY: close owns this allocation and supports calls from any thread.
+        let runtime = unsafe { native_transport_owned::NativeRuntime::from_raw(handle, close) };
+        let mut table = NativeTransportBindings::udp().callbacks();
+        table.send_func = Some(send);
+        // SAFETY: UDP provides the complete native table and static metadata.
+        // The send replacement forwards the same arguments to the native callback.
+        let bindings = unsafe {
+            NativeTransportBindings::from_callbacks(
+                table,
+                CheckedRuntime {
+                    _runtime: runtime,
+                    joined: joined.clone(),
+                    directory: directory.clone(),
+                },
+            )
+        }
+        .unwrap();
+        let counters = [&FLOW_MESSAGES, &OUTGOING_BATCHES, &INCOMING_PACKETS];
+        let before = counters.map(|counter| counter.load(Ordering::Relaxed));
+        let sends_before = SENDS.load(Ordering::Relaxed);
+        let install_extensions = || {
+            flow_control::configure(&context).unwrap();
+            outgoing_interceptor::configure(&context).unwrap();
+            incoming_interceptor::configure(&context).unwrap();
+        };
+        if !transport_first {
+            install_extensions();
+        }
+        context
+            .set_native_transport_bindings(TransportRole::Data, bindings)
+            .unwrap();
+        if transport_first {
+            install_extensions();
+        }
+        let retained = context.clone();
+        let driver = AeronDriver::new(&context).unwrap().start().unwrap();
+        drop(context);
+        let client = Aeron::connect_dir(&directory.to_string_lossy()).unwrap();
+        round_trip(&client, &channel(), 32);
+        assert!(
+            SENDS.load(Ordering::Relaxed) > sends_before,
+            "custom transport was not used"
+        );
+        for (counter, before) in counters.into_iter().zip(before) {
+            assert!(
+                counter.load(Ordering::Relaxed) > before,
+                "extension callback was not used"
+            );
+        }
+        assert_eq!(closes.load(Ordering::Relaxed), 0);
+        drop(client);
+        drop(driver);
+        joined.store(true, Ordering::Release);
+        assert_eq!(closes.load(Ordering::Relaxed), 0);
+        assert!(directory.exists(), "the context alias must retain the native context");
+        drop(retained);
+        assert!(!directory.exists());
+        assert_eq!(closes.load(Ordering::Relaxed), 1);
+    }
+}
+
 #[allow(dead_code)]
 #[path = "../examples/extensions/outgoing_interceptor.rs"]
 mod outgoing_interceptor;

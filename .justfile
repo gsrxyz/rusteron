@@ -209,6 +209,10 @@ test-asan:
       --target "$(rustc -vV | sed -n 's/host: //p')" --features sanitize-address -- --nocapture
   fi
 
+# Run Rust and native C threading checks. Requires rust-src and Clang's sanitizer runtime.
+test-tsan:
+  bash scripts/test-tsan.sh
+
 # Run slow consumer tests (normally ignored)
 slow-tests:
   cargo test --package rusteron-archive --lib --features "precompile static" -- --ignored --nocapture

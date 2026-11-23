@@ -173,3 +173,16 @@ cargo bench -p rusteron-client --features static --bench callback_overhead
 ```
 
 See [how to benchmark](../BENCHMARKS.md#how-to-benchmark) for the other benchmarks.
+## ThreadSanitizer
+
+```sh
+just test-tsan   # Linux, needs rust-src and Clang's sanitizer runtime
+```
+
+- Rebuilds Rust, std and Aeron C with TSan. CI runs it on x86_64 and ARM64.
+- TSan builds swap Aeron's volatile/fence and x86 assembly atomics for compiler atomics so TSan sees the synchronisation. Normal builds are unchanged.
+- [`scripts/tsan.supp`](../scripts/tsan.supp) suppresses two Aeron protocols TSan cannot model: the loss-metadata sequence lock and gap-scanner probes. Both match only the native frame.
+- Covers driver extensions, client registrations, offers, claims and counters, subscription handoff, exclusive publications, archive transports and persistent subscriptions.
+- Compile-time assertions reject `Sync`/`Clone` on subscriptions and `Send`/`Sync` on exclusive publications, images, archive clients and persistent subscriptions.
+- Skips the panic-abort test and the deliberate conductor-leak test.
+- Fails unless TSan catches two deliberate races, one native and one in a Rust callback.
