@@ -3,7 +3,11 @@
 use rusteron_media_driver::bindings::aeron_flow_control_calculate_retransmission_length;
 use rusteron_media_driver::{AeronCError, AeronDriverContext, extensions::*};
 use std::ffi::CStr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+/// Publications that ignored a receiver because every slot was in use.
+/// The sender counts instead of logging, because a logger can allocate or block
+pub static FULL_TABLE_PUBLICATIONS: AtomicU64 = AtomicU64::new(0);
 
 // AERON_STATUS_MESSAGE_HEADER_EOS_FLAG in protocol/aeron_udp_protocol.h
 const STATUS_MESSAGE_EOS_FLAG: u8 = 0x40;
@@ -46,11 +50,11 @@ pub struct TaggedReceiverState {
 }
 
 impl<const WAIT_NS: i64, const CAPACITY: usize> BoundedTaggedFlowControl<WAIT_NS, CAPACITY> {
-    // Logs once per publication so a full table cannot flood the sender thread
+    // Counts once per publication so a full table cannot flood the counter
     #[cold]
-    fn warn_capacity(&mut self, receiver_id: i64) {
+    fn note_full_table(&mut self) {
         self.capacity_warned = true;
-        log::warn!("tagged flow control ignores receiver {receiver_id}, all {CAPACITY} slots are in use");
+        FULL_TABLE_PUBLICATIONS.fetch_add(1, Ordering::Relaxed);
     }
     fn setup_limit(&mut self, now: i64) -> i64 {
         match self.setup_limit {
@@ -224,7 +228,7 @@ impl<const WAIT_NS: i64, const CAPACITY: usize> FlowControl for BoundedTaggedFlo
             setup_limit = i64::MAX;
             min = min.min(received_limit);
         } else if !existing && matches && self.count == CAPACITY && !self.capacity_warned {
-            self.warn_capacity(sm.receiver_id());
+            self.note_full_table();
         }
         if self.count != old_count || (!self.degraded && self.count < self.minimum) {
             self.update_minimum(shared, now, metrics, old_count);
@@ -283,5 +287,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Use aeron:udp?endpoint=127.0.0.1:40123. Press Enter to stop.");
     std::io::stdin().read_line(&mut String::new())?;
     drop(driver);
+    println!(
+        "Publications with a full receiver table: {}",
+        FULL_TABLE_PUBLICATIONS.load(Ordering::Relaxed)
+    );
     Ok(())
 }
