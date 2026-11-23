@@ -286,12 +286,6 @@ jobs:
         run: |
           cargo test -p rusteron-client --features strict-lifecycle --lib -- --nocapture
 
-      - name: Test precompiled libraries and bindings
-        if: matrix.features == 'static'
-        run: |
-          cargo install just --locked
-          just test-precompiled-bindings
-
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -301,6 +295,44 @@ jobs:
             rusteron-archive/artifacts
             rusteron-client/artifacts
             rusteron-media-driver/artifacts
+
+  precompiled:
+    # Separate from Build so it runs in parallel. The recipe publishes and loads its own bundle
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    name: Precompiled (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-22.04-arm, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt
+
+      - name: Install dependencies on Ubuntu
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y curl pkg-config libssl-dev libbsd-dev uuid-dev ca-certificates make cmake gcc g++ clang zlib1g-dev
+
+      # aeron archive cmake for some reason starts java
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '23'
+
+      - name: Test precompiled libraries and bindings
+        run: |
+          cargo install just --locked
+          just test-precompiled-bindings
 
   cross-language-lto:
     # Aeron C compiled to bitcode by a clang matching rustc's LLVM and inlined into Rust at link time
