@@ -51,7 +51,6 @@ pub fn main() {
         wrapper_type_filter: RusteronBuildConfig::aeron_only,
         expected_wrapper: None,
         extra_custom_code: &[rusteron_code_gen::CUSTOM_ARCHIVE_CODE],
-        method_overrides: &[],
         bindings_snapshot: "archive.rs",
         pre_build: run_gradle_build_if_missing,
     });

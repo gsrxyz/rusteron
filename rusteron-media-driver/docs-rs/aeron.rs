@@ -21985,7 +21985,9 @@ impl<S: ResourceStorage<aeron_driver_conductor_t>> AeronDriverConductor<S> {
         }
     }
     #[inline]
-    pub fn on_client_close(&self, command: &AeronCorrelatedCommand) -> Result<i32, AeronCError> {
+    #[doc = "# Safety"]
+    #[doc = "This bypasses Rust ownership. Keep all retained pointers valid until native cleanup. Initializers require exclusive access and must not overwrite live native state or invalidate borrowed views. After raw removal or deletion, prevent all further access and Rust cleanup through every alias. Prefer the owning handle's constructor, close or cancel method."]
+    pub unsafe fn on_client_close(&self, command: &AeronCorrelatedCommand) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
             log::info!(
@@ -37588,6 +37590,80 @@ impl<S: ResourceStorage<aeron_driver_t>> AeronDriver<S> {
     #[must_use]
     pub fn runners(&self) -> [aeron_agent_runner_t; 4usize] {
         unsafe { self.get_inner_ref() }.runners.into()
+    }
+    #[inline]
+    #[doc = "Start an `AeronDriver` given the threading mode. This may spawn threads for the Sender, Receiver, and Conductor"]
+    #[doc = " depending on threading mode used."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `manual_main_loop` to be called by the caller for the Conductor do_work cycle."]
+    #[doc = " \n# Return\n 0 for success and -1 for error."]
+    pub fn start(&self, manual_main_loop: bool) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_start),
+                [
+                    concat!("driver", ": ", stringify!(*mut aeron_driver_t)).to_string(),
+                    format!("{} = {:?}", "manual_main_loop", manual_main_loop)
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_start(self.get_inner(), manual_main_loop.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    #[doc = "Call the Conductor (or Shared) main do_work duty cycle once."]
+    #[doc = ""]
+    #[doc = " Driver must have been created with manual_main_loop set to true."]
+    #[doc = ""]
+    #[doc = " \n# Return\n 0 for success and -1 for error."]
+    pub fn main_do_work(&self) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_main_do_work),
+                [concat!("driver", ": ", stringify!(*mut aeron_driver_t)).to_string()].join(", ")
+            );
+            let result = aeron_driver_main_do_work(self.get_inner());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
+    #[inline]
+    #[doc = "Call the Conductor (or Shared) Idle Strategy."]
+    #[doc = ""]
+    #[doc = "# Parameters\n \n - `work_count` to pass to idle strategy."]
+    pub fn main_idle_strategy(&self, work_count: ::std::os::raw::c_int) -> () {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_driver_main_idle_strategy),
+                [
+                    concat!("driver", ": ", stringify!(*mut aeron_driver_t)).to_string(),
+                    format!("{} = {:?}", "work_count", work_count)
+                ]
+                .join(", ")
+            );
+            let result = aeron_driver_main_idle_strategy(self.get_inner(), work_count.into());
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            result.into()
+        }
     }
     #[doc = r" Borrow this handle without cloning its owner."]
     #[inline(always)]

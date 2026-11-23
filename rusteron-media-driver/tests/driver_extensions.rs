@@ -23,7 +23,7 @@ fn manual_work_errors_leave_message_capture_to_the_caller() {
     context.set_threading_mode(AeronThreadingMode::Invoker).unwrap();
     let driver = AeronDriver::new(&context).unwrap();
     let raw = driver.get_inner();
-    let mut driver = driver.start_manual().unwrap();
+    driver.start(true).unwrap();
 
     // SAFETY: INVOKER has no background runner. Replace the work callback on
     // this thread for one call, then restore it before assertions or shutdown.
@@ -37,7 +37,7 @@ fn manual_work_errors_leave_message_capture_to_the_caller() {
         );
         let original = (*raw).runners[0].do_work;
         (*raw).runners[0].do_work = Some(fail_work);
-        let result = driver.do_work();
+        let result = driver.main_do_work();
         (*raw).runners[0].do_work = original;
         result.unwrap_err()
     };
@@ -181,7 +181,8 @@ fn owned_transport_closes_after_agent_join_and_context_close_with_interceptors_i
             install_extensions();
         }
         let retained = context.clone();
-        let driver = AeronDriver::new(&context).unwrap().start().unwrap();
+        let driver = AeronDriver::new(&context).unwrap();
+        driver.start(false).unwrap();
         drop(context);
         let client = Aeron::connect_dir(&directory.to_string_lossy()).unwrap();
         round_trip(&client, &channel(), 32);
@@ -666,7 +667,7 @@ fn added_duty_trackers_preserve_native_stall_counters_for_every_role() {
             .add_duty_cycle_tracker(DutyCycleRole::Conductor, DutyCycleTimer::new(|_| {}))
             .is_err()
     );
-    let _driver = driver.start_manual().unwrap();
+    driver.start(true).unwrap();
     // INVOKER runs no agents in the background. The driver has initialised
     // the real native counters, and no other callbacks run during these calls.
     unsafe {

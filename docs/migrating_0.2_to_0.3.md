@@ -25,7 +25,6 @@ explicit type annotations and low-level FFI access.
 | `timestamp_offset_reserved("...")` | Use `media_rcv_timestamp_offset("reserved")`, `channel_rcv_timestamp_offset("reserved")` or `channel_snd_timestamp_offset("reserved")`. Aeron defines `reserved` as a value, not a key |
 | Exhaustive matches on public Rust enums | Add a fallback arm. The enums are `#[non_exhaustive]` |
 | Client manual conductor calls | Call `main_do_work()` from one thread at a time, as in Aeron Java and C++ |
-| Driver manual loop | Consume the driver with `start_manual()`. Use `do_work(&mut self)` and `idle(&mut self, work)` on the returned `ManualDriver` |
 
 Update the crate versions together:
 
@@ -1021,18 +1020,8 @@ Rust store in every build, so LTO cannot change it. A reusable
 `AeronBufferClaim` calls the native `commit`, which LTO inlined, but its timings
 did not change beyond the spread.
 
-## Media driver manual loops (0.3.1)
+## Media driver extensions (0.3.1)
 
-- Replace `driver.start(true)` with `start_manual()` and `driver.start(false)` with `start()`.
-  Keep the returned handle alive until shutdown.
+- `AeronDriver` is not `Clone`. Keep one owner and drive `main_do_work` from it.
 - Raw supplier setters need `unsafe`. Prefer typed setters such as `set_unicast_flow_control::<T>`.
 - `dyn IdleStrategy` no longer compiles, because of `const BUSY_SPIN`.
-
-```rust,no_run
-# use rusteron_media_driver::{AeronCError, AeronDriver, AeronDriverContext};
-let context = AeronDriverContext::new()?;
-let mut driver = AeronDriver::new(&context)?.start_manual()?;
-let work = driver.do_work()?;
-driver.idle(work);
-# Ok::<(), AeronCError>(())
-```

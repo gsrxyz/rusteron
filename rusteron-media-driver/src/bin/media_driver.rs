@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Retain diagnostics before main drops the driver and context.
     let aeron_driver = AeronDriver::new(&aeron_context).map_err(AeronCError::capture_errmsg)?;
-    let mut aeron_driver = aeron_driver.start_manual().map_err(AeronCError::capture_errmsg)?;
+    aeron_driver.start(true).map_err(AeronCError::capture_errmsg)?;
     info!(
         "driver environment after start: {:#?}",
         environment::inspect_environment(&aeron_context)
@@ -38,8 +38,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Poll for work until Ctrl+C is pressed
     while running.load(Ordering::Acquire) {
-        let work = aeron_driver.do_work().map_err(AeronCError::capture_errmsg)?;
-        aeron_driver.idle(work);
+        let work = aeron_driver.main_do_work().map_err(AeronCError::capture_errmsg)?;
+        aeron_driver.main_idle_strategy(work);
     }
     info!("Received signal to stop the media driver.");
     info!("Aeron media driver stopped successfully.");

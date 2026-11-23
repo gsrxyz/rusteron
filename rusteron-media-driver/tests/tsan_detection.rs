@@ -47,7 +47,8 @@ fn rust_callback_race_is_detected() {
     for role in [IdleStrategyRole::Sender, IdleStrategyRole::Receiver] {
         context.set_idle_strategy(role, RacyIdle(shared.clone())).unwrap();
     }
-    let driver = AeronDriver::new(&context).unwrap().start().unwrap();
+    let driver = AeronDriver::new(&context).unwrap();
+    driver.start(false).unwrap();
     std::thread::sleep(Duration::from_millis(250));
     drop(driver);
     panic!("ThreadSanitizer failed to report the deliberate callback race");

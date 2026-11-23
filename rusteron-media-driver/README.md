@@ -43,12 +43,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let context = AeronDriverContext::new()?;
     context.set_dir(c"target/aeron")?;
     context.set_threading_mode(AeronThreadingMode::Shared)?;
-    let mut driver = AeronDriver::new(&context)?.start_manual()?;
+    let driver = AeronDriver::new(&context)?;
+    driver.start(true)?;
     // SAFETY: printing copies the text before any setter can change it
     println!("media driver running in {}", unsafe { context.get_dir() });
     loop {
-        let work = driver.do_work()?;
-        driver.idle(work);
+        let work = driver.main_do_work()?;
+        driver.main_idle_strategy(work);
     }
 }
 ```
