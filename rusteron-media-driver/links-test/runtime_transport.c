@@ -3,6 +3,7 @@
 #endif
 
 #include <stdatomic.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,10 +12,12 @@
 #include "media/aeron_udp_channel_transport.h"
 #include "media/aeron_udp_transport_poller.h"
 
-/* A small C transport library with a static table and one owned runtime.
+/* A small C transport library with a per-runtime table.
  * It delegates UDP traffic to Aeron. Only setup and close update these counters. */
 typedef struct links_test_runtime_stct
 {
+    char name[sizeof("owned-test-udp")];
+    aeron_udp_channel_transport_bindings_t bindings;
     _Atomic uint64_t transports;
     _Atomic uint64_t pollers;
     _Atomic uint64_t transport_closes;
@@ -39,14 +42,25 @@ typedef struct links_test_poller_state_stct
 }
 links_test_poller_state_t;
 
-static const char runtime_key[] = "links-test.transport-runtime";
+static const aeron_udp_channel_transport_bindings_t runtime_bindings;
 static _Atomic uint64_t runtime_closes;
+static int runtime_transport_init(
+    aeron_udp_channel_transport_t *,
+    struct sockaddr_storage *,
+    struct sockaddr_storage *,
+    struct sockaddr_storage *,
+    aeron_udp_channel_transport_params_t *,
+    aeron_driver_context_t *,
+    aeron_udp_channel_transport_affinity_t);
 
 void *links_test_runtime_open(void)
 {
     links_test_runtime_t *runtime = calloc(1, sizeof(links_test_runtime_t));
     if (NULL != runtime)
     {
+        memcpy(runtime->name, "owned-test-udp", sizeof(runtime->name));
+        runtime->bindings = runtime_bindings;
+        runtime->bindings.meta_info.name = runtime->name;
         atomic_init(&runtime->transports, 0);
         atomic_init(&runtime->pollers, 0);
         atomic_init(&runtime->transport_closes, 0);
@@ -57,22 +71,16 @@ void *links_test_runtime_open(void)
     return runtime;
 }
 
-int links_test_runtime_install(aeron_driver_context_t *context, void *runtime)
-{
-    aeron_driver_context_bindings_clientd_entry_t *entry =
-        aeron_driver_context_bindings_clientd_get_or_find_first_free_entry(context, runtime_key);
-    if (NULL == entry)
-    {
-        return -1;
-    }
-    entry->clientd = runtime;
-    return 0;
-}
-
 static links_test_runtime_t *runtime_from_context(aeron_driver_context_t *context)
 {
-    int index = aeron_driver_context_bindings_clientd_find(context, runtime_key);
-    return index < 0 ? NULL : context->bindings_clientd_entries[index].clientd;
+    aeron_udp_channel_transport_bindings_t *bindings = context->udp_channel_transport_bindings;
+    if (NULL == bindings || bindings->init_func != runtime_transport_init || NULL == bindings->meta_info.name)
+    {
+        return NULL;
+    }
+    /* The copied table retains a pointer to this runtime's valid name string.
+     * The Rust keepalive owns the enclosing runtime through native shutdown. */
+    return (links_test_runtime_t *)((char *)bindings->meta_info.name - offsetof(links_test_runtime_t, name));
 }
 
 static int runtime_transport_init(
@@ -214,23 +222,32 @@ static int runtime_poller_close(aeron_udp_transport_poller_t *poller)
 /* Native UDP owns poller->bindings_clientd for its epoll/poll storage. Restore
  * that pointer around every delegated operation, then retain its updated value.
  * A poller belongs to one agent, so these substitutions never overlap. */
-static int runtime_poller_add(aeron_udp_transport_poller_t *poller, aeron_udp_channel_transport_t *transport)
+static links_test_poller_state_t *runtime_poller_delegate_begin(aeron_udp_transport_poller_t *poller)
 {
     links_test_poller_state_t *state = poller->bindings_clientd;
     poller->bindings_clientd = state->udp_state;
-    int result = aeron_udp_transport_poller_add(poller, transport);
+    return state;
+}
+
+static void runtime_poller_delegate_end(aeron_udp_transport_poller_t *poller, links_test_poller_state_t *state)
+{
     state->udp_state = poller->bindings_clientd;
     poller->bindings_clientd = state;
+}
+
+static int runtime_poller_add(aeron_udp_transport_poller_t *poller, aeron_udp_channel_transport_t *transport)
+{
+    links_test_poller_state_t *state = runtime_poller_delegate_begin(poller);
+    int result = aeron_udp_transport_poller_add(poller, transport);
+    runtime_poller_delegate_end(poller, state);
     return result;
 }
 
 static int runtime_poller_remove(aeron_udp_transport_poller_t *poller, aeron_udp_channel_transport_t *transport)
 {
-    links_test_poller_state_t *state = poller->bindings_clientd;
-    poller->bindings_clientd = state->udp_state;
+    links_test_poller_state_t *state = runtime_poller_delegate_begin(poller);
     int result = aeron_udp_transport_poller_remove(poller, transport);
-    state->udp_state = poller->bindings_clientd;
-    poller->bindings_clientd = state;
+    runtime_poller_delegate_end(poller, state);
     return result;
 }
 
@@ -243,11 +260,9 @@ static int runtime_poller_poll(
     aeron_udp_channel_transport_recvmmsg_func_t recvmmsg,
     void *clientd)
 {
-    links_test_poller_state_t *state = poller->bindings_clientd;
-    poller->bindings_clientd = state->udp_state;
+    links_test_poller_state_t *state = runtime_poller_delegate_begin(poller);
     int result = aeron_udp_transport_poller_poll(poller, vectors, length, bytes_received, receive, recvmmsg, clientd);
-    state->udp_state = poller->bindings_clientd;
-    poller->bindings_clientd = state;
+    runtime_poller_delegate_end(poller, state);
     return result;
 }
 
@@ -268,9 +283,10 @@ static const aeron_udp_channel_transport_bindings_t runtime_bindings =
     { "owned-test-udp", "media", NULL }
 };
 
-const aeron_udp_channel_transport_bindings_t *links_test_runtime_bindings(void)
+const aeron_udp_channel_transport_bindings_t *links_test_runtime_bindings(void *handle)
 {
-    return &runtime_bindings;
+    links_test_runtime_t *runtime = handle;
+    return &runtime->bindings;
 }
 
 void links_test_runtime_snapshot(void *handle, uint64_t *values)

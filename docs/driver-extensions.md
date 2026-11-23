@@ -356,10 +356,16 @@ A C library can return a complete static table and a separate runtime handle.
 Copy the table into `from_callbacks(table, keepalive)`. Make `keepalive` a
 non-Clone Rust guard whose `Drop` calls the library's runtime-close function.
 Retain a dynamic library handle in that guard too if it owns the callback code.
+The guard must be safe to move and drop on any thread; thread-affine native
+close functions need a separate mechanism to dispatch closure to their owner.
 The [owned transport example](../rusteron-media-driver/examples/extensions/native_transport_owned.rs)
 shows the guard and installation. Its executable uses Aeron's C allocator as
 the demonstration open/close pair. The `links-test` integration test uses a real
-C runtime and a complete static C table.
+C runtime and a complete per-runtime C table. Its copied table's metadata name
+points into that runtime, allowing its callbacks to recover the runtime from the
+context without consuming Aeron's limited interceptor/resolver binding slots.
+The guard keeps that name and runtime alive until context close. This is specific
+to the fixture's table layout, not a general Aeron client-data API.
 
 The context closes its native resources before dropping the guard. Driver close
 stops and joins the agents first. A retained context clone extends the guard's
@@ -398,6 +404,12 @@ Reliable subscriptions request retransmission through Aeron's normal loss
 recovery. One decision applies to the entire outgoing batch, which can contain
 several datagrams. The policies also affect control traffic on matching paths.
 
+**Aeron 1.54.2 limitation:** its publication RTT reply path uses an uninitialized
+byte counter, including when a batch is dropped or forwarded by an interceptor.
+This can cause undefined behavior even without an interceptor. The native
+`aeron_network_publication_on_rttm` caller must initialize `bytes_sent` to zero;
+source builds and precompiled native libraries both require that Aeron fix.
+
 `SeededLoss<N, SEED>` drops every Nth batch after a seeded offset. `N=0` disables
 loss. `GilbertElliottLoss` uses a seeded two-state model for bursts. Pass a
 `GilbertElliottConfig` to `add_outgoing_interceptor_with_state`. Every probability
@@ -405,8 +417,9 @@ is an integer number of parts per million, from zero to 1,000,000. Larger values
 fail during construction. The model starts in the good state, samples that
 state's loss probability, then samples a transition for the next batch.
 
-`DestinationLoss<L>` applies an outgoing loss policy only to an exact destination
-IP address and port. Other destinations pass unchanged without advancing `L`.
+`DestinationLoss<L>` applies an outgoing loss policy only to a matching destination
+IP address and port. IPv6 scope IDs must also match; flow information is ignored.
+Other destinations pass unchanged without advancing `L`.
 Install it with state `(destination, inner_state)`. For periodic loss, use
 `DestinationLoss<SeededLoss<7, 3>>` with `(destination, ())`. For burst loss, use
 `DestinationLoss<GilbertElliottLoss>` with `(destination, config)`.

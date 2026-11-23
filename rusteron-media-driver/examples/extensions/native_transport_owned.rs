@@ -14,8 +14,7 @@ pub struct NativeRuntime {
     close: unsafe extern "C" fn(*mut c_void),
 }
 
-// SAFETY: from_raw requires the library's runtime to support concurrent native
-// agents and to allow close on the context's owning thread after agent join.
+// SAFETY: from_raw requires concurrent access and permits close on any thread.
 unsafe impl Send for NativeRuntime {}
 unsafe impl Sync for NativeRuntime {}
 
@@ -28,9 +27,9 @@ impl NativeRuntime {
     ///
     /// # Safety
     /// `handle` must be accepted by `close`, which must release it once without
-    /// unwinding. The runtime must support concurrent sender and receiver use.
-    /// Its close function and all transport callbacks must remain loaded until
-    /// this guard drops. The context's owning thread must be allowed to close it.
+    /// unwinding and may be called on any thread. The runtime must support
+    /// concurrent sender and receiver use. Its close function and all transport
+    /// callbacks must remain loaded until this guard drops.
     pub unsafe fn from_raw(handle: NonNull<c_void>, close: unsafe extern "C" fn(*mut c_void)) -> Self {
         Self { handle, close }
     }
@@ -38,8 +37,8 @@ impl NativeRuntime {
 
 impl Drop for NativeRuntime {
     fn drop(&mut self) {
-        // SAFETY: this non-Clone guard owns the handle. The context retains it
-        // until native shutdown, which follows the join of all native agents.
+        // SAFETY: this non-Clone guard owns the handle and may close on any
+        // thread. Once installed, the context retains it until native shutdown.
         unsafe { (self.close)(self.handle.as_ptr()) };
     }
 }

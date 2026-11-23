@@ -112,6 +112,7 @@ impl OutgoingInterceptor for GilbertElliottLoss {
 }
 
 /// Apply a loss policy to exactly one destination IP address and port.
+/// IPv6 scope IDs must also match; IPv6 flow information is ignored.
 ///
 /// Other destinations pass unchanged and do not advance the loss policy.
 /// Install with `add_outgoing_interceptor_with_state`, passing a tuple of
@@ -140,7 +141,16 @@ impl<L: OutgoingInterceptor> OutgoingInterceptor for DestinationLoss<L> {
 
     #[inline]
     fn send<'a>(&mut self, next: OutgoingNext<'a>, packet: OutgoingPacket<'a>) -> i32 {
-        if packet.address().to_socket_addr() == Some(self.destination) {
+        let matches = match (self.destination, packet.address().to_socket_addr()) {
+            (SocketAddr::V4(expected), Some(SocketAddr::V4(actual))) => expected == actual,
+            (SocketAddr::V6(expected), Some(SocketAddr::V6(actual))) => {
+                expected.ip() == actual.ip()
+                    && expected.port() == actual.port()
+                    && expected.scope_id() == actual.scope_id()
+            }
+            _ => false,
+        };
+        if matches {
             self.loss.send(next, packet)
         } else {
             next.send(packet)

@@ -79,6 +79,22 @@ mod native_transport;
 #[allow(dead_code)]
 #[path = "../examples/extensions/native_transport_owned.rs"]
 mod native_transport_owned;
+
+#[test]
+fn owned_transport_runtime_can_close_on_another_thread() {
+    unsafe extern "C" fn close(handle: *mut std::ffi::c_void) {
+        let counter = unsafe { Box::from_raw(handle.cast::<std::sync::Arc<AtomicUsize>>()) };
+        counter.fetch_add(1, Ordering::SeqCst);
+    }
+
+    let closes = std::sync::Arc::new(AtomicUsize::new(0));
+    let handle = std::ptr::NonNull::new(Box::into_raw(Box::new(closes.clone())).cast()).unwrap();
+    // SAFETY: this handle is owned by the guard and close is thread-safe.
+    let runtime = unsafe { native_transport_owned::NativeRuntime::from_raw(handle, close) };
+    std::thread::spawn(move || drop(runtime)).join().unwrap();
+    assert_eq!(closes.load(Ordering::SeqCst), 1);
+}
+
 #[allow(dead_code)]
 #[path = "../examples/extensions/outgoing_interceptor.rs"]
 mod outgoing_interceptor;

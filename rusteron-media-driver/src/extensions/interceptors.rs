@@ -55,6 +55,10 @@ impl OutgoingPacket<'_> {
         (0..self.length).map(|index| self.datagram(index).unwrap())
     }
     /// Report a deliberate drop as a successful send, so Aeron can retransmit it.
+    ///
+    /// Aeron 1.54.2's RTT reply path passes an uninitialized byte counter to
+    /// outgoing interceptors. That native caller must be fixed before using
+    /// loss policies with RTT measurement; forwarding can also trigger it.
     pub fn drop_as_sent(self) -> i32 {
         let mut bytes = 0i64;
         for i in 0..self.length {
@@ -973,6 +977,50 @@ mod tests {
                 assert_eq!(bytes, 11);
                 assert_eq!(sends, index + 1 - (index + 1) / 4);
             }
+        }
+    }
+
+    #[test]
+    fn destination_loss_ignores_ipv6_flowinfo_but_respects_scope_and_port() {
+        let ip: std::net::Ipv6Addr = "fe80::1234".parse().unwrap();
+        let destination = std::net::SocketAddrV6::new(ip, 40123, 11, 9);
+        let mut loss = DestinationLoss::new(destination.into(), SeededLoss::<1>::default());
+        let mut sent = Sent::default();
+        let mut next = aeron_udp_channel_outgoing_interceptor_t {
+            interceptor_state: (&raw mut sent).cast(),
+            outgoing_send_func: Some(record_send),
+            ..Default::default()
+        };
+        for (port, flowinfo, scope, expected_sends) in
+            [(40123u16, 42u32, 9u32, 0), (40123, 11, 10, 1), (40124, 11, 9, 2)]
+        {
+            let mut address = sockaddr_storage::default();
+            unsafe {
+                super::super::resolver::write_ip_for_test(&mut address, ip.into());
+                let raw = (&raw mut address).cast::<u8>();
+                raw.add(2).cast::<u16>().write_unaligned(port.to_be());
+                raw.add(4).cast::<u32>().write_unaligned(flowinfo.to_be());
+                raw.add(24).cast::<u32>().write_unaligned(scope);
+            }
+            let mut vectors = [iovec {
+                iov_base: c"data".as_ptr().cast_mut().cast(),
+                iov_len: 4,
+            }];
+            let mut bytes = 7;
+            let mut packet = packet(&mut vectors, &mut bytes);
+            packet.address = &mut address;
+            assert_eq!(
+                loss.send(
+                    OutgoingNext {
+                        raw: &mut next,
+                        _life: PhantomData
+                    },
+                    packet,
+                ),
+                1
+            );
+            assert_eq!(sent.calls, expected_sends);
+            assert_eq!(bytes, 11);
         }
     }
 
