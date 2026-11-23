@@ -121,6 +121,52 @@ fn added_trackers_chain_and_set_replaces_the_chain() {
 }
 
 #[test]
+fn native_tracker_updates_counters_before_each_observer_without_allocation() {
+    use std::sync::atomic::AtomicI64;
+
+    let context = AeronDriverContext::new().unwrap();
+    let maximum = Arc::new(AtomicI64::new(0));
+    let exceeded = Arc::new(AtomicI64::new(0));
+    let calls = Arc::new(AtomicUsize::new(0));
+    // SAFETY: no driver runs. These aligned counters remain alive through
+    // context close because the installed observer also retains their owners.
+    unsafe {
+        let stall = &mut (*context.get_inner()).sender_duty_cycle_stall_tracker;
+        stall.cycle_threshold_ns = 1;
+        stall.max_cycle_time_counter = maximum.as_ptr();
+        stall.cycle_time_threshold_exceeded_counter = exceeded.as_ptr();
+    }
+    let (max, count, observed) = (maximum.clone(), exceeded.clone(), calls.clone());
+    let mut expected_max = 0;
+    context
+        .add_duty_cycle_tracker(
+            DutyCycleRole::Sender,
+            DutyCycleTimer::new(move |elapsed| {
+                expected_max = expected_max.max(elapsed);
+                let expected_count = observed.load(Ordering::Relaxed) + 1;
+                assert_eq!(max.load(Ordering::Acquire), expected_max);
+                assert_eq!(count.load(Ordering::Acquire), expected_count as i64);
+                observed.store(expected_count, Ordering::Relaxed);
+            }),
+        )
+        .unwrap();
+    // SAFETY: these synchronous callbacks are the only accesses to the tracker.
+    unsafe {
+        let table = &*(*context.get_inner()).sender_duty_cycle_tracker;
+        crate::test_alloc::assert_no_heap_allocation(|| {
+            table.update.unwrap()(table.state, 0);
+            for now in [10, 25, 90] {
+                table.measure_and_update.unwrap()(table.state, now);
+            }
+        });
+    }
+    assert_eq!(calls.load(Ordering::Relaxed), 3);
+    assert_eq!(maximum.load(Ordering::Acquire), 65);
+    assert_eq!(exceeded.load(Ordering::Acquire), 3);
+    drop(context);
+}
+
+#[test]
 fn every_idle_role_forwards_work_and_supports_native_replacement() {
     let events = Arc::new(Observed::default());
     let context = AeronDriverContext::new().unwrap();

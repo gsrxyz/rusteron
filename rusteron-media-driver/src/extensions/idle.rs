@@ -22,6 +22,12 @@ pub enum IdleStrategyRole {
 /// aborts the process.
 /// Closures that implement `FnMut(i32) + Send + 'static` implement this trait.
 pub trait IdleStrategy: Send + 'static {
+    /// Declare that this strategy never sleeps, yields, or parks.
+    ///
+    /// The native name is "rusteron-spin" when true and "rusteron" otherwise.
+    /// This declaration changes setup metadata only. Closures use the default.
+    const BUSY_SPIN: bool = false;
+
     fn idle(&mut self, work_count: i32);
 }
 
@@ -57,11 +63,13 @@ impl AeronDriverContext {
     ///
     /// Values without destructors fit directly in native state when their
     /// alignment permits. Other values remain owned by the context until
-    /// shutdown, even after replacement. The native name getter returns "rusteron".
+    /// shutdown, even after replacement. The native name getter returns
+    /// "rusteron-spin" for `T::BUSY_SPIN`, or "rusteron" otherwise.
     pub fn set_idle_strategy<T: IdleStrategy>(&self, role: IdleStrategyRole, strategy: T) -> Result<(), AeronCError> {
         self.inner.check_configurable()?;
         let mut state = std::ptr::null_mut();
         let mut name = std::ptr::null_mut();
+        let strategy_name = if T::BUSY_SPIN { c"rusteron-spin" } else { c"rusteron" };
         let size = if inline_state::<T>() {
             std::mem::size_of::<T>().max(1)
         } else {
@@ -70,7 +78,7 @@ impl AeronDriverContext {
         let owner;
         unsafe {
             check(aeron_alloc(&mut state, size))?;
-            if let Err(error) = check(aeron_alloc(&mut name, c"rusteron".to_bytes_with_nul().len())) {
+            if let Err(error) = check(aeron_alloc(&mut name, strategy_name.to_bytes_with_nul().len())) {
                 aeron_free(state);
                 return Err(error);
             }
@@ -84,7 +92,11 @@ impl AeronDriverContext {
                 state.cast::<*mut T>().write(owner.0.get());
                 Some(owner)
             };
-            std::ptr::copy_nonoverlapping(c"rusteron".as_ptr(), name.cast(), c"rusteron".to_bytes_with_nul().len());
+            std::ptr::copy_nonoverlapping(
+                strategy_name.as_ptr(),
+                name.cast(),
+                strategy_name.to_bytes_with_nul().len(),
+            );
             let context = self.get_inner();
             let (callback, state_slot, name_slot) = match role {
                 IdleStrategyRole::Conductor => (
@@ -137,8 +149,47 @@ mod tests {
 
     struct Sum(i64);
     impl IdleStrategy for Sum {
+        const BUSY_SPIN: bool = true;
+
         fn idle(&mut self, work: i32) {
             self.0 += i64::from(work);
+        }
+    }
+
+    #[test]
+    fn busy_spin_marker_tracks_the_installed_strategy_for_every_role() {
+        let context = AeronDriverContext::new().unwrap();
+        for role in [
+            IdleStrategyRole::Conductor,
+            IdleStrategyRole::Sender,
+            IdleStrategyRole::Receiver,
+            IdleStrategyRole::SharedNetwork,
+            IdleStrategyRole::Shared,
+            IdleStrategyRole::NativeResourceAgent,
+        ] {
+            for spin in [true, false, true] {
+                if spin {
+                    crate::test_alloc::assert_no_heap_allocation(|| {
+                        context.set_idle_strategy(role, Sum(0)).unwrap();
+                    });
+                } else {
+                    context.set_idle_strategy(role, |_| {}).unwrap();
+                }
+                // SAFETY: this context has no running driver. The name stays
+                // allocated until the next setter or context close.
+                let name = unsafe {
+                    let raw = &*context.get_inner();
+                    CStr::from_ptr(match role {
+                        IdleStrategyRole::Conductor => raw.conductor_idle_strategy_name,
+                        IdleStrategyRole::Sender => raw.sender_idle_strategy_name,
+                        IdleStrategyRole::Receiver => raw.receiver_idle_strategy_name,
+                        IdleStrategyRole::SharedNetwork => raw.shared_network_idle_strategy_name,
+                        IdleStrategyRole::Shared => raw.shared_idle_strategy_name,
+                        IdleStrategyRole::NativeResourceAgent => raw.native_resource_agent_idle_strategy_name,
+                    })
+                };
+                assert_eq!(name, if spin { c"rusteron-spin" } else { c"rusteron" });
+            }
         }
     }
 

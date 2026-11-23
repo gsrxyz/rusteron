@@ -79,6 +79,10 @@ name = "bounded_flow_control"
 path = "examples/extensions/bounded_flow_control.rs"
 
 [[example]]
+name = "burst_loss"
+path = "examples/extensions/burst_loss.rs"
+
+[[example]]
 name = "congestion_control"
 path = "examples/extensions/congestion_control.rs"
 
@@ -105,6 +109,10 @@ path = "examples/extensions/name_resolver.rs"
 [[example]]
 name = "native_transport"
 path = "examples/extensions/native_transport.rs"
+
+[[example]]
+name = "native_transport_owned"
+path = "examples/extensions/native_transport_owned.rs"
 
 [[example]]
 name = "outgoing_interceptor"

@@ -68,6 +68,10 @@ impl NativeTransportBindings {
     /// belong to one agent or have synchronization. All pointers and callback
     /// code must remain valid through context shutdown. Retain owned resources
     /// in `keepalive`. Metadata strings must be valid C strings for that period.
+    /// Receive operations must deliver through the supplied receive callback
+    /// so Aeron's incoming interceptors and endpoint processing run. Native UDP
+    /// pollers own `poller.bindings_clientd`; preserve that storage when
+    /// delegating to their callbacks.
     /// Callbacks must not unwind across C.
     pub unsafe fn from_callbacks<S: Send + Sync + 'static>(
         table: aeron_udp_channel_transport_bindings_t,
@@ -105,6 +109,9 @@ impl AeronDriverContext {
     ///
     /// The context retains replaced tables until shutdown. Unchanged callbacks
     /// remain direct native calls without an extra Rust dispatch.
+    /// Data interceptors wrap the installed table regardless of setter order.
+    /// Flow control still runs in Aeron's publication logic. Cloned contexts
+    /// can retain the table and its keepalive after the driver has joined.
     pub fn set_native_transport_bindings(
         &self,
         role: TransportRole,

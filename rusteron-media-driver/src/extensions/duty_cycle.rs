@@ -82,19 +82,25 @@ unsafe impl<T: DutyCycleTracker> Send for ForwardingTracker<T> {}
 unsafe impl<T: DutyCycleTracker> Sync for ForwardingTracker<T> {}
 
 unsafe extern "C" fn update_forwarding<T: DutyCycleTracker>(state: *mut c_void, now: i64) {
+    // SAFETY: registration retains this owner and its predecessor in the same
+    // context. Registration checks both predecessor callbacks. Only their
+    // selected agent invokes these callbacks, in order.
     unsafe {
         let owner = state.cast::<ForwardingTracker<T>>();
         let previous = (*owner).previous;
-        ((*previous).update.unwrap())((*previous).state, now);
+        ((*previous).update.unwrap_unchecked())((*previous).state, now);
         (&mut *(*owner).value.get()).update(now);
     }
 }
 
 unsafe extern "C" fn measure_forwarding<T: DutyCycleTracker>(state: *mut c_void, now: i64) {
+    // SAFETY: the predecessor and value remain alive through native shutdown.
+    // Registration checks both predecessor callbacks. Both callbacks run
+    // synchronously on the same measured agent.
     unsafe {
         let owner = state.cast::<ForwardingTracker<T>>();
         let previous = (*owner).previous;
-        ((*previous).measure_and_update.unwrap())((*previous).state, now);
+        ((*previous).measure_and_update.unwrap_unchecked())((*previous).state, now);
         (&mut *(*owner).value.get()).measure_and_update(now);
     }
 }
@@ -149,6 +155,8 @@ impl AeronDriverContext {
     /// When the existing tracker is Aeron's default, its max-cycle and stall
     /// counters continue to update. Repeated additions run in installation order;
     /// `set_duty_cycle_tracker` replaces the entire chain.
+    /// Chaining adds one native indirect call per event. It adds no heap
+    /// allocation, lock, or atomic read-modify-write to that event.
     pub fn add_duty_cycle_tracker<T: DutyCycleTracker>(
         &self,
         role: DutyCycleRole,

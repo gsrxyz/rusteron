@@ -547,27 +547,6 @@ impl AeronDriverContext {
     }
 }
 
-/// Repeatable packet loss for tests. Every Nth batch is dropped after a seeded
-/// offset. Each agent has its own counter. N=0 disables loss.
-pub struct SeededLoss<const N: u64, const SEED: u64 = 1> {
-    count: u64,
-}
-impl<const N: u64, const SEED: u64> Default for SeededLoss<N, SEED> {
-    fn default() -> Self {
-        Self { count: SEED }
-    }
-}
-impl<const N: u64, const SEED: u64> OutgoingInterceptor for SeededLoss<N, SEED> {
-    fn send<'a>(&mut self, next: OutgoingNext<'a>, packet: OutgoingPacket<'a>) -> i32 {
-        self.count = self.count.wrapping_add(1);
-        if N != 0 && self.count.is_multiple_of(N) {
-            packet.drop_as_sent()
-        } else {
-            next.send(packet)
-        }
-    }
-}
-
 /// A transport identity valid during a notification. It grants no socket mutation.
 #[derive(Clone, Copy)]
 pub struct TransportRef<'a> {
@@ -913,6 +892,142 @@ mod tests {
                 1
             );
             assert_eq!(sent.calls, expected_calls);
+        }
+    }
+
+    #[test]
+    fn destination_loss_preserves_other_paths_and_advances_only_the_selected_path_without_allocation() {
+        unsafe extern "C" fn count_send(
+            state: *mut c_void,
+            _: *mut aeron_udp_channel_outgoing_interceptor_t,
+            _: *mut aeron_udp_channel_transport_t,
+            _: *mut sockaddr_storage,
+            vectors: *mut iovec,
+            length: usize,
+            bytes: *mut i64,
+        ) -> i32 {
+            // SAFETY: the test supplies one live counter and valid vector entries.
+            unsafe {
+                *state.cast::<usize>() += 1;
+                for vector in std::slice::from_raw_parts(vectors, length) {
+                    *bytes += vector.iov_len as i64;
+                }
+            }
+            length as i32
+        }
+        for destination in ["127.0.0.1:40123", "[::1]:40123"] {
+            let destination: std::net::SocketAddr = destination.parse().unwrap();
+            let mut loss = DestinationLoss::new(destination, SeededLoss::<2, 0>::default());
+            let mut sends = 0usize;
+            let mut next = aeron_udp_channel_outgoing_interceptor_t {
+                interceptor_state: (&raw mut sends).cast(),
+                outgoing_send_func: Some(count_send),
+                ..Default::default()
+            };
+            let mut other = destination;
+            other.set_port(destination.port() + 1);
+            // Alternate paths. Only the second and fourth target batches drop.
+            for (index, address) in [
+                other,
+                destination,
+                other,
+                destination,
+                other,
+                destination,
+                other,
+                destination,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let mut native_address = sockaddr_storage::default();
+                // SAFETY: initialize the address fields Aeron reads, with a live
+                // local address for the duration of the synchronous send.
+                unsafe {
+                    super::super::resolver::write_ip_for_test(&mut native_address, address.ip());
+                    (&raw mut native_address)
+                        .cast::<u8>()
+                        .add(2)
+                        .cast::<u16>()
+                        .write_unaligned(address.port().to_be());
+                }
+                let mut vectors = [iovec {
+                    iov_base: c"data".as_ptr().cast_mut().cast(),
+                    iov_len: 4,
+                }];
+                let mut bytes = 7;
+                crate::test_alloc::assert_no_heap_allocation(|| {
+                    let mut packet = packet(&mut vectors, &mut bytes);
+                    packet.address = &mut native_address;
+                    assert_eq!(
+                        loss.send(
+                            OutgoingNext {
+                                raw: &mut next,
+                                _life: PhantomData
+                            },
+                            packet
+                        ),
+                        1
+                    );
+                });
+                assert_eq!(bytes, 11);
+                assert_eq!(sends, index + 1 - (index + 1) / 4);
+            }
+        }
+    }
+
+    #[test]
+    fn burst_loss_forwards_and_drops_complete_batches_without_allocation() {
+        unsafe extern "C" fn fail_send(
+            state: *mut c_void,
+            _: *mut aeron_udp_channel_outgoing_interceptor_t,
+            _: *mut aeron_udp_channel_transport_t,
+            _: *mut sockaddr_storage,
+            _: *mut iovec,
+            _: usize,
+            _: *mut i64,
+        ) -> i32 {
+            unsafe { *state.cast::<usize>() += 1 };
+            -7
+        }
+        let mut forwarded = 0usize;
+        let mut next = aeron_udp_channel_outgoing_interceptor_t {
+            interceptor_state: (&raw mut forwarded).cast(),
+            outgoing_send_func: Some(fail_send),
+            ..Default::default()
+        };
+        let mut loss = GilbertElliottLoss::new(GilbertElliottConfig {
+            seed: 0,
+            good_to_bad: 1_000_000,
+            bad_to_good: 1_000_000,
+            good_loss: 0,
+            bad_loss: 1_000_000,
+        })
+        .unwrap();
+        let mut vectors = [
+            iovec {
+                iov_base: c"abc".as_ptr().cast_mut().cast(),
+                iov_len: 3,
+            },
+            iovec {
+                iov_base: c"defgh".as_ptr().cast_mut().cast(),
+                iov_len: 5,
+            },
+        ];
+        for index in 0..8 {
+            let mut bytes = 7;
+            crate::test_alloc::assert_no_heap_allocation(|| {
+                let result = loss.send(
+                    OutgoingNext {
+                        raw: &mut next,
+                        _life: PhantomData,
+                    },
+                    packet(&mut vectors, &mut bytes),
+                );
+                assert_eq!(result, if index % 2 == 0 { -7 } else { 2 });
+            });
+            assert_eq!(bytes, if index % 2 == 0 { 7 } else { 15 });
+            assert_eq!(forwarded, index / 2 + 1);
         }
     }
 

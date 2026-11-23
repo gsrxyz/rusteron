@@ -53,6 +53,9 @@ fn manual_work_errors_leave_message_capture_to_the_caller() {
 #[path = "../examples/extensions/bounded_flow_control.rs"]
 mod bounded_flow_control;
 #[allow(dead_code)]
+#[path = "../examples/extensions/burst_loss.rs"]
+mod burst_loss;
+#[allow(dead_code)]
 #[path = "../examples/extensions/congestion_control.rs"]
 mod congestion_control;
 #[allow(dead_code)]
@@ -73,6 +76,9 @@ mod name_resolver;
 #[allow(dead_code)]
 #[path = "../examples/extensions/native_transport.rs"]
 mod native_transport;
+#[allow(dead_code)]
+#[path = "../examples/extensions/native_transport_owned.rs"]
+mod native_transport_owned;
 #[allow(dead_code)]
 #[path = "../examples/extensions/outgoing_interceptor.rs"]
 mod outgoing_interceptor;
@@ -833,6 +839,63 @@ fn seeded_loss_recovers_all_sequences_and_records_retransmissions() {
     );
     assert!(
         reader
+            .system_counter_value(AeronSystemCounterType::RetransmitsSent)
+            .unwrap()
+            > 0
+    );
+}
+
+#[test]
+#[serial_test::serial(driver_extensions)]
+fn destination_burst_loss_recovers_sequences_while_the_other_path_has_no_loss() {
+    let lossy_channel = channel();
+    let healthy_channel = loop {
+        let candidate = channel();
+        if candidate != lossy_channel {
+            break candidate;
+        }
+    };
+    let destination = lossy_channel
+        .to_str()
+        .unwrap()
+        .strip_prefix("aeron:udp?endpoint=")
+        .unwrap()
+        .parse()
+        .unwrap();
+    let driver = EmbeddedDriver::launch_with(|context| {
+        context.set_threading_mode(AeronThreadingMode::Dedicated)?;
+        // One message per datagram and one datagram per batch keep the loss
+        // test independent of how much data the sender coalesces under load.
+        context.set_mtu_length(64)?;
+        context.set_sender_io_vector_capacity(1)?;
+        context.set_network_publication_max_messages_per_send(1)?;
+        burst_loss::configure(context, destination)
+    })
+    .unwrap();
+    let client = client(&driver);
+    round_trip(&client, &healthy_channel, 128);
+    let counters = client.counters_reader();
+    assert_eq!(
+        counters
+            .system_counter_value(AeronSystemCounterType::NakMessagesSent)
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        counters
+            .system_counter_value(AeronSystemCounterType::RetransmitsSent)
+            .unwrap(),
+        0
+    );
+    round_trip(&client, &lossy_channel, 1024);
+    assert!(
+        counters
+            .system_counter_value(AeronSystemCounterType::NakMessagesSent)
+            .unwrap()
+            > 0
+    );
+    assert!(
+        counters
             .system_counter_value(AeronSystemCounterType::RetransmitsSent)
             .unwrap()
             > 0

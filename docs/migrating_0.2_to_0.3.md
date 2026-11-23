@@ -1035,6 +1035,21 @@ did not change beyond the spread.
 
 ## Media driver extensions and manual loops
 
+In 0.3.1, `IdleStrategy` has `const BUSY_SPIN: bool = false`. Existing
+implementations and closures keep the native name `rusteron`. A named strategy
+that never sleeps, yields, or parks can set the constant to `true`; its native
+name becomes `rusteron-spin`. Update code that compares Rust strategy names if
+you opt in. The associated constant makes `dyn IdleStrategy` unavailable. Use
+a concrete strategy or a closure with `set_idle_strategy`. The idle callback
+and native-state storage layout do not change.
+
+Use `add_duty_cycle_tracker` to observe measurements after the existing tracker
+and retain native maximum and stall counters. `set_duty_cycle_tracker` replaces
+the entire chain. Native transport tables can retain a runtime-close guard
+through `NativeTransportBindings::from_callbacks`. Context clones keep that
+guard alive until the last context closes, after driver agents have joined.
+These additions require no change to existing extension implementations.
+
 `AeronDriver` no longer implements `Clone`. Replace `driver.start(true)` with
 `let mut driver = driver.start_manual()?`. Replace each nested idle call with
 separate statements.

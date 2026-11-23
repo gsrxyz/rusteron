@@ -212,7 +212,15 @@ This policy does not parse `fc=`. Omit that option and use context settings.
 cargo test -p rusteron-media-driver --features static --lib extensions
 cargo test -p rusteron-media-driver --features static --examples
 cargo test -p rusteron-media-driver --features static --test driver_extensions
+cargo test -p rusteron-media-driver-links-test --features rusteron-media-driver/static --test transport_runtime
 ```
+
+The last command compiles a C transport fixture against the exported Aeron
+headers. It checks runtime ownership through agent join and native context close,
+and combines the custom C table with incoming and outgoing interceptors and
+custom flow control in both installation orders. The fixture checks Rust's
+busy-spin marker from C. The main integration target also checks reliable
+recovery under destination-specific burst loss and native duty-cycle counters.
 
 The extension ThreadSanitizer CI job rebuilds Rust's standard library and the
 vendored C with instrumentation. The unit tests also exercise the receiver and
@@ -243,8 +251,31 @@ roles remain allocated but receive no callbacks.
 
 Dedicated and shared-network modes also use the `NativeResourceAgent` role.
 Shared and invoker modes run that agent in the shared duty cycle. Native
-idle-strategy name setters still replace the callback for their role. A name
-getter returns `"rusteron"` for a Rust strategy.
+idle-strategy name setters still replace the callback for their role.
+
+Set `IdleStrategy::BUSY_SPIN` to `true` when the strategy never sleeps, yields,
+or parks. The default is `false`, including closure implementations. Native name
+getters return `"rusteron-spin"` for a declared busy-spin strategy and `"rusteron"`
+otherwise. C transports can inspect the selected runner's context name during
+initialization. Shared threading modes need the shared runner's marker, rather
+than the inactive sender and receiver names. This is an implementation promise,
+not a check of the callback's behavior.
+
+```rust
+use rusteron_media_driver::extensions::IdleStrategy;
+struct Spin;
+impl IdleStrategy for Spin {
+    const BUSY_SPIN: bool = true;
+    fn idle(&mut self, work: i32) {
+        if work <= 0 {
+            std::hint::spin_loop();
+        }
+    }
+}
+```
+
+The marker changes initialization metadata only. The callback has no marker
+read or branch, and the native-state storage optimization still applies.
 
 Aeron frees each idle state's allocation with its allocator. Values without
 destructors live directly in that allocation when their alignment is no greater
@@ -270,6 +301,27 @@ existing tracker before the new observer. If the existing tracker is Aeron's
 default, it continues updating the native maximum and stall counters. Multiple
 additions run in installation order. `set_duty_cycle_tracker` replaces the
 entire chain and stops the default counter updates for that role.
+
+```rust,no_run
+use rusteron_media_driver::{AeronDriverContext, extensions::*};
+let context = AeronDriverContext::new()?;
+context.add_duty_cycle_tracker(
+    DutyCycleRole::Sender,
+    DutyCycleTimer::new(|elapsed_ns| {
+        // Record elapsed_ns in application-owned storage here.
+        std::hint::black_box(elapsed_ns);
+    }),
+)?;
+# Ok::<(), rusteron_media_driver::AeronCError>(())
+```
+
+The native tracker receives every update and measurement before the observer.
+It updates its maximum duration and threshold-exceeded counter first. Each
+addition allocates during setup and adds one indirect call per event to the
+previous tracker. The adapter adds no allocation, lock, atomic read-modify-write,
+or trait-object dispatch per event. Keeping the default counter writes is an
+explicit cost of `add_duty_cycle_tracker`. Use `set_duty_cycle_tracker` to replace
+those writes with your own measurements.
 
 ## Port managers
 
@@ -300,6 +352,21 @@ Its second argument retains callback resources until context close. Custom
 callbacks must satisfy the native socket, poller, buffer, and concurrency
 contracts. The constructor checks that every required function pointer is present.
 
+A C library can return a complete static table and a separate runtime handle.
+Copy the table into `from_callbacks(table, keepalive)`. Make `keepalive` a
+non-Clone Rust guard whose `Drop` calls the library's runtime-close function.
+Retain a dynamic library handle in that guard too if it owns the callback code.
+The [owned transport example](../rusteron-media-driver/examples/extensions/native_transport_owned.rs)
+shows the guard and installation. Its executable uses Aeron's C allocator as
+the demonstration open/close pair. The `links-test` integration test uses a real
+C runtime and a complete static C table.
+
+The context closes its native resources before dropping the guard. Driver close
+stops and joins the agents first. A retained context clone extends the guard's
+lifetime after driver shutdown. Replaced transport tables also stay retained
+until context close. A guard passed to an invalid table or a rejected setter
+drops during that failed call because the context never retained it.
+
 Install the result with `set_native_transport_bindings`. `TransportRole::Data`
 selects the sender and receiver table. `TransportRole::Conductor` selects the
 native driver name resolver's table. That role runs only with the driver name
@@ -309,6 +376,69 @@ addresses without UDP discovery.
 Unchanged table entries remain direct native function pointers. They incur no
 extra Rust dispatch. Use interceptors when the extension only needs to inspect
 or drop packets through the safe packet API.
+
+Installing a custom data table preserves the interceptor chains regardless of
+setter order. Outgoing calls pass through the most recently added interceptor
+first, then the remaining chain, then the custom table's `send_func`. Incoming
+polling uses the custom table's receive functions. Those functions must call the
+supplied receive callback, which passes through the incoming chain before the
+endpoint processes the datagram. A custom receive function that bypasses this
+callback also bypasses incoming interception. Flow control remains in Aeron's
+publication logic and still receives status messages through this path.
+
+When delegating poller operations to native UDP, preserve its
+`poller.bindings_clientd` storage. Native UDP uses that pointer for epoll or poll
+events and frees it during close. A custom poller cannot overwrite it with a
+runtime handle and then delegate unchanged UDP operations.
+
+## Test loss policies
+
+These outgoing interceptors deliberately report dropped batches as sent.
+Reliable subscriptions request retransmission through Aeron's normal loss
+recovery. One decision applies to the entire outgoing batch, which can contain
+several datagrams. The policies also affect control traffic on matching paths.
+
+`SeededLoss<N, SEED>` drops every Nth batch after a seeded offset. `N=0` disables
+loss. `GilbertElliottLoss` uses a seeded two-state model for bursts. Pass a
+`GilbertElliottConfig` to `add_outgoing_interceptor_with_state`. Every probability
+is an integer number of parts per million, from zero to 1,000,000. Larger values
+fail during construction. The model starts in the good state, samples that
+state's loss probability, then samples a transition for the next batch.
+
+`DestinationLoss<L>` applies an outgoing loss policy only to an exact destination
+IP address and port. Other destinations pass unchanged without advancing `L`.
+Install it with state `(destination, inner_state)`. For periodic loss, use
+`DestinationLoss<SeededLoss<7, 3>>` with `(destination, ())`. For burst loss, use
+`DestinationLoss<GilbertElliottLoss>` with `(destination, config)`.
+The [burst-loss example](../rusteron-media-driver/examples/extensions/burst_loss.rs)
+combines both features.
+
+Each agent owns its model state. Given the same seed and sequence of batches,
+that instance makes the same decisions. Thread scheduling, packet batching, and
+retransmissions can change a real driver's batch sequence. The seed does not
+make an entire concurrent network run identical. The model uses SplitMix64,
+with two draws per batch and no heap allocation, lock, atomic operation, or
+trait-object dispatch. None of these test policies runs unless installed.
+
+### Delay and reorder investigation
+
+Aeron C's interceptor table has initialization, synchronous packet callbacks,
+notifications, and close callbacks. It has no timer or periodic work callback.
+The packet callback borrows payloads, vector arrays, addresses, timestamps, and
+native transport or endpoint pointers. Those borrows end when it returns.
+The Rust next-callback value is also limited to that call.
+
+A preallocated ring could own payload copies and their addresses. It would
+still need an agent-owned drain callback, a clock, an overflow policy, and a
+way to keep or invalidate the transport, endpoint, destination, and interceptor
+chain when native resources close. A duty-cycle observer supplies timestamps,
+but no retained send or receive capability with those lifetimes. Extending it
+to invoke old next-callback pointers would require unsafe lifetime assumptions.
+
+A complete custom transport can implement its own queue and release packets
+from its poller. That is a transport implementation, with its own ownership and
+shutdown rules. The current packet interceptor API has no clean delayed-send
+or reorder operation, so this change adds neither.
 
 ## Examples for every extension
 
