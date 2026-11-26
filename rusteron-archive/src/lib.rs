@@ -1066,12 +1066,12 @@ mod tests {
         Ok(())
     }
 
-    // Aeron 1.54.2 keeps `owns_idle_strategy` set when the idle strategy is replaced after
+    // Aeron keeps `owns_idle_strategy` set when the idle strategy is replaced after
     // conclude, so close frees the Handler's state with `aeron_free`
     // TODO: un-ignore once a vendored Aeron release fixes https://github.com/aeron-io/aeron/issues/2250
     #[test]
     #[serial_test::serial]
-    #[ignore = "Aeron 1.54.2 frees the caller's idle state, https://github.com/aeron-io/aeron/issues/2250"]
+    #[ignore = "Aeron frees the caller's idle state, https://github.com/aeron-io/aeron/issues/2250"]
     fn replacing_the_idle_strategy_after_connect_keeps_the_handler() -> Result<(), Box<dyn std::error::Error>> {
         let (driver, root) = start_archive_driver()?;
         let (ready_archive, aeron) = driver.archive_connect()?;

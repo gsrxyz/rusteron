@@ -78,7 +78,7 @@ it copied. Configure handlers before starting a connection.
   connecting.
 - Replacing a running or borrowed callback returns an error. Change it after the call
   finishes.
-- Do not replace the idle strategy after connecting. Aeron 1.54.2 frees the Rust
+- Do not replace the idle strategy after connecting. Aeron 1.54.3 still frees the Rust
   handler's state when the context closes
   ([aeron#2250](https://github.com/aeron-io/aeron/issues/2250)).
 

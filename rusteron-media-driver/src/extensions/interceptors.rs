@@ -58,10 +58,6 @@ impl OutgoingPacket<'_> {
         (0..self.length).map(|index| unsafe { self.datagram_unchecked(index) })
     }
     /// Report a deliberate drop as a successful send, so Aeron can retransmit it.
-    ///
-    /// Aeron 1.54.2's RTT reply path passes an uninitialised byte counter to
-    /// outgoing interceptors. Avoid loss policies with RTT measurement until
-    /// Aeron ships aeron-io/aeron@c0457af122. Forwarding reads it too
     pub fn drop_as_sent(self) -> i32 {
         let mut bytes = 0i64;
         for i in 0..self.length {
