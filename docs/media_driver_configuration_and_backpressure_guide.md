@@ -12,7 +12,8 @@ For tuning guides, system properties, and thread models:
 - [Aeron Wiki: Configuration Options](https://github.com/aeron-io/aeron/wiki/Configuration-Options)
 - [Aeron Wiki: Monitoring and Debugging](https://github.com/aeron-io/aeron/wiki/Monitoring-and-Debugging)
 - [Aeron Wiki: Performance Tuning](https://github.com/aeron-io/aeron/wiki/Performance-Tuning)
-- [Aeron Cookbook (aeron.io)](https://aeron.io/docs/)
+- [Aeron Media Driver guide](https://aeron.io/docs/aeron/media-driver/)
+- [Aeron documentation](https://aeron.io/docs/)
 
 ---
 
@@ -29,8 +30,8 @@ use rusteron_media_driver::{AeronDriver, AeronDriverContext};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ctx = AeronDriverContext::new()?;
 
-    // DEDICATED (the default): conductor, sender and receiver each get a thread, for the lowest latency.
-    // SHARED: all three share one thread, for dev boxes and tests.
+    // DEDICATED is the default. Conductor, sender, receiver and native resource
+    // agent have separate threads. SHARED runs those agents on one thread
     ctx.set_threading_mode(aeron_threading_mode_t::AERON_THREADING_MODE_SHARED)?;
     ctx.set_dir(c"/tmp/aeron-rust")?;
     ctx.set_term_buffer_length(16 * 1024 * 1024)?;

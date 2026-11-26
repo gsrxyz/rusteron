@@ -163,11 +163,12 @@ pub enum AeronIdleStrategyKind {
     Sleeping,
     /// Yield the OS thread when idle (`"yield"`).
     Yielding,
-    /// Busy-spin (`"spin"`). Lowest latency, pins a core.
+    /// Busy-spin (`"spin"`). Never sleeps or yields, and does not pin a core
     BusySpin,
     /// Never back off (`"noop"`).
     NoOp,
-    /// Spin, then yield, then park with exponential backoff (`"backoff"`). This is the default.
+    /// Spin, then yield, then park with exponential backoff (`"backoff"`).
+    /// The media driver's default. The client conductor defaults to `sleep-ns`
     Backoff,
 }
 
@@ -225,6 +226,8 @@ impl Aeron {
     /// `dir` is the media driver directory (`None` uses the aeron default). For tuned
     /// setups with custom error handlers, driver timeout or idle strategy, build the
     /// [`AeronContext`] yourself and use [`Aeron::new`].
+    /// Aeron's default error handler exits the process on a fatal error. To recover
+    /// instead, install your own handler on the context
     pub fn connect(dir: Option<&str>) -> Result<Aeron, AeronCError> {
         let ctx = AeronContext::new()?;
         if let Some(dir) = dir {
@@ -286,42 +289,23 @@ impl AeronContext {
 /// The CnC file contains:
 /// - **Counters**: stream positions, recording positions, liveness indicators,
 ///   and application-defined counters.
-/// - **Error log**: a ring-buffer of recent driver/client errors.
-/// - **Loss reporter**: observed packet-loss entries.
+/// - **Error log**: distinct driver errors with observation counts and timestamps.
 /// - **To-driver / to-clients** command buffers.
 ///
 /// `AeronCnc` is a read-only view of the CnC file. Use it to inspect driver
-/// state, dump counters, or read the error log (the upstream `aeron_stat`,
-/// `error_stat`, and `loss_stat` tools all do this).
+/// state, dump counters, or read the error log. Loss reports are in the separate
+/// `loss-report.dat` file, read with `loss_reporter_read`
 ///
 /// # Two access patterns
 ///
-/// **Scoped read** (zero allocation, preferred for one-shot queries):
-/// ```ignore
-/// AeronCnc::read(&cformat!("{}", driver_ctx.get_dir()), |cnc| {
-///     cnc.counters_reader().foreach_counter_fn(|value, id, _type_id, _key, label| {
-///         println!("{id}: {label} = {value}");
-///     });
-/// })?;
-/// ```
-/// Opens the CnC file, runs the closure, closes. The resource wrapper lives on
-/// the stack and is freed immediately after.
+/// [`Self::read`] opens the CnC file, runs a closure, then closes it. Use it for
+/// one-shot queries
 ///
-/// **Owned handle** (for repeated polling, e.g. a stats dashboard):
-/// ```ignore
-/// let cnc = AeronCnc::open(&cformat!("{}", driver_ctx.get_dir()))?;
-/// loop {
-///     let heartbeat = cnc.to_driver_heartbeat();
-///     // ... poll counters, error log, etc. ...
-///     sleep(Duration::from_secs(1));
-/// }
-/// // closed on drop
-/// ```
+/// [`Self::open`] returns an owning handle that keeps the file mapped until drop.
+/// Use it for repeated queries
 impl AeronCnc {
-    /// Open the CnC file, run `handler`, close. **Zero heap allocation** for the
-    /// resource wrapper (the C struct is stack-borrowed). Preferred for one-shot
-    /// reads (dump counters, print the error log). Accepts `&CStr` so `c""`
-    /// literals work directly.
+    /// Open the CnC file, run `handler`, then close it. Accepts `&CStr` so `c""`
+    /// literals work directly
     #[inline]
     pub fn read(aeron_dir: &std::ffi::CStr, mut handler: impl FnMut(&mut AeronCncRef)) -> Result<(), AeronCError> {
         let cnc = ManagedCResource::initialise(move |cnc| unsafe { aeron_cnc_init(cnc, aeron_dir.as_ptr(), 0) })?;
@@ -2193,7 +2177,8 @@ owned_assembler!(
     /// Polling and changing callback state require an exclusive borrow. No reference
     /// count, mutex or runtime callback borrow check is needed while polling.
     /// The callback may borrow local state. This assembler stays on its thread and
-    /// cannot be cloned
+    /// cannot be cloned. It allocates a buffer per fragmented session and grows it
+    /// for larger messages
     ///
     /// Use [`Self::handler`] and [`Self::handler_mut`] to access callback state
     /// between calls to [`Self::poll`]. Use [`AeronImageFragmentAssembler`] when polling one image
@@ -2210,7 +2195,8 @@ owned_assembler!(
     /// Use this when the callback needs to return `CONTINUE`, `ABORT`, `BREAK`, or
     /// `COMMIT`. Like [`FragmentAssembler`], it can borrow local state, requires an
     /// exclusive borrow while polling, and has no lock or reference count on the
-    /// polling path. Use [`Self::handler_mut`] to change callback state between polls.
+    /// polling path. Its reassembly buffers grow for larger messages. Use
+    /// [`Self::handler_mut`] to change callback state between polls
     ControlledFragmentAssembler, aeron_controlled_fragment_assembler_t, AeronControlledFragmentHandlerCallback,
     handle_aeron_controlled_fragment_handler -> aeron_controlled_fragment_handler_action_t,
     aeron_controlled_fragment_assembler_create, aeron_controlled_fragment_assembler_delete,
@@ -2223,9 +2209,9 @@ owned_assembler!(
     /// A fragment assembler for a single image, such as one from
     /// [`AeronSubscription::image_at_index`], that owns its callback.
     ///
-    /// Unlike [`FragmentAssembler`] it keeps one buffer, allocated in [`Self::new`], so a
-    /// fragmented message needs no session lookup or allocation while polling. Feed it fragments
-    /// from one session only
+    /// Unlike [`FragmentAssembler`], it keeps one buffer, allocated in [`Self::new`],
+    /// and needs no session lookup. The buffer grows for larger messages. Feed it
+    /// fragments from one session only
     AeronImageFragmentAssembler, aeron_image_fragment_assembler_t, AeronFragmentHandlerCallback,
     handle_aeron_fragment_handler -> (),
     aeron_image_fragment_assembler_create, aeron_image_fragment_assembler_delete,

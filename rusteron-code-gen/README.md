@@ -23,8 +23,8 @@ stay local until their thread-safety contracts have been reviewed.
 See [owning and borrowed handles](https://github.com/gsrxyz/rusteron/blob/main/docs/migrating_0.2_to_0.3.md#owning-and-borrowed-handles)
 and [thread safety](https://github.com/gsrxyz/rusteron/blob/main/docs/thread-safety.md).
 
-Handwritten methods with the generated name and owner replace the generated ones. For a
-different name or owner, list the native method in `method_overrides`. Unknown methods fail the build.
+Handwritten methods with the generated name and owner replace the generated ones.
+`parse_custom_methods` finds them in the common and crate-specific custom code.
 
 Use the generator for repeated wrappers. `convenience.rs` generates Duration
 accessors from native getter and setter pairs, and destination helpers from the

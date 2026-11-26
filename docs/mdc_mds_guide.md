@@ -6,13 +6,20 @@ subscription. Use them to:
 - Consume redundant feeds, such as A/B feeds.
 - Poll sharded publishers through one subscription.
 
+MDS only merges paths that carry the same image, meaning the same session and log
+positions. Independent publishers stay separate images, even on the same stream ID.
+A poll interleaves them in no fixed order, and Aeron does not deduplicate their
+messages. Pointing one subscription at two unrelated A/B publishers does not merge
+them.
+
 ---
 
 ## Official Aeron documentation
 For the protocol and API details, see:
-- [Aeron Wiki: Multi-Destination Connections](https://github.com/aeron-io/aeron/wiki/Multi-Destination-Connections)
+- [Aeron Wiki: Multiple Destinations](https://github.com/aeron-io/aeron/wiki/Multiple-Destinations)
+- [Aeron Multi-Destination-Cast guide](https://aeron.io/docs/aeron/multi-destination-cast/)
 - [Aeron Wiki: C++ Programming Guide (MDC section)](https://github.com/aeron-io/aeron/wiki/Cpp-Programming-Guide#multi-destination-connections)
-- [Aeron Cookbook (aeron.io)](https://aeron.io/docs/)
+- [Aeron documentation](https://aeron.io/docs/)
 
 ---
 

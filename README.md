@@ -59,8 +59,8 @@ rusteron-client = { version = "0.3", features = ["static"] }
 
 | Build | Features | Requirements |
 | --- | --- | --- |
-| Dynamic, from source | Default | C build tools and Java; shared libraries available at runtime |
-| Static, from source | `static` | C build tools and Java |
+| Dynamic, from source | Default | C build tools; Java for Archive; shared libraries available at runtime |
+| Static, from source | `static` | C build tools; Java for Archive |
 | Precompiled static | `static`, `precompile` | Available for macOS and Linux; no CMake or Java |
 | Precompiled static, rustls download | `static`, `precompile-rustls` | Same bundles, with a rustls downloader |
 
@@ -70,6 +70,7 @@ Replace `rusteron-client` with another crate as needed.
 This example launches an embedded Media Driver, then publishes and receives one
 message. The embedded driver comes from `rusteron-media-driver`. In production, run
 the driver as its own process and connect with `Aeron::connect_dir(dir)`.
+It also needs `rusteron-media-driver = { version = "0.3", features = ["static"] }`.
 
 ```rust
 use rusteron_client::*;
@@ -128,7 +129,7 @@ registration's `poll()` yourself. See the
 | Shared handles | `Aeron`, regular publications, counters and counter readers are `Send + Sync`; share one through `Arc` or a clone ([example](docs/client-guide.md#sharing-across-threads)) |
 | Local handles | Exclusive publications, images, contexts, async pollers, assemblers, Archive and driver handles stay local; create them on the thread that uses them |
 | Subscriptions | `Send` but not `Sync` and not `Clone`; move one to the thread that polls it |
-| Configuration | Configure contexts before creating their clients or starting their drivers |
+| Configuration | Configure contexts before `Aeron::new` or `AeronDriver::new` |
 
 There is no `multi-threaded` feature. Storage and thread traits are selected at
 compile time. Publishing and raw polling do not clone an `Arc` or dispatch through
@@ -158,10 +159,14 @@ message.
 Registered callbacks remain alive while C can call them. Dropping your handler
 does not unregister it. See the [client callback guide](docs/client-guide.md#handlers-and-callbacks).
 
+Fragment assemblers allocate a buffer for fragmented messages and grow it when a
+larger message arrives. Create them once and reuse them.
+
 ### Panics in callbacks
 
 Synchronous polls return panics to the polling caller. Retained callbacks log
-panics and continue. Message redelivery depends on the callback type. See
+panics and continue. Media driver extensions abort on panic. Message redelivery
+depends on the callback type. See
 [callback panics](docs/callback-panics.md) before relying on recovery behaviour.
 
 ## Examples

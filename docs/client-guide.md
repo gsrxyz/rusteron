@@ -40,10 +40,9 @@ ctx.set_error_handler(Some(|code: i32, msg: &str| eprintln!("aeron error {code}:
 ```
 
 Use the returned shared handler's `lock()` for synchronised state access. Each
-`lock()` takes a mutex, which costs about 5 ns uncontended and waits if the callback
-is running. That is fine for setup and error paths. For a check that runs on every
-poll, such as "has the archive reported an error", count errors in an atomic that the
-callback and the poll loop share:
+`lock()` takes a mutex and waits if the callback is running. For a check that runs
+on every poll, such as "has the archive reported an error", count errors in an
+atomic that the callback and the poll loop share:
 
 ```rust,no_run
 # use rusteron_client::*;
@@ -192,6 +191,7 @@ To poll one image, use `AeronImageFragmentAssembler` or
 `AeronImageControlledFragmentAssembler` with `assembler.poll(&image, limit)`. They
 keep one buffer, allocated at creation. The subscription assemblers allocate a
 buffer the first time each session sends a fragmented message.
+Both kinds grow their buffer when a larger fragmented message arrives.
 
 Pass `Handlers::NONE` for any optional callback parameter you do not need.
 
@@ -207,8 +207,9 @@ owner drops. Several threads can offer on one regular publication at once.
 `AeronSubscription` is `Send` but not `Sync`, so one thread at a time can poll it.
 `AeronExclusivePublication` and `AeronImage` are neither `Send` nor `Sync`, so the
 compiler rejects moving them to another thread. Move the client into the thread
-instead and create the exclusive publication there. Polls take `&mut self` to
-prevent [nested polls](thread-safety.md#nested-polls).
+instead and create the exclusive publication there. Subscription and image polls
+take `&self`. Do not poll an image from inside its own fragment callback. See
+[nested polls](thread-safety.md#nested-polls).
 
 ```rust,no_run
 use rusteron_client::*;
@@ -268,8 +269,9 @@ See [retained callbacks](#retained-callbacks) and
 
 ## Building channel URIs
 
-Prefer the typed [`AeronUriStringBuilder`] over hand-written URI strings. Typed
-setters catch misspelled keys and malformed values before they reach the driver:
+Prefer [`AeronUriStringBuilder`] over hand-written URI strings. Its typed setters
+rule out misspelled keys. The driver still validates values when it registers the
+channel:
 
 ```rust,no_run
 # use rusteron_client::*;
@@ -300,6 +302,8 @@ The builder also has about 50 typed setters, including `session_id`, `mtu_length
 
 The `*_duration` URI helpers, such as `linger_timeout_duration`, accept
 `Duration` and check that the nanosecond value fits Aeron's signed 64-bit range.
+Avoid near-maximum values, because Aeron adds the timeout to the current time and
+can overflow.
 
 Response channels can also set `session_id`. Use the same session ID on the response
 subscription and publication. `examples/request_response.rs` shows this.
@@ -307,6 +311,10 @@ subscription and publication. `examples/request_response.rs` shows this.
 ## Errors and offer results
 
 - Install a client error handler with `ctx.set_error_handler(Some(handler))` to receive asynchronous errors.
+- An `AeronCError` holds only the code. The message text lives in thread-local
+  native storage until the next failing call. Call `capture_errmsg()` straight away,
+  on the same thread, to keep a copy, or `with_last_err_message` to read it without
+  a heap copy.
 - A publication error frame is borrowed during its callback. Call `frame.try_to_owned()` to keep it. Aeron allocates a copy only when you call this method. Read the full message with `error_message()` or use `error_message_bytes()` for the original bytes.
 - `offer()` and `try_claim()` return `Result<i64, AeronOfferError>`. `Ok` contains the new log position. Use `is_retryable()` to check the error. Retry after back pressure, an administrative action or a missing connection. A closed publication or an exceeded maximum position is a fatal error. Use an idle strategy between retries:
 
@@ -373,13 +381,12 @@ Available strategies are [`BusySpinIdleStrategy`], [`YieldingIdleStrategy`],
 `SleepingIdleStrategy` sleeps for a fixed interval, and
 `BackoffIdleStrategy` progresses through spinning, yielding and sleeping.
 
-`BackoffIdleStrategy` is the default. It uses Aeron's C and Java backoff, which is 10 spins, 20 yields, then parks
-from 1 µs to 1 ms.
-Set the conductor's idle strategy on the context with
-`ctx.set_idle_strategy_kind(AeronIdleStrategyKind::Backoff)?`.
-This also sets the matching initialisation arguments. The media driver's
-per-agent setters, such as `AeronDriverContext::set_conductor_idle_strategy_kind`,
-work the same way.
+`BackoffIdleStrategy::new()` uses Aeron C's backoff of 10 spins, 20 yields, then
+sleeps from 1 µs to 1 ms. The client conductor defaults to `sleep-ns` instead.
+Change it with `ctx.set_idle_strategy_kind(AeronIdleStrategyKind::Backoff)?`, which
+also sets matching initialisation arguments. The media driver's per-agent kind
+setters do not, so set the role's `*_idle_strategy_init_args` first when the new
+strategy needs them. Spinning does not pin a core. Set CPU affinity yourself.
 
 For recording, replay and persistent subscriptions, see [`rusteron-archive`](https://github.com/gsrxyz/rusteron/blob/main/rusteron-archive/README.md#persistent-subscriptions).
 
@@ -416,12 +423,47 @@ aeron.async_add_publication(&uri, 10)?;
 // 3. Repeated paths: build the CString once, store it, pass `&it` (zero-copy on reuse).
 let chan: std::ffi::CString = cformat!("aeron:udp?endpoint={endpoint}");
 for _ in 0..reconnect_attempts {
-    aeron.async_add_publication(&chan, 10)?; // no allocation per call
+    aeron.async_add_publication(&chan, 10)?; // reuses the CString; registration still allocates
 }
 # Ok(()) }
 ```
 
 ---
+
+## Driver failure and reconnecting
+
+Aeron C's default error handler exits the process on a fatal client error. To
+survive driver loss, install your own handler before connecting. After a fatal
+error, create a new context and client, then register publications and
+subscriptions again. The old client does not reconnect to a restarted driver.
+
+A persistent subscription survives a lost live image, but not a failed client. To
+resume after a restart, store the recording ID and the position after the last
+message you processed. Then build a new persistent subscription with
+`start_position(position)`. See [persistent subscriptions](archive-guide.md#persistent-subscriptions).
+
+## Driver diagnostics
+
+`AeronCnc::read(dir, closure)` opens the driver's `cnc.dat` for one query, then
+closes it:
+
+```rust,no_run
+# use rusteron_client::{AeronCError, AeronCnc};
+# fn read_counters(dir: &std::ffi::CStr) -> Result<(), AeronCError> {
+AeronCnc::read(dir, |cnc| {
+    cnc.counters_reader().foreach_counter_fn(|value, id, _type_id, _key, label| {
+        println!("{id}: {label} = {value}");
+    });
+})?;
+# Ok(()) }
+```
+
+For repeated queries, keep the handle from `AeronCnc::open(dir)?` and read
+`cnc.to_driver_heartbeat()` or its counters each cycle. `loss_reporter_read_fn`
+reads the separate `loss-report.dat` file, opening it on each call.
+
+The error-log and loss-report readers trust the record lengths in these files and
+do not check for corruption.
 
 ## AddressSanitizer
 
@@ -441,6 +483,8 @@ RUSTFLAGS="-Zsanitizer=address" cargo +nightly test -Zbuild-std \
 ```
 
 Keep `detect_leaks=0` when a media driver runs in the same process.
-Select other sanitizers, such as `thread` or `undefined`, with the
-`RUSTERON_SANITIZE` environment variable. In this repository, `just test-asan`
-runs the client suite with AddressSanitizer.
+`RUSTERON_SANITIZE` selects instrumentation for native C sources. Rust needs its
+own sanitizer flags and runtime. In this repository, `just test-asan` sets up
+AddressSanitizer and `just test-tsan` sets up ThreadSanitizer for both languages.
+See [ThreadSanitizer](thread-safety.md#threadsanitizer) for its native atomics and
+suppression rules.

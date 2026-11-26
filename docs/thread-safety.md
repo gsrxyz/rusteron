@@ -4,7 +4,8 @@ Rusteron sets threading rules per native type. There is no `multi-threaded` feat
 `Send` and `Sync` are compile-time traits and add no runtime cost.
 
 `Aeron`, `AeronPublication`, `AeronCounter` and `AeronCountersReader` are `Send + Sync`.
-Other generated handles are local. The list is in
+`AeronSubscription` is `Send` but not `Sync`. Other generated handles are local.
+The list is in
 [`thread_safety.rs`](../rusteron-code-gen/src/thread_safety.rs). New native types stay
 local until reviewed.
 
@@ -32,17 +33,33 @@ local until reviewed.
 - `AeronDriver` has one owner and is not `Send`, `Sync` or `Clone`. After `start(true)`,
   the owning thread calls `main_do_work` and `main_idle_strategy`. Strategy callbacks split
   mutable agent state from concurrent `Shared` reads. See [driver extensions](driver-extensions.md).
-- The client background conductor needs no manual calls. With a client agent invoker, call
-  `main_do_work` and `main_idle_strategy` from one thread at a time, as in Aeron Java
-  and C++. Other threads can still use the client's publication and registration APIs.
+- The client background conductor needs no manual calls. In agent-invoker mode, follow
+  the [client agent-invoker rules](#client-agent-invoker).
 - Getters that return `Ref` borrow their parent. A `Ref` has no `Clone`. Call
-  `as_ref()` for another short-lived view. An archive's `aeron_owned()` or
-  `retain_archive_context()` keeps the archive alive when a child must outlive the
-  borrow. Wrapping a raw pointer needs `unsafe from_ptr` and a lifetime guarantee from
+  `as_ref()` for another short-lived view. An archive's `aeron_owned()` clones its
+  retained client. `retain_archive_context()` retains the archive itself.
+  Wrapping a raw pointer needs `unsafe from_ptr` and a lifetime guarantee from
   you. See [owning and borrowed handles](migrating_0.2_to_0.3.md#owning-and-borrowed-handles).
 - Subscriptions, exclusive publications and fragment assemblers have no safe zeroed or
   raw-pointer constructors. `FragmentAssembler` and `ControlledFragmentAssembler` are
   not cloneable and poll through `&mut self`, so one owner uses each assembler.
+
+## Client agent invoker
+
+With `set_use_conductor_agent_invoker(true)`, you drive the client conductor with
+`main_do_work`. Adding or closing a resource also runs conductor work, so doing so
+on one thread while another calls `main_do_work` is a data race.
+
+Do all of these on one thread, or behind your own lock:
+
+- `main_do_work` and `main_idle_strategy`
+- adding resources, including blocking helpers and Archive operations
+- changing handlers
+- closing resources, including dropping the last owning handle
+
+`Aeron` is still `Send + Sync` in this mode, so the compiler does not catch a
+violation. Offers on regular publications are safe from any thread. If several
+threads need to add or close resources, use the background conductor instead.
 
 <a id="nested-polls"></a>
 
@@ -82,8 +99,9 @@ message.
 | `SharedHandler::new_shared` | Mutex. `Send + Sync` when its state is `Send` | One mutex lock per callback when retained, and one per `lock()`. Used for close, error and image callbacks, not the poll path. To check callback state on every poll, share an atomic with the callback instead of calling `lock()` ([example](client-guide.md#retained-callbacks)) |
 | `SharedHandler` holding a replacement slot | Mutex plus the slot's own locks | Three mutex locks and an `Arc` clone per non-empty callback |
 
-None of these allocate per call. `offer`, `offer_raw` and claim, copy and commit take no
-ownership mutex and change no reference count.
+The callback adapters add no allocation per call. Fragment assemblers grow their
+buffers for larger fragmented messages. `offer`, `offer_raw` and claim, copy and
+commit take no ownership mutex and change no reference count.
 
 Notes:
 
@@ -157,8 +175,8 @@ context.set_error_handler(Some(callback.clone()))?;
 - Replace `Handler::with_fragment_assembler` with `FragmentAssembler::new`. Pass other
   synchronous callbacks as `&mut callback`.
 - Read retained callback state with `handler.lock()`, outside the poll loop.
-- Call manual conductor methods from one thread at a time. Prefer the background
-  conductor when several threads share a client.
+- In agent-invoker mode, keep conductor work, registration and cleanup on one thread.
+  Prefer the background conductor when several threads share a client.
 - Counter `addr()` returns a raw pointer. Use `addr_atomic()` for safe atomic loads and
   updates. `AeronCountersReader::addr_atomic` checks the counter id first.
 
@@ -172,6 +190,7 @@ cargo bench -p rusteron-client --features static --bench callback_overhead
 ```
 
 See [how to benchmark](../BENCHMARKS.md#how-to-benchmark) for the other benchmarks.
+
 ## ThreadSanitizer
 
 ```sh

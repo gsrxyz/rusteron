@@ -77,6 +77,10 @@ and joins the driver on drop.
 
 </details>
 
+Call `start` once. `start(true)` leaves the main agent to the calling thread, which
+then calls `main_do_work`. INVOKER mode requires it. `start(false)` runs every agent
+on native threads. See [driver extensions](../docs/driver-extensions.md#rules).
+
 ## UDP polling and send batches
 
 Set these before creating the driver.
@@ -95,13 +99,15 @@ context.set_network_publication_max_messages_per_send(4)?;
 - With at most the iteration threshold of sockets, the driver polls each one directly instead
   of using the platform poller.
 - The socket poll limit (default 4) caps polls per ready socket per duty cycle.
-- A send batch must fit in `sender_io_vector_capacity`, at most 64 messages.
+- `network_publication_max_messages_per_send` caps each publication's send batch,
+  at most 64 messages. `sender_io_vector_capacity` sizes the sender's receive vectors
+  for control messages. The two are independent.
 
 ## Custom extensions
 
 Implement a trait or pass a closure, and install it on the context before `AeronDriver::new`.
-Callbacks are monomorphised `extern "C"` functions with no allocation, lock or dynamic
-dispatch. See [driver extensions](../docs/driver-extensions.md) and the
+The adapters are monomorphised `extern "C"` functions and add no allocation, lock or
+dynamic dispatch. See [driver extensions](../docs/driver-extensions.md) and the
 [examples](examples/extensions/README.md).
 
 ```rust,no_run

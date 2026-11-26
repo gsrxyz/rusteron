@@ -1174,7 +1174,7 @@ fn typed_resolver_connects_a_named_udp_endpoint_and_closes_once() {
     let created = RESOLVERS_CREATED.load(Ordering::Relaxed);
     let dropped = RESOLVERS_DROPPED.load(Ordering::Relaxed);
     let driver = EmbeddedDriver::launch_with(|context| {
-        context.set_name_resolver_init_args(&c"loopback".to_owned())?;
+        context.set_name_resolver_init_args(c"loopback")?;
         context.set_name_resolver::<LoopbackResolver>()?;
         Ok(())
     })

@@ -24,7 +24,7 @@ explicit type annotations and low-level FFI access.
 | `find_recording` or `collect_recordings` predicates reading `d.stream_id` | Call the getters, e.g. `d.stream_id()`. The predicate sees the borrowed descriptor, and only matches are copied into a `RecordingDescriptor` |
 | `timestamp_offset_reserved("...")` | Use `media_rcv_timestamp_offset("reserved")`, `channel_rcv_timestamp_offset("reserved")` or `channel_snd_timestamp_offset("reserved")`. Aeron defines `reserved` as a value, not a key |
 | Exhaustive matches on public Rust enums | Add a fallback arm. The enums are `#[non_exhaustive]` |
-| Client manual conductor calls | Call `main_do_work()` from one thread at a time, as in Aeron Java and C++ |
+| Client manual conductor calls | In agent-invoker mode, keep conductor work, registration and cleanup on one thread. See [client agent invoker](thread-safety.md#client-agent-invoker) |
 
 Update the crate versions together:
 
@@ -356,9 +356,9 @@ polls it. A retained image from
 
 Configure contexts before native initialization. Later setters return an error,
 or panic if the signature has no error result. Client manual conductor methods
-`main_do_work()` and `main_idle_strategy()` remain safe. As in Aeron Java and C++,
-call them from one thread at a time. A background conductor avoids this for
-shared clients.
+`main_do_work()` and `main_idle_strategy()` remain safe, but in agent-invoker mode
+they must not overlap with registration or cleanup. See
+[client agent invoker](thread-safety.md#client-agent-invoker).
 
 To share a client or regular publication, put it in an `Arc` or clone it. See
 [sharing across threads](client-guide.md#sharing-across-threads) for an example
@@ -875,6 +875,8 @@ Use the checked `Duration` helpers where available, including
 `AeronContext::set_driver_timeout`, the resource-linger and idle-sleep helpers,
 `AeronArchiveContext::set_message_timeout`, and the URI `*_duration` setters. Raw
 methods keep unit suffixes such as `_ns` or `_ms`.
+They reject values that overflow `i64` nanoseconds. Avoid near-maximum values,
+because Aeron adds the timeout to the current time.
 
 ## Performance compared with 0.2
 

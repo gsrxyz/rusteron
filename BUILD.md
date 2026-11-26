@@ -1,6 +1,8 @@
 ## How to build
 
-Install these tools to build rusteron-archive from source:
+Source builds need Rust, CMake, a C and C++ compiler and libclang.
+`rusteron-archive` also needs Java 17+. The Rust toolchain is pinned in
+`rust-toolchain.toml`.
 
 ### Requirements
 
@@ -9,17 +11,21 @@ Install these tools to build rusteron-archive from source:
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
   ```
 
-* Java 17+: required for Aeron C bindings.
+* Java 17+: `rusteron-archive` only. The first build downloads Gradle through
+  Aeron's wrapper.
 
-* CMake and Clang: required to compile C bindings.
+* CMake, a C and C++ compiler and libclang:
 
   ```bash
-  sudo apt install cmake clang uuid-dev libbsd-dev -y
+  sudo apt install cmake clang libclang-dev g++ pkg-config uuid-dev libbsd-dev -y
   # or
   sudo snap install cmake --classic
   ```
 
-  The default build compiles Aeron C from source. On macOS and Linux, `features = ["static", "precompile"]` or `precompile-rustls` downloads prebuilt libraries instead. Linux still needs `uuid-dev` and `libbsd-dev` to link.
+  The default build compiles Aeron C from source. On macOS and Linux,
+  `features = ["static", "precompile"]` or `["static", "precompile-rustls"]`
+  downloads prebuilt libraries instead. Linux still needs `uuid-dev` and
+  `libbsd-dev` to link.
 
 * just (optional): command runner for build tasks.
 

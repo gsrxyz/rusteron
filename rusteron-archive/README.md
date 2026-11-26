@@ -81,7 +81,7 @@ cargo run -p rusteron-archive --release --features static,precompile --example r
 | Owning handles | Clones share native ownership where supported; cleanup waits for the last owner |
 | Archive context | Not cloneable; configure it before connecting |
 | Borrowed getters | `get_archive_context()`, `aeron()` and poller getters return lifetime-bound `Ref` views |
-| Retained children | `aeron_owned()` or `retain_archive_context()` retain the archive; call `as_ref()` to use the child |
+| Retained children | `aeron_owned()` clones the archive's client; `retain_archive_context()` keeps the archive alive and exposes its context through `as_ref()` |
 | Threading | Archive handles stay local; the transport client's shared types retain their own `Send + Sync` rules |
 | Errors | Control requests return `AeronArchiveError`; setup and context operations return `AeronCError` |
 
@@ -145,17 +145,17 @@ uses fewer locks when waiting for an active callback is acceptable.
 | Persistent subscription | `subscription.poll_fn(...)`; it drives its own Archive client |
 | Replay merge | `merge.poll_fn(...)`; do not also drain responses from its Archive client while merging |
 
-Call the manual conductor entry points, such as `main_do_work()`, from one thread
-at a time. See the [duty-cycle guide](https://github.com/gsrxyz/rusteron/blob/main/docs/archive-guide.md#duty-cycle).
+For a client in agent-invoker mode, see the
+[invoker rules](https://github.com/gsrxyz/rusteron/blob/main/docs/thread-safety.md#client-agent-invoker).
+See also the [duty-cycle guide](https://github.com/gsrxyz/rusteron/blob/main/docs/archive-guide.md#duty-cycle).
 
 ## Persistent subscriptions
 
 A persistent subscription replays recorded history, then joins the live stream.
 Create one with `PersistentSubscriptionBuilder::new_with_aeron(&context, &client)`.
 Poll it until it is live, and check `has_failed()` for terminal failures.
-`PersistentSubscriptionBuilder::new()` without a client makes the subscription
-create its own client, set it on the archive context and close it when the
-subscription closes. Do not use that archive context again afterwards.
+`PersistentSubscriptionBuilder::new()` does not create a client. Before `build()`,
+call `.archive_context(..)` and `.aeron(..)`.
 
 It reassembles fragments itself, so poll it with `ps.poll_fn(closure, limit)` or
 `ps.controlled_poll_fn(closure, limit)`. The closure gets whole messages. Do not

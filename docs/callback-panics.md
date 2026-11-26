@@ -13,20 +13,20 @@ for each C function:
 | `for_each_image` visitor | Your thread | The wrapper catches the panic and raises it from `for_each_image` after C releases the image list | C still visits the remaining images. |
 | Reserved-value supplier passed to `offer_with_reserved_value` | Your thread, inside `offer` | The wrapper catches the panic and raises it from `offer` | Aeron still publishes the message with reserved value `0`. |
 | Other synchronous callbacks, such as `aeron_cnc_error_log_read`, counter `foreach`, loss-report readers and URI parsers | Your thread | The wrapper catches the panic, returns a default value to C and raises it after C returns | The C function receives `0`, null or `()` according to the callback's return type. |
-| Typed driver strategy, interceptor, and resolver callbacks, including setup and destruction | Native agent or closing caller | An escaping panic aborts at the `extern "C"` boundary | No fallback or recovery occurs. |
+| Typed media driver extensions, including setup and destruction | Native agent or closing caller | An escaping panic aborts at the `extern "C"` boundary | No fallback or recovery occurs. |
 | Retained image, error, registration, client-close, Archive and generated driver hooks | Usually the conductor thread | The wrapper logs the panic with `log::error!` and `eprintln!` and lets the client continue | The wrapper drops that event. Later events still arrive. |
 
 Notes:
 
 - Aeron C has no exception cleanup, so most callbacks cannot unwind through it. Subscription, image and replay merge fragment polls (`poll`, `controlled_poll`, `bounded_poll`, `block_poll`) are the exception. They save the read position only after the handler returns, so a panic unwinds straight through them. A panic skips the read-position commit, so the next poll redelivers the fragments. These poll functions add no `catch_unwind` or check to the poll loop.
-- For other callbacks the wrapper catches the panic, returns the value the callback type needs (`()`, `0`, null or `ABORT`) and raises the panic after C returns.
+- Other synchronous callbacks catch the panic, return the value the callback type needs (`()`, `0`, null or `ABORT`) and raise the panic after C returns.
 - A retained callback has no waiting Rust caller. The wrapper logs the panic and drops that event.
 
 Edge cases:
 
 - Only the first caught panic on a thread is kept until it is raised. A later one is reported by the panic hook and dropped.
 - A caught panic is raised at the next resume point on the same thread. If you drive the image fragment assemblers through the raw bindings, or wrap an assembler in your own handler type, the panic waits until the next call that raises a caught panic. The same applies to a persistent subscription listener when the persistent `poll` is given no fragment handler.
-- With `use_conductor_agent_invoker`, conductor callbacks run inside your `invoke` call, but are still logged rather than raised.
+- With `use_conductor_agent_invoker`, conductor callbacks run inside `main_do_work` or any other call that runs the conductor, but still log panics rather than raising them.
 - For raw bindings, declare poll handlers as `unsafe extern "C-unwind" fn`. The compiler rejects `extern "C"` handlers for these poll functions. Other raw callbacks must not panic because Rust aborts at the `extern "C"` boundary.
 - To make any panic stop the process, set `panic = "abort"` in your Cargo profile. Every panic then aborts immediately, before any of the above runs.
 - Driver loss suppliers expose native endpoint pointers. Dereferencing them follows the native lifetime and threading contract.

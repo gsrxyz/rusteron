@@ -1,3 +1,4 @@
+
 type aeron_client_registering_resource_t = aeron_client_registering_resource_stct;
 unsafe impl NativeResource for addrinfo {
     type Policy = LocalResource;
@@ -2060,7 +2061,7 @@ pub trait IdleStrategy {
     #[doc = " Reset accumulated backoff state after a productive period. Default: no-op."]
     fn reset(&mut self) {}
 }
-#[doc = " Spin with a CPU pause hint. Lowest latency, pins a core. (Aeron `BusySpinIdleStrategy`.)"]
+#[doc = " Spin with a CPU pause hint. Never sleeps or yields, and does not pin a core"]
 pub struct BusySpinIdleStrategy;
 impl BusySpinIdleStrategy {
     pub const fn new() -> Self {
@@ -10512,7 +10513,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_error_handler<AeronErrorHandlerHandlerImpl: AeronErrorHandlerCallback + Send + 'static>(
         &self,
         handler: Option<AeronErrorHandlerHandlerImpl>,
@@ -10605,7 +10606,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_publication_error_frame_handler<
         AeronPublicationErrorFrameHandlerHandlerImpl: AeronPublicationErrorFrameHandlerCallback + Send + 'static,
     >(
@@ -10705,7 +10706,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_on_new_publication<AeronNewPublicationHandlerImpl: AeronNewPublicationCallback + Send + 'static>(
         &self,
         handler: Option<AeronNewPublicationHandlerImpl>,
@@ -10798,7 +10799,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_on_new_exclusive_publication<
         AeronNewPublicationHandlerImpl: AeronNewPublicationCallback + Send + 'static,
     >(
@@ -10893,7 +10894,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_on_new_subscription<AeronNewSubscriptionHandlerImpl: AeronNewSubscriptionCallback + Send + 'static>(
         &self,
         handler: Option<AeronNewSubscriptionHandlerImpl>,
@@ -10986,7 +10987,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_on_available_counter<
         AeronAvailableCounterHandlerImpl: AeronAvailableCounterCallback + Send + 'static,
     >(
@@ -11081,7 +11082,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_on_unavailable_counter<
         AeronUnavailableCounterHandlerImpl: AeronUnavailableCounterCallback + Send + 'static,
     >(
@@ -11178,7 +11179,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_on_close_client<AeronCloseClientHandlerImpl: AeronCloseClientCallback + Send + 'static>(
         &self,
         handler: Option<AeronCloseClientHandlerImpl>,
@@ -11312,7 +11313,7 @@ impl<S: ResourceStorage<aeron_context_t>> AeronContext<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_agent_on_start_function<AeronAgentStartFuncHandlerImpl: AeronAgentStartFuncCallback + Send + 'static>(
         &self,
         value: Option<AeronAgentStartFuncHandlerImpl>,
@@ -12922,11 +12923,9 @@ impl AeronCounter {
     }
 }
 impl AeronCounter {
-    #[doc = r" Like [`Self::close`], but notifies `on_close_complete` when the close"]
-    #[doc = r" finishes. The handler must outlive the notification (keep your"]
-    #[doc = r" `Handler` alive until it has fired). C calls it later from the conductor,"]
-    #[doc = r" so it needs a retained `SharedHandler`; it runs once at shutdown, off the"]
-    #[doc = r" hot path"]
+    #[doc = r" Like [`Self::close`], but calls `on_close_complete` from the conductor once"]
+    #[doc = r" the close finishes. Returns an error unless this is the last owning handle."]
+    #[doc = r" The client keeps the `SharedHandler` alive until it has fired"]
     pub fn close_with_handler<AeronNotificationHandlerImpl: AeronNotificationCallback + Send + 'static>(
         self,
         on_close_complete: Option<&SharedHandler<AeronNotificationHandlerImpl>>,
@@ -26859,7 +26858,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_agent_on_start_function<AeronAgentStartFuncHandlerImpl: AeronAgentStartFuncCallback + Send + 'static>(
         &self,
         value: Option<AeronAgentStartFuncHandlerImpl>,
@@ -27169,7 +27168,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_driver_termination_validator<
         AeronDriverTerminationValidatorFuncHandlerImpl: AeronDriverTerminationValidatorFuncCallback + Send + 'static,
     >(
@@ -27269,7 +27268,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_driver_termination_hook<
         AeronDriverTerminationHookFuncHandlerImpl: AeronDriverTerminationHookFuncCallback + Send + 'static,
     >(
@@ -30187,7 +30186,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_send_channel_loss_supplier<
         AeronSendChannelLossSupplierFuncHandlerImpl: AeronSendChannelLossSupplierFuncCallback + Send + 'static,
     >(
@@ -30255,7 +30254,7 @@ impl<S: ResourceStorage<aeron_driver_context_t>> AeronDriverContext<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn set_receive_channel_loss_supplier<
         AeronReceiveChannelLossSupplierFuncHandlerImpl: AeronReceiveChannelLossSupplierFuncCallback + Send + 'static,
     >(
@@ -40556,7 +40555,7 @@ impl<S: ResourceStorage<aeron_exclusive_publication_t>> AeronExclusivePublicatio
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub unsafe fn revoke<AeronNotificationHandlerImpl: AeronNotificationCallback + Send + 'static>(
         &self,
         on_close_complete: Option<AeronNotificationHandlerImpl>,
@@ -40754,11 +40753,9 @@ impl AeronExclusivePublication {
     }
 }
 impl AeronExclusivePublication {
-    #[doc = r" Like [`Self::close`], but notifies `on_close_complete` when the close"]
-    #[doc = r" finishes. The handler must outlive the notification (keep your"]
-    #[doc = r" `Handler` alive until it has fired). C calls it later from the conductor,"]
-    #[doc = r" so it needs a retained `SharedHandler`; it runs once at shutdown, off the"]
-    #[doc = r" hot path"]
+    #[doc = r" Like [`Self::close`], but calls `on_close_complete` from the conductor once"]
+    #[doc = r" the close finishes. Returns an error unless this is the last owning handle."]
+    #[doc = r" The client keeps the `SharedHandler` alive until it has fired"]
     pub fn close_with_handler<AeronNotificationHandlerImpl: AeronNotificationCallback + Send + 'static>(
         self,
         on_close_complete: Option<&SharedHandler<AeronNotificationHandlerImpl>>,
@@ -61052,11 +61049,9 @@ impl AeronPublication {
     }
 }
 impl AeronPublication {
-    #[doc = r" Like [`Self::close`], but notifies `on_close_complete` when the close"]
-    #[doc = r" finishes. The handler must outlive the notification (keep your"]
-    #[doc = r" `Handler` alive until it has fired). C calls it later from the conductor,"]
-    #[doc = r" so it needs a retained `SharedHandler`; it runs once at shutdown, off the"]
-    #[doc = r" hot path"]
+    #[doc = r" Like [`Self::close`], but calls `on_close_complete` from the conductor once"]
+    #[doc = r" the close finishes. Returns an error unless this is the last owning handle."]
+    #[doc = r" The client keeps the `SharedHandler` alive until it has fired"]
     pub fn close_with_handler<AeronNotificationHandlerImpl: AeronNotificationCallback + Send + 'static>(
         self,
         on_close_complete: Option<&SharedHandler<AeronNotificationHandlerImpl>>,
@@ -66336,7 +66331,7 @@ impl<S: ResourceStorage<aeron_retransmit_handler_t>> AeronRetransmitHandler<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn on_nak<AeronRetransmitHandlerResendFuncHandlerImpl: AeronRetransmitHandlerResendFuncCallback + 'static>(
         &self,
         term_id: i32,
@@ -66422,7 +66417,7 @@ impl<S: ResourceStorage<aeron_retransmit_handler_t>> AeronRetransmitHandler<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub fn process_timeouts<
         AeronRetransmitHandlerResendFuncHandlerImpl: AeronRetransmitHandlerResendFuncCallback + 'static,
     >(
@@ -73457,11 +73452,9 @@ impl AeronSubscription {
     }
 }
 impl AeronSubscription {
-    #[doc = r" Like [`Self::close`], but notifies `on_close_complete` when the close"]
-    #[doc = r" finishes. The handler must outlive the notification (keep your"]
-    #[doc = r" `Handler` alive until it has fired). C calls it later from the conductor,"]
-    #[doc = r" so it needs a retained `SharedHandler`; it runs once at shutdown, off the"]
-    #[doc = r" hot path"]
+    #[doc = r" Like [`Self::close`], but calls `on_close_complete` from the conductor once"]
+    #[doc = r" the close finishes. Returns an error unless this is the last owning handle."]
+    #[doc = r" The client keeps the `SharedHandler` alive until it has fired"]
     pub fn close_with_handler<AeronNotificationHandlerImpl: AeronNotificationCallback + Send + 'static>(
         self,
         on_close_complete: Option<&SharedHandler<AeronNotificationHandlerImpl>>,
@@ -76931,7 +76924,7 @@ impl<S: ResourceStorage<aeron_t>> Aeron<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub unsafe fn async_remove_publication<AeronNotificationHandlerImpl: AeronNotificationCallback + Send + 'static>(
         &self,
         registration_id: i64,
@@ -77043,7 +77036,7 @@ impl<S: ResourceStorage<aeron_t>> Aeron<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub unsafe fn async_remove_exclusive_publication<
         AeronNotificationHandlerImpl: AeronNotificationCallback + Send + 'static,
     >(
@@ -77154,7 +77147,7 @@ impl<S: ResourceStorage<aeron_t>> Aeron<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub unsafe fn async_remove_subscription<
         AeronNotificationHandlerImpl: AeronNotificationCallback + Send + 'static,
     >(
@@ -77293,7 +77286,7 @@ impl<S: ResourceStorage<aeron_t>> Aeron<S> {
     #[doc = "An owned wrapper keeps the callback alive until C cleanup finishes."]
     #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."]
     #[doc = "Dropping the handler does not unregister the callback."]
-    #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."]
+    #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."]
     pub unsafe fn async_remove_counter<AeronNotificationHandlerImpl: AeronNotificationCallback + Send + 'static>(
         &self,
         registration_id: i64,
@@ -105054,3 +105047,4 @@ unsafe extern "C" fn aeron_term_gap_scanner_on_gap_detected_func_t_callback_for_
         closure(term_id.into(), term_offset.into(), length.into())
     })
 }
+

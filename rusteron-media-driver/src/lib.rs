@@ -218,12 +218,11 @@ impl AeronDriver {
         (stop_copy, handle)
     }
 
-    /// Launch an embedded media driver, returning a RAII guard that stops the
-    /// driver on drop (so a panic or early return can't leak a driver process).
+    /// Launch an embedded media driver. The returned guard stops and joins the
+    /// driver thread on drop, including on panic or early return
     ///
-    /// Prefer this over [`Self::launch_embedded`], which returns a raw
-    /// `(Arc<AtomicBool>, JoinHandle)` tuple the caller must remember to drive.
-    /// `register_sigint` is `true` to mirror the standalone binary.
+    /// Prefer this over [`Self::launch_embedded`], whose caller must stop and join
+    /// the thread itself. Pass `register_sigint = true` to mirror the standalone binary
     pub fn launch_embedded_guard(aeron_context: AeronDriverContext, register_sigint: bool) -> EmbeddedMediaDriver {
         let (stop, handle) = Self::launch_embedded(aeron_context, register_sigint);
         EmbeddedMediaDriver {

@@ -15,8 +15,9 @@ Supported owning wrappers implement `Clone` and share the same underlying Aeron
 C resource. Borrowed and inline storage do not implement `Clone`.
 
 `AeronArchiveContext` has no `Clone`. A `Ref` returned by an archive
-borrows that archive and cannot be cloned. Use `retain_archive_context()` or
-`aeron_owned()` to keep the archive alive while using its child through `as_ref()`.
+borrows that archive and cannot be cloned. `retain_archive_context()` keeps the
+archive alive and exposes its context through `as_ref()`. `aeron_owned()` returns
+a clone of the archive's client, which does not keep the archive open.
 To share an owning context in setup code, create it inside an `Rc` and clone
 the `Rc`.
 
@@ -78,9 +79,8 @@ it copied. Configure handlers before starting a connection.
   connecting.
 - Replacing a running or borrowed callback returns an error. Change it after the call
   finishes.
-- Do not replace the idle strategy after connecting. Aeron 1.54.3 still frees the Rust
-  handler's state when the context closes
-  ([aeron#2250](https://github.com/aeron-io/aeron/issues/2250)).
+- Set the idle strategy before connecting. Replacing it afterwards is unsafe in
+  Aeron 1.54.3, because closing the context frees the replacement's state.
 
 ### Replacing callback state through its handler
 
@@ -222,10 +222,10 @@ let follow_live = AeronArchiveReplayParams::builder()
 Truncating a recording stops its active replays. Stop recording before calling
 `truncate_recording`.
 
-An Archive context can create its own Aeron client. `set_client_name` sets that client's
-name and the name in the Archive control session counter. Names must fit in 100 UTF-8
-bytes. If you supply an Aeron client with `set_aeron`, set that client's name on its own
-`AeronContext`.
+An Archive connection needs an `Aeron` client. Pass it to
+`AeronArchiveAsyncConnect::new_with_aeron`, or set it with `set_aeron` before `new`.
+Name the client on its `AeronContext`. The Archive context's `set_client_name` names
+the Archive control session counter. Names must fit in 100 UTF-8 bytes.
 
 ---
 
@@ -235,7 +235,7 @@ Each object is driven by its own call, once a cycle:
 
 | Object | Call | Notes |
 |---|---|---|
-| `Aeron` client | Nothing with its conductor thread (the default). Call manual `main_do_work()` from one thread at a time. | Archive operations can also invoke an agent-invoker conductor. |
+| `Aeron` client | Nothing with its conductor thread, the default. With an agent invoker, call `main_do_work()`. | Archive operations also run an agent-invoker conductor. See [client agent invoker](thread-safety.md#client-agent-invoker). |
 | `AeronArchive` | `archive.do_work()` | Runs an agent-invoker client's conductor, then hands one recording signal to the context's consumer, or one archive error to its error handler. With a conductor thread only the second part is left, and it can be skipped if you use neither a signal consumer nor errors for requests no longer awaited, because blocking calls dispatch the signals they meet. |
 | Persistent subscription | `ps.poll_fn(..)` | Drives its own archive client. With the agent invoker every poll also runs the client's conductor, so many persistent subscriptions on one client should use its conductor thread. |
 | `AeronArchiveReplayMerge` | `merge.poll_fn(..)` | Until it has merged or failed, poll only the merge and leave its archive client alone. `archive.do_work()`, `poll_for_error` and blocking calls read the same responses, skip the merge's, and stall it until its progress timeout. Archive errors come back as `Err` from the merge's poll. |
@@ -327,7 +327,7 @@ ps.close()?;
 client. It needs no calls on your `AeronArchive`. See [Duty cycle](#duty-cycle)
 for what else to call each cycle. Loop until `ps.is_live()` returns true.
 Check `ps.has_failed()` each iteration and use `get_failure_reason()` on failure.
-The listener's `on_error` reports non-terminal errors. `on_live_left` and
+The listener's `on_error` reports every error, including terminal ones. `on_live_left` and
 `on_live_joined` can run repeatedly if the subscription loses and rejoins the
 live stream.
 

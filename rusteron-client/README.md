@@ -178,11 +178,11 @@ see the [handler lifetime guide](https://github.com/gsrxyz/rusteron/blob/main/do
   their parent. `as_ref()` creates another short borrow.
 - Contexts are configured before native initialisation. Later changes are rejected.
 - `close_with_handler(handler)` closes like `close(self)` and calls the handler
-  from the conductor once the close finishes.
+  from the conductor once the close finishes. It returns an error unless this is
+  the last owning handle.
 - `image_at_index(i)` and `image_by_session_id(id)` return a retained
-  `Option<AeronImage>`. It keeps reading after its publisher goes away, when
-  `is_closed()` turns true, and after the subscription handle drops. Drop the two in
-  any order.
+  `Option<AeronImage>`. The handle stays valid after the image closes or the
+  subscription drops, but a closed image polls zero fragments.
 - Raw-pointer construction, native struct references and forced cleanup require
   `unsafe` and the documented caller guarantees.
 
@@ -193,7 +193,8 @@ and [thread safety](https://github.com/gsrxyz/rusteron/blob/main/docs/thread-saf
 
 Use `c"aeron:ipc"` for constant channels, `cformat!` for dynamic C strings, or
 `AeronUriStringBuilder` for typed URI parameters. Build dynamic strings outside
-the polling loop and reuse them. Duration helpers check for overflow.
+the polling loop and reuse them. Duration helpers reject values that overflow
+`i64` nanoseconds.
 
 See [channel examples](https://github.com/gsrxyz/rusteron/blob/main/docs/client-guide.md#building-channel-uris).
 

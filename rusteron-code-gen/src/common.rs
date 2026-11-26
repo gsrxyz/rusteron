@@ -1961,7 +1961,7 @@ pub trait IdleStrategy {
     fn reset(&mut self) {}
 }
 
-/// Spin with a CPU pause hint. Lowest latency, pins a core. (Aeron `BusySpinIdleStrategy`.)
+/// Spin with a CPU pause hint. Never sleeps or yields, and does not pin a core
 pub struct BusySpinIdleStrategy;
 impl BusySpinIdleStrategy {
     pub const fn new() -> Self {

@@ -848,7 +848,9 @@ pub struct PersistentSubscriptionBuilder {
 }
 
 impl PersistentSubscriptionBuilder {
-    /// Create a new builder with a default context.
+    /// Create a builder with a default configuration. It does not create a client,
+    /// so call [`Self::archive_context`] and [`Self::aeron`] before `build`, or use
+    /// [`Self::new_with_aeron`]
     pub fn new() -> Result<Self, AeronCError> {
         Ok(Self {
             ctx: AeronArchivePersistentSubscriptionContext::new()?,
@@ -1068,10 +1070,10 @@ mod tests {
 
     // Aeron keeps `owns_idle_strategy` set when the idle strategy is replaced after
     // conclude, so close frees the Handler's state with `aeron_free`
-    // TODO: un-ignore once a vendored Aeron release fixes https://github.com/aeron-io/aeron/issues/2250
+    // TODO: un-ignore once Aeron clears ownership when replacing the concluded context's strategy
     #[test]
     #[serial_test::serial]
-    #[ignore = "Aeron frees the caller's idle state, https://github.com/aeron-io/aeron/issues/2250"]
+    #[ignore = "Aeron keeps owns_idle_strategy set when replacing a concluded context's strategy"]
     fn replacing_the_idle_strategy_after_connect_keeps_the_handler() -> Result<(), Box<dyn std::error::Error>> {
         let (driver, root) = start_archive_driver()?;
         let (ready_archive, aeron) = driver.archive_connect()?;

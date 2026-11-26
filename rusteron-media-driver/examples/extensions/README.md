@@ -25,3 +25,5 @@ Connect clients to the printed driver directory with `aeron:udp?endpoint=127.0.0
 | [Packet loss](packet_loss.rs) | `packet_loss` | Drop every seventh outgoing batch after a fixed seeded offset. |
 | [Burst loss on one path](burst_loss.rs) | `burst_loss` | Apply seeded Gilbert-Elliott loss to one destination IP address and port. |
 
+The duty-cycle example replaces Aeron's tracker. Use `add_duty_cycle_tracker` to
+keep Aeron's counters.

@@ -1074,8 +1074,8 @@ impl CWrapper {
                     } else { quote! {} };
                     // TODO: Aeron `aeron_archive_context_set_idle_strategy` after conclude keeps
                     // `owns_idle_strategy`, so close frees the Handler's state. No guard here, the fix
-                    // belongs in Aeron (https://github.com/aeron-io/aeron/issues/2250). Un-ignore
-                    // `replacing_the_idle_strategy_after_connect_keeps_the_handler` once vendored
+                    // belongs in Aeron. Un-ignore `replacing_the_idle_strategy_after_connect_keeps_the_handler`
+                    // once the vendored Aeron clears `owns_idle_strategy` in that setter
                     quote! {
                         if self.inner.as_owned().is_none() {
                             return Err(AeronCError::with_message(-1, "a borrowed wrapper cannot retain a callback"));
@@ -1154,7 +1154,7 @@ impl CWrapper {
                     }
                     method_docs.push(quote! { #[doc = "A borrowed wrapper returns an error before changing C, because it cannot keep a callback alive."] });
                     method_docs.push(quote! { #[doc = "Dropping the handler does not unregister the callback."] });
-                    method_docs.push(quote! { #[doc = "Returns the [`Handler`] so you can access its state. You can pass a closure with a matching signature."] });
+                    method_docs.push(quote! { #[doc = "Returns the [`SharedHandler`] so you can access its state. You can pass a closure with a matching signature."] });
                 }
 
                 if let Some(child) = &borrowed_child
@@ -1185,7 +1185,7 @@ impl CWrapper {
                 // closes (close handlers fire inside that close), so the client keeps the pair
                 // and, through it, its Handler. Remove cannot release it: dependencies only grow.
                 // TODO: on timeout Aeron add/remove return -1 while the command stays queued
-                // (https://github.com/aeron-io/aeron/issues/2250), so even a failed add may stay
+                // in the client conductor, so even a failed add may stay
                 // registered while we skip retaining it. Once fixed, a successful remove could also
                 // release the pair. Retention on add stays: C fires the pair until the client closes
                 if matches!(
@@ -3966,8 +3966,8 @@ pub fn generate_rust_code(
             };
             // Aeron only frees an unpolled `aeron_archive_async_connect_t` through the private
             // `aeron_archive_async_connect_delete`, so declare it here (main does the same)
-            // TODO: switch to the public API once https://github.com/aeron-io/aeron/issues/2250 adds
-            // one. A new `_cancel` is not picked up automatically: the lookup above needs an `Aeron`
+            // TODO: use a public archive async-connect cleanup API when Aeron provides one
+            // A new `_cancel` is not picked up automatically: the lookup above needs an `Aeron`
             // client argument and calls `cancel(client, async)`, while archive connect takes a context
             let async_new_cleanup_tokens = if type_name.to_string() == "aeron_archive_async_connect_t" {
                 quote! { Some(Box::new(|ptr| {
@@ -4304,11 +4304,9 @@ pub fn generate_rust_code(
             if close_has_notification_handler {
                 additional_impls.push(quote! {
                     impl #class_name {
-                        /// Like [`Self::close`], but notifies `on_close_complete` when the close
-                        /// finishes. The handler must outlive the notification (keep your
-                        /// `Handler` alive until it has fired). C calls it later from the conductor,
-                        /// so it needs a retained `SharedHandler`; it runs once at shutdown, off the
-                        /// hot path
+                        /// Like [`Self::close`], but calls `on_close_complete` from the conductor once
+                        /// the close finishes. Returns an error unless this is the last owning handle.
+                        /// The client keeps the `SharedHandler` alive until it has fired
                         pub fn close_with_handler<AeronNotificationHandlerImpl: AeronNotificationCallback + Send + 'static>(
                             self,
                             on_close_complete: Option<&SharedHandler<AeronNotificationHandlerImpl>>,
