@@ -997,12 +997,10 @@ mod tests {
         teardown_aeron_after_uaf_test(driver, error_handler);
     }
 
-    /// Aeron 1.54.2 copies a channel without a wildcard port with strcpy and ignores `uri_len`.
-    /// The sub-slice keeps any overflow inside `buffer`, so the tail shows whether C wrote past it
-    // TODO: un-ignore once a vendored Aeron release fixes https://github.com/aeron-io/aeron/issues/2250
+    // TODO(upstream): Update the aeronc.h docs to say that for a channel without a wildcard
+    // port, the return value is the full URI length (excluding NUL), even when truncated.
     #[test]
     #[serial]
-    #[ignore = "Aeron 1.54.2 overflows uri, https://github.com/aeron-io/aeron/issues/2250"]
     fn resolving_a_channel_into_a_short_buffer_stays_within_it() {
         let (aeron, driver, error_handler) = setup_aeron_for_uaf_test();
         let channel = "aeron:udp?endpoint=127.0.0.1:40458";
@@ -1015,9 +1013,16 @@ mod tests {
                 Duration::from_secs(5),
             )
             .expect("subscription");
-        let mut buffer = [0xAA; 64];
-        let _ = subscription.try_resolve_channel_endpoint_port(&mut buffer[..16]);
-        assert!(buffer[16..].iter().all(|&byte| byte == 0xAA));
+        for capacity in [1, 16] {
+            let mut buffer = [0xAA; 64];
+            let len = subscription
+                .try_resolve_channel_endpoint_port(&mut buffer[..capacity])
+                .expect("truncated channel");
+            assert_eq!(len as usize, channel.len());
+            assert_eq!(&buffer[..capacity - 1], &channel.as_bytes()[..capacity - 1]);
+            assert_eq!(buffer[capacity - 1], 0);
+            assert!(buffer[capacity..].iter().all(|&byte| byte == 0xAA));
+        }
         drop(subscription);
         drop(aeron);
         teardown_aeron_after_uaf_test(driver, error_handler);

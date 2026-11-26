@@ -218,7 +218,7 @@ unsafe extern "C" fn close<T: NameResolver>(resolver: *mut aeron_name_resolver_t
 }
 impl AeronDriverContext {
     /// Install a type-selected resolver. Configure it with `set_name_resolver_init_args`
-    /// before driver initialisation.
+    /// before driver initialisation. The context copies the arguments.
     pub fn set_name_resolver<T: NameResolverFactory>(&self) -> Result<(), AeronCError> {
         self.inner.check_configurable()?;
         check(unsafe { aeron_driver_context_set_name_resolver_supplier(self.get_inner(), Some(supplier::<T>)) })

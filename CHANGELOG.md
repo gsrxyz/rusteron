@@ -4,6 +4,10 @@ Main changes, newest first, grouped by published crate version. Release-only
 commits, build logs, and changes later reverted or superseded are omitted.
 Early history predating the available release tags is grouped separately.
 
+## 0.3.3
+
+- Upgraded to Aeron 1.54.3
+
 ## 0.3.2
 
 - Breaking: restored the 0.3.0 driver API.

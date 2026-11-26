@@ -32,7 +32,6 @@ Typed Rust hooks for the embedded media driver. One runnable file per extension 
 
 - Custom multicast flow control needs channels without `fc=`, which takes priority.
 - Interceptors see plaintext, run inside environment-loaded ones such as ATS, and cannot delay or reorder packets.
-- On Aeron 1.54.2, do not drop packets with RTT measurement enabled (fixed in aeron-io/aeron@c0457af122).
 - Set `BUSY_SPIN = true` on an idle strategy that never sleeps or yields.
 - `add_duty_cycle_tracker` keeps Aeron's stall counters. `set_duty_cycle_tracker` replaces them.
 - A native transport still runs interceptors. A custom receive function must call the supplied callback.

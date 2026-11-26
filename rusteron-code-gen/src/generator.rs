@@ -1072,7 +1072,7 @@ impl CWrapper {
                         let key = &method.fn_name;
                         quote! { self.inner.check_callback_replacement(#key)?; }
                     } else { quote! {} };
-                    // TODO: Aeron 1.54.2 `aeron_archive_context_set_idle_strategy` after conclude keeps
+                    // TODO: Aeron `aeron_archive_context_set_idle_strategy` after conclude keeps
                     // `owns_idle_strategy`, so close frees the Handler's state. No guard here, the fix
                     // belongs in Aeron (https://github.com/aeron-io/aeron/issues/2250). Un-ignore
                     // `replacing_the_idle_strategy_after_connect_keeps_the_handler` once vendored
@@ -1184,7 +1184,7 @@ impl CWrapper {
                 // C copies the pair's handler and clientd and may fire them until the client
                 // closes (close handlers fire inside that close), so the client keeps the pair
                 // and, through it, its Handler. Remove cannot release it: dependencies only grow.
-                // TODO: on timeout Aeron 1.54.2 add/remove return -1 while the command stays queued
+                // TODO: on timeout Aeron add/remove return -1 while the command stays queued
                 // (https://github.com/aeron-io/aeron/issues/2250), so even a failed add may stay
                 // registered while we skip retaining it. Once fixed, a successful remove could also
                 // release the pair. Retention on add stays: C fires the pair until the client closes
@@ -3964,7 +3964,7 @@ pub fn generate_rust_code(
             } else {
                 None
             };
-            // Aeron 1.54.2 only frees an unpolled `aeron_archive_async_connect_t` through the private
+            // Aeron only frees an unpolled `aeron_archive_async_connect_t` through the private
             // `aeron_archive_async_connect_delete`, so declare it here (main does the same)
             // TODO: switch to the public API once https://github.com/aeron-io/aeron/issues/2250 adds
             // one. A new `_cancel` is not picked up automatically: the lookup above needs an `Aeron`

@@ -15068,6 +15068,42 @@ impl<S: ResourceStorage<aeron_counters_reader_t>> AeronCountersReader<S> {
             Ok(mut_result)
         }
     }
+    #[inline]
+    #[doc = "# Safety"]
+    #[doc = "This bypasses Rust ownership. Keep all retained pointers valid until native cleanup. Initializers require exclusive access and must not overwrite live native state or invalidate borrowed views. After raw removal or deletion, prevent all further access and Rust cleanup through every alias. Prefer the owning handle's constructor, close or cancel method."]
+    pub unsafe fn init(&self, metadata_buffer: &mut [u8], values_buffer: &mut [u8]) -> Result<i32, AeronCError> {
+        unsafe {
+            #[cfg(feature = "log-c-bindings")]
+            log::info!(
+                "{}({})",
+                stringify!(aeron_counters_reader_init),
+                [
+                    concat!("reader", ": ", stringify!(*mut aeron_counters_reader_t)).to_string(),
+                    format!(
+                        "{}: {} (len={})",
+                        "metadata_buffer",
+                        stringify!(*mut u8),
+                        metadata_buffer.len()
+                    )
+                ]
+                .join(", ")
+            );
+            let result = aeron_counters_reader_init(
+                self.get_inner(),
+                metadata_buffer.as_ptr() as *mut _,
+                metadata_buffer.len() as _,
+                values_buffer.as_ptr() as *mut _,
+                values_buffer.len() as _,
+            );
+            #[cfg(feature = "log-c-bindings")]
+            log::info!("  -> {:?}", result);
+            if result < 0 {
+                return Err(AeronCError::from_code(result));
+            } else {
+                return Ok(result);
+            }
+        }
+    }
     #[doc = r" Borrow this handle without cloning its owner."]
     #[inline(always)]
     pub fn as_ref(&self) -> Ref<'_, Self> {
@@ -35509,6 +35545,7 @@ impl<S: ResourceStorage<aeron_driver_receiver_t>> AeronDriverReceiver<S> {
         session_id: i32,
         stream_id: i32,
         control_addr: &SockaddrStorage,
+        is_periodic: bool,
     ) -> Result<i32, AeronCError> {
         unsafe {
             #[cfg(feature = "log-c-bindings")]
@@ -35521,7 +35558,8 @@ impl<S: ResourceStorage<aeron_driver_receiver_t>> AeronDriverReceiver<S> {
                     concat!("destination", ": ", stringify!(*mut aeron_receive_destination_t)).to_string(),
                     format!("{} = {:?}", "session_id", session_id),
                     format!("{} = {:?}", "stream_id", stream_id),
-                    concat!("control_addr", ": ", stringify!(*mut sockaddr_storage)).to_string()
+                    concat!("control_addr", ": ", stringify!(*mut sockaddr_storage)).to_string(),
+                    format!("{} = {:?}", "is_periodic", is_periodic)
                 ]
                 .join(", ")
             );
@@ -35532,6 +35570,7 @@ impl<S: ResourceStorage<aeron_driver_receiver_t>> AeronDriverReceiver<S> {
                 session_id.into(),
                 stream_id.into(),
                 control_addr.get_inner(),
+                is_periodic.into(),
             );
             #[cfg(feature = "log-c-bindings")]
             log::info!("  -> {:?}", result);
@@ -54104,11 +54143,6 @@ impl<S: ResourceStorage<aeron_network_publication_t>> AeronNetworkPublication<S>
     }
     #[inline]
     #[must_use]
-    pub fn short_sends_counter(&self) -> *mut i64 {
-        unsafe { self.get_inner_ref() }.short_sends_counter
-    }
-    #[inline]
-    #[must_use]
     pub fn heartbeats_sent_counter(&self) -> *mut i64 {
         unsafe { self.get_inner_ref() }.heartbeats_sent_counter
     }
@@ -59809,11 +59843,6 @@ impl<S: ResourceStorage<aeron_publication_image_t>> AeronPublicationImage<S> {
     }
     #[inline]
     #[must_use]
-    pub fn status_messages_sent_counter(&self) -> *mut i64 {
-        unsafe { self.get_inner_ref() }.status_messages_sent_counter
-    }
-    #[inline]
-    #[must_use]
     pub fn nak_messages_sent_counter(&self) -> *mut i64 {
         unsafe { self.get_inner_ref() }.nak_messages_sent_counter
     }
@@ -62151,11 +62180,6 @@ impl<S: ResourceStorage<aeron_receive_channel_endpoint_t>> AeronReceiveChannelEn
     }
     #[inline]
     #[must_use]
-    pub fn short_sends_counter(&self) -> *mut i64 {
-        unsafe { self.get_inner_ref() }.short_sends_counter
-    }
-    #[inline]
-    #[must_use]
     pub fn possible_ttl_asymmetry_counter(&self) -> *mut i64 {
         unsafe { self.get_inner_ref() }.possible_ttl_asymmetry_counter
     }
@@ -62163,6 +62187,11 @@ impl<S: ResourceStorage<aeron_receive_channel_endpoint_t>> AeronReceiveChannelEn
     #[must_use]
     pub fn errors_frames_sent_counter(&self) -> *mut i64 {
         unsafe { self.get_inner_ref() }.errors_frames_sent_counter
+    }
+    #[inline]
+    #[must_use]
+    pub fn status_messages_sent_counter(&self) -> *mut i64 {
+        unsafe { self.get_inner_ref() }.status_messages_sent_counter
     }
     #[inline]
     #[must_use]
